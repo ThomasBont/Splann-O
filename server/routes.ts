@@ -17,7 +17,10 @@ export async function registerRoutes(
 
   app.post(api.barbecues.create.path, async (req, res) => {
     try {
-      const input = api.barbecues.create.input.parse(req.body);
+      const bodySchema = api.barbecues.create.input.extend({
+        date: z.coerce.date(),
+      });
+      const input = bodySchema.parse(req.body);
       const created = await storage.createBarbecue(input);
       res.status(201).json(created);
     } catch (err) {

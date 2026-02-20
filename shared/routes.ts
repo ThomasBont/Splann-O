@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { insertBarbecueSchema, insertParticipantSchema, insertExpenseSchema, barbecues, participants, expenses } from './schema';
+import { insertBarbecueSchema, insertParticipantSchema, insertExpenseSchema } from './schema';
+import type { Barbecue, Participant, ExpenseWithParticipant } from './schema';
 
 export const errorSchemas = {
   validation: z.object({
@@ -20,7 +21,7 @@ export const api = {
       method: 'GET' as const,
       path: '/api/barbecues' as const,
       responses: {
-        200: z.array(z.custom<typeof barbecues.$inferSelect>()),
+        200: z.array(z.custom<Barbecue>()),
       },
     },
     create: {
@@ -28,7 +29,7 @@ export const api = {
       path: '/api/barbecues' as const,
       input: insertBarbecueSchema,
       responses: {
-        201: z.custom<typeof barbecues.$inferSelect>(),
+        201: z.custom<Barbecue>(),
         400: errorSchemas.validation,
       },
     },
@@ -36,7 +37,7 @@ export const api = {
       method: 'GET' as const,
       path: '/api/barbecues/:id' as const,
       responses: {
-        200: z.custom<typeof barbecues.$inferSelect>(),
+        200: z.custom<Barbecue>(),
         404: errorSchemas.notFound,
       },
     },
@@ -54,7 +55,7 @@ export const api = {
       method: 'GET' as const,
       path: '/api/barbecues/:bbqId/participants' as const,
       responses: {
-        200: z.array(z.custom<typeof participants.$inferSelect>()),
+        200: z.array(z.custom<Participant>()),
       },
     },
     create: {
@@ -62,7 +63,7 @@ export const api = {
       path: '/api/barbecues/:bbqId/participants' as const,
       input: insertParticipantSchema.omit({ barbecueId: true }),
       responses: {
-        201: z.custom<typeof participants.$inferSelect>(),
+        201: z.custom<Participant>(),
         400: errorSchemas.validation,
       },
     },
@@ -80,7 +81,7 @@ export const api = {
       method: 'GET' as const,
       path: '/api/barbecues/:bbqId/expenses' as const,
       responses: {
-        200: z.array(z.custom<typeof expenses.$inferSelect & { participantName: string }>()),
+        200: z.array(z.custom<ExpenseWithParticipant>()),
       },
     },
     create: {
@@ -88,7 +89,7 @@ export const api = {
       path: '/api/barbecues/:bbqId/expenses' as const,
       input: insertExpenseSchema.omit({ barbecueId: true }),
       responses: {
-        201: z.custom<typeof expenses.$inferSelect>(),
+        201: z.custom<ExpenseWithParticipant>(),
         400: errorSchemas.validation,
       },
     },
@@ -97,7 +98,7 @@ export const api = {
       path: '/api/expenses/:id' as const,
       input: insertExpenseSchema.partial(),
       responses: {
-        200: z.custom<typeof expenses.$inferSelect>(),
+        200: z.custom<ExpenseWithParticipant>(),
         400: errorSchemas.validation,
         404: errorSchemas.notFound,
       },
@@ -124,3 +125,7 @@ export function buildUrl(path: string, params?: Record<string, string | number>)
   }
   return url;
 }
+
+export type InsertParticipant = z.infer<typeof api.participants.create.input>;
+export type InsertExpense = z.infer<typeof api.expenses.create.input>;
+export type UpdateExpenseRequest = z.infer<typeof api.expenses.update.input>;

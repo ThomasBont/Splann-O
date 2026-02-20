@@ -26,20 +26,21 @@ interface AddExpenseDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   editingExpense?: ExpenseWithParticipant | null;
+  bbqId: number | null;
+  currencySymbol: string;
 }
 
-export function AddExpenseDialog({ open, onOpenChange, editingExpense }: AddExpenseDialogProps) {
+export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, currencySymbol }: AddExpenseDialogProps) {
   const { t } = useLanguage();
-  const participants = useParticipants();
-  const createExpense = useCreateExpense();
-  const updateExpense = useUpdateExpense();
+  const participants = useParticipants(bbqId);
+  const createExpense = useCreateExpense(bbqId);
+  const updateExpense = useUpdateExpense(bbqId);
 
   const [participantId, setParticipantId] = useState<string>("");
   const [category, setCategory] = useState<string>("Meat");
   const [item, setItem] = useState("");
   const [amount, setAmount] = useState("");
 
-  // Reset or fill form when dialog opens/closes or editingExpense changes
   useEffect(() => {
     if (open) {
       if (editingExpense) {
@@ -48,7 +49,6 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense }: AddExpe
         setItem(editingExpense.item);
         setAmount(editingExpense.amount.toString());
       } else {
-        // Default values for new expense
         if (participants.data && participants.data.length > 0) {
           setParticipantId(participants.data[0].id.toString());
         }
@@ -67,7 +67,7 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense }: AddExpe
       participantId: parseInt(participantId),
       category,
       item: item.trim(),
-      amount: amount // Send as string or number, zod schema handles both
+      amount: amount
     };
 
     if (editingExpense) {
@@ -86,24 +86,24 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense }: AddExpe
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md bg-card border-border">
+      <DialogContent className="sm:max-w-md bg-card border-border max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-xl font-display text-accent">
             {editingExpense ? t.modals.editExpenseTitle : t.modals.addExpenseTitle}
           </DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4 py-4">
-          
+
           <div className="space-y-2">
             <Label htmlFor="participant" className="uppercase text-xs tracking-wider text-muted-foreground">
               {t.modals.paidByLabel}
             </Label>
             <Select value={participantId} onValueChange={setParticipantId}>
-              <SelectTrigger id="participant" className="bg-secondary/50 border-white/10">
-                <SelectValue placeholder="Select person" />
+              <SelectTrigger id="participant" className="bg-secondary/50 border-white/10" data-testid="select-expense-person">
+                <SelectValue placeholder={t.modals.paidByLabel} />
               </SelectTrigger>
               <SelectContent className="bg-card border-white/10">
-                {participants.data?.map((p) => (
+                {participants.data?.map((p: any) => (
                   <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
                 ))}
               </SelectContent>
@@ -115,8 +115,8 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense }: AddExpe
               {t.modals.categoryLabel}
             </Label>
             <Select value={category} onValueChange={setCategory}>
-              <SelectTrigger id="category" className="bg-secondary/50 border-white/10">
-                <SelectValue placeholder="Select category" />
+              <SelectTrigger id="category" className="bg-secondary/50 border-white/10" data-testid="select-expense-category">
+                <SelectValue placeholder={t.modals.categoryLabel} />
               </SelectTrigger>
               <SelectContent className="bg-card border-white/10">
                 {categories.map((cat) => (
@@ -136,37 +136,42 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense }: AddExpe
               onChange={(e) => setItem(e.target.value)}
               placeholder="e.g. Ribeye steaks"
               className="bg-secondary/50 border-white/10 focus-visible:ring-accent/50"
+              data-testid="input-expense-item"
             />
           </div>
 
           <div className="space-y-2">
             <Label htmlFor="amount" className="uppercase text-xs tracking-wider text-muted-foreground">
-              {t.modals.amountLabel}
+              {t.modals.amountLabel} ({currencySymbol})
             </Label>
             <Input
               id="amount"
               type="number"
+              inputMode="decimal"
               min="0.01"
               step="0.01"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               placeholder="0.00"
               className="bg-secondary/50 border-white/10 font-mono text-lg focus-visible:ring-accent/50"
+              data-testid="input-expense-amount"
             />
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
             <Button
               type="button"
               variant="ghost"
               onClick={() => onOpenChange(false)}
+              className="w-full sm:w-auto"
             >
               {t.modals.cancel}
             </Button>
             <Button
               type="submit"
               disabled={isPending || !participantId || !item.trim() || !amount}
-              className="bg-accent text-accent-foreground hover:bg-accent/90 font-bold"
+              className="bg-accent text-accent-foreground font-bold w-full sm:w-auto"
+              data-testid="button-submit-expense"
             >
               {isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
               {editingExpense ? t.modals.save : t.modals.add}

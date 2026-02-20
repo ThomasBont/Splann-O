@@ -1,36 +1,42 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, buildUrl, type InsertExpense, type UpdateExpenseRequest } from "@shared/routes";
+import { api, buildUrl } from "@shared/routes";
+import type { InsertExpense, UpdateExpenseRequest } from "@shared/routes";
 
-export function useExpenses() {
+export function useExpenses(bbqId: number | null) {
   return useQuery({
-    queryKey: [api.expenses.list.path],
+    queryKey: ['/api/barbecues', bbqId, 'expenses'],
     queryFn: async () => {
-      const res = await fetch(api.expenses.list.path);
+      if (!bbqId) return [];
+      const url = buildUrl(api.expenses.list.path, { bbqId });
+      const res = await fetch(url);
       if (!res.ok) throw new Error("Failed to fetch expenses");
-      return api.expenses.list.responses[200].parse(await res.json());
+      return res.json();
     },
+    enabled: !!bbqId,
   });
 }
 
-export function useCreateExpense() {
+export function useCreateExpense(bbqId: number | null) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (data: InsertExpense) => {
-      const res = await fetch(api.expenses.create.path, {
+      if (!bbqId) throw new Error("No BBQ selected");
+      const url = buildUrl(api.expenses.create.path, { bbqId });
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       });
       if (!res.ok) throw new Error("Failed to create expense");
-      return api.expenses.create.responses[201].parse(await res.json());
+      return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [api.expenses.list.path] });
+      queryClient.invalidateQueries({ queryKey: ['/api/barbecues', bbqId, 'expenses'] });
     },
   });
 }
 
-export function useUpdateExpense() {
+export function useUpdateExpense(bbqId: number | null) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, ...updates }: { id: number } & UpdateExpenseRequest) => {
@@ -41,15 +47,15 @@ export function useUpdateExpense() {
         body: JSON.stringify(updates),
       });
       if (!res.ok) throw new Error("Failed to update expense");
-      return api.expenses.update.responses[200].parse(await res.json());
+      return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [api.expenses.list.path] });
+      queryClient.invalidateQueries({ queryKey: ['/api/barbecues', bbqId, 'expenses'] });
     },
   });
 }
 
-export function useDeleteExpense() {
+export function useDeleteExpense(bbqId: number | null) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (id: number) => {
@@ -58,7 +64,7 @@ export function useDeleteExpense() {
       if (!res.ok) throw new Error("Failed to delete expense");
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [api.expenses.list.path] });
+      queryClient.invalidateQueries({ queryKey: ['/api/barbecues', bbqId, 'expenses'] });
     },
   });
 }

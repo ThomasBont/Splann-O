@@ -1,36 +1,42 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api, buildUrl, type InsertParticipant } from "@shared/routes";
+import { api, buildUrl } from "@shared/routes";
+import type { InsertParticipant } from "@shared/routes";
 
-export function useParticipants() {
+export function useParticipants(bbqId: number | null) {
   return useQuery({
-    queryKey: [api.participants.list.path],
+    queryKey: ['/api/barbecues', bbqId, 'participants'],
     queryFn: async () => {
-      const res = await fetch(api.participants.list.path);
+      if (!bbqId) return [];
+      const url = buildUrl(api.participants.list.path, { bbqId });
+      const res = await fetch(url);
       if (!res.ok) throw new Error("Failed to fetch participants");
-      return api.participants.list.responses[200].parse(await res.json());
+      return res.json();
     },
+    enabled: !!bbqId,
   });
 }
 
-export function useCreateParticipant() {
+export function useCreateParticipant(bbqId: number | null) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (data: InsertParticipant) => {
-      const res = await fetch(api.participants.create.path, {
+      if (!bbqId) throw new Error("No BBQ selected");
+      const url = buildUrl(api.participants.create.path, { bbqId });
+      const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       });
       if (!res.ok) throw new Error("Failed to create participant");
-      return api.participants.create.responses[201].parse(await res.json());
+      return res.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [api.participants.list.path] });
+      queryClient.invalidateQueries({ queryKey: ['/api/barbecues', bbqId, 'participants'] });
     },
   });
 }
 
-export function useDeleteParticipant() {
+export function useDeleteParticipant(bbqId: number | null) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (id: number) => {
@@ -39,9 +45,8 @@ export function useDeleteParticipant() {
       if (!res.ok) throw new Error("Failed to delete participant");
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [api.participants.list.path] });
-      // Also invalidate expenses since deleting a participant might cascade delete expenses
-      queryClient.invalidateQueries({ queryKey: [api.expenses.list.path] });
+      queryClient.invalidateQueries({ queryKey: ['/api/barbecues', bbqId, 'participants'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/barbecues', bbqId, 'expenses'] });
     },
   });
 }

@@ -16,16 +16,17 @@ import { Loader2 } from "lucide-react";
 interface AddPersonDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  bbqId: number | null;
 }
 
-export function AddPersonDialog({ open, onOpenChange }: AddPersonDialogProps) {
+export function AddPersonDialog({ open, onOpenChange, bbqId }: AddPersonDialogProps) {
   const { t } = useLanguage();
   const [name, setName] = useState("");
-  const createParticipant = useCreateParticipant();
+  const createParticipant = useCreateParticipant(bbqId);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return;
+    if (!name.trim() || !bbqId) return;
 
     createParticipant.mutate({ name: name.trim() }, {
       onSuccess: () => {
@@ -37,7 +38,7 @@ export function AddPersonDialog({ open, onOpenChange }: AddPersonDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md bg-card border-border">
+      <DialogContent className="sm:max-w-md bg-card border-border max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-xl font-display text-primary">{t.modals.addPersonTitle}</DialogTitle>
         </DialogHeader>
@@ -53,6 +54,7 @@ export function AddPersonDialog({ open, onOpenChange }: AddPersonDialogProps) {
               placeholder="e.g. Alex"
               className="bg-secondary/50 border-white/10 focus-visible:ring-primary/50"
               autoFocus
+              data-testid="input-person-name"
             />
           </div>
           <DialogFooter>
@@ -66,7 +68,8 @@ export function AddPersonDialog({ open, onOpenChange }: AddPersonDialogProps) {
             <Button
               type="submit"
               disabled={createParticipant.isPending || !name.trim()}
-              className="bg-primary text-primary-foreground hover:bg-primary/90 font-bold"
+              className="bg-primary text-primary-foreground font-bold"
+              data-testid="button-submit-person"
             >
               {createParticipant.isPending ? (
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />

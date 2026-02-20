@@ -514,144 +514,109 @@ export default function Home() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8 space-y-6 sm:space-y-8">
+      {/* BBQ Scrollable Strip — tucked just below header */}
+      <div className="sticky top-[57px] z-40 bg-background/90 backdrop-blur-md border-b border-white/5" data-testid="section-bbq-selector">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-2">
+          <div className="overflow-x-auto -mx-1 px-1 pb-1">
+            <div className="flex gap-2 items-center min-w-max">
+              {isLoadingBbqs ? (
+                <Loader2 className="w-4 h-4 animate-spin text-muted-foreground mx-2" />
+              ) : barbecues.length === 0 ? (
+                <span className="text-xs text-muted-foreground px-2 py-1.5 italic">{t.bbq.noBbqs}</span>
+              ) : (
+                barbecues.map((bbq: Barbecue) => {
+                  const isSelected = bbq.id === selectedBbqId;
+                  const cur = CURRENCIES.find(c => c.code === bbq.currency) || CURRENCIES[0];
+                  const isBbqCreator = !!(username && bbq.creatorId === username);
+                  const membership = getMembershipStatus(bbq.id);
+                  const memberStatus = membership?.status || null;
+                  const participantId = membership?.participantId;
 
-        {/* BBQ Selector */}
-        <div className="bg-card/80 backdrop-blur-md border border-white/5 rounded-2xl p-4 sm:p-6" data-testid="section-bbq-selector">
-          <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
-            <h2 className="text-lg font-bold font-display text-primary flex items-center gap-2">
-              <CalendarDays className="w-5 h-5" />
-              {t.bbq.allBarbecues}
-            </h2>
-            {user && (
-              <Button
-                size="sm"
-                onClick={() => setIsNewBbqOpen(true)}
-                className="bg-primary text-primary-foreground font-bold"
-                data-testid="button-new-bbq"
-              >
-                <Plus className="w-4 h-4 mr-1" /> {t.bbq.newBarbecue}
-              </Button>
-            )}
-          </div>
-
-          {isLoadingBbqs ? (
-            <div className="flex justify-center py-8">
-              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : barbecues.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <Flame className="w-10 h-10 mx-auto mb-3 opacity-30" />
-              <p className="font-medium">{t.bbq.noBbqs}</p>
-              <p className="text-sm mt-1">{t.bbq.noBbqsSubtitle}</p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {barbecues.map((bbq: Barbecue) => {
-                const isSelected = bbq.id === selectedBbqId;
-                const cur = CURRENCIES.find(c => c.code === bbq.currency) || CURRENCIES[0];
-                const isBbqCreator = !!(username && bbq.creatorId === username);
-                const membership = getMembershipStatus(bbq.id);
-                const memberStatus = membership?.status || null;
-                const participantId = membership?.participantId;
-
-                return (
-                  <div
-                    key={bbq.id}
-                    onClick={() => setSelectedBbqId(bbq.id)}
-                    className={`cursor-pointer text-left p-4 rounded-xl border transition-all ${
-                      isSelected
-                        ? 'border-primary/50 bg-primary/10 shadow-lg shadow-primary/10'
-                        : 'border-white/5 bg-secondary/20 hover:border-white/15'
-                    }`}
-                    data-testid={`button-bbq-${bbq.id}`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <div className="font-bold truncate flex items-center gap-2 flex-wrap">
-                          {bbq.name}
-                          {!bbq.isPublic && (
-                            <span className="inline-flex items-center gap-1 text-xs bg-secondary/60 text-muted-foreground px-1.5 py-0.5 rounded flex-shrink-0">
-                              <Lock className="w-2.5 h-2.5" />
-                              {t.bbq.privateEvent}
-                            </span>
-                          )}
-                          {isBbqCreator && (
-                            <span className="inline-flex items-center gap-1 text-xs bg-primary/20 text-primary px-1.5 py-0.5 rounded font-semibold flex-shrink-0">
-                              <Crown className="w-3 h-3" />
-                              {t.user.host}
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-xs text-muted-foreground mt-1 flex items-center gap-2 flex-wrap">
-                          <span>{new Date(bbq.date).toLocaleDateString()}</span>
-                          <span className="bg-secondary/50 px-2 py-0.5 rounded text-xs">{cur.symbol} {getCurrencyLabel(cur)}</span>
-                        </div>
-                        {!isBbqCreator && bbq.creatorId && (
-                          <div className="text-xs text-muted-foreground mt-1">
-                            {t.bbq.hostedBy} <span className="font-medium text-foreground/70">{bbq.creatorId}</span>
-                          </div>
+                  return (
+                    <div key={bbq.id} className="flex items-center gap-1.5 flex-shrink-0">
+                      <button
+                        onClick={() => setSelectedBbqId(isSelected ? null : bbq.id)}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all border ${
+                          isSelected
+                            ? 'bg-primary text-primary-foreground border-primary/60 shadow-sm shadow-primary/20'
+                            : 'bg-secondary/30 border-white/5 text-muted-foreground hover:border-white/20 hover:text-foreground hover:bg-secondary/50'
+                        }`}
+                        data-testid={`button-bbq-${bbq.id}`}
+                      >
+                        {!bbq.isPublic && <Lock className="w-3 h-3 flex-shrink-0 opacity-70" />}
+                        {isBbqCreator && <Crown className="w-3 h-3 flex-shrink-0 opacity-80" />}
+                        <span className="max-w-[120px] truncate">{bbq.name}</span>
+                        <span className="text-[10px] opacity-60 hidden sm:inline">{cur.symbol}</span>
+                        {memberStatus === 'pending' && (
+                          <span className="w-1.5 h-1.5 bg-yellow-400 rounded-full flex-shrink-0" title={t.user.pending} />
                         )}
-                      </div>
+                        {memberStatus === 'invited' && (
+                          <span className="w-1.5 h-1.5 bg-blue-400 rounded-full flex-shrink-0" title={t.bbq.invited} />
+                        )}
+                      </button>
 
-                      <div className="flex items-center gap-1 flex-shrink-0">
-                        {isBbqCreator ? (
-                          <Button
-                            size="icon" variant="ghost"
-                            className="w-8 h-8 text-muted-foreground opacity-50 hover:opacity-100 hover:text-destructive"
-                            onClick={(e) => { e.stopPropagation(); handleDeleteBbq(bbq.id); }}
-                            data-testid={`button-delete-bbq-${bbq.id}`}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        ) : memberStatus === 'accepted' ? (
-                          <span className="inline-flex items-center gap-1 text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded font-semibold" data-testid={`badge-joined-${bbq.id}`}>
-                            <CheckCircle2 className="w-3 h-3" /> {t.user.joined}
-                          </span>
-                        ) : memberStatus === 'pending' ? (
-                          <span className="inline-flex items-center gap-1 text-xs bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded font-semibold" data-testid={`badge-pending-${bbq.id}`}>
-                            <Clock className="w-3 h-3" /> {t.user.pending}
-                          </span>
-                        ) : memberStatus === 'invited' && participantId ? (
-                          <div className="flex gap-1" onClick={e => e.stopPropagation()}>
-                            <Button
-                              size="sm" variant="outline"
-                              className="h-7 text-xs border-green-500/30 text-green-400 hover:bg-green-500/10"
-                              onClick={() => acceptInvite.mutate({ id: participantId, bbqId: bbq.id })}
-                              disabled={acceptInvite.isPending}
-                              data-testid={`button-accept-invite-${bbq.id}`}
-                            >
-                              {t.bbq.acceptInvite}
-                            </Button>
-                            <Button
-                              size="sm" variant="ghost"
-                              className="h-7 text-xs text-muted-foreground hover:text-destructive"
-                              onClick={() => declineInvite.mutate({ id: participantId, bbqId: bbq.id })}
-                              disabled={declineInvite.isPending}
-                              data-testid={`button-decline-invite-${bbq.id}`}
-                            >
-                              {t.bbq.declineInvite}
-                            </Button>
-                          </div>
-                        ) : bbq.isPublic && user ? (
-                          <Button
-                            size="sm" variant="outline"
-                            className="h-7 text-xs border-white/20 hover:border-primary/50 hover:bg-primary/10 hover:text-primary"
-                            onClick={(e) => { e.stopPropagation(); handleJoin(bbq.id); }}
-                            disabled={joinBbq.isPending}
-                            data-testid={`button-join-bbq-${bbq.id}`}
-                          >
-                            {joinBbq.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : t.user.joinBbq}
-                          </Button>
-                        ) : null}
-                      </div>
+                      {/* Invited: Accept/Decline inline */}
+                      {memberStatus === 'invited' && participantId && (
+                        <div className="flex gap-1" onClick={e => e.stopPropagation()}>
+                          <button
+                            onClick={() => acceptInvite.mutate({ id: participantId, bbqId: bbq.id })}
+                            disabled={acceptInvite.isPending}
+                            className="text-[10px] bg-green-500/20 text-green-400 hover:bg-green-500/30 px-2 py-1 rounded-md font-semibold transition-colors"
+                            data-testid={`button-accept-invite-${bbq.id}`}
+                          >{t.bbq.acceptInvite}</button>
+                          <button
+                            onClick={() => declineInvite.mutate({ id: participantId, bbqId: bbq.id })}
+                            disabled={declineInvite.isPending}
+                            className="text-[10px] text-muted-foreground hover:text-destructive px-1 py-1 rounded-md transition-colors"
+                            data-testid={`button-decline-invite-${bbq.id}`}
+                          ><X className="w-3 h-3" /></button>
+                        </div>
+                      )}
+
+                      {/* Public unjoined: join button inline */}
+                      {!isBbqCreator && !memberStatus && bbq.isPublic && user && (
+                        <button
+                          onClick={() => handleJoin(bbq.id)}
+                          disabled={joinBbq.isPending}
+                          className="text-[10px] bg-white/5 hover:bg-primary/20 hover:text-primary border border-white/10 hover:border-primary/30 px-2 py-1 rounded-md font-semibold transition-colors text-muted-foreground"
+                          data-testid={`button-join-bbq-${bbq.id}`}
+                        >{joinBbq.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : t.user.joinBbq}</button>
+                      )}
+
+                      {/* Creator: delete button */}
+                      {isBbqCreator && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDeleteBbq(bbq.id); }}
+                          className="text-muted-foreground/40 hover:text-destructive transition-colors p-0.5"
+                          data-testid={`button-delete-bbq-${bbq.id}`}
+                          title={t.bbq.delete}
+                        ><Trash2 className="w-3 h-3" /></button>
+                      )}
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
+
+              {/* Separator */}
+              {barbecues.length > 0 && <div className="w-px h-5 bg-white/10 flex-shrink-0 mx-1" />}
+
+              {/* New BBQ button */}
+              {user && (
+                <button
+                  onClick={() => setIsNewBbqOpen(true)}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-muted-foreground hover:text-primary hover:bg-primary/10 border border-dashed border-white/10 hover:border-primary/30 transition-all flex-shrink-0"
+                  data-testid="button-new-bbq"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  {t.bbq.newBarbecue}
+                </button>
+              )}
             </div>
-          )}
+          </div>
         </div>
+      </div>
+
+      <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8 space-y-6 sm:space-y-8">
 
         {/* Pending Requests Panel */}
         {isCreator && pendingRequests.length > 0 && (
@@ -812,6 +777,19 @@ export default function Home() {
 
               {/* Expenses Tab */}
               <TabsContent value="expenses" className="mt-4 space-y-4">
+                {/* Add Expense button — visible for creator + accepted members */}
+                {(isCreator || isAcceptedMember) && (
+                  <div className="flex justify-end">
+                    <Button
+                      size="sm"
+                      onClick={() => setIsAddExpenseOpen(true)}
+                      className="bg-accent text-accent-foreground font-bold"
+                      data-testid="button-add-expense-tab"
+                    >
+                      <Plus className="w-4 h-4 mr-1.5" /> {t.addExpense}
+                    </Button>
+                  </div>
+                )}
                 {expenses.length === 0 ? (
                   <div className="text-center py-12 text-muted-foreground">
                     <Receipt className="w-10 h-10 mx-auto mb-3 opacity-30" />

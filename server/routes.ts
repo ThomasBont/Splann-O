@@ -5,7 +5,7 @@ import { api } from "@shared/routes";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
-import { sendPasswordResetEmail } from "./email";
+import { sendPasswordResetEmail, sendWelcomeEmail } from "./email";
 
 function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.session.userId) {
@@ -45,6 +45,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       req.session.userId = user.id;
       req.session.username = user.username;
+      sendWelcomeEmail(user.email, user.displayName || user.username);
       req.session.save((err) => {
         if (err) throw err;
         res.status(201).json({ id: user.id, username: user.username, email: user.email, displayName: user.displayName });

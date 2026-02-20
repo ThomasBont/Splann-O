@@ -30,7 +30,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         username: z.string().min(2).max(30).regex(/^[a-zA-Z0-9_\-]+$/, "Username can only contain letters, numbers, _ and -"),
         email: z.string().email("Invalid email address"),
         displayName: z.string().max(50).optional(),
-        password: z.string().min(4),
+        password: z.string().min(8),
       });
       const { username, email, displayName, password } = schema.parse(req.body);
 
@@ -116,7 +116,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const { token, password } = z.object({
         token: z.string(),
-        password: z.string().min(4),
+        password: z.string().min(8),
       }).parse(req.body);
 
       const record = await storage.getPasswordResetToken(token);

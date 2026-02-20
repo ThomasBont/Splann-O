@@ -72,6 +72,7 @@ function AuthDialog({ open }: { open: boolean }) {
   const handleRegister = async () => {
     setError("");
     if (!username || !email || !password) return;
+    if (password.length < 8) { setError(t.auth.passwordHint); return; }
     if (password !== confirm) { setError(t.auth.passwordsNoMatch); return; }
     try {
       await register.mutateAsync({ username, email, displayName: displayName || undefined, password });

@@ -9,7 +9,8 @@ import {
   type InsertBarbecue,
   type InsertParticipant,
   type InsertExpense,
-  type ExpenseWithParticipant
+  type ExpenseWithParticipant,
+  type Membership,
 } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 
@@ -20,9 +21,14 @@ export interface IStorage {
   deleteBarbecue(id: number): Promise<void>;
 
   getParticipants(bbqId: number): Promise<Participant[]>;
+  getPendingRequests(bbqId: number): Promise<Participant[]>;
+  getParticipant(id: number): Promise<Participant | undefined>;
   createParticipant(p: InsertParticipant): Promise<Participant>;
+  joinBarbecue(bbqId: number, name: string, userId: string): Promise<Participant>;
+  acceptParticipant(id: number): Promise<Participant | undefined>;
   deleteParticipant(id: number): Promise<void>;
-  
+  getMemberships(userId: string): Promise<Membership[]>;
+
   getExpenses(bbqId: number): Promise<ExpenseWithParticipant[]>;
   createExpense(e: InsertExpense): Promise<Expense>;
   updateExpense(id: number, updates: Partial<InsertExpense>): Promise<Expense | undefined>;
@@ -49,7 +55,20 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getParticipants(bbqId: number): Promise<Participant[]> {
-    return await db.select().from(participants).where(eq(participants.barbecueId, bbqId));
+    return await db.select().from(participants).where(
+      and(eq(participants.barbecueId, bbqId), eq(participants.status, "accepted"))
+    );
+  }
+
+  async getPendingRequests(bbqId: number): Promise<Participant[]> {
+    return await db.select().from(participants).where(
+      and(eq(participants.barbecueId, bbqId), eq(participants.status, "pending"))
+    );
+  }
+
+  async getParticipant(id: number): Promise<Participant | undefined> {
+    const [p] = await db.select().from(participants).where(eq(participants.id, id));
+    return p;
   }
 
   async createParticipant(p: InsertParticipant): Promise<Participant> {
@@ -57,14 +76,42 @@ export class DatabaseStorage implements IStorage {
     return participant;
   }
 
+  async joinBarbecue(bbqId: number, name: string, userId: string): Promise<Participant> {
+    const [participant] = await db.insert(participants).values({
+      barbecueId: bbqId,
+      name,
+      userId,
+      status: "pending",
+    }).returning();
+    return participant;
+  }
+
+  async acceptParticipant(id: number): Promise<Participant | undefined> {
+    const [updated] = await db.update(participants)
+      .set({ status: "accepted" })
+      .where(eq(participants.id, id))
+      .returning();
+    return updated;
+  }
+
   async deleteParticipant(id: number): Promise<void> {
     await db.delete(participants).where(eq(participants.id, id));
+  }
+
+  async getMemberships(userId: string): Promise<Membership[]> {
+    const rows = await db.select().from(participants).where(eq(participants.userId, userId));
+    return rows.map(p => ({
+      bbqId: p.barbecueId,
+      participantId: p.id,
+      status: p.status,
+      name: p.name,
+    }));
   }
 
   async getExpenses(bbqId: number): Promise<ExpenseWithParticipant[]> {
     const allExpenses = await db.select().from(expenses).where(eq(expenses.barbecueId, bbqId));
     const allParticipants = await this.getParticipants(bbqId);
-    
+
     return allExpenses.map(e => {
       const p = allParticipants.find(p => p.id === e.participantId);
       return {

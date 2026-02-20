@@ -7,12 +7,15 @@ export const barbecues = pgTable("barbecues", {
   name: text("name").notNull(),
   date: timestamp("date").notNull().defaultNow(),
   currency: text("currency").notNull().default("EUR"),
+  creatorId: text("creator_id"),
 });
 
 export const participants = pgTable("participants", {
   id: serial("id").primaryKey(),
   barbecueId: integer("barbecue_id").references(() => barbecues.id, { onDelete: 'cascade' }).notNull(),
   name: text("name").notNull(),
+  userId: text("user_id"),
+  status: text("status").notNull().default("accepted"),
 });
 
 export const expenses = pgTable("expenses", {
@@ -41,4 +44,11 @@ export type InsertExpense = z.infer<typeof insertExpenseSchema>;
 
 export type ExpenseWithParticipant = Expense & {
   participantName: string;
+};
+
+export type Membership = {
+  bbqId: number;
+  participantId: number;
+  status: string;
+  name: string;
 };

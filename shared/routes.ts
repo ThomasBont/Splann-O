@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { insertBarbecueSchema, insertParticipantSchema, insertExpenseSchema } from './schema';
-import type { Barbecue, Participant, ExpenseWithParticipant } from './schema';
+import type { Barbecue, Participant, ExpenseWithParticipant, Membership } from './schema';
 
 export const errorSchemas = {
   validation: z.object({
@@ -58,6 +58,13 @@ export const api = {
         200: z.array(z.custom<Participant>()),
       },
     },
+    pending: {
+      method: 'GET' as const,
+      path: '/api/barbecues/:bbqId/pending' as const,
+      responses: {
+        200: z.array(z.custom<Participant>()),
+      },
+    },
     create: {
       method: 'POST' as const,
       path: '/api/barbecues/:bbqId/participants' as const,
@@ -67,12 +74,39 @@ export const api = {
         400: errorSchemas.validation,
       },
     },
+    join: {
+      method: 'POST' as const,
+      path: '/api/barbecues/:bbqId/join' as const,
+      input: z.object({ name: z.string(), userId: z.string() }),
+      responses: {
+        201: z.custom<Participant>(),
+        400: errorSchemas.validation,
+        409: errorSchemas.validation,
+      },
+    },
+    accept: {
+      method: 'PATCH' as const,
+      path: '/api/participants/:id/accept' as const,
+      responses: {
+        200: z.custom<Participant>(),
+        404: errorSchemas.notFound,
+      },
+    },
     delete: {
       method: 'DELETE' as const,
       path: '/api/participants/:id' as const,
       responses: {
         204: z.void(),
         404: errorSchemas.notFound,
+      },
+    },
+  },
+  memberships: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/memberships' as const,
+      responses: {
+        200: z.array(z.custom<Membership>()),
       },
     },
   },

@@ -8,7 +8,7 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  
+
   // Barbecues
   app.get(api.barbecues.list.path, async (req, res) => {
     const items = await storage.getBarbecues();
@@ -48,12 +48,18 @@ export async function registerRoutes(
     res.json(items);
   });
 
+  app.get(api.participants.pending.path, async (req, res) => {
+    const items = await storage.getPendingRequests(Number(req.params.bbqId));
+    res.json(items);
+  });
+
   app.post(api.participants.create.path, async (req, res) => {
     try {
       const input = api.participants.create.input.parse(req.body);
       const created = await storage.createParticipant({
         ...input,
-        barbecueId: Number(req.params.bbqId)
+        barbecueId: Number(req.params.bbqId),
+        status: "accepted",
       });
       res.status(201).json(created);
     } catch (err) {
@@ -64,9 +70,47 @@ export async function registerRoutes(
     }
   });
 
+  app.post(api.participants.join.path, async (req, res) => {
+    try {
+      const input = api.participants.join.input.parse(req.body);
+      const bbqId = Number(req.params.bbqId);
+
+      // Check if user already has a request (pending or accepted)
+      const existing = await storage.getMemberships(input.userId);
+      const alreadyIn = existing.find(m => m.bbqId === bbqId);
+      if (alreadyIn) {
+        return res.status(409).json({
+          message: alreadyIn.status === "accepted" ? "already_joined" : "already_pending"
+        });
+      }
+
+      const created = await storage.joinBarbecue(bbqId, input.name, input.userId);
+      res.status(201).json(created);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      throw err;
+    }
+  });
+
+  app.patch(api.participants.accept.path, async (req, res) => {
+    const updated = await storage.acceptParticipant(Number(req.params.id));
+    if (!updated) return res.status(404).json({ message: "Participant not found" });
+    res.json(updated);
+  });
+
   app.delete(api.participants.delete.path, async (req, res) => {
     await storage.deleteParticipant(Number(req.params.id));
     res.status(204).send();
+  });
+
+  // Memberships
+  app.get(api.memberships.list.path, async (req, res) => {
+    const userId = req.query.userId as string;
+    if (!userId) return res.json([]);
+    const memberships = await storage.getMemberships(userId);
+    res.json(memberships);
   });
 
   // Expenses

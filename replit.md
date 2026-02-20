@@ -2,7 +2,7 @@
 
 ## Overview
 
-BBQ Expense Tracker is a full-stack web application for tracking barbecue event expenses. Users can create barbecue events, add participants, log expenses by category (Meat, Bread, Drinks, Charcoal, Transportation, Other), and calculate fair cost splits among participants. The app supports multiple currencies (EUR, USD, ARS, GBP, MXN) and bilingual UI (English/Spanish).
+BBQ Expense Tracker is a full-stack web application for tracking barbecue event expenses. Users create a username (stored in localStorage), can create barbecue events or join events created by others. Each event has a name, date, and currency. Participants and expenses are tracked per event. The app supports multiple currencies (EUR, USD, ARS, GBP, MXN) and four UI languages (English, Spanish, Italian, Dutch).
 
 ## User Preferences
 
@@ -29,10 +29,22 @@ Preferred communication style: Simple, everyday language.
 - **Database**: PostgreSQL via `DATABASE_URL` environment variable
 - **ORM**: Drizzle ORM with `drizzle-zod` for schema-to-validation integration
 - **Schema** (in `shared/schema.ts`):
-  - `barbecues` — id, name, date, currency
-  - `participants` — id, barbecueId (FK → barbecues, cascade delete), name
+  - `barbecues` — id, name, date, currency, creatorId (nullable text, username of creator)
+  - `participants` — id, barbecueId (FK → barbecues, cascade delete), name, userId (nullable text, username), status ("accepted" | "pending", default "accepted")
   - `expenses` — id, barbecueId (FK → barbecues, cascade delete), participantId (FK → participants, cascade delete), category, item, amount (numeric 10,2)
 - **Migrations**: Managed via `drizzle-kit push` (schema push approach, not migration files)
+
+### User Identity System
+- **Storage**: Username stored in `localStorage` under key `bbq-username`
+- **Hook**: `client/src/hooks/use-user.tsx` provides `username`, `setUsername`, `clearUsername`
+- **First-time UX**: On first visit (no username in localStorage), a modal dialog prompts for a username
+- **Creator**: When creating a BBQ, `creatorId` is set to the current username
+- **Join flow**:
+  1. Non-creator clicks "Join" on a BBQ card → creates a `pending` participant record
+  2. Creator sees a yellow panel with pending requests; can Accept or Reject
+  3. Accepted participants appear in the main participant list and can log expenses
+  4. Participants can leave their own BBQ (if BBQ date >= today) via the "Leave" button on their chip
+- **Memberships**: `GET /api/memberships?userId=x` returns all BBQs and statuses for a user
 
 ### API Structure
 All routes defined in `shared/routes.ts` with Zod schemas for input validation:
@@ -43,13 +55,20 @@ All routes defined in `shared/routes.ts` with Zod schemas for input validation:
 | POST | `/api/barbecues` | Create a BBQ event |
 | GET | `/api/barbecues/:id` | Get single BBQ |
 | DELETE | `/api/barbecues/:id` | Delete BBQ (cascades) |
-| GET | `/api/barbecues/:bbqId/participants` | List participants |
-| POST | `/api/barbecues/:bbqId/participants` | Add participant |
-| DELETE | `/api/participants/:id` | Remove participant |
+| GET | `/api/barbecues/:bbqId/participants` | List accepted participants |
+| POST | `/api/barbecues/:bbqId/participants` | Add participant (creator only, auto-accepted) |
+| GET | `/api/barbecues/:bbqId/pending` | List pending join requests |
+| POST | `/api/barbecues/:bbqId/join` | Request to join (creates pending participant) |
+| PATCH | `/api/participants/:id/accept` | Accept a join request |
+| DELETE | `/api/participants/:id` | Remove/reject participant |
+| GET | `/api/memberships?userId=x` | Get all memberships for a user |
 | GET | `/api/barbecues/:bbqId/expenses` | List expenses (with participant name) |
 | POST | `/api/barbecues/:bbqId/expenses` | Add expense |
 | PUT | `/api/expenses/:id` | Update expense |
 | DELETE | `/api/expenses/:id` | Delete expense |
+
+### Languages
+Supported: **English (EN)**, **Spanish (ES)**, **Italian (IT)**, **Dutch (NL)**. Language cycles via a button in the header. Currency labels are translated in all 4 languages.
 
 ### Shared Code Pattern
 The `shared/` directory contains code used by both client and server:

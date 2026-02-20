@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
-export type AuthUser = { id: number; username: string };
+export type AuthUser = { id: number; username: string; email: string; displayName: string | null };
 
 export function useAuth() {
   const queryClient = useQueryClient();
@@ -35,11 +35,11 @@ export function useAuth() {
   });
 
   const register = useMutation({
-    mutationFn: async ({ username, password }: { username: string; password: string }) => {
+    mutationFn: async ({ username, email, displayName, password }: { username: string; email: string; displayName?: string; password: string }) => {
       const res = await fetch('/api/auth/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, email, displayName, password }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || 'register_failed');
@@ -60,11 +60,39 @@ export function useAuth() {
     },
   });
 
+  const forgotPassword = useMutation({
+    mutationFn: async ({ email }: { email: string }) => {
+      const res = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'forgot_failed');
+      return data;
+    },
+  });
+
+  const resetPassword = useMutation({
+    mutationFn: async ({ token, password }: { token: string; password: string }) => {
+      const res = await fetch('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'reset_failed');
+      return data;
+    },
+  });
+
   return {
     user: user ?? null,
     isLoading,
     login,
     register,
     logout,
+    forgotPassword,
+    resetPassword,
   };
 }

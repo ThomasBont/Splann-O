@@ -5,8 +5,18 @@ import { z } from "zod";
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   username: text("username").notNull().unique(),
+  email: text("email").notNull().unique(),
+  displayName: text("display_name"),
   passwordHash: text("password_hash").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const passwordResetTokens = pgTable("password_reset_tokens", {
+  id: serial("id").primaryKey(),
+  token: text("token").notNull().unique(),
+  userId: integer("user_id").references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
 });
 
 export const barbecues = pgTable("barbecues", {
@@ -44,6 +54,8 @@ export const insertExpenseSchema = createInsertSchema(expenses).omit({ id: true 
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
+
+export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
 
 export type Barbecue = typeof barbecues.$inferSelect;
 export type InsertBarbecue = z.infer<typeof insertBarbecueSchema>;

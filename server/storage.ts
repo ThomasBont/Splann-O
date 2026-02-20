@@ -4,6 +4,7 @@ import {
   barbecues,
   participants,
   expenses,
+  passwordResetTokens,
   type User,
   type Barbecue,
   type Participant,
@@ -14,13 +15,20 @@ import {
   type InsertExpense,
   type ExpenseWithParticipant,
   type Membership,
+  type PasswordResetToken,
 } from "@shared/schema";
 import { eq, and } from "drizzle-orm";
 
 export interface IStorage {
   createUser(u: InsertUser): Promise<User>;
   getUserByUsername(username: string): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
   getUserById(id: number): Promise<User | undefined>;
+  updateUserPassword(id: number, passwordHash: string): Promise<void>;
+
+  createPasswordResetToken(userId: number, token: string, expiresAt: Date): Promise<PasswordResetToken>;
+  getPasswordResetToken(token: string): Promise<PasswordResetToken | undefined>;
+  markTokenUsed(id: number): Promise<void>;
 
   getBarbecues(currentUsername?: string): Promise<Barbecue[]>;
   getBarbecue(id: number): Promise<Barbecue | undefined>;
@@ -55,9 +63,32 @@ export class DatabaseStorage implements IStorage {
     return u;
   }
 
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const [u] = await db.select().from(users).where(eq(users.email, email.toLowerCase()));
+    return u;
+  }
+
   async getUserById(id: number): Promise<User | undefined> {
     const [u] = await db.select().from(users).where(eq(users.id, id));
     return u;
+  }
+
+  async updateUserPassword(id: number, passwordHash: string): Promise<void> {
+    await db.update(users).set({ passwordHash }).where(eq(users.id, id));
+  }
+
+  async createPasswordResetToken(userId: number, token: string, expiresAt: Date): Promise<PasswordResetToken> {
+    const [row] = await db.insert(passwordResetTokens).values({ userId, token, expiresAt }).returning();
+    return row;
+  }
+
+  async getPasswordResetToken(token: string): Promise<PasswordResetToken | undefined> {
+    const [row] = await db.select().from(passwordResetTokens).where(eq(passwordResetTokens.token, token));
+    return row;
+  }
+
+  async markTokenUsed(id: number): Promise<void> {
+    await db.update(passwordResetTokens).set({ usedAt: new Date() }).where(eq(passwordResetTokens.id, id));
   }
 
   async getBarbecues(currentUsername?: string): Promise<Barbecue[]> {

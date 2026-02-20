@@ -46,13 +46,17 @@ const CATEGORY_ICON_COMPONENTS: Record<string, typeof Beef> = {
 // ─── Auth Dialog ──────────────────────────────────────────────────────────────
 function AuthDialog({ open }: { open: boolean }) {
   const { t } = useLanguage();
-  const { login, register } = useAuth();
-  const [tab, setTab] = useState<"login" | "register">("login");
+  const { login, register, forgotPassword } = useAuth();
+  const [tab, setTab] = useState<"login" | "register" | "forgot" | "sent">("login");
   const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
+  const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
   const [showPw, setShowPw] = useState(false);
+
+  const switchTab = (next: typeof tab) => { setTab(next); setError(""); };
 
   const handleLogin = async () => {
     setError("");
@@ -67,17 +71,43 @@ function AuthDialog({ open }: { open: boolean }) {
 
   const handleRegister = async () => {
     setError("");
-    if (!username || !password) return;
+    if (!username || !email || !password) return;
     if (password !== confirm) { setError(t.auth.passwordsNoMatch); return; }
     try {
-      await register.mutateAsync({ username, password });
+      await register.mutateAsync({ username, email, displayName: displayName || undefined, password });
     } catch (e: any) {
       const msg = e.message;
-      setError(msg === "username_taken" ? t.auth.usernameTaken : msg);
+      if (msg === "username_taken") setError(t.auth.usernameTaken);
+      else if (msg === "email_taken") setError(t.auth.emailTaken);
+      else setError(msg);
     }
   };
 
-  const isLoading = login.isPending || register.isPending;
+  const handleForgot = async () => {
+    setError("");
+    if (!email) return;
+    try {
+      await forgotPassword.mutateAsync({ email });
+      switchTab("sent");
+    } catch (e: any) {
+      setError(e.message);
+    }
+  };
+
+  const isLoading = login.isPending || register.isPending || forgotPassword.isPending;
+
+  const titles: Record<typeof tab, string> = {
+    login: t.auth.loginTitle,
+    register: t.auth.registerTitle,
+    forgot: t.auth.forgotPasswordTitle,
+    sent: t.auth.checkEmail,
+  };
+  const subtitles: Record<typeof tab, string> = {
+    login: t.auth.welcomeBack,
+    register: t.auth.createAccount,
+    forgot: t.auth.forgotPasswordSubtitle,
+    sent: t.auth.checkEmailDesc,
+  };
 
   return (
     <Dialog open={open} onOpenChange={() => {}}>
@@ -89,69 +119,132 @@ function AuthDialog({ open }: { open: boolean }) {
             </div>
             <h1 className="font-display text-primary font-bold text-lg truncate">{t.title}</h1>
           </div>
-          <DialogTitle className="text-base">
-            {tab === "login" ? t.auth.loginTitle : t.auth.registerTitle}
-          </DialogTitle>
-          <DialogDescription>
-            {tab === "login" ? t.auth.welcomeBack : t.auth.createAccount}
-          </DialogDescription>
+          <DialogTitle className="text-base">{titles[tab]}</DialogTitle>
+          <DialogDescription>{subtitles[tab]}</DialogDescription>
         </DialogHeader>
 
-        <div className="flex rounded-lg border border-white/10 overflow-hidden mb-2">
-          {(["login", "register"] as const).map(tabKey => (
-            <button
-              key={tabKey}
-              onClick={() => { setTab(tabKey); setError(""); }}
-              className={`flex-1 py-2 text-sm font-semibold transition-colors ${
-                tab === tabKey ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-white/5'
-              }`}
-              data-testid={`tab-auth-${tabKey}`}
-            >
-              {tabKey === "login" ? t.auth.login : t.auth.register}
-            </button>
-          ))}
-        </div>
-
-        <div className="space-y-3">
-          <div className="space-y-1.5">
-            <Label className="text-xs">{t.auth.username}</Label>
-            <Input
-              placeholder={t.user.usernamePlaceholder}
-              value={username}
-              onChange={e => setUsername(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && (tab === "login" ? handleLogin() : handleRegister())}
-              autoFocus
-              data-testid="input-auth-username"
-            />
-            {tab === "register" && (
-              <p className="text-[10px] text-muted-foreground">{t.auth.usernameHint}</p>
-            )}
-          </div>
-          <div className="space-y-1.5">
-            <Label className="text-xs">{t.auth.password}</Label>
-            <div className="relative">
-              <Input
-                type={showPw ? "text" : "password"}
-                placeholder="••••••"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && (tab === "login" ? handleLogin() : (confirm ? handleRegister() : undefined))}
-                data-testid="input-auth-password"
-                className="pr-9"
-              />
+        {/* Tab selector — only for login/register */}
+        {(tab === "login" || tab === "register") && (
+          <div className="flex rounded-lg border border-white/10 overflow-hidden mb-2">
+            {(["login", "register"] as const).map(tabKey => (
               <button
-                type="button"
-                onClick={() => setShowPw(v => !v)}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                key={tabKey}
+                onClick={() => switchTab(tabKey)}
+                className={`flex-1 py-2 text-sm font-semibold transition-colors ${
+                  tab === tabKey ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-white/5'
+                }`}
+                data-testid={`tab-auth-${tabKey}`}
               >
-                {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                {tabKey === "login" ? t.auth.login : t.auth.register}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Login form */}
+        {tab === "login" && (
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">{t.auth.username}</Label>
+              <Input
+                placeholder={t.user.usernamePlaceholder}
+                value={username}
+                onChange={e => setUsername(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && handleLogin()}
+                autoFocus
+                data-testid="input-auth-username"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">{t.auth.password}</Label>
+              <div className="relative">
+                <Input
+                  type={showPw ? "text" : "password"}
+                  placeholder="••••••"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && handleLogin()}
+                  data-testid="input-auth-password"
+                  className="pr-9"
+                />
+                <button type="button" onClick={() => setShowPw(v => !v)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                  {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+              <button
+                className="text-[11px] text-primary hover:underline float-right"
+                onClick={() => { setEmail(""); switchTab("forgot"); }}
+                data-testid="link-forgot-password"
+              >
+                {t.auth.forgotPassword}
               </button>
             </div>
-            {tab === "register" && (
-              <p className="text-[10px] text-muted-foreground">{t.auth.passwordHint}</p>
-            )}
+            {error && <p className="text-sm text-destructive bg-destructive/10 rounded-lg px-3 py-2" data-testid="text-auth-error">{error}</p>}
+            <Button onClick={handleLogin} disabled={isLoading || !username || !password}
+              className="w-full bg-primary text-primary-foreground font-bold" data-testid="button-auth-submit">
+              {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : t.auth.login}
+            </Button>
+            <p className="text-center text-xs text-muted-foreground">
+              {t.auth.dontHaveAccount}{" "}
+              <button onClick={() => switchTab("register")} className="text-primary hover:underline font-semibold" data-testid="button-auth-switch">
+                {t.auth.register}
+              </button>
+            </p>
           </div>
-          {tab === "register" && (
+        )}
+
+        {/* Register form */}
+        {tab === "register" && (
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">{t.auth.displayName}</Label>
+              <Input
+                placeholder={t.auth.displayNamePlaceholder}
+                value={displayName}
+                onChange={e => setDisplayName(e.target.value)}
+                autoFocus
+                data-testid="input-auth-displayname"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">{t.auth.username}</Label>
+              <Input
+                placeholder={t.user.usernamePlaceholder}
+                value={username}
+                onChange={e => setUsername(e.target.value)}
+                data-testid="input-auth-username"
+              />
+              <p className="text-[10px] text-muted-foreground">{t.auth.usernameHint}</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">{t.auth.email}</Label>
+              <Input
+                type="email"
+                placeholder="you@example.com"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                data-testid="input-auth-email"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">{t.auth.password}</Label>
+              <div className="relative">
+                <Input
+                  type={showPw ? "text" : "password"}
+                  placeholder="••••••"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  data-testid="input-auth-password"
+                  className="pr-9"
+                />
+                <button type="button" onClick={() => setShowPw(v => !v)}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+                  {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+              <p className="text-[10px] text-muted-foreground">{t.auth.passwordHint}</p>
+            </div>
             <div className="space-y-1.5">
               <Label className="text-xs">{t.auth.confirmPassword}</Label>
               <Input
@@ -163,32 +256,58 @@ function AuthDialog({ open }: { open: boolean }) {
                 data-testid="input-auth-confirm"
               />
             </div>
-          )}
-          {error && (
-            <p className="text-sm text-destructive bg-destructive/10 rounded-lg px-3 py-2" data-testid="text-auth-error">{error}</p>
-          )}
-        </div>
+            {error && <p className="text-sm text-destructive bg-destructive/10 rounded-lg px-3 py-2" data-testid="text-auth-error">{error}</p>}
+            <Button onClick={handleRegister} disabled={isLoading || !username || !email || !password || !confirm}
+              className="w-full bg-primary text-primary-foreground font-bold" data-testid="button-auth-submit">
+              {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : t.auth.register}
+            </Button>
+            <p className="text-center text-xs text-muted-foreground">
+              {t.auth.alreadyHaveAccount}{" "}
+              <button onClick={() => switchTab("login")} className="text-primary hover:underline font-semibold" data-testid="button-auth-switch">
+                {t.auth.login}
+              </button>
+            </p>
+          </div>
+        )}
 
-        <DialogFooter className="flex-col gap-2 sm:flex-col">
-          <Button
-            onClick={tab === "login" ? handleLogin : handleRegister}
-            disabled={isLoading || !username || !password || (tab === "register" && !confirm)}
-            className="w-full bg-primary text-primary-foreground font-bold"
-            data-testid="button-auth-submit"
-          >
-            {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : (tab === "login" ? t.auth.login : t.auth.register)}
-          </Button>
-          <p className="text-center text-xs text-muted-foreground">
-            {tab === "login" ? t.auth.dontHaveAccount : t.auth.alreadyHaveAccount}{" "}
-            <button
-              onClick={() => { setTab(tab === "login" ? "register" : "login"); setError(""); }}
-              className="text-primary hover:underline font-semibold"
-              data-testid="button-auth-switch"
-            >
-              {tab === "login" ? t.auth.register : t.auth.login}
+        {/* Forgot password form */}
+        {tab === "forgot" && (
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">{t.auth.email}</Label>
+              <Input
+                type="email"
+                placeholder="you@example.com"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && handleForgot()}
+                autoFocus
+                data-testid="input-forgot-email"
+              />
+            </div>
+            {error && <p className="text-sm text-destructive bg-destructive/10 rounded-lg px-3 py-2">{error}</p>}
+            <Button onClick={handleForgot} disabled={isLoading || !email}
+              className="w-full bg-primary text-primary-foreground font-bold" data-testid="button-send-reset">
+              {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : t.auth.sendResetLink}
+            </Button>
+            <button onClick={() => switchTab("login")} className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors" data-testid="link-back-to-login">
+              ← {t.auth.backToLogin}
             </button>
-          </p>
-        </DialogFooter>
+          </div>
+        )}
+
+        {/* Sent confirmation */}
+        {tab === "sent" && (
+          <div className="text-center py-4 space-y-3">
+            <div className="w-12 h-12 rounded-full bg-green-500/10 flex items-center justify-center mx-auto">
+              <CheckCircle2 className="w-6 h-6 text-green-400" />
+            </div>
+            <p className="text-sm text-muted-foreground">{t.auth.checkEmailDesc}</p>
+            <button onClick={() => switchTab("login")} className="text-xs text-primary hover:underline font-semibold" data-testid="link-back-to-login-sent">
+              {t.auth.backToLogin}
+            </button>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );

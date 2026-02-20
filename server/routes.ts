@@ -4,6 +4,8 @@ import { storage } from "./storage";
 import { api } from "@shared/routes";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
+import { sendPasswordResetEmail } from "./email";
 
 function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.session.userId) {
@@ -19,26 +21,31 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (!req.session.userId) return res.json(null);
     const user = await storage.getUserById(req.session.userId);
     if (!user) return res.json(null);
-    res.json({ id: user.id, username: user.username });
+    res.json({ id: user.id, username: user.username, email: user.email, displayName: user.displayName });
   });
 
   app.post("/api/auth/register", async (req, res) => {
     try {
       const schema = z.object({
         username: z.string().min(2).max(30).regex(/^[a-zA-Z0-9_\-]+$/, "Username can only contain letters, numbers, _ and -"),
+        email: z.string().email("Invalid email address"),
+        displayName: z.string().max(50).optional(),
         password: z.string().min(4),
       });
-      const { username, password } = schema.parse(req.body);
+      const { username, email, displayName, password } = schema.parse(req.body);
 
-      const existing = await storage.getUserByUsername(username);
-      if (existing) return res.status(409).json({ message: "username_taken" });
+      const existingUsername = await storage.getUserByUsername(username);
+      if (existingUsername) return res.status(409).json({ message: "username_taken" });
+
+      const existingEmail = await storage.getUserByEmail(email);
+      if (existingEmail) return res.status(409).json({ message: "email_taken" });
 
       const passwordHash = await bcrypt.hash(password, 10);
-      const user = await storage.createUser({ username, passwordHash });
+      const user = await storage.createUser({ username, email: email.toLowerCase(), displayName: displayName || null, passwordHash });
 
       req.session.userId = user.id;
       req.session.username = user.username;
-      res.status(201).json({ id: user.id, username: user.username });
+      res.status(201).json({ id: user.id, username: user.username, email: user.email, displayName: user.displayName });
     } catch (err) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       throw err;
@@ -58,7 +65,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       req.session.userId = user.id;
       req.session.username = user.username;
-      res.json({ id: user.id, username: user.username });
+      res.json({ id: user.id, username: user.username, email: user.email, displayName: user.displayName });
     } catch (err) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       throw err;
@@ -69,6 +76,57 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     req.session.destroy(() => {
       res.json({ ok: true });
     });
+  });
+
+  app.post("/api/auth/forgot-password", async (req, res) => {
+    try {
+      const { email } = z.object({ email: z.string().email() }).parse(req.body);
+      const user = await storage.getUserByEmail(email);
+
+      if (user) {
+        const token = crypto.randomBytes(32).toString("hex");
+        const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+        await storage.createPasswordResetToken(user.id, token, expiresAt);
+
+        const proto = req.headers["x-forwarded-proto"] || req.protocol || "https";
+        const host = req.headers["x-forwarded-host"] || req.headers.host || "localhost:5000";
+        const resetUrl = `${proto}://${host}/reset-password?token=${token}`;
+
+        try {
+          await sendPasswordResetEmail(user.email, resetUrl);
+        } catch (emailErr) {
+          console.error("[forgot-password] email send failed:", emailErr);
+        }
+      }
+
+      res.json({ ok: true });
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
+  });
+
+  app.post("/api/auth/reset-password", async (req, res) => {
+    try {
+      const { token, password } = z.object({
+        token: z.string(),
+        password: z.string().min(4),
+      }).parse(req.body);
+
+      const record = await storage.getPasswordResetToken(token);
+      if (!record) return res.status(400).json({ message: "invalid_token" });
+      if (record.usedAt) return res.status(400).json({ message: "token_already_used" });
+      if (new Date() > record.expiresAt) return res.status(400).json({ message: "token_expired" });
+
+      const passwordHash = await bcrypt.hash(password, 10);
+      await storage.updateUserPassword(record.userId, passwordHash);
+      await storage.markTokenUsed(record.id);
+
+      res.json({ ok: true });
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
   });
 
   // Barbecues

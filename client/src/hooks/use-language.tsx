@@ -122,6 +122,9 @@ interface Translations {
     register: string;
     logout: string;
     username: string;
+    email: string;
+    displayName: string;
+    displayNamePlaceholder: string;
     password: string;
     confirmPassword: string;
     loginTitle: string;
@@ -131,12 +134,24 @@ interface Translations {
     alreadyHaveAccount: string;
     dontHaveAccount: string;
     usernameTaken: string;
+    emailTaken: string;
     invalidCredentials: string;
     passwordsNoMatch: string;
     loggedInAs: string;
     profile: string;
     usernameHint: string;
     passwordHint: string;
+    forgotPassword: string;
+    forgotPasswordTitle: string;
+    forgotPasswordSubtitle: string;
+    sendResetLink: string;
+    checkEmail: string;
+    checkEmailDesc: string;
+    newPassword: string;
+    resetPasswordBtn: string;
+    passwordResetSuccess: string;
+    backToLogin: string;
+    tokenInvalid: string;
   };
   user: {
     setupTitle: string;
@@ -203,16 +218,30 @@ const translations: Record<Language, Translations> = {
     },
     auth: {
       login: "Log In", register: "Sign Up", logout: "Log Out",
-      username: "Username", password: "Password", confirmPassword: "Confirm Password",
+      username: "Username", email: "Email address", displayName: "Your name",
+      displayNamePlaceholder: "e.g. Carlos (optional)",
+      password: "Password", confirmPassword: "Confirm Password",
       loginTitle: "Welcome back", registerTitle: "Create account",
       welcomeBack: "Sign in to continue", createAccount: "Join the asado",
       alreadyHaveAccount: "Already have an account?", dontHaveAccount: "Don't have an account?",
       usernameTaken: "That username is already taken",
+      emailTaken: "An account with that email already exists",
       invalidCredentials: "Invalid username or password",
       passwordsNoMatch: "Passwords do not match",
       loggedInAs: "Signed in as", profile: "Profile",
       usernameHint: "2–30 characters, letters/numbers/_/-",
       passwordHint: "At least 4 characters",
+      forgotPassword: "Forgot password?",
+      forgotPasswordTitle: "Reset your password",
+      forgotPasswordSubtitle: "Enter your email and we'll send you a reset link",
+      sendResetLink: "Send reset link",
+      checkEmail: "Check your email",
+      checkEmailDesc: "We've sent a password reset link to your email address.",
+      newPassword: "New password",
+      resetPasswordBtn: "Reset password",
+      passwordResetSuccess: "Password reset! You can now log in.",
+      backToLogin: "Back to login",
+      tokenInvalid: "This reset link is invalid or has expired.",
     },
     user: {
       setupTitle: "Welcome! Pick a username", setupSubtitle: "Your name identifies you across barbecues.",
@@ -268,16 +297,30 @@ const translations: Record<Language, Translations> = {
     },
     auth: {
       login: "Iniciar Sesión", register: "Registrarse", logout: "Cerrar Sesión",
-      username: "Usuario", password: "Contraseña", confirmPassword: "Confirmar Contraseña",
+      username: "Usuario", email: "Correo electrónico", displayName: "Tu nombre",
+      displayNamePlaceholder: "ej. Carlos (opcional)",
+      password: "Contraseña", confirmPassword: "Confirmar Contraseña",
       loginTitle: "Bienvenido de vuelta", registerTitle: "Crear cuenta",
       welcomeBack: "Iniciá sesión para continuar", createAccount: "Unite al asado",
       alreadyHaveAccount: "¿Ya tenés cuenta?", dontHaveAccount: "¿No tenés cuenta?",
       usernameTaken: "Ese nombre de usuario ya está en uso",
+      emailTaken: "Ya existe una cuenta con ese correo",
       invalidCredentials: "Usuario o contraseña inválidos",
       passwordsNoMatch: "Las contraseñas no coinciden",
       loggedInAs: "Sesión iniciada como", profile: "Perfil",
       usernameHint: "2–30 caracteres, letras/números/_/-",
       passwordHint: "Al menos 4 caracteres",
+      forgotPassword: "¿Olvidaste tu contraseña?",
+      forgotPasswordTitle: "Recuperar contraseña",
+      forgotPasswordSubtitle: "Ingresá tu email y te enviaremos un enlace",
+      sendResetLink: "Enviar enlace",
+      checkEmail: "Revisá tu email",
+      checkEmailDesc: "Te enviamos un enlace para restablecer tu contraseña.",
+      newPassword: "Nueva contraseña",
+      resetPasswordBtn: "Restablecer contraseña",
+      passwordResetSuccess: "¡Contraseña restablecida! Ya podés iniciar sesión.",
+      backToLogin: "Volver al inicio",
+      tokenInvalid: "Este enlace es inválido o expiró.",
     },
     user: {
       setupTitle: "¡Bienvenido! Elegí un nombre", setupSubtitle: "Tu nombre te identificará en los asados.",
@@ -333,16 +376,30 @@ const translations: Record<Language, Translations> = {
     },
     auth: {
       login: "Accedi", register: "Registrati", logout: "Esci",
-      username: "Nome utente", password: "Password", confirmPassword: "Conferma Password",
+      username: "Nome utente", email: "Indirizzo email", displayName: "Il tuo nome",
+      displayNamePlaceholder: "es. Carlo (opzionale)",
+      password: "Password", confirmPassword: "Conferma Password",
       loginTitle: "Bentornato", registerTitle: "Crea account",
       welcomeBack: "Accedi per continuare", createAccount: "Unisciti all'asado",
       alreadyHaveAccount: "Hai già un account?", dontHaveAccount: "Non hai un account?",
       usernameTaken: "Questo nome utente è già in uso",
+      emailTaken: "Esiste già un account con questa email",
       invalidCredentials: "Nome utente o password non validi",
       passwordsNoMatch: "Le password non corrispondono",
       loggedInAs: "Connesso come", profile: "Profilo",
       usernameHint: "2–30 caratteri, lettere/numeri/_/-",
       passwordHint: "Almeno 4 caratteri",
+      forgotPassword: "Password dimenticata?",
+      forgotPasswordTitle: "Reimposta la password",
+      forgotPasswordSubtitle: "Inserisci la tua email e ti invieremo un link",
+      sendResetLink: "Invia link",
+      checkEmail: "Controlla la tua email",
+      checkEmailDesc: "Abbiamo inviato un link per reimpostare la password.",
+      newPassword: "Nuova password",
+      resetPasswordBtn: "Reimposta password",
+      passwordResetSuccess: "Password reimpostata! Ora puoi accedere.",
+      backToLogin: "Torna al login",
+      tokenInvalid: "Questo link non è valido o è scaduto.",
     },
     user: {
       setupTitle: "Benvenuto! Scegli un nome", setupSubtitle: "Il tuo nome ti identificherà nei barbecue.",
@@ -398,16 +455,30 @@ const translations: Record<Language, Translations> = {
     },
     auth: {
       login: "Inloggen", register: "Registreren", logout: "Uitloggen",
-      username: "Gebruikersnaam", password: "Wachtwoord", confirmPassword: "Bevestig Wachtwoord",
+      username: "Gebruikersnaam", email: "E-mailadres", displayName: "Jouw naam",
+      displayNamePlaceholder: "bijv. Carlos (optioneel)",
+      password: "Wachtwoord", confirmPassword: "Bevestig Wachtwoord",
       loginTitle: "Welkom terug", registerTitle: "Account aanmaken",
       welcomeBack: "Log in om verder te gaan", createAccount: "Doe mee aan het asado",
       alreadyHaveAccount: "Heb je al een account?", dontHaveAccount: "Heb je geen account?",
       usernameTaken: "Die gebruikersnaam is al in gebruik",
+      emailTaken: "Er bestaat al een account met dat e-mailadres",
       invalidCredentials: "Ongeldige gebruikersnaam of wachtwoord",
       passwordsNoMatch: "Wachtwoorden komen niet overeen",
       loggedInAs: "Ingelogd als", profile: "Profiel",
       usernameHint: "2–30 tekens, letters/cijfers/_/-",
       passwordHint: "Minimaal 4 tekens",
+      forgotPassword: "Wachtwoord vergeten?",
+      forgotPasswordTitle: "Wachtwoord herstellen",
+      forgotPasswordSubtitle: "Vul je e-mail in en we sturen je een link",
+      sendResetLink: "Link versturen",
+      checkEmail: "Controleer je e-mail",
+      checkEmailDesc: "We hebben een herstelkoppeling naar je e-mailadres gestuurd.",
+      newPassword: "Nieuw wachtwoord",
+      resetPasswordBtn: "Wachtwoord herstellen",
+      passwordResetSuccess: "Wachtwoord hersteld! Je kunt nu inloggen.",
+      backToLogin: "Terug naar inloggen",
+      tokenInvalid: "Deze link is ongeldig of verlopen.",
     },
     user: {
       setupTitle: "Welkom! Kies een gebruikersnaam", setupSubtitle: "Je naam identificeert je bij barbecues.",

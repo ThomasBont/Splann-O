@@ -5,11 +5,13 @@ import { Toaster } from "@/components/ui/toaster";
 import { LanguageProvider } from "@/hooks/use-language";
 import NotFound from "@/pages/not-found";
 import Home from "@/pages/home";
+import ResetPassword from "@/pages/reset-password";
 
 function Router() {
   return (
     <Switch>
       <Route path="/" component={Home}/>
+      <Route path="/reset-password" component={ResetPassword}/>
       <Route component={NotFound} />
     </Switch>
   );

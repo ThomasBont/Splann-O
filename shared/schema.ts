@@ -1,6 +1,13 @@
-import { pgTable, text, serial, numeric, integer, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, numeric, integer, timestamp, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+
+export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
+  username: text("username").notNull().unique(),
+  passwordHash: text("password_hash").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
 
 export const barbecues = pgTable("barbecues", {
   id: serial("id").primaryKey(),
@@ -8,6 +15,7 @@ export const barbecues = pgTable("barbecues", {
   date: timestamp("date").notNull().defaultNow(),
   currency: text("currency").notNull().default("EUR"),
   creatorId: text("creator_id"),
+  isPublic: boolean("is_public").notNull().default(true),
 });
 
 export const participants = pgTable("participants", {
@@ -27,11 +35,15 @@ export const expenses = pgTable("expenses", {
   amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
 });
 
+export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertBarbecueSchema = createInsertSchema(barbecues).omit({ id: true });
 export const insertParticipantSchema = createInsertSchema(participants).omit({ id: true });
 export const insertExpenseSchema = createInsertSchema(expenses).omit({ id: true }).extend({
   amount: z.union([z.string(), z.number()]),
 });
+
+export type User = typeof users.$inferSelect;
+export type InsertUser = z.infer<typeof insertUserSchema>;
 
 export type Barbecue = typeof barbecues.$inferSelect;
 export type InsertBarbecue = z.infer<typeof insertBarbecueSchema>;

@@ -16,7 +16,13 @@ export function useBarbecues() {
 export function useCreateBarbecue() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (data: { name: string; date: string; currency: string; creatorId?: string }) => {
+    mutationFn: async (data: {
+      name: string;
+      date: string;
+      currency: string;
+      creatorId?: string;
+      isPublic?: boolean;
+    }) => {
       const res = await fetch(api.barbecues.create.path, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

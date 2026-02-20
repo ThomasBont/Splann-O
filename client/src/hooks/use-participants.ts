@@ -31,6 +31,19 @@ export function usePendingRequests(bbqId: number | null) {
   });
 }
 
+export function useInvitedParticipants(bbqId: number | null) {
+  return useQuery({
+    queryKey: ['/api/barbecues', bbqId, 'invited'],
+    queryFn: async () => {
+      if (!bbqId) return [];
+      const res = await fetch(`/api/barbecues/${bbqId}/invited`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!bbqId,
+  });
+}
+
 export function useMemberships(userId: string | null) {
   return useQuery<Membership[]>({
     queryKey: ['/api/memberships', userId],
@@ -85,6 +98,26 @@ export function useJoinBarbecue() {
   });
 }
 
+export function useInviteParticipant(bbqId: number | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (username: string) => {
+      if (!bbqId) throw new Error("No BBQ selected");
+      const res = await fetch(`/api/barbecues/${bbqId}/invite`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Failed to invite");
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/barbecues', bbqId, 'invited'] });
+    },
+  });
+}
+
 export function useAcceptParticipant(bbqId: number | null) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -98,6 +131,38 @@ export function useAcceptParticipant(bbqId: number | null) {
       queryClient.invalidateQueries({ queryKey: ['/api/barbecues', bbqId, 'participants'] });
       queryClient.invalidateQueries({ queryKey: ['/api/barbecues', bbqId, 'pending'] });
       queryClient.invalidateQueries({ queryKey: ['/api/memberships'] });
+    },
+  });
+}
+
+export function useAcceptInvite() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id }: { id: number; bbqId: number }) => {
+      const url = buildUrl(api.participants.accept.path, { id });
+      const res = await fetch(url, { method: "PATCH" });
+      if (!res.ok) throw new Error("Failed to accept invite");
+      return res.json();
+    },
+    onSuccess: (_, { bbqId }) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/barbecues', bbqId, 'participants'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/memberships'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/barbecues'] });
+    },
+  });
+}
+
+export function useDeclineInvite() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id }: { id: number; bbqId: number }) => {
+      const url = buildUrl(api.participants.delete.path, { id });
+      const res = await fetch(url, { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed to decline");
+    },
+    onSuccess: (_, { bbqId }) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/memberships'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/barbecues'] });
     },
   });
 }

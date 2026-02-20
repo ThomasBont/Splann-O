@@ -9,23 +9,53 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
   
+  // Barbecues
+  app.get(api.barbecues.list.path, async (req, res) => {
+    const items = await storage.getBarbecues();
+    res.json(items);
+  });
+
+  app.post(api.barbecues.create.path, async (req, res) => {
+    try {
+      const input = api.barbecues.create.input.parse(req.body);
+      const created = await storage.createBarbecue(input);
+      res.status(201).json(created);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        return res.status(400).json({ message: err.errors[0].message });
+      }
+      throw err;
+    }
+  });
+
+  app.get(api.barbecues.get.path, async (req, res) => {
+    const bbq = await storage.getBarbecue(Number(req.params.id));
+    if (!bbq) return res.status(404).json({ message: "BBQ not found" });
+    res.json(bbq);
+  });
+
+  app.delete(api.barbecues.delete.path, async (req, res) => {
+    await storage.deleteBarbecue(Number(req.params.id));
+    res.status(204).send();
+  });
+
   // Participants
   app.get(api.participants.list.path, async (req, res) => {
-    const items = await storage.getParticipants();
+    const items = await storage.getParticipants(Number(req.params.bbqId));
     res.json(items);
   });
 
   app.post(api.participants.create.path, async (req, res) => {
     try {
       const input = api.participants.create.input.parse(req.body);
-      const created = await storage.createParticipant(input);
+      const created = await storage.createParticipant({
+        ...input,
+        barbecueId: Number(req.params.bbqId)
+      });
       res.status(201).json(created);
     } catch (err) {
       if (err instanceof z.ZodError) {
-        return res.status(400).json({
-          message: err.errors[0].message,
-          field: err.errors[0].path.join('.'),
-        });
+        return res.status(400).json({ message: err.errors[0].message });
       }
       throw err;
     }
@@ -38,7 +68,7 @@ export async function registerRoutes(
 
   // Expenses
   app.get(api.expenses.list.path, async (req, res) => {
-    const items = await storage.getExpenses();
+    const items = await storage.getExpenses(Number(req.params.bbqId));
     res.json(items);
   });
 
@@ -49,14 +79,14 @@ export async function registerRoutes(
         participantId: z.coerce.number(),
       });
       const input = bodySchema.parse(req.body);
-      const created = await storage.createExpense(input);
+      const created = await storage.createExpense({
+        ...input,
+        barbecueId: Number(req.params.bbqId)
+      });
       res.status(201).json(created);
     } catch (err) {
       if (err instanceof z.ZodError) {
-        return res.status(400).json({
-          message: err.errors[0].message,
-          field: err.errors[0].path.join('.'),
-        });
+        return res.status(400).json({ message: err.errors[0].message });
       }
       throw err;
     }
@@ -70,16 +100,11 @@ export async function registerRoutes(
       });
       const input = bodySchema.parse(req.body);
       const updated = await storage.updateExpense(Number(req.params.id), input);
-      if (!updated) {
-        return res.status(404).json({ message: "Expense not found" });
-      }
+      if (!updated) return res.status(404).json({ message: "Expense not found" });
       res.json(updated);
     } catch (err) {
       if (err instanceof z.ZodError) {
-        return res.status(400).json({
-          message: err.errors[0].message,
-          field: err.errors[0].path.join('.'),
-        });
+        return res.status(400).json({ message: err.errors[0].message });
       }
       throw err;
     }
@@ -89,24 +114,6 @@ export async function registerRoutes(
     await storage.deleteExpense(Number(req.params.id));
     res.status(204).send();
   });
-
-  // Seed database if empty
-  setTimeout(async () => {
-    try {
-      const participants = await storage.getParticipants();
-      if (participants.length === 0) {
-        const p1 = await storage.createParticipant({ name: "Alex" });
-        const p2 = await storage.createParticipant({ name: "Sam" });
-        const p3 = await storage.createParticipant({ name: "Jordan" });
-        
-        await storage.createExpense({ participantId: p1.id, category: "Meat", item: "Ribeye steaks", amount: 45.50 });
-        await storage.createExpense({ participantId: p2.id, category: "Drinks", item: "Craft Beer", amount: 24.00 });
-        await storage.createExpense({ participantId: p3.id, category: "Charcoal", item: "Lump charcoal", amount: 12.00 });
-      }
-    } catch (e) {
-      console.error("Failed to seed database:", e);
-    }
-  }, 1000);
 
   return httpServer;
 }

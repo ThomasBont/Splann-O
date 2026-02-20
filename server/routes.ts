@@ -45,7 +45,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       req.session.userId = user.id;
       req.session.username = user.username;
-      res.status(201).json({ id: user.id, username: user.username, email: user.email, displayName: user.displayName });
+      req.session.save((err) => {
+        if (err) throw err;
+        res.status(201).json({ id: user.id, username: user.username, email: user.email, displayName: user.displayName });
+      });
     } catch (err) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       throw err;
@@ -65,7 +68,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       req.session.userId = user.id;
       req.session.username = user.username;
-      res.json({ id: user.id, username: user.username, email: user.email, displayName: user.displayName });
+      req.session.save((err) => {
+        if (err) throw err;
+        res.json({ id: user.id, username: user.username, email: user.email, displayName: user.displayName });
+      });
     } catch (err) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       throw err;

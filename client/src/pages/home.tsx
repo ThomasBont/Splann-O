@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useLanguage, CURRENCIES, LANGUAGES, type CurrencyCode, convertCurrency } from "@/hooks/use-language";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -10,6 +10,8 @@ import {
 } from "@/hooks/use-participants";
 import { useExpenses, useDeleteExpense } from "@/hooks/use-expenses";
 import { useBarbecues, useCreateBarbecue, useDeleteBarbecue } from "@/hooks/use-bbq-data";
+import { useFriends, useFriendRequests, useAllPendingRequests, useAcceptFriendRequest, useRemoveFriend } from "@/hooks/use-friends";
+import { ProfileDialog } from "@/components/profile-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,6 +22,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AddPersonDialog } from "@/components/add-person-dialog";
 import { AddExpenseDialog } from "@/components/add-expense-dialog";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
@@ -29,11 +32,12 @@ import {
   CalendarDays, Loader2,
   Beef, Wheat, Beer, Zap, Car, Package,
   UserCheck, UserX, LogOut, Crown, Clock, UserCircle,
-  Lock, Globe, UserPlus, X, Eye, EyeOff,
+  Lock, Globe, UserPlus, X, Eye, EyeOff, ChevronDown, ChevronUp,
+  Bell, UserPlus2, Search, Heart,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
-import type { ExpenseWithParticipant, Barbecue, Participant } from "@shared/schema";
+import type { ExpenseWithParticipant, Barbecue, Participant, FriendInfo, PendingRequestWithBbq } from "@shared/schema";
 
 const CATEGORY_COLORS: Record<string, string> = {
   Meat: '#e05c2a', Bread: '#f0c040', Drinks: '#3b82f6',
@@ -317,46 +321,70 @@ function AuthDialog({ open }: { open: boolean }) {
 // ─── Currency Conversion Bar ──────────────────────────────────────────────────
 function CurrencyBar({ total, fairShare, bbqCurrency }: { total: number; fairShare: number; bbqCurrency: CurrencyCode }) {
   const { t } = useLanguage();
+  const [expanded, setExpanded] = useState(() => {
+    try { return localStorage.getItem('currencyBarExpanded') !== 'false'; } catch { return true; }
+  });
+  const toggle = () => {
+    const next = !expanded;
+    setExpanded(next);
+    try { localStorage.setItem('currencyBarExpanded', String(next)); } catch {}
+  };
   return (
     <div className="bg-card/60 border border-white/5 rounded-2xl p-4">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-muted-foreground">{t.bbq.currencyConversion}</h3>
-        <span className="text-[10px] text-muted-foreground bg-secondary/40 px-2 py-0.5 rounded-full">{t.bbq.approxRates}</span>
-      </div>
-      <div className="overflow-x-auto -mx-1 px-1 pb-1">
-        <div className="flex gap-2.5 min-w-max">
-          {CURRENCIES.map(cur => {
-            const convTotal = convertCurrency(total, bbqCurrency, cur.code);
-            const convShare = convertCurrency(fairShare, bbqCurrency, cur.code);
-            const isNative = cur.code === bbqCurrency;
-            return (
-              <div
-                key={cur.code}
-                className={`flex-shrink-0 rounded-xl border px-3 py-2.5 min-w-[130px] transition-colors ${
-                  isNative ? 'border-primary/40 bg-primary/8' : 'border-white/5 bg-secondary/20'
-                }`}
-                data-testid={`currency-card-${cur.code}`}
-              >
-                <div className="flex items-center gap-1.5 mb-2">
-                  <span className="text-xs font-bold text-foreground">{cur.symbol}</span>
-                  <span className={`text-xs font-semibold ${isNative ? 'text-primary' : 'text-muted-foreground'}`}>{cur.code}</span>
-                  {isNative && <span className="text-[9px] bg-primary/20 text-primary px-1 rounded font-bold">native</span>}
-                </div>
-                <div className="space-y-1">
-                  <div>
-                    <div className="text-[9px] text-muted-foreground uppercase tracking-wide">{t.totalSpent}</div>
-                    <div className="text-sm font-bold">{cur.symbol}{convTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                  </div>
-                  <div>
-                    <div className="text-[9px] text-muted-foreground uppercase tracking-wide">{t.bbq.yourShare}</div>
-                    <div className="text-sm font-semibold text-primary">{cur.symbol}{convShare.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+      <button
+        onClick={toggle}
+        className="flex items-center justify-between w-full cursor-pointer group"
+        data-testid="button-toggle-currency"
+      >
+        <h3 className="text-sm font-semibold text-muted-foreground group-hover:text-foreground transition-colors">{t.bbq.currencyConversion}</h3>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-muted-foreground bg-secondary/40 px-2 py-0.5 rounded-full">{t.bbq.approxRates}</span>
+          {expanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
         </div>
-      </div>
+      </button>
+      <AnimatePresence>
+        {expanded && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }} className="overflow-hidden"
+          >
+            <div className="overflow-x-auto -mx-1 px-1 pb-1 mt-3">
+              <div className="flex gap-2.5 min-w-max">
+                {CURRENCIES.map(cur => {
+                  const convTotal = convertCurrency(total, bbqCurrency, cur.code);
+                  const convShare = convertCurrency(fairShare, bbqCurrency, cur.code);
+                  const isNative = cur.code === bbqCurrency;
+                  return (
+                    <div
+                      key={cur.code}
+                      className={`flex-shrink-0 rounded-xl border px-3 py-2.5 min-w-[130px] transition-colors ${
+                        isNative ? 'border-primary/40 bg-primary/8' : 'border-white/5 bg-secondary/20'
+                      }`}
+                      data-testid={`currency-card-${cur.code}`}
+                    >
+                      <div className="flex items-center gap-1.5 mb-2">
+                        <span className="text-xs font-bold text-foreground">{cur.symbol}</span>
+                        <span className={`text-xs font-semibold ${isNative ? 'text-primary' : 'text-muted-foreground'}`}>{cur.code}</span>
+                        {isNative && <span className="text-[9px] bg-primary/20 text-primary px-1 rounded font-bold">native</span>}
+                      </div>
+                      <div className="space-y-1">
+                        <div>
+                          <div className="text-[9px] text-muted-foreground uppercase tracking-wide">{t.totalSpent}</div>
+                          <div className="text-sm font-bold">{cur.symbol}{convTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                        </div>
+                        <div>
+                          <div className="text-[9px] text-muted-foreground uppercase tracking-wide">{t.bbq.yourShare}</div>
+                          <div className="text-sm font-semibold text-primary">{cur.symbol}{convShare.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -398,6 +426,25 @@ export default function Home() {
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<ExpenseWithParticipant | null>(null);
   const [inviteUsername, setInviteUsername] = useState("");
+
+  const { data: friends = [] } = useFriends();
+  const { data: friendRequests = [] } = useFriendRequests();
+  const { data: allPendingRequests = [] } = useAllPendingRequests();
+  const acceptFriendReq = useAcceptFriendRequest();
+  const removeFriendMut = useRemoveFriend();
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const prevPendingCountRef = useRef(allPendingRequests.length);
+
+  useEffect(() => {
+    if (allPendingRequests.length > prevPendingCountRef.current) {
+      toast({
+        title: t.notifications.joinRequest,
+        description: `${allPendingRequests.length - prevPendingCountRef.current} ${t.notifications.wantsToJoin}`,
+      });
+    }
+    prevPendingCountRef.current = allPendingRequests.length;
+  }, [allPendingRequests.length]);
 
   const { data: barbecues = [], isLoading: isLoadingBbqs } = useBarbecues();
   const createBbq = useCreateBarbecue();
@@ -587,14 +634,74 @@ export default function Home() {
             {/* User area */}
             {user ? (
               <div className="flex items-center gap-1">
+                {/* Notification Bell */}
+                <Popover open={notifOpen} onOpenChange={setNotifOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="relative"
+                      data-testid="button-notifications"
+                    >
+                      <Bell className="w-4 h-4" />
+                      {allPendingRequests.length > 0 && (
+                        <span className="absolute -top-0.5 -right-0.5 bg-destructive text-destructive-foreground text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center" data-testid="badge-notifications">
+                          {allPendingRequests.length}
+                        </span>
+                      )}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent align="end" className="w-72 p-3 space-y-2">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{t.user.pendingRequests}</p>
+                    {allPendingRequests.length === 0 ? (
+                      <p className="text-xs text-muted-foreground text-center py-2">{t.friends.noRequests}</p>
+                    ) : (
+                      allPendingRequests.map((req: PendingRequestWithBbq) => (
+                        <div key={req.id} className="flex items-center justify-between gap-2 bg-secondary/20 border border-white/5 rounded-xl px-2.5 py-2" data-testid={`notif-request-${req.id}`}>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium truncate">{req.name}</p>
+                            <p className="text-[11px] text-muted-foreground truncate">{t.notifications.wantsToJoin} {req.bbqName}</p>
+                          </div>
+                          <div className="flex gap-1 flex-shrink-0">
+                            <Button size="icon" variant="ghost"
+                              onClick={() => acceptParticipant.mutate(req.id)}
+                              data-testid={`button-notif-accept-${req.id}`}>
+                              <UserCheck className="w-3.5 h-3.5 text-green-400" />
+                            </Button>
+                            <Button size="icon" variant="ghost"
+                              onClick={() => rejectParticipant.mutate(req.id)}
+                              data-testid={`button-notif-reject-${req.id}`}>
+                              <UserX className="w-3.5 h-3.5 text-red-400" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </PopoverContent>
+                </Popover>
+
+                {/* Profile / Friends Button */}
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="relative"
+                  onClick={() => setIsProfileOpen(true)}
+                  data-testid="button-profile"
+                >
+                  <UserCircle className="w-4 h-4" />
+                  {friendRequests.length > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 bg-primary text-primary-foreground text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center" data-testid="badge-friend-requests">
+                      {friendRequests.length}
+                    </span>
+                  )}
+                </Button>
+
                 <span className="hidden sm:flex items-center gap-1.5 text-xs text-muted-foreground px-2 py-1.5 rounded-lg bg-white/5">
-                  <UserCircle className="w-3.5 h-3.5" />
                   <span className="font-medium max-w-[80px] truncate" data-testid="text-username">{user.username}</span>
                 </span>
                 <Button
                   size="icon"
                   variant="ghost"
-                  className="w-8 h-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                   onClick={() => logout.mutate()}
                   title={t.auth.logout}
                   data-testid="button-logout"
@@ -803,6 +910,39 @@ export default function Home() {
                 {inviteParticipant.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : t.bbq.invite}
               </Button>
             </div>
+            {friends.length > 0 && (
+              <div>
+                <p className="text-xs text-muted-foreground mb-2 flex items-center gap-1.5">
+                  <Heart className="w-3 h-3" />
+                  {t.friends.inviteFromFriends}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {friends.map((f: FriendInfo) => {
+                    const alreadyInvited = invitedParticipants.some((p: Participant) => p.userId === f.username) ||
+                      participants.some((p: Participant) => p.userId === f.username);
+                    return (
+                      <div key={f.friendshipId} className="flex items-center gap-2 bg-secondary/20 border border-white/5 rounded-lg px-2.5 py-1.5" data-testid={`friend-invite-${f.friendshipId}`}>
+                        <UserCircle className="w-3.5 h-3.5 text-muted-foreground" />
+                        <span className="text-sm font-medium">{f.displayName || f.username}</span>
+                        {alreadyInvited ? (
+                          <span className="text-[10px] text-muted-foreground">{t.bbq.invited}</span>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => inviteParticipant.mutate(f.username)}
+                            disabled={inviteParticipant.isPending}
+                            data-testid={`button-invite-friend-${f.friendshipId}`}
+                          >
+                            <UserPlus2 className="w-3.5 h-3.5" />
+                          </Button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             {invitedParticipants.length > 0 && (
               <div>
                 <p className="text-xs text-muted-foreground mb-2">{t.bbq.pendingInvites}:</p>
@@ -1161,6 +1301,9 @@ export default function Home() {
         editingExpense={editingExpense}
         currencySymbol={currencyInfo.symbol}
       />
+
+      {/* Profile / Friends Dialog */}
+      <ProfileDialog open={isProfileOpen} onOpenChange={setIsProfileOpen} />
     </div>
   );
 }

@@ -5,6 +5,7 @@ import {
   participants,
   expenses,
   passwordResetTokens,
+  friendships,
   type User,
   type Barbecue,
   type Participant,
@@ -16,8 +17,10 @@ import {
   type ExpenseWithParticipant,
   type Membership,
   type PasswordResetToken,
+  type FriendInfo,
+  type PendingRequestWithBbq,
 } from "@shared/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, or, ne } from "drizzle-orm";
 
 export interface IStorage {
   createUser(u: InsertUser): Promise<User>;
@@ -50,6 +53,16 @@ export interface IStorage {
   createExpense(e: InsertExpense): Promise<Expense>;
   updateExpense(id: number, updates: Partial<InsertExpense>): Promise<Expense | undefined>;
   deleteExpense(id: number): Promise<void>;
+
+  sendFriendRequest(requesterId: number, addresseeId: number): Promise<void>;
+  acceptFriendRequest(friendshipId: number): Promise<void>;
+  declineFriendRequest(friendshipId: number): Promise<void>;
+  removeFriend(friendshipId: number): Promise<void>;
+  getFriends(userId: number): Promise<FriendInfo[]>;
+  getFriendRequests(userId: number): Promise<FriendInfo[]>;
+  getSentFriendRequests(userId: number): Promise<FriendInfo[]>;
+
+  getAllPendingRequestsForCreator(username: string): Promise<PendingRequestWithBbq[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -197,6 +210,87 @@ export class DatabaseStorage implements IStorage {
 
   async deleteExpense(id: number): Promise<void> {
     await db.delete(expenses).where(eq(expenses.id, id));
+  }
+
+  async sendFriendRequest(requesterId: number, addresseeId: number): Promise<void> {
+    const existing = await db.select().from(friendships).where(
+      or(
+        and(eq(friendships.requesterId, requesterId), eq(friendships.addresseeId, addresseeId)),
+        and(eq(friendships.requesterId, addresseeId), eq(friendships.addresseeId, requesterId))
+      )
+    );
+    if (existing.length > 0) throw new Error("friendship_exists");
+    await db.insert(friendships).values({ requesterId, addresseeId, status: "pending" });
+  }
+
+  async acceptFriendRequest(friendshipId: number): Promise<void> {
+    await db.update(friendships).set({ status: "accepted" }).where(eq(friendships.id, friendshipId));
+  }
+
+  async declineFriendRequest(friendshipId: number): Promise<void> {
+    await db.delete(friendships).where(eq(friendships.id, friendshipId));
+  }
+
+  async removeFriend(friendshipId: number): Promise<void> {
+    await db.delete(friendships).where(eq(friendships.id, friendshipId));
+  }
+
+  async getFriends(userId: number): Promise<FriendInfo[]> {
+    const rows = await db.select().from(friendships).where(
+      and(
+        or(eq(friendships.requesterId, userId), eq(friendships.addresseeId, userId)),
+        eq(friendships.status, "accepted")
+      )
+    );
+    const result: FriendInfo[] = [];
+    for (const row of rows) {
+      const friendUserId = row.requesterId === userId ? row.addresseeId : row.requesterId;
+      const user = await this.getUserById(friendUserId);
+      if (user) {
+        result.push({ friendshipId: row.id, userId: user.id, username: user.username, displayName: user.displayName, status: "accepted" });
+      }
+    }
+    return result;
+  }
+
+  async getFriendRequests(userId: number): Promise<FriendInfo[]> {
+    const rows = await db.select().from(friendships).where(
+      and(eq(friendships.addresseeId, userId), eq(friendships.status, "pending"))
+    );
+    const result: FriendInfo[] = [];
+    for (const row of rows) {
+      const user = await this.getUserById(row.requesterId);
+      if (user) {
+        result.push({ friendshipId: row.id, userId: user.id, username: user.username, displayName: user.displayName, status: "pending" });
+      }
+    }
+    return result;
+  }
+
+  async getSentFriendRequests(userId: number): Promise<FriendInfo[]> {
+    const rows = await db.select().from(friendships).where(
+      and(eq(friendships.requesterId, userId), eq(friendships.status, "pending"))
+    );
+    const result: FriendInfo[] = [];
+    for (const row of rows) {
+      const user = await this.getUserById(row.addresseeId);
+      if (user) {
+        result.push({ friendshipId: row.id, userId: user.id, username: user.username, displayName: user.displayName, status: "pending" });
+      }
+    }
+    return result;
+  }
+
+  async getAllPendingRequestsForCreator(username: string): Promise<PendingRequestWithBbq[]> {
+    const creatorBbqs = await db.select().from(barbecues).where(eq(barbecues.creatorId, username));
+    const result: PendingRequestWithBbq[] = [];
+    for (const bbq of creatorBbqs) {
+      const pending = await this.getPendingRequests(bbq.id);
+      for (const p of pending) {
+        result.push({ ...p, bbqName: bbq.name });
+      }
+    }
+    return result;
   }
 }
 

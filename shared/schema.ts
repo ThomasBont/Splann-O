@@ -45,6 +45,14 @@ export const expenses = pgTable("expenses", {
   amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
 });
 
+export const friendships = pgTable("friendships", {
+  id: serial("id").primaryKey(),
+  requesterId: integer("requester_id").references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  addresseeId: integer("addressee_id").references(() => users.id, { onDelete: 'cascade' }).notNull(),
+  status: text("status").notNull().default("pending"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertBarbecueSchema = createInsertSchema(barbecues).omit({ id: true });
 export const insertParticipantSchema = createInsertSchema(participants).omit({ id: true });
@@ -70,9 +78,23 @@ export type ExpenseWithParticipant = Expense & {
   participantName: string;
 };
 
+export type Friendship = typeof friendships.$inferSelect;
+
+export type FriendInfo = {
+  friendshipId: number;
+  userId: number;
+  username: string;
+  displayName: string | null;
+  status: string;
+};
+
 export type Membership = {
   bbqId: number;
   participantId: number;
   status: string;
   name: string;
+};
+
+export type PendingRequestWithBbq = Participant & {
+  bbqName: string;
 };

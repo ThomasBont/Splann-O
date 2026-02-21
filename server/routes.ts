@@ -1,6 +1,8 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
+import { db } from "./db";
+import { users } from "@shared/schema";
 import { api } from "@shared/routes";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
@@ -299,6 +301,67 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.delete(api.expenses.delete.path, async (req, res) => {
     await storage.deleteExpense(Number(req.params.id));
     res.status(204).send();
+  });
+
+  // Friends
+  app.get("/api/friends", requireAuth, async (req, res) => {
+    const friends = await storage.getFriends(req.session.userId!);
+    res.json(friends);
+  });
+
+  app.get("/api/friends/requests", requireAuth, async (req, res) => {
+    const requests = await storage.getFriendRequests(req.session.userId!);
+    res.json(requests);
+  });
+
+  app.get("/api/friends/sent", requireAuth, async (req, res) => {
+    const sent = await storage.getSentFriendRequests(req.session.userId!);
+    res.json(sent);
+  });
+
+  app.post("/api/friends/request", requireAuth, async (req, res) => {
+    try {
+      const { username } = z.object({ username: z.string() }).parse(req.body);
+      const target = await storage.getUserByUsername(username);
+      if (!target) return res.status(404).json({ message: "user_not_found" });
+      if (target.id === req.session.userId) return res.status(400).json({ message: "cannot_friend_self" });
+      await storage.sendFriendRequest(req.session.userId!, target.id);
+      res.status(201).json({ ok: true });
+    } catch (err: any) {
+      if (err.message === "friendship_exists") return res.status(409).json({ message: "friendship_exists" });
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
+  });
+
+  app.patch("/api/friends/:id/accept", requireAuth, async (req, res) => {
+    await storage.acceptFriendRequest(Number(req.params.id));
+    res.json({ ok: true });
+  });
+
+  app.delete("/api/friends/:id", requireAuth, async (req, res) => {
+    await storage.removeFriend(Number(req.params.id));
+    res.status(204).send();
+  });
+
+  // All pending requests across creator's BBQs
+  app.get("/api/pending-requests/all", requireAuth, async (req, res) => {
+    const username = req.session.username;
+    if (!username) return res.json([]);
+    const all = await storage.getAllPendingRequestsForCreator(username);
+    res.json(all);
+  });
+
+  // Search users (for adding friends)
+  app.get("/api/users/search", requireAuth, async (req, res) => {
+    const query = (req.query.q as string || "").toLowerCase().trim();
+    if (!query || query.length < 2) return res.json([]);
+    const allUsers = await db.select({ id: users.id, username: users.username, displayName: users.displayName }).from(users);
+    const results = allUsers.filter(u =>
+      u.id !== req.session.userId &&
+      (u.username.toLowerCase().includes(query) || (u.displayName && u.displayName.toLowerCase().includes(query)))
+    ).slice(0, 10);
+    res.json(results);
   });
 
   return httpServer;

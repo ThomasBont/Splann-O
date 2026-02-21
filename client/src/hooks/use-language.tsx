@@ -169,6 +169,29 @@ interface Translations {
     changeUsername: string;
     host: string;
   };
+  friends: {
+    title: string;
+    addFriend: string;
+    searchPlaceholder: string;
+    sendRequest: string;
+    requestSent: string;
+    friendRequests: string;
+    noFriends: string;
+    noRequests: string;
+    removeFriend: string;
+    alreadyFriends: string;
+    userNotFound: string;
+    cannotFriendSelf: string;
+    friendshipExists: string;
+    profile: string;
+    inviteFromFriends: string;
+  };
+  notifications: {
+    joinRequest: string;
+    wantsToJoin: string;
+    newFriendRequest: string;
+    fromUser: string;
+  };
 }
 
 const translations: Record<Language, Translations> = {
@@ -250,6 +273,29 @@ const translations: Record<Language, Translations> = {
       pendingRequests: "Join Requests", accept: "Accept", reject: "Reject",
       leave: "Leave", hi: "Hi", changeUsername: "Change name", host: "Host",
     },
+    friends: {
+      title: "Friends",
+      addFriend: "Add Friend",
+      searchPlaceholder: "Search by username...",
+      sendRequest: "Send Request",
+      requestSent: "Request Sent",
+      friendRequests: "Friend Requests",
+      noFriends: "No friends yet",
+      noRequests: "No pending requests",
+      removeFriend: "Remove Friend",
+      alreadyFriends: "Already friends",
+      userNotFound: "User not found",
+      cannotFriendSelf: "You can't add yourself",
+      friendshipExists: "Request already exists",
+      profile: "Profile",
+      inviteFromFriends: "Invite from friends",
+    },
+    notifications: {
+      joinRequest: "Join Request",
+      wantsToJoin: "wants to join",
+      newFriendRequest: "New friend request",
+      fromUser: "from",
+    },
   },
   es: {
     title: "La App de Asado Ortega",
@@ -328,6 +374,29 @@ const translations: Record<Language, Translations> = {
       joinBbq: "Unirse", pending: "Pendiente", joined: "Unido",
       pendingRequests: "Solicitudes", accept: "Aceptar", reject: "Rechazar",
       leave: "Salir", hi: "Hola", changeUsername: "Cambiar nombre", host: "Anfitrión",
+    },
+    friends: {
+      title: "Amigos",
+      addFriend: "Agregar Amigo",
+      searchPlaceholder: "Buscar por usuario...",
+      sendRequest: "Enviar Solicitud",
+      requestSent: "Solicitud Enviada",
+      friendRequests: "Solicitudes de Amistad",
+      noFriends: "Aún no tenés amigos",
+      noRequests: "Sin solicitudes pendientes",
+      removeFriend: "Eliminar Amigo",
+      alreadyFriends: "Ya son amigos",
+      userNotFound: "Usuario no encontrado",
+      cannotFriendSelf: "No podés agregarte a vos mismo",
+      friendshipExists: "La solicitud ya existe",
+      profile: "Perfil",
+      inviteFromFriends: "Invitar amigos",
+    },
+    notifications: {
+      joinRequest: "Solicitud de Unión",
+      wantsToJoin: "quiere unirse a",
+      newFriendRequest: "Nueva solicitud de amistad",
+      fromUser: "de",
     },
   },
   it: {
@@ -408,6 +477,29 @@ const translations: Record<Language, Translations> = {
       pendingRequests: "Richieste", accept: "Accetta", reject: "Rifiuta",
       leave: "Esci", hi: "Ciao", changeUsername: "Cambia nome", host: "Organizzatore",
     },
+    friends: {
+      title: "Amici",
+      addFriend: "Aggiungi Amico",
+      searchPlaceholder: "Cerca per username...",
+      sendRequest: "Invia Richiesta",
+      requestSent: "Richiesta Inviata",
+      friendRequests: "Richieste di Amicizia",
+      noFriends: "Nessun amico ancora",
+      noRequests: "Nessuna richiesta",
+      removeFriend: "Rimuovi Amico",
+      alreadyFriends: "Già amici",
+      userNotFound: "Utente non trovato",
+      cannotFriendSelf: "Non puoi aggiungere te stesso",
+      friendshipExists: "Richiesta già inviata",
+      profile: "Profilo",
+      inviteFromFriends: "Invita amici",
+    },
+    notifications: {
+      joinRequest: "Richiesta di Partecipazione",
+      wantsToJoin: "vuole unirsi a",
+      newFriendRequest: "Nuova richiesta di amicizia",
+      fromUser: "da",
+    },
   },
   nl: {
     title: "The Ortega Asado App",
@@ -486,6 +578,29 @@ const translations: Record<Language, Translations> = {
       joinBbq: "Deelnemen", pending: "In behandeling", joined: "Deelnemer",
       pendingRequests: "Aanvragen", accept: "Accepteren", reject: "Afwijzen",
       leave: "Verlaten", hi: "Hoi", changeUsername: "Naam wijzigen", host: "Gastheer",
+    },
+    friends: {
+      title: "Vrienden",
+      addFriend: "Vriend Toevoegen",
+      searchPlaceholder: "Zoek op gebruikersnaam...",
+      sendRequest: "Verzoek Versturen",
+      requestSent: "Verzoek Verstuurd",
+      friendRequests: "Vriendschapsverzoeken",
+      noFriends: "Nog geen vrienden",
+      noRequests: "Geen verzoeken",
+      removeFriend: "Vriend Verwijderen",
+      alreadyFriends: "Al bevriend",
+      userNotFound: "Gebruiker niet gevonden",
+      cannotFriendSelf: "Je kunt jezelf niet toevoegen",
+      friendshipExists: "Verzoek bestaat al",
+      profile: "Profiel",
+      inviteFromFriends: "Vrienden uitnodigen",
+    },
+    notifications: {
+      joinRequest: "Deelnameverzoek",
+      wantsToJoin: "wil deelnemen aan",
+      newFriendRequest: "Nieuw vriendschapsverzoek",
+      fromUser: "van",
     },
   },
 };

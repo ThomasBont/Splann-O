@@ -212,6 +212,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const bodySchema = api.barbecues.create.input.extend({ date: z.coerce.date() });
       const input = bodySchema.parse(req.body);
       const created = await storage.createBarbecue(input);
+      if (input.creatorId && input.creatorId.trim()) {
+        await storage.createParticipant({
+          barbecueId: created.id,
+          name: input.creatorId.trim(),
+          userId: input.creatorId.trim(),
+          status: "accepted",
+        });
+      }
       res.status(201).json(created);
     } catch (err) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });

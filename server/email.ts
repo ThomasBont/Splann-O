@@ -1,9 +1,9 @@
-export async function sendWelcomeEmail(toEmail: string, displayName: string): Promise<void> {
+export async function sendWelcomeEmail(toEmail: string, displayName: string): Promise<{ sent: boolean }> {
   const RESEND_API_KEY = process.env.RESEND_API_KEY;
 
   if (!RESEND_API_KEY) {
     console.log(`[email stub] Welcome email for ${toEmail} (${displayName})`);
-    return;
+    return { sent: false };
   }
 
   const name = displayName || "Asador";
@@ -34,18 +34,21 @@ export async function sendWelcomeEmail(toEmail: string, displayName: string): Pr
     if (!res.ok) {
       const body = await res.text();
       console.error("[email] Welcome email error:", body);
+      return { sent: false };
     }
+    return { sent: true };
   } catch (err) {
     console.error("[email] Failed to send welcome email:", err);
+    return { sent: false };
   }
 }
 
-export async function sendPasswordResetEmail(toEmail: string, resetUrl: string): Promise<void> {
+export async function sendPasswordResetEmail(toEmail: string, resetUrl: string): Promise<{ sent: boolean }> {
   const RESEND_API_KEY = process.env.RESEND_API_KEY;
 
   if (!RESEND_API_KEY) {
     console.log(`[email stub] Password reset link for ${toEmail}: ${resetUrl}`);
-    return;
+    return { sent: false };
   }
 
   try {
@@ -75,8 +78,11 @@ export async function sendPasswordResetEmail(toEmail: string, resetUrl: string):
     if (!res.ok) {
       const body = await res.text();
       console.error("[email] Password reset email error:", body);
+      return { sent: false };
     }
+    return { sent: true };
   } catch (err) {
     console.error("[email] Failed to send password reset email:", err);
+    return { sent: false };
   }
 }

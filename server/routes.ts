@@ -2,12 +2,13 @@ import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
-import { users } from "@shared/schema";
+import { users, expenses } from "@shared/schema";
 import { api } from "@shared/routes";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { sendPasswordResetEmail, sendWelcomeEmail } from "./email";
+import { eq, and } from "drizzle-orm";
 
 function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.session.userId) {
@@ -18,12 +19,37 @@ function requireAuth(req: Request, res: Response, next: NextFunction) {
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
 
+  function serializeUser(user: { id: number; username: string; email: string; displayName: string | null; avatarUrl?: string | null; profileImageUrl?: string | null; bio?: string | null; preferredCurrencyCodes?: string | null }) {
+    let preferredCurrencyCodes: string[] | undefined;
+    if (user.preferredCurrencyCodes) {
+      try {
+        preferredCurrencyCodes = JSON.parse(user.preferredCurrencyCodes) as string[];
+      } catch {
+        preferredCurrencyCodes = undefined;
+      }
+    }
+    return {
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      displayName: user.displayName,
+      avatarUrl: user.avatarUrl ?? undefined,
+      profileImageUrl: user.profileImageUrl ?? undefined,
+      bio: user.bio ?? undefined,
+      preferredCurrencyCodes: preferredCurrencyCodes ?? undefined,
+    };
+  }
+
   // Auth
   app.get("/api/auth/me", async (req, res) => {
     if (!req.session.userId) return res.json(null);
     const user = await storage.getUserById(req.session.userId);
     if (!user) return res.json(null);
-    res.json({ id: user.id, username: user.username, email: user.email, displayName: user.displayName });
+    res.json(serializeUser(user));
+  });
+
+  app.get("/api/health", (_req, res) => {
+    res.json({ emailConfigured: !!process.env.RESEND_API_KEY });
   });
 
   app.post("/api/auth/register", async (req, res) => {
@@ -47,13 +73,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       req.session.userId = user.id;
       req.session.username = user.username;
-      await sendWelcomeEmail(user.email, user.displayName || user.username);
+      const welcomeResult = await sendWelcomeEmail(user.email, user.displayName || user.username);
       req.session.save((err) => {
         if (err) {
           console.error("[session] save error on register:", err);
           return res.status(500).json({ message: "Session error" });
         }
-        res.status(201).json({ id: user.id, username: user.username, email: user.email, displayName: user.displayName });
+        res.status(201).json({ ...serializeUser(user), emailSent: welcomeResult.sent });
       });
     } catch (err) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
@@ -79,12 +105,44 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           console.error("[session] save error on login:", err);
           return res.status(500).json({ message: "Session error" });
         }
-        res.json({ id: user.id, username: user.username, email: user.email, displayName: user.displayName });
+        res.json(serializeUser(user));
       });
     } catch (err) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       throw err;
     }
+  });
+
+  app.patch("/api/users/me", requireAuth, async (req, res) => {
+    try {
+      const schema = z.object({
+        displayName: z.string().max(50).optional(),
+        avatarUrl: z.union([z.string().url(), z.literal("")]).nullable().optional(),
+        profileImageUrl: z.union([z.string().url(), z.literal("")]).nullable().optional(),
+        bio: z.string().max(500).nullable().optional(),
+        preferredCurrencyCodes: z.array(z.string()).nullable().optional(),
+      });
+      const body = schema.parse(req.body);
+      const updates: Parameters<typeof storage.updateUserProfile>[1] = {};
+      if (body.displayName !== undefined) updates.displayName = body.displayName;
+      if (body.avatarUrl !== undefined) updates.avatarUrl = body.avatarUrl === "" ? null : body.avatarUrl;
+      if (body.profileImageUrl !== undefined) updates.profileImageUrl = body.profileImageUrl === "" ? null : body.profileImageUrl;
+      if (body.bio !== undefined) updates.bio = body.bio;
+      if (body.preferredCurrencyCodes !== undefined) updates.preferredCurrencyCodes = body.preferredCurrencyCodes === null ? null : JSON.stringify(body.preferredCurrencyCodes);
+      const user = await storage.updateUserProfile(req.session.userId!, updates);
+      if (!user) return res.status(404).json({ message: "User not found" });
+      res.json(serializeUser(user));
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
+  });
+
+  app.delete("/api/users/me", requireAuth, async (req, res) => {
+    await storage.deleteUser(req.session.userId!);
+    req.session.destroy(() => {
+      res.status(204).send();
+    });
   });
 
   app.post("/api/auth/logout", (req, res) => {
@@ -98,6 +156,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const { email } = z.object({ email: z.string().email() }).parse(req.body);
       const user = await storage.getUserByEmail(email);
 
+      let emailSent = false;
       if (user) {
         const token = crypto.randomBytes(32).toString("hex");
         const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
@@ -107,14 +166,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         const host = req.headers["x-forwarded-host"] || req.headers.host || "localhost:5000";
         const resetUrl = `${proto}://${host}/reset-password?token=${token}`;
 
-        try {
-          await sendPasswordResetEmail(user.email, resetUrl);
-        } catch (emailErr) {
-          console.error("[forgot-password] email send failed:", emailErr);
-        }
+        const resetResult = await sendPasswordResetEmail(user.email, resetUrl);
+        emailSent = resetResult.sent;
       }
 
-      res.json({ ok: true });
+      res.json({ ok: true, emailSent });
     } catch (err) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       throw err;
@@ -172,6 +228,23 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.delete(api.barbecues.delete.path, async (req, res) => {
     await storage.deleteBarbecue(Number(req.params.id));
     res.status(204).send();
+  });
+
+  app.patch(api.barbecues.update.path, requireAuth, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const bbq = await storage.getBarbecue(id);
+      if (!bbq) return res.status(404).json({ message: "BBQ not found" });
+      if (bbq.creatorId !== req.session.username) return res.status(403).json({ message: "Only the creator can update this BBQ" });
+      const schema = z.object({ allowOptInExpenses: z.boolean().optional() });
+      const body = schema.parse(req.body);
+      const updated = await storage.updateBarbecue(id, body);
+      if (!updated) return res.status(404).json({ message: "BBQ not found" });
+      res.json(updated);
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
   });
 
   // Participants
@@ -319,6 +392,33 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.delete(api.expenses.delete.path, async (req, res) => {
     await storage.deleteExpense(Number(req.params.id));
     res.status(204).send();
+  });
+
+  app.get("/api/barbecues/:bbqId/expense-shares", async (req, res) => {
+    const shares = await storage.getExpenseShares(Number(req.params.bbqId));
+    res.json(shares);
+  });
+
+  app.patch("/api/barbecues/:bbqId/expenses/:expenseId/share", requireAuth, async (req, res) => {
+    try {
+      const bbqId = Number(req.params.bbqId);
+      const expenseId = Number(req.params.expenseId);
+      const bbq = await storage.getBarbecue(bbqId);
+      if (!bbq) return res.status(404).json({ message: "BBQ not found" });
+      if (!bbq.allowOptInExpenses) return res.status(400).json({ message: "Opt-in expenses not enabled for this BBQ" });
+      const participantsList = await storage.getParticipants(bbqId);
+      const myParticipant = participantsList.find(p => p.userId === req.session.username);
+      if (!myParticipant) return res.status(403).json({ message: "Not a participant of this BBQ" });
+      const [expenseRow] = await db.select().from(expenses).where(and(eq(expenses.id, expenseId), eq(expenses.barbecueId, bbqId)));
+      if (!expenseRow) return res.status(404).json({ message: "Expense not found" });
+      const schema = z.object({ in: z.boolean() });
+      const { in: inShare } = schema.parse(req.body);
+      await storage.setExpenseShare(expenseId, myParticipant.id, inShare);
+      res.json({ ok: true });
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
   });
 
   // Friends

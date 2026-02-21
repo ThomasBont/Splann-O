@@ -22,6 +22,7 @@ export function useCreateBarbecue() {
       currency: string;
       creatorId?: string;
       isPublic?: boolean;
+      allowOptInExpenses?: boolean;
     }) => {
       const res = await fetch(api.barbecues.create.path, {
         method: "POST",
@@ -29,6 +30,26 @@ export function useCreateBarbecue() {
         body: JSON.stringify(data),
       });
       if (!res.ok) throw new Error("Failed to create barbecue");
+      return res.json() as Promise<Barbecue>;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/barbecues'] });
+    },
+  });
+}
+
+export function useUpdateBarbecue() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, allowOptInExpenses }: { id: number; allowOptInExpenses?: boolean }) => {
+      const url = buildUrl(api.barbecues.update.path, { id });
+      const res = await fetch(url, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ allowOptInExpenses }),
+      });
+      if (!res.ok) throw new Error("Failed to update barbecue");
       return res.json() as Promise<Barbecue>;
     },
     onSuccess: () => {

@@ -1,6 +1,15 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
-export type AuthUser = { id: number; username: string; email: string; displayName: string | null };
+export type AuthUser = {
+  id: number;
+  username: string;
+  email: string;
+  displayName: string | null;
+  avatarUrl?: string;
+  profileImageUrl?: string;
+  bio?: string;
+  preferredCurrencyCodes?: string[];
+};
 
 export function useAuth() {
   const queryClient = useQueryClient();
@@ -90,6 +99,36 @@ export function useAuth() {
     },
   });
 
+  const updateProfile = useMutation({
+    mutationFn: async (updates: { displayName?: string; avatarUrl?: string | null; profileImageUrl?: string | null; bio?: string | null; preferredCurrencyCodes?: string[] | null }) => {
+      const res = await fetch('/api/users/me', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+        credentials: 'include',
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'update_failed');
+      return data as AuthUser;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/auth/me'] });
+    },
+  });
+
+  const deleteAccount = useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/api/users/me', { method: 'DELETE', credentials: 'include' });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.message || 'delete_failed');
+      }
+    },
+    onSuccess: () => {
+      queryClient.clear();
+    },
+  });
+
   return {
     user: user ?? null,
     isLoading,
@@ -98,5 +137,7 @@ export function useAuth() {
     logout,
     forgotPassword,
     resetPassword,
+    updateProfile,
+    deleteAccount,
   };
 }

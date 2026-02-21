@@ -116,6 +116,10 @@ interface Translations {
     currencyConversion: string;
     approxRates: string;
     yourShare: string;
+    allowOptInExpenses: string;
+    allowOptInExpensesDesc: string;
+    imIn: string;
+    imOut: string;
   };
   auth: {
     login: string;
@@ -139,6 +143,9 @@ interface Translations {
     passwordsNoMatch: string;
     loggedInAs: string;
     profile: string;
+    bio: string;
+    profilePictureUrl: string;
+    editProfile: string;
     usernameHint: string;
     passwordHint: string;
     forgotPassword: string;
@@ -147,6 +154,8 @@ interface Translations {
     sendResetLink: string;
     checkEmail: string;
     checkEmailDesc: string;
+    emailNotSentHint: string;
+    welcomeEmailNotSent: string;
     newPassword: string;
     resetPasswordBtn: string;
     passwordResetSuccess: string;
@@ -169,6 +178,11 @@ interface Translations {
     changeUsername: string;
     editNameInBbq: string;
     host: string;
+    deleteAccount: string;
+    deleteAccountConfirm: string;
+    typeUsernameToConfirm: string;
+    cannotBeUndone: string;
+    preferredCurrencies: string;
   };
   friends: {
     title: string;
@@ -239,6 +253,10 @@ const translations: Record<Language, Translations> = {
       pendingInvites: "Pending Invites",
       currencyConversion: "In Other Currencies", approxRates: "Approximate rates",
       yourShare: "Your share",
+      allowOptInExpenses: "Allow participants to choose which expenses they pay for",
+      allowOptInExpensesDesc: "Participants can opt in or out per expense (e.g. skip meat or transport).",
+      imIn: "I'm in",
+      imOut: "I'm out",
     },
     auth: {
       login: "Log In", register: "Sign Up", logout: "Log Out",
@@ -253,6 +271,7 @@ const translations: Record<Language, Translations> = {
       invalidCredentials: "Invalid username or password",
       passwordsNoMatch: "Passwords do not match",
       loggedInAs: "Signed in as", profile: "Profile",
+      bio: "Bio", profilePictureUrl: "Profile picture URL", editProfile: "Edit profile",
       usernameHint: "2–30 characters, letters/numbers/_/-",
       passwordHint: "At least 8 characters",
       forgotPassword: "Forgot password?",
@@ -261,6 +280,8 @@ const translations: Record<Language, Translations> = {
       sendResetLink: "Send reset link",
       checkEmail: "Check your email",
       checkEmailDesc: "We've sent a password reset link to your email address.",
+      emailNotSentHint: "We couldn't send the email right now. Check your address or try again later.",
+      welcomeEmailNotSent: "We couldn't send the welcome email. Your account was created — you can log in.",
       newPassword: "New password",
       resetPasswordBtn: "Reset password",
       passwordResetSuccess: "Password reset! You can now log in.",
@@ -273,6 +294,9 @@ const translations: Record<Language, Translations> = {
       joinBbq: "Join", pending: "Pending", joined: "Joined",
       pendingRequests: "Join Requests", accept: "Accept", reject: "Reject",
       leave: "Leave", hi: "Hi", changeUsername: "Change name", editNameInBbq: "Edit name", host: "Host",
+      deleteAccount: "Delete account", deleteAccountConfirm: "Permanently delete your account",
+      typeUsernameToConfirm: "Type your username to confirm", cannotBeUndone: "This cannot be undone.",
+      preferredCurrencies: "Currencies to show",
     },
     friends: {
       title: "Friends",
@@ -341,6 +365,10 @@ const translations: Record<Language, Translations> = {
       pendingInvites: "Invitaciones Pendientes",
       currencyConversion: "En Otras Monedas", approxRates: "Tasas aproximadas",
       yourShare: "Tu cuota",
+      allowOptInExpenses: "Permitir que los participantes elijan en qué gastos participan",
+      allowOptInExpensesDesc: "Cada participante puede sumarse o no a cada gasto (ej. carne o transporte).",
+      imIn: "Me sumo",
+      imOut: "No me sumo",
     },
     auth: {
       login: "Iniciar Sesión", register: "Registrarse", logout: "Cerrar Sesión",
@@ -355,6 +383,7 @@ const translations: Record<Language, Translations> = {
       invalidCredentials: "Usuario o contraseña inválidos",
       passwordsNoMatch: "Las contraseñas no coinciden",
       loggedInAs: "Sesión iniciada como", profile: "Perfil",
+      bio: "Biografía", profilePictureUrl: "URL de foto de perfil", editProfile: "Editar perfil",
       usernameHint: "2–30 caracteres, letras/números/_/-",
       passwordHint: "Al menos 8 caracteres",
       forgotPassword: "¿Olvidaste tu contraseña?",
@@ -363,6 +392,8 @@ const translations: Record<Language, Translations> = {
       sendResetLink: "Enviar enlace",
       checkEmail: "Revisá tu email",
       checkEmailDesc: "Te enviamos un enlace para restablecer tu contraseña.",
+      emailNotSentHint: "No pudimos enviar el correo. Revisá la dirección o intentá más tarde.",
+      welcomeEmailNotSent: "No pudimos enviar el correo de bienvenida. Tu cuenta fue creada — podés iniciar sesión.",
       newPassword: "Nueva contraseña",
       resetPasswordBtn: "Restablecer contraseña",
       passwordResetSuccess: "¡Contraseña restablecida! Ya podés iniciar sesión.",
@@ -375,6 +406,9 @@ const translations: Record<Language, Translations> = {
       joinBbq: "Unirse", pending: "Pendiente", joined: "Unido",
       pendingRequests: "Solicitudes", accept: "Aceptar", reject: "Rechazar",
       leave: "Salir", hi: "Hola", changeUsername: "Cambiar nombre", editNameInBbq: "Editar nombre", host: "Anfitrión",
+      deleteAccount: "Eliminar cuenta", deleteAccountConfirm: "Eliminar tu cuenta permanentemente",
+      typeUsernameToConfirm: "Escribí tu usuario para confirmar", cannotBeUndone: "Esto no se puede deshacer.",
+      preferredCurrencies: "Monedas a mostrar",
     },
     friends: {
       title: "Amigos",
@@ -443,6 +477,10 @@ const translations: Record<Language, Translations> = {
       pendingInvites: "Inviti in Sospeso",
       currencyConversion: "In Altre Valute", approxRates: "Tassi approssimativi",
       yourShare: "La tua quota",
+      allowOptInExpenses: "Permetti ai partecipanti di scegliere per quali spese pagare",
+      allowOptInExpensesDesc: "Ogni partecipante può optare per ogni spesa (es. carne o trasporto).",
+      imIn: "Partecipo",
+      imOut: "Non partecipo",
     },
     auth: {
       login: "Accedi", register: "Registrati", logout: "Esci",
@@ -457,6 +495,7 @@ const translations: Record<Language, Translations> = {
       invalidCredentials: "Nome utente o password non validi",
       passwordsNoMatch: "Le password non corrispondono",
       loggedInAs: "Connesso come", profile: "Profilo",
+      bio: "Bio", profilePictureUrl: "URL foto profilo", editProfile: "Modifica profilo",
       usernameHint: "2–30 caratteri, lettere/numeri/_/-",
       passwordHint: "Almeno 8 caratteri",
       forgotPassword: "Password dimenticata?",
@@ -465,6 +504,8 @@ const translations: Record<Language, Translations> = {
       sendResetLink: "Invia link",
       checkEmail: "Controlla la tua email",
       checkEmailDesc: "Abbiamo inviato un link per reimpostare la password.",
+      emailNotSentHint: "Non siamo riusciti a inviare l'email. Controlla l'indirizzo o riprova più tardi.",
+      welcomeEmailNotSent: "Non siamo riusciti a inviare l'email di benvenuto. L'account è stato creato — puoi accedere.",
       newPassword: "Nuova password",
       resetPasswordBtn: "Reimposta password",
       passwordResetSuccess: "Password reimpostata! Ora puoi accedere.",
@@ -477,6 +518,9 @@ const translations: Record<Language, Translations> = {
       joinBbq: "Unisciti", pending: "In attesa", joined: "Unito",
       pendingRequests: "Richieste", accept: "Accetta", reject: "Rifiuta",
       leave: "Esci", hi: "Ciao", changeUsername: "Cambia nome", editNameInBbq: "Modifica nome", host: "Organizzatore",
+      deleteAccount: "Elimina account", deleteAccountConfirm: "Elimina definitivamente il tuo account",
+      typeUsernameToConfirm: "Digita il tuo username per confermare", cannotBeUndone: "Questa azione non può essere annullata.",
+      preferredCurrencies: "Valute da mostrare",
     },
     friends: {
       title: "Amici",
@@ -545,6 +589,10 @@ const translations: Record<Language, Translations> = {
       pendingInvites: "Openstaande Uitnodigingen",
       currencyConversion: "In Andere Valuta's", approxRates: "Geschatte koersen",
       yourShare: "Jouw aandeel",
+      allowOptInExpenses: "Laat deelnemers kiezen voor welke uitgaven ze betalen",
+      allowOptInExpensesDesc: "Deelnemers kunnen per uitgave opt-in of opt-out (bijv. vlees of vervoer).",
+      imIn: "Ik doe mee",
+      imOut: "Ik doe niet mee",
     },
     auth: {
       login: "Inloggen", register: "Registreren", logout: "Uitloggen",
@@ -559,6 +607,7 @@ const translations: Record<Language, Translations> = {
       invalidCredentials: "Ongeldige gebruikersnaam of wachtwoord",
       passwordsNoMatch: "Wachtwoorden komen niet overeen",
       loggedInAs: "Ingelogd als", profile: "Profiel",
+      bio: "Bio", profilePictureUrl: "URL profielfoto", editProfile: "Profiel bewerken",
       usernameHint: "2–30 tekens, letters/cijfers/_/-",
       passwordHint: "Minimaal 8 tekens",
       forgotPassword: "Wachtwoord vergeten?",
@@ -567,6 +616,8 @@ const translations: Record<Language, Translations> = {
       sendResetLink: "Link versturen",
       checkEmail: "Controleer je e-mail",
       checkEmailDesc: "We hebben een herstelkoppeling naar je e-mailadres gestuurd.",
+      emailNotSentHint: "We konden de e-mail nu niet versturen. Controleer je adres of probeer het later opnieuw.",
+      welcomeEmailNotSent: "We konden de welkomstmail niet versturen. Je account is aangemaakt — je kunt inloggen.",
       newPassword: "Nieuw wachtwoord",
       resetPasswordBtn: "Wachtwoord herstellen",
       passwordResetSuccess: "Wachtwoord hersteld! Je kunt nu inloggen.",
@@ -579,6 +630,9 @@ const translations: Record<Language, Translations> = {
       joinBbq: "Deelnemen", pending: "In behandeling", joined: "Deelnemer",
       pendingRequests: "Aanvragen", accept: "Accepteren", reject: "Afwijzen",
       leave: "Verlaten", hi: "Hoi", changeUsername: "Naam wijzigen", editNameInBbq: "Naam bewerken", host: "Gastheer",
+      deleteAccount: "Account verwijderen", deleteAccountConfirm: "Verwijder je account permanent",
+      typeUsernameToConfirm: "Typ je gebruikersnaam om te bevestigen", cannotBeUndone: "Dit kan niet ongedaan worden gemaakt.",
+      preferredCurrencies: "Te tonen valuta",
     },
     friends: {
       title: "Vrienden",

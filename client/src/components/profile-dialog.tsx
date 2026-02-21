@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLanguage } from "@/hooks/use-language";
 import { useAuth } from "@/hooks/use-auth";
+import { CURRENCIES } from "@/hooks/use-language";
 import {
   useFriends, useFriendRequests, useSendFriendRequest,
   useAcceptFriendRequest, useRemoveFriend, useSearchUsers,
@@ -11,10 +12,26 @@ import {
 import { DraggableDialogContent } from "@/components/ui/draggable-dialog-content";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { UserCircle, Search, UserPlus, UserX, UserCheck, Loader2, Heart, X } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { UserCircle, Search, UserPlus, UserX, UserCheck, Loader2, Heart, X, Trash2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { FriendInfo } from "@shared/schema";
+
+function getInitials(displayName: string | null, username: string): string {
+  if (displayName && displayName.trim()) {
+    const parts = displayName.trim().split(/\s+/);
+    if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+    return displayName.slice(0, 2).toUpperCase();
+  }
+  return username.slice(0, 2).toUpperCase();
+}
+
+function avatarColor(id: number): string {
+  const hues = ["#e05c2a", "#3b82f6", "#10b981", "#8b5cf6", "#ec4899"];
+  return hues[id % hues.length];
+}
 
 interface ProfileDialogProps {
   open: boolean;
@@ -23,7 +40,7 @@ interface ProfileDialogProps {
 
 export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
   const { t } = useLanguage();
-  const { user } = useAuth();
+  const { user, updateProfile, deleteAccount } = useAuth();
   const { data: friends = [], isLoading: friendsLoading } = useFriends();
   const { data: friendRequests = [], isLoading: requestsLoading } = useFriendRequests();
   const sendRequest = useSendFriendRequest();
@@ -31,7 +48,24 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
   const removeFriend = useRemoveFriend();
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [editProfile, setEditProfile] = useState(false);
+  const [draftDisplayName, setDraftDisplayName] = useState("");
+  const [draftBio, setDraftBio] = useState("");
+  const [draftProfileImageUrl, setDraftProfileImageUrl] = useState("");
+  const [draftCurrencies, setDraftCurrencies] = useState<string[]>([]);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteConfirmUsername, setDeleteConfirmUsername] = useState("");
+
   const { data: searchResults = [], isLoading: searchLoading } = useSearchUsers(searchQuery);
+
+  useEffect(() => {
+    if (user) {
+      setDraftDisplayName(user.displayName || "");
+      setDraftBio(user.bio || "");
+      setDraftProfileImageUrl(user.profileImageUrl || "");
+      setDraftCurrencies(user.preferredCurrencyCodes?.length ? [...user.preferredCurrencyCodes] : CURRENCIES.map(c => c.code));
+    }
+  }, [user]);
 
   const friendUserIds = new Set(friends.map((f: FriendInfo) => f.userId));
   const requestUserIds = new Set(friendRequests.map((f: FriendInfo) => f.userId));
@@ -64,22 +98,154 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="profile" className="mt-4">
-            <div className="flex flex-col items-center gap-4 py-4">
-              <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center">
-                <UserCircle className="w-10 h-10 text-primary" />
+          <TabsContent value="profile" className="mt-4 space-y-4">
+            <div className="flex flex-col items-center gap-4">
+              <div
+                className="w-20 h-20 rounded-full flex items-center justify-center text-2xl font-bold text-white shrink-0 overflow-hidden"
+                style={{ background: user ? avatarColor(user.id) : "#666" }}
+              >
+                {user?.profileImageUrl || user?.avatarUrl ? (
+                  <img src={user.profileImageUrl || user.avatarUrl} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  user ? getInitials(user.displayName, user.username) : <UserCircle className="w-10 h-10" />
+                )}
               </div>
-              <div className="text-center space-y-1">
-                <p className="text-lg font-bold" data-testid="text-profile-displayname">
-                  {user?.displayName || user?.username}
-                </p>
-                <p className="text-sm text-muted-foreground" data-testid="text-profile-username">
-                  @{user?.username}
-                </p>
-                <p className="text-xs text-muted-foreground" data-testid="text-profile-email">
-                  {user?.email}
-                </p>
+              {!editProfile ? (
+                <div className="text-center space-y-1">
+                  <p className="text-lg font-bold" data-testid="text-profile-displayname">
+                    {user?.displayName || user?.username}
+                  </p>
+                  <p className="text-sm text-muted-foreground" data-testid="text-profile-username">
+                    @{user?.username}
+                  </p>
+                  <p className="text-xs text-muted-foreground" data-testid="text-profile-email">
+                    {user?.email}
+                  </p>
+                  {user?.bio ? <p className="text-sm text-muted-foreground mt-2 max-w-xs">{user.bio}</p> : null}
+                  <Button variant="outline" size="sm" className="mt-3" onClick={() => setEditProfile(true)}>
+                    {t.auth.editProfile}
+                  </Button>
+                </div>
+              ) : (
+                <div className="w-full space-y-3">
+                  <div>
+                    <Label className="text-xs">{t.auth.displayName}</Label>
+                    <Input
+                      value={draftDisplayName}
+                      onChange={e => setDraftDisplayName(e.target.value)}
+                      placeholder={t.auth.displayNamePlaceholder}
+                      className="mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">{t.auth.profilePictureUrl}</Label>
+                    <Input
+                      value={draftProfileImageUrl}
+                      onChange={e => setDraftProfileImageUrl(e.target.value)}
+                      placeholder="https://..."
+                      className="mt-1"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">{t.auth.bio}</Label>
+                    <textarea
+                      value={draftBio}
+                      onChange={e => setDraftBio(e.target.value)}
+                      placeholder={t.auth.bio}
+                      className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm mt-1 resize-none"
+                      maxLength={500}
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        updateProfile.mutate(
+                          {
+                            displayName: draftDisplayName || null,
+                            profileImageUrl: draftProfileImageUrl || null,
+                            bio: draftBio || null,
+                            preferredCurrencyCodes: draftCurrencies.length === CURRENCIES.length ? null : draftCurrencies,
+                          },
+                          { onSuccess: () => setEditProfile(false) }
+                        );
+                      }}
+                      disabled={updateProfile.isPending}
+                    >
+                      {updateProfile.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : t.modals.save}
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setEditProfile(false)}>
+                      {t.modals.cancel}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="border-t border-white/10 pt-4">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">{t.user.preferredCurrencies}</p>
+              <div className="flex flex-wrap gap-2">
+                {CURRENCIES.map(cur => {
+                  const checked = editProfile
+                    ? draftCurrencies.includes(cur.code)
+                    : (user?.preferredCurrencyCodes?.length ? user.preferredCurrencyCodes.includes(cur.code) : true);
+                  return (
+                    <label key={cur.code} className="flex items-center gap-2 cursor-pointer">
+                      <Checkbox
+                        checked={checked}
+                        onCheckedChange={checkedVal => {
+                          if (editProfile) {
+                            setDraftCurrencies(prev =>
+                              checkedVal ? [...prev, cur.code] : prev.filter(c => c !== cur.code)
+                            );
+                          } else {
+                            const next = user?.preferredCurrencyCodes?.length ? [...user.preferredCurrencyCodes] : CURRENCIES.map(c => c.code);
+                            const newList = checkedVal ? (next.includes(cur.code) ? next : [...next, cur.code]) : next.filter(c => c !== cur.code);
+                            updateProfile.mutate({ preferredCurrencyCodes: newList.length === CURRENCIES.length ? null : newList });
+                          }
+                        }}
+                      />
+                      <span className="text-sm">{cur.code}</span>
+                    </label>
+                  );
+                })}
               </div>
+              {editProfile && <p className="text-[11px] text-muted-foreground mt-1">Save profile to apply currency selection.</p>}
+            </div>
+
+            <div className="border-t border-white/10 pt-4">
+              <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-1">{t.user.deleteAccount}</p>
+              <p className="text-xs text-muted-foreground mb-2">{t.user.deleteAccountConfirm} {t.user.cannotBeUndone}</p>
+              {!deleteConfirmOpen ? (
+                <Button variant="destructive" size="sm" onClick={() => setDeleteConfirmOpen(true)}>
+                  <Trash2 className="w-4 h-4 mr-1" /> {t.user.deleteAccount}
+                </Button>
+              ) : (
+                <div className="space-y-2">
+                  <Label className="text-xs">{t.user.typeUsernameToConfirm}</Label>
+                  <Input
+                    value={deleteConfirmUsername}
+                    onChange={e => setDeleteConfirmUsername(e.target.value)}
+                    placeholder={user?.username}
+                    className="font-mono"
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      disabled={deleteConfirmUsername !== user?.username || deleteAccount.isPending}
+                      onClick={() => {
+                        deleteAccount.mutate(undefined, { onSuccess: () => onOpenChange(false) });
+                      }}
+                    >
+                      {deleteAccount.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : t.user.deleteAccount}
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => { setDeleteConfirmOpen(false); setDeleteConfirmUsername(""); }}>
+                      {t.modals.cancel}
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           </TabsContent>
 

@@ -1,4 +1,4 @@
-import { pgTable, text, serial, numeric, integer, timestamp, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, numeric, integer, timestamp, boolean, unique } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -8,6 +8,10 @@ export const users = pgTable("users", {
   email: text("email").notNull().unique(),
   displayName: text("display_name"),
   passwordHash: text("password_hash").notNull(),
+  avatarUrl: text("avatar_url"),
+  profileImageUrl: text("profile_image_url"),
+  bio: text("bio"),
+  preferredCurrencyCodes: text("preferred_currency_codes"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -26,6 +30,7 @@ export const barbecues = pgTable("barbecues", {
   currency: text("currency").notNull().default("EUR"),
   creatorId: text("creator_id"),
   isPublic: boolean("is_public").notNull().default(true),
+  allowOptInExpenses: boolean("allow_opt_in_expenses").notNull().default(false),
 });
 
 export const participants = pgTable("participants", {
@@ -44,6 +49,14 @@ export const expenses = pgTable("expenses", {
   item: text("item").notNull(),
   amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
 });
+
+export const expenseShares = pgTable("expense_shares", {
+  id: serial("id").primaryKey(),
+  expenseId: integer("expense_id").references(() => expenses.id, { onDelete: 'cascade' }).notNull(),
+  participantId: integer("participant_id").references(() => participants.id, { onDelete: 'cascade' }).notNull(),
+}, (table) => ({
+  expenseParticipantUnique: unique().on(table.expenseId, table.participantId),
+}));
 
 export const friendships = pgTable("friendships", {
   id: serial("id").primaryKey(),

@@ -41,6 +41,16 @@ export const api = {
         404: errorSchemas.notFound,
       },
     },
+    update: {
+      method: 'PATCH' as const,
+      path: '/api/barbecues/:id' as const,
+      input: z.object({ allowOptInExpenses: z.boolean().optional() }),
+      responses: {
+        200: z.custom<Barbecue>(),
+        403: errorSchemas.validation,
+        404: errorSchemas.notFound,
+      },
+    },
     delete: {
       method: 'DELETE' as const,
       path: '/api/barbecues/:id' as const,

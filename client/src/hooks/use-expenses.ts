@@ -32,6 +32,7 @@ export function useCreateExpense(bbqId: number | null) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/barbecues', bbqId, 'expenses'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/barbecues', bbqId, 'expense-shares'] });
     },
   });
 }
@@ -65,6 +66,40 @@ export function useDeleteExpense(bbqId: number | null) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/barbecues', bbqId, 'expenses'] });
+    },
+  });
+}
+
+export function useExpenseShares(bbqId: number | null) {
+  return useQuery({
+    queryKey: ['/api/barbecues', bbqId, 'expense-shares'],
+    queryFn: async () => {
+      if (!bbqId) return [];
+      const url = buildUrl('/api/barbecues/:bbqId/expense-shares', { bbqId });
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("Failed to fetch expense shares");
+      return res.json() as Promise<{ expenseId: number; participantId: number }[]>;
+    },
+    enabled: !!bbqId,
+  });
+}
+
+export function useSetExpenseShare(bbqId: number | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ expenseId, in: inShare }: { expenseId: number; in: boolean }) => {
+      if (!bbqId) throw new Error("No BBQ selected");
+      const url = `/api/barbecues/${bbqId}/expenses/${expenseId}/share`;
+      const res = await fetch(url, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ in: inShare }),
+      });
+      if (!res.ok) throw new Error("Failed to update expense share");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/barbecues', bbqId, 'expense-shares'] });
     },
   });
 }

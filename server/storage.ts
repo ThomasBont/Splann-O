@@ -4,6 +4,7 @@ import {
   barbecues,
   participants,
   expenses,
+  expenseShares,
   passwordResetTokens,
   friendships,
   type User,
@@ -20,7 +21,7 @@ import {
   type FriendInfo,
   type PendingRequestWithBbq,
 } from "@shared/schema";
-import { eq, and, or, ne } from "drizzle-orm";
+import { eq, and, or, ne, inArray } from "drizzle-orm";
 
 export interface IStorage {
   createUser(u: InsertUser): Promise<User>;
@@ -28,6 +29,8 @@ export interface IStorage {
   getUserByEmail(email: string): Promise<User | undefined>;
   getUserById(id: number): Promise<User | undefined>;
   updateUserPassword(id: number, passwordHash: string): Promise<void>;
+  updateUserProfile(userId: number, updates: { displayName?: string; avatarUrl?: string | null; profileImageUrl?: string | null; bio?: string | null; preferredCurrencyCodes?: string | null }): Promise<User | undefined>;
+  deleteUser(userId: number): Promise<void>;
 
   createPasswordResetToken(userId: number, token: string, expiresAt: Date): Promise<PasswordResetToken>;
   getPasswordResetToken(token: string): Promise<PasswordResetToken | undefined>;
@@ -36,6 +39,7 @@ export interface IStorage {
   getBarbecues(currentUsername?: string): Promise<Barbecue[]>;
   getBarbecue(id: number): Promise<Barbecue | undefined>;
   createBarbecue(b: InsertBarbecue): Promise<Barbecue>;
+  updateBarbecue(id: number, updates: { allowOptInExpenses?: boolean }): Promise<Barbecue | undefined>;
   deleteBarbecue(id: number): Promise<void>;
 
   getParticipants(bbqId: number): Promise<Participant[]>;
@@ -54,6 +58,8 @@ export interface IStorage {
   createExpense(e: InsertExpense): Promise<Expense>;
   updateExpense(id: number, updates: Partial<InsertExpense>): Promise<Expense | undefined>;
   deleteExpense(id: number): Promise<void>;
+  getExpenseShares(bbqId: number): Promise<{ expenseId: number; participantId: number }[]>;
+  setExpenseShare(expenseId: number, participantId: number, inShare: boolean): Promise<void>;
 
   sendFriendRequest(requesterId: number, addresseeId: number): Promise<void>;
   acceptFriendRequest(friendshipId: number): Promise<void>;
@@ -89,6 +95,29 @@ export class DatabaseStorage implements IStorage {
 
   async updateUserPassword(id: number, passwordHash: string): Promise<void> {
     await db.update(users).set({ passwordHash }).where(eq(users.id, id));
+  }
+
+  async updateUserProfile(userId: number, updates: { displayName?: string; avatarUrl?: string | null; profileImageUrl?: string | null; bio?: string | null; preferredCurrencyCodes?: string | null }): Promise<User | undefined> {
+    const set: Record<string, unknown> = {};
+    if (updates.displayName !== undefined) set.displayName = updates.displayName;
+    if (updates.avatarUrl !== undefined) set.avatarUrl = updates.avatarUrl;
+    if (updates.profileImageUrl !== undefined) set.profileImageUrl = updates.profileImageUrl;
+    if (updates.bio !== undefined) set.bio = updates.bio;
+    if (updates.preferredCurrencyCodes !== undefined) set.preferredCurrencyCodes = updates.preferredCurrencyCodes == null ? null : JSON.stringify(updates.preferredCurrencyCodes);
+    if (Object.keys(set).length === 0) return this.getUserById(userId);
+    const [u] = await db.update(users).set(set as any).where(eq(users.id, userId)).returning();
+    return u;
+  }
+
+  async deleteUser(userId: number): Promise<void> {
+    const [u] = await db.select().from(users).where(eq(users.id, userId));
+    if (!u) return;
+    const username = u.username;
+    await db.delete(passwordResetTokens).where(eq(passwordResetTokens.userId, userId));
+    await db.delete(friendships).where(or(eq(friendships.requesterId, userId), eq(friendships.addresseeId, userId)));
+    await db.update(participants).set({ userId: null }).where(eq(participants.userId, username));
+    await db.update(barbecues).set({ creatorId: null }).where(eq(barbecues.creatorId, username));
+    await db.delete(users).where(eq(users.id, userId));
   }
 
   async createPasswordResetToken(userId: number, token: string, expiresAt: Date): Promise<PasswordResetToken> {
@@ -130,6 +159,14 @@ export class DatabaseStorage implements IStorage {
   async createBarbecue(b: InsertBarbecue): Promise<Barbecue> {
     const [bbq] = await db.insert(barbecues).values(b).returning();
     return bbq;
+  }
+
+  async updateBarbecue(id: number, updates: { allowOptInExpenses?: boolean }): Promise<Barbecue | undefined> {
+    const set: Record<string, unknown> = {};
+    if (updates.allowOptInExpenses !== undefined) set.allowOptInExpenses = updates.allowOptInExpenses;
+    if (Object.keys(set).length === 0) return this.getBarbecue(id);
+    const [b] = await db.update(barbecues).set(set as any).where(eq(barbecues.id, id)).returning();
+    return b;
   }
 
   async deleteBarbecue(id: number): Promise<void> {
@@ -204,6 +241,13 @@ export class DatabaseStorage implements IStorage {
 
   async createExpense(e: InsertExpense): Promise<Expense> {
     const [expense] = await db.insert(expenses).values({ ...e, amount: e.amount.toString() }).returning();
+    const bbq = await this.getBarbecue(e.barbecueId);
+    if (bbq?.allowOptInExpenses) {
+      const accepted = await this.getParticipants(e.barbecueId);
+      if (accepted.length > 0) {
+        await db.insert(expenseShares).values(accepted.map(p => ({ expenseId: expense.id, participantId: p.id })));
+      }
+    }
     return expense;
   }
 
@@ -216,6 +260,21 @@ export class DatabaseStorage implements IStorage {
 
   async deleteExpense(id: number): Promise<void> {
     await db.delete(expenses).where(eq(expenses.id, id));
+  }
+
+  async getExpenseShares(bbqId: number): Promise<{ expenseId: number; participantId: number }[]> {
+    const exps = await db.select({ id: expenses.id }).from(expenses).where(eq(expenses.barbecueId, bbqId));
+    if (exps.length === 0) return [];
+    const rows = await db.select().from(expenseShares).where(inArray(expenseShares.expenseId, exps.map(x => x.id)));
+    return rows.map(r => ({ expenseId: r.expenseId, participantId: r.participantId }));
+  }
+
+  async setExpenseShare(expenseId: number, participantId: number, inShare: boolean): Promise<void> {
+    if (inShare) {
+      await db.insert(expenseShares).values({ expenseId, participantId }).onConflictDoNothing({ target: [expenseShares.expenseId, expenseShares.participantId] });
+    } else {
+      await db.delete(expenseShares).where(and(eq(expenseShares.expenseId, expenseId), eq(expenseShares.participantId, participantId)));
+    }
   }
 
   async sendFriendRequest(requesterId: number, addresseeId: number): Promise<void> {

@@ -8,8 +8,8 @@ import {
   useInvitedParticipants, useInviteParticipant,
   useAcceptInvite, useDeclineInvite,
 } from "@/hooks/use-participants";
-import { useExpenses, useDeleteExpense } from "@/hooks/use-expenses";
-import { useBarbecues, useCreateBarbecue, useDeleteBarbecue } from "@/hooks/use-bbq-data";
+import { useExpenses, useDeleteExpense, useExpenseShares, useSetExpenseShare } from "@/hooks/use-expenses";
+import { useBarbecues, useCreateBarbecue, useDeleteBarbecue, useUpdateBarbecue } from "@/hooks/use-bbq-data";
 import { useFriends, useFriendRequests, useAllPendingRequests, useAcceptFriendRequest, useRemoveFriend } from "@/hooks/use-friends";
 import { ProfileDialog } from "@/components/profile-dialog";
 import { Button } from "@/components/ui/button";
@@ -51,6 +51,7 @@ const CATEGORY_ICON_COMPONENTS: Record<string, typeof Beef> = {
 // ─── Auth Dialog ──────────────────────────────────────────────────────────────
 function AuthDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const { t } = useLanguage();
+  const { toast } = useToast();
   const { login, register, forgotPassword } = useAuth();
   const [tab, setTab] = useState<"login" | "register" | "forgot" | "sent">("login");
   const [username, setUsername] = useState("");
@@ -60,8 +61,9 @@ function AuthDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
   const [showPw, setShowPw] = useState(false);
+  const [forgotEmailSent, setForgotEmailSent] = useState<boolean | null>(null);
 
-  const switchTab = (next: typeof tab) => { setTab(next); setError(""); };
+  const switchTab = (next: typeof tab) => { setTab(next); setError(""); if (next === "forgot") setForgotEmailSent(null); };
 
   const handleLogin = async () => {
     setError("");
@@ -80,7 +82,8 @@ function AuthDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open
     if (password.length < 8) { setError(t.auth.passwordHint); return; }
     if (password !== confirm) { setError(t.auth.passwordsNoMatch); return; }
     try {
-      await register.mutateAsync({ username, email, displayName: displayName || undefined, password });
+      const result = await register.mutateAsync({ username, email, displayName: displayName || undefined, password }) as { emailSent?: boolean };
+      if (result?.emailSent === false) toast({ title: t.auth.welcomeEmailNotSent, variant: "default" });
     } catch (e: any) {
       const msg = e.message;
       if (msg === "username_taken") setError(t.auth.usernameTaken);
@@ -93,7 +96,8 @@ function AuthDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open
     setError("");
     if (!email) return;
     try {
-      await forgotPassword.mutateAsync({ email });
+      const result = await forgotPassword.mutateAsync({ email }) as { emailSent?: boolean };
+      setForgotEmailSent(result?.emailSent !== false);
       switchTab("sent");
     } catch (e: any) {
       setError(e.message);
@@ -309,6 +313,9 @@ function AuthDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open
               <CheckCircle2 className="w-6 h-6 text-green-400" />
             </div>
             <p className="text-sm text-muted-foreground">{t.auth.checkEmailDesc}</p>
+            {forgotEmailSent === false && (
+              <p className="text-sm text-amber-500" data-testid="text-email-not-sent-hint">{t.auth.emailNotSentHint}</p>
+            )}
             <button onClick={() => switchTab("login")} className="text-xs text-primary hover:underline font-semibold" data-testid="link-back-to-login-sent">
               {t.auth.backToLogin}
             </button>
@@ -320,7 +327,7 @@ function AuthDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open
 }
 
 // ─── Currency Conversion Bar ──────────────────────────────────────────────────
-function CurrencyBar({ total, fairShare, bbqCurrency }: { total: number; fairShare: number; bbqCurrency: CurrencyCode }) {
+function CurrencyBar({ total, fairShare, bbqCurrency, currenciesToShow }: { total: number; fairShare: number; bbqCurrency: CurrencyCode; currenciesToShow: typeof CURRENCIES }) {
   const { t } = useLanguage();
   const [expanded, setExpanded] = useState(() => {
     try { return localStorage.getItem('currencyBarExpanded') !== 'false'; } catch { return true; }
@@ -351,7 +358,7 @@ function CurrencyBar({ total, fairShare, bbqCurrency }: { total: number; fairSha
           >
             <div className="overflow-x-auto -mx-1 px-1 pb-1 mt-3">
               <div className="flex gap-2.5 min-w-max">
-                {CURRENCIES.map(cur => {
+                {currenciesToShow.map(cur => {
                   const convTotal = convertCurrency(total, bbqCurrency, cur.code);
                   const convShare = convertCurrency(fairShare, bbqCurrency, cur.code);
                   const isNative = cur.code === bbqCurrency;
@@ -422,6 +429,7 @@ export default function Home() {
   const [newBbqDate, setNewBbqDate] = useState(new Date().toISOString().split('T')[0]);
   const [newBbqCurrency, setNewBbqCurrency] = useState<CurrencyCode>("EUR");
   const [newBbqIsPublic, setNewBbqIsPublic] = useState(true);
+  const [newBbqAllowOptIn, setNewBbqAllowOptIn] = useState(false);
 
   const [isAddPersonOpen, setIsAddPersonOpen] = useState(false);
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
@@ -453,15 +461,19 @@ export default function Home() {
   const { data: barbecues = [], isLoading: isLoadingBbqs } = useBarbecues();
   const createBbq = useCreateBarbecue();
   const deleteBbq = useDeleteBarbecue();
+  const updateBbq = useUpdateBarbecue();
 
   const selectedBbq = barbecues.find((b: Barbecue) => b.id === selectedBbqId) || null;
   const currency = (selectedBbq?.currency as CurrencyCode) || "EUR";
   const currencyInfo = CURRENCIES.find(c => c.code === currency) || CURRENCIES[0];
+  const currenciesToShow = user?.preferredCurrencyCodes?.length ? CURRENCIES.filter(c => user!.preferredCurrencyCodes!.includes(c.code)) : CURRENCIES;
   const isCreator = !!(username && selectedBbq?.creatorId === username);
   const isPrivate = selectedBbq ? !selectedBbq.isPublic : false;
 
   const { data: participants = [] } = useParticipants(selectedBbqId);
   const { data: expenses = [] } = useExpenses(selectedBbqId);
+  const { data: expenseSharesList = [] } = useExpenseShares(selectedBbq?.allowOptInExpenses ? selectedBbqId : null);
+  const setExpenseShare = useSetExpenseShare(selectedBbqId);
   const { data: pendingRequests = [] } = usePendingRequests(isCreator ? selectedBbqId : null);
   const { data: invitedParticipants = [] } = useInvitedParticipants(isCreator && isPrivate ? selectedBbqId : null);
   const { data: memberships = [] } = useMemberships(username);
@@ -492,8 +504,24 @@ export default function Home() {
 
   const totalSpent = expenses.reduce((sum: number, exp: ExpenseWithParticipant) => sum + Number(exp.amount), 0);
   const participantCount = participants.length;
-  const fairShare = participantCount > 0 ? totalSpent / participantCount : 0;
+  const allowOptIn = !!selectedBbq?.allowOptInExpenses;
+  const shareSet = new Set(expenseSharesList.map(s => `${s.expenseId}:${s.participantId}`));
+  const getParticipantsInExpense = (expenseId: number) => {
+    const forExp = expenseSharesList.filter(s => s.expenseId === expenseId);
+    if (forExp.length === 0) return participants.map((p: Participant) => p.id);
+    return forExp.map(s => s.participantId);
+  };
+  const getFairShareForParticipant = (participantId: number) => {
+    if (!allowOptIn || expenseSharesList.length === 0) return participantCount > 0 ? totalSpent / participantCount : 0;
+    let sum = 0;
+    for (const exp of expenses) {
+      const inIds = getParticipantsInExpense(exp.id);
+      if (inIds.includes(participantId)) sum += Number(exp.amount) / inIds.length;
+    }
+    return sum;
+  };
   const myParticipant = username ? participants.find((p: Participant) => p.userId === username) : null;
+  const fairShare = myParticipant ? getFairShareForParticipant(myParticipant.id) : (participantCount > 0 ? totalSpent / participantCount : 0);
 
   const canLeave = (p: Participant) => {
     if (p.userId !== username) return false;
@@ -516,7 +544,8 @@ export default function Home() {
     if (participantCount === 0) return { balances: [] as any[], settlements: [] as any[] };
     const balances = participants.map((p: any) => {
       const paid = expenses.filter((e: ExpenseWithParticipant) => e.participantId === p.id).reduce((s: number, e: ExpenseWithParticipant) => s + Number(e.amount), 0);
-      return { ...p, paid, balance: paid - fairShare };
+      const pFairShare = getFairShareForParticipant(p.id);
+      return { ...p, paid, balance: paid - pFairShare };
     });
     const debtors = balances.filter((b: any) => b.balance < -0.01).sort((a: any, b: any) => a.balance - b.balance);
     const creditors = balances.filter((b: any) => b.balance > 0.01).sort((a: any, b: any) => b.balance - a.balance);
@@ -556,10 +585,11 @@ export default function Home() {
       currency: newBbqCurrency,
       creatorId: username || undefined,
       isPublic: newBbqIsPublic,
+      allowOptInExpenses: newBbqAllowOptIn,
     }, {
       onSuccess: (data: Barbecue) => {
         setSelectedBbqId(data.id);
-        setNewBbqName(""); setNewBbqDate(new Date().toISOString().split('T')[0]);
+        setNewBbqName(""); setNewBbqDate(new Date().toISOString().split('T')[0]); setNewBbqAllowOptIn(false);
         setIsNewBbqOpen(false);
       }
     });
@@ -983,6 +1013,25 @@ export default function Home() {
         {/* Main Content */}
         {selectedBbqId ? (
           <>
+            {/* Creator: Opt-in expenses toggle */}
+            {isCreator && selectedBbqId && (
+              <div className="flex items-center gap-3 p-3 rounded-xl bg-secondary/20 border border-white/5">
+                <input
+                  type="checkbox"
+                  id="bbq-opt-in-toggle"
+                  checked={!!selectedBbq?.allowOptInExpenses}
+                  onChange={e => updateBbq.mutate({ id: selectedBbqId, allowOptInExpenses: e.target.checked })}
+                  disabled={updateBbq.isPending}
+                  className="rounded border-white/20"
+                  data-testid="checkbox-bbq-allow-opt-in"
+                />
+                <label htmlFor="bbq-opt-in-toggle" className="text-sm cursor-pointer flex-1">
+                  {t.bbq.allowOptInExpenses}
+                </label>
+                {updateBbq.isPending && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
+              </div>
+            )}
+
             {/* Stats Grid */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
               <StatCard label={t.totalSpent} value={formatMoney(totalSpent)} icon={<Wallet />} color="gold" />
@@ -993,7 +1042,7 @@ export default function Home() {
 
             {/* Currency Conversion Bar */}
             {totalSpent > 0 && (
-              <CurrencyBar total={totalSpent} fairShare={fairShare} bbqCurrency={currency} />
+              <CurrencyBar total={totalSpent} fairShare={fairShare} bbqCurrency={currency} currenciesToShow={currenciesToShow} />
             )}
 
             {/* Participant Chips */}
@@ -1132,6 +1181,10 @@ export default function Home() {
                     {expenses.map((exp: ExpenseWithParticipant) => {
                       const IconComp = CATEGORY_ICON_COMPONENTS[exp.category] || Package;
                       const color = CATEGORY_COLORS[exp.category] || '#888';
+                      const everyoneInByDefault = expenseSharesList.length === 0;
+                      const isInForExp = myParticipant
+                        ? (everyoneInByDefault ? true : shareSet.has(`${exp.id}:${myParticipant.id}`))
+                        : false;
                       return (
                         <div
                           key={exp.id}
@@ -1147,6 +1200,19 @@ export default function Home() {
                               {t.categories[exp.category as keyof typeof t.categories] || exp.category} · {exp.participantName}
                             </div>
                           </div>
+                          {allowOptIn && myParticipant && (
+                            <button
+                              onClick={() => setExpenseShare.mutate({ expenseId: exp.id, in: !isInForExp })}
+                              disabled={setExpenseShare.isPending}
+                              className={`flex-shrink-0 text-xs font-semibold px-2.5 py-1 rounded-lg border transition-colors ${
+                                isInForExp ? 'bg-green-500/20 text-green-400 border-green-500/30' : 'bg-secondary/40 text-muted-foreground border-white/10 hover:border-white/20'
+                              }`}
+                              data-testid={`expense-share-toggle-${exp.id}`}
+                              title={isInForExp ? t.bbq.imOut : t.bbq.imIn}
+                            >
+                              {isInForExp ? t.bbq.imIn : t.bbq.imOut}
+                            </button>
+                          )}
                           <div className="text-right flex-shrink-0">
                             <div className="font-bold text-primary">{formatMoney(Number(exp.amount))}</div>
                           </div>
@@ -1333,7 +1399,7 @@ export default function Home() {
                 <button
                   onClick={() => setNewBbqIsPublic(false)}
                   className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-semibold transition-colors ${
-                    !newBbqIsPublic ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-white/5'
+                    newBbqIsPublic ? 'text-muted-foreground hover:bg-white/5' : 'bg-primary text-primary-foreground'
                   }`}
                   data-testid="button-visibility-private"
                 >
@@ -1341,6 +1407,20 @@ export default function Home() {
                 </button>
               </div>
               <p className="text-xs text-muted-foreground">{newBbqIsPublic ? t.bbq.publicDesc : t.bbq.privateDesc}</p>
+            </div>
+            <div className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                id="new-bbq-opt-in"
+                checked={newBbqAllowOptIn}
+                onChange={e => setNewBbqAllowOptIn(e.target.checked)}
+                className="mt-1 rounded border-white/20"
+                data-testid="checkbox-allow-opt-in-expenses"
+              />
+              <div>
+                <Label htmlFor="new-bbq-opt-in" className="text-sm font-medium cursor-pointer">{t.bbq.allowOptInExpenses}</Label>
+                <p className="text-xs text-muted-foreground mt-0.5">{t.bbq.allowOptInExpensesDesc}</p>
+              </div>
             </div>
           </div>
           <DialogFooter>

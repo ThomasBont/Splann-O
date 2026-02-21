@@ -125,6 +125,12 @@ The `shared/` directory contains code used by both client and server:
 ### Optional Services
 - **Resend** (email): Set `RESEND_API_KEY` to send welcome emails (on signup) and password-reset emails. Without it, welcome emails are skipped and reset links are only printed to the server log. Configure your Resend account with a verified domain if required; the default sender `noreply@resend.dev` may have sending limits.
 
+### Email (Resend)
+- **Environment**: Set `RESEND_API_KEY` in your environment (e.g. Render dashboard, Replit Secrets). Both welcome (on register) and forgot-password emails use this key.
+- **Domain / sender**: If you are not using the default `noreply@resend.dev`, verify your domain in the Resend dashboard and set the sender accordingly in `server/email.ts` if needed.
+- **Diagnostics**: `GET /api/health` returns `{ emailConfigured: true }` when `RESEND_API_KEY` is set (no key value is exposed). Use this to confirm the key is present in production.
+- **When emails don’t arrive**: Check server logs for `[email]` lines. On startup you’ll see either "Email: Resend configured" or "Email: RESEND_API_KEY not set; welcome and password-reset emails disabled." On send failure, errors are logged with `[email]` prefix. If the API returns success but `emailSent` is false in register or forgot-password responses, the frontend can show a generic message (e.g. "We couldn’t send the email right now. Check your address or try again later.") without revealing whether the email exists.
+
 ### Key npm Packages
 - **drizzle-orm** + **drizzle-kit** + **drizzle-zod**: ORM, migration tooling, and schema-to-Zod bridge
 - **express** v5: HTTP server framework

@@ -44,7 +44,8 @@ app.use(
     cookie: {
       maxAge: 30 * 24 * 60 * 60 * 1000,
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
+      // Secure cookies are only sent over HTTPS. For local production build (HTTP), set COOKIE_SECURE=0 so the session is stored.
+      secure: process.env.NODE_ENV === "production" && process.env.COOKIE_SECURE !== "0",
       sameSite: "lax",
     },
   })

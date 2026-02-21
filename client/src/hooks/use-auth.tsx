@@ -8,7 +8,7 @@ export function useAuth() {
   const { data: user, isLoading } = useQuery<AuthUser | null>({
     queryKey: ['/api/auth/me'],
     queryFn: async () => {
-      const res = await fetch('/api/auth/me');
+      const res = await fetch('/api/auth/me', { credentials: 'include' });
       if (!res.ok) return null;
       return res.json();
     },
@@ -22,6 +22,7 @@ export function useAuth() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
+        credentials: 'include',
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || 'login_failed');
@@ -40,6 +41,7 @@ export function useAuth() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, email, displayName, password }),
+        credentials: 'include',
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || 'register_failed');
@@ -53,7 +55,7 @@ export function useAuth() {
 
   const logout = useMutation({
     mutationFn: async () => {
-      await fetch('/api/auth/logout', { method: 'POST' });
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
     },
     onSuccess: () => {
       queryClient.clear();
@@ -66,6 +68,7 @@ export function useAuth() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
+        credentials: 'include',
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || 'forgot_failed');
@@ -79,6 +82,7 @@ export function useAuth() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token, password }),
+        credentials: 'include',
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || 'reset_failed');

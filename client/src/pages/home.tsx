@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useLanguage, CURRENCIES, LANGUAGES, type CurrencyCode, convertCurrency } from "@/hooks/use-language";
 import { useAuth } from "@/hooks/use-auth";
 import {
-  useParticipants, useCreateParticipant, useDeleteParticipant,
+  useParticipants, useCreateParticipant, useDeleteParticipant, useUpdateParticipantName,
   usePendingRequests, useMemberships, useJoinBarbecue,
   useAcceptParticipant, useRejectParticipant,
   useInvitedParticipants, useInviteParticipant,
@@ -19,6 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
+import { DraggableDialogContent } from "@/components/ui/draggable-dialog-content";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -48,7 +49,7 @@ const CATEGORY_ICON_COMPONENTS: Record<string, typeof Beef> = {
 };
 
 // ─── Auth Dialog ──────────────────────────────────────────────────────────────
-function AuthDialog({ open }: { open: boolean }) {
+function AuthDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   const { t } = useLanguage();
   const { login, register, forgotPassword } = useAuth();
   const [tab, setTab] = useState<"login" | "register" | "forgot" | "sent">("login");
@@ -115,8 +116,8 @@ function AuthDialog({ open }: { open: boolean }) {
   };
 
   return (
-    <Dialog open={open} onOpenChange={() => {}}>
-      <DialogContent className="sm:max-w-sm" onPointerDownOutside={e => e.preventDefault()} data-testid="dialog-auth">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DraggableDialogContent className="sm:max-w-sm" data-testid="dialog-auth">
         <DialogHeader>
           <div className="flex items-center gap-2 mb-1">
             <div className="bg-gradient-to-br from-primary to-accent p-1.5 rounded-lg">
@@ -313,7 +314,7 @@ function AuthDialog({ open }: { open: boolean }) {
             </button>
           </div>
         )}
-      </DialogContent>
+      </DraggableDialogContent>
     </Dialog>
   );
 }
@@ -425,6 +426,8 @@ export default function Home() {
   const [isAddPersonOpen, setIsAddPersonOpen] = useState(false);
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<ExpenseWithParticipant | null>(null);
+  const [editingParticipantId, setEditingParticipantId] = useState<number | null>(null);
+  const [editingParticipantName, setEditingParticipantName] = useState("");
   const [inviteUsername, setInviteUsername] = useState("");
 
   const { data: friends = [] } = useFriends();
@@ -434,6 +437,7 @@ export default function Home() {
   const removeFriendMut = useRemoveFriend();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
+  const [showAuthDialog, setShowAuthDialog] = useState(true);
   const prevPendingCountRef = useRef(allPendingRequests.length);
 
   useEffect(() => {
@@ -463,6 +467,7 @@ export default function Home() {
   const { data: memberships = [] } = useMemberships(username);
 
   const deleteParticipant = useDeleteParticipant(selectedBbqId);
+  const updateParticipantName = useUpdateParticipantName(selectedBbqId);
   const deleteExpense = useDeleteExpense(selectedBbqId);
   const joinBbq = useJoinBarbecue();
   const acceptParticipant = useAcceptParticipant(selectedBbqId);
@@ -593,7 +598,7 @@ export default function Home() {
 
   return (
     <div className="min-h-screen pb-20">
-      <AuthDialog open={!user} />
+      <AuthDialog open={!user && showAuthDialog} onOpenChange={(open) => { if (!open) setShowAuthDialog(false); }} />
 
       {/* Header */}
       <header className="sticky top-0 z-50 bg-background/80 backdrop-blur-lg border-b border-white/5" data-testid="header">
@@ -709,6 +714,15 @@ export default function Home() {
                   <LogOut className="w-4 h-4" />
                 </Button>
               </div>
+            ) : !showAuthDialog ? (
+              <Button
+                size="sm"
+                onClick={() => setShowAuthDialog(true)}
+                className="bg-primary text-primary-foreground font-bold"
+                data-testid="button-open-auth"
+              >
+                {t.auth.login}
+              </Button>
             ) : null}
 
             {selectedBbqId && user && (
@@ -993,15 +1007,72 @@ export default function Home() {
                     const paid = expenses
                       .filter((e: ExpenseWithParticipant) => e.participantId === p.id)
                       .reduce((s: number, e: ExpenseWithParticipant) => s + Number(e.amount), 0);
+                    const isOwn = p.userId === username;
+                    const isEditing = editingParticipantId === p.id;
                     return (
                       <div
                         key={p.id}
                         className="inline-flex items-center gap-2 bg-secondary/40 border border-white/10 rounded-xl px-3 py-1.5 text-sm"
                         data-testid={`chip-participant-${p.id}`}
                       >
-                        <span className="font-medium">{p.name}</span>
-                        <span className="text-primary text-xs font-semibold">{formatMoney(paid)}</span>
-                        {canLeave(p) && (
+                        {isEditing ? (
+                          <>
+                            <Input
+                              value={editingParticipantName}
+                              onChange={e => setEditingParticipantName(e.target.value)}
+                              className="h-7 w-24 text-sm"
+                              onKeyDown={e => {
+                                if (e.key === "Enter") {
+                                  if (editingParticipantName.trim()) {
+                                    updateParticipantName.mutate({ id: p.id, name: editingParticipantName.trim() }, {
+                                      onSuccess: () => { setEditingParticipantId(null); setEditingParticipantName(""); },
+                                      onError: () => {},
+                                    });
+                                  }
+                                }
+                                if (e.key === "Escape") { setEditingParticipantId(null); setEditingParticipantName(""); }
+                              }}
+                              data-testid={`input-edit-participant-${p.id}`}
+                            />
+                            <button
+                              onClick={() => {
+                                if (editingParticipantName.trim()) {
+                                  updateParticipantName.mutate({ id: p.id, name: editingParticipantName.trim() }, {
+                                    onSuccess: () => { setEditingParticipantId(null); setEditingParticipantName(""); },
+                                  });
+                                }
+                              }}
+                              disabled={!editingParticipantName.trim() || updateParticipantName.isPending}
+                              className="text-primary hover:text-primary/80"
+                              title={t.modals.save}
+                            >
+                              {updateParticipantName.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                            </button>
+                            <button
+                              onClick={() => { setEditingParticipantId(null); setEditingParticipantName(""); }}
+                              className="text-muted-foreground hover:text-foreground"
+                              title={t.modals.cancel}
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <span className="font-medium">{p.name}</span>
+                            {isOwn && (
+                              <button
+                                onClick={() => { setEditingParticipantId(p.id); setEditingParticipantName(p.name); }}
+                                className="text-muted-foreground hover:text-foreground ml-0.5"
+                                title={t.user.editNameInBbq}
+                                data-testid={`button-edit-name-${p.id}`}
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </>
+                        )}
+                        {!isEditing && <span className="text-primary text-xs font-semibold">{formatMoney(paid)}</span>}
+                        {!isEditing && canLeave(p) && (
                           <button
                             onClick={() => deleteParticipant.mutate(p.id)}
                             className="text-muted-foreground hover:text-destructive ml-0.5"
@@ -1011,7 +1082,7 @@ export default function Home() {
                             <LogOut className="w-3.5 h-3.5" />
                           </button>
                         )}
-                        {canManage && p.userId !== username && (
+                        {!isEditing && canManage && p.userId !== username && (
                           <button
                             onClick={() => deleteParticipant.mutate(p.id)}
                             className="text-muted-foreground hover:text-destructive ml-0.5"
@@ -1206,7 +1277,7 @@ export default function Home() {
 
       {/* Create BBQ Dialog */}
       <Dialog open={isNewBbqOpen} onOpenChange={setIsNewBbqOpen}>
-        <DialogContent className="sm:max-w-md" data-testid="dialog-new-bbq">
+        <DraggableDialogContent className="sm:max-w-md" data-testid="dialog-new-bbq">
           <DialogHeader>
             <DialogTitle className="font-display text-primary text-xl">{t.bbq.newBarbecue}</DialogTitle>
             <DialogDescription>{t.subtitle}</DialogDescription>
@@ -1283,7 +1354,7 @@ export default function Home() {
               {createBbq.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : t.bbq.create}
             </Button>
           </DialogFooter>
-        </DialogContent>
+        </DraggableDialogContent>
       </Dialog>
 
       {/* Add Person Dialog */}

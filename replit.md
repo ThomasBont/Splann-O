@@ -123,7 +123,7 @@ The `shared/` directory contains code used by both client and server:
 - **Sessions**: `express-session` + `connect-pg-simple` for PostgreSQL-backed session storage. Requires `SESSION_SECRET` env var.
 
 ### Optional Services
-- **Resend** (email): Set `RESEND_API_KEY` env secret to enable real password-reset emails. Without it, reset URLs are printed to the server log. The Resend integration was dismissed — to re-enable, either use the Replit integrations panel to connect Resend, or add `RESEND_API_KEY` manually as a secret.
+- **Resend** (email): Set `RESEND_API_KEY` to send welcome emails (on signup) and password-reset emails. Without it, welcome emails are skipped and reset links are only printed to the server log. Configure your Resend account with a verified domain if required; the default sender `noreply@resend.dev` may have sending limits.
 
 ### Key npm Packages
 - **drizzle-orm** + **drizzle-kit** + **drizzle-zod**: ORM, migration tooling, and schema-to-Zod bridge

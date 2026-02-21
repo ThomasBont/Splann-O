@@ -47,7 +47,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       req.session.userId = user.id;
       req.session.username = user.username;
-      sendWelcomeEmail(user.email, user.displayName || user.username);
+      await sendWelcomeEmail(user.email, user.displayName || user.username);
       req.session.save((err) => {
         if (err) {
           console.error("[session] save error on register:", err);
@@ -246,6 +246,24 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const updated = await storage.acceptParticipant(Number(req.params.id));
     if (!updated) return res.status(404).json({ message: "Participant not found" });
     res.json(updated);
+  });
+
+  app.patch(api.participants.update.path, async (req, res) => {
+    try {
+      const username = req.session.username;
+      if (!username) return res.status(401).json({ message: "Not authenticated" });
+      const id = Number(req.params.id);
+      const input = api.participants.update.input.parse(req.body);
+      const participant = await storage.getParticipant(id);
+      if (!participant) return res.status(404).json({ message: "Participant not found" });
+      if (participant.userId !== username) return res.status(403).json({ message: "Can only edit your own name" });
+      const updated = await storage.updateParticipantName(id, input.name);
+      if (!updated) return res.status(404).json({ message: "Participant not found" });
+      res.json(updated);
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
   });
 
   app.delete(api.participants.delete.path, async (req, res) => {

@@ -183,6 +183,28 @@ export function useRejectParticipant(bbqId: number | null) {
   });
 }
 
+export function useUpdateParticipantName(bbqId: number | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, name }: { id: number; name: string }) => {
+      const url = buildUrl(api.participants.update.path, { id });
+      const res = await fetch(url, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Failed to update name");
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/barbecues', bbqId, 'participants'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/barbecues', bbqId, 'expenses'] });
+    },
+  });
+}
+
 export function useDeleteParticipant(bbqId: number | null) {
   const queryClient = useQueryClient();
   return useMutation({

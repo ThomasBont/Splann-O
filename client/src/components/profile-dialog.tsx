@@ -6,8 +6,9 @@ import {
   useAcceptFriendRequest, useRemoveFriend, useSearchUsers,
 } from "@/hooks/use-friends";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle,
+  Dialog, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
+import { DraggableDialogContent } from "@/components/ui/draggable-dialog-content";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -40,7 +41,7 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto" data-testid="dialog-profile">
+      <DraggableDialogContent className="sm:max-w-md max-h-[85vh] overflow-y-auto" data-testid="dialog-profile">
         <DialogHeader>
           <DialogTitle className="font-display text-lg flex items-center gap-2">
             <Heart className="w-5 h-5 text-primary" />
@@ -234,7 +235,7 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
             </div>
           </TabsContent>
         </Tabs>
-      </DialogContent>
+      </DraggableDialogContent>
     </Dialog>
   );
 }

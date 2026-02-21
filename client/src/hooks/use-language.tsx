@@ -167,6 +167,7 @@ interface Translations {
     leave: string;
     hi: string;
     changeUsername: string;
+    editNameInBbq: string;
     host: string;
   };
   friends: {
@@ -271,7 +272,7 @@ const translations: Record<Language, Translations> = {
       usernamePlaceholder: "e.g. Carlos", confirm: "Let's Go!",
       joinBbq: "Join", pending: "Pending", joined: "Joined",
       pendingRequests: "Join Requests", accept: "Accept", reject: "Reject",
-      leave: "Leave", hi: "Hi", changeUsername: "Change name", host: "Host",
+      leave: "Leave", hi: "Hi", changeUsername: "Change name", editNameInBbq: "Edit name", host: "Host",
     },
     friends: {
       title: "Friends",
@@ -299,7 +300,7 @@ const translations: Record<Language, Translations> = {
   },
   es: {
     title: "La App de Asado Ortega",
-    subtitle: "Dividí la cuenta, mantenéla buena onda",
+    subtitle: "Cuentas claras, conservan la amistad!",
     addPerson: "Agregar Persona",
     addExpense: "Agregar Gasto",
     totalSpent: "Total Gastado",
@@ -373,7 +374,7 @@ const translations: Record<Language, Translations> = {
       usernamePlaceholder: "ej. Carlos", confirm: "¡Vamos!",
       joinBbq: "Unirse", pending: "Pendiente", joined: "Unido",
       pendingRequests: "Solicitudes", accept: "Aceptar", reject: "Rechazar",
-      leave: "Salir", hi: "Hola", changeUsername: "Cambiar nombre", host: "Anfitrión",
+      leave: "Salir", hi: "Hola", changeUsername: "Cambiar nombre", editNameInBbq: "Editar nombre", host: "Anfitrión",
     },
     friends: {
       title: "Amigos",
@@ -475,7 +476,7 @@ const translations: Record<Language, Translations> = {
       usernamePlaceholder: "es. Carlo", confirm: "Andiamo!",
       joinBbq: "Unisciti", pending: "In attesa", joined: "Unito",
       pendingRequests: "Richieste", accept: "Accetta", reject: "Rifiuta",
-      leave: "Esci", hi: "Ciao", changeUsername: "Cambia nome", host: "Organizzatore",
+      leave: "Esci", hi: "Ciao", changeUsername: "Cambia nome", editNameInBbq: "Modifica nome", host: "Organizzatore",
     },
     friends: {
       title: "Amici",
@@ -577,7 +578,7 @@ const translations: Record<Language, Translations> = {
       usernamePlaceholder: "bijv. Carlos", confirm: "Let's Go!",
       joinBbq: "Deelnemen", pending: "In behandeling", joined: "Deelnemer",
       pendingRequests: "Aanvragen", accept: "Accepteren", reject: "Afwijzen",
-      leave: "Verlaten", hi: "Hoi", changeUsername: "Naam wijzigen", host: "Gastheer",
+      leave: "Verlaten", hi: "Hoi", changeUsername: "Naam wijzigen", editNameInBbq: "Naam bewerken", host: "Gastheer",
     },
     friends: {
       title: "Vrienden",

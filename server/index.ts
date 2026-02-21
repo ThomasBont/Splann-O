@@ -120,6 +120,9 @@ app.use((req, res, next) => {
     },
     () => {
       log(`serving on port ${port}`);
+      if (!process.env.RESEND_API_KEY) {
+        log("RESEND_API_KEY not set — welcome and password-reset emails will not be sent", "email");
+      }
     },
   );
 })();

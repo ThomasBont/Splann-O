@@ -3,11 +3,11 @@ import { useLanguage } from "@/hooks/use-language";
 import { useCreateParticipant } from "@/hooks/use-participants";
 import {
   Dialog,
-  DialogContent,
   DialogHeader,
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { DraggableDialogContent } from "@/components/ui/draggable-dialog-content";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -38,7 +38,7 @@ export function AddPersonDialog({ open, onOpenChange, bbqId }: AddPersonDialogPr
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md bg-card border-border max-h-[90vh] overflow-y-auto">
+      <DraggableDialogContent className="sm:max-w-md bg-card border-border max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-xl font-display text-primary">{t.modals.addPersonTitle}</DialogTitle>
         </DialogHeader>
@@ -78,7 +78,7 @@ export function AddPersonDialog({ open, onOpenChange, bbqId }: AddPersonDialogPr
             </Button>
           </DialogFooter>
         </form>
-      </DialogContent>
+      </DraggableDialogContent>
     </Dialog>
   );
 }

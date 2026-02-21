@@ -92,6 +92,17 @@ export const api = {
         404: errorSchemas.notFound,
       },
     },
+    update: {
+      method: 'PATCH' as const,
+      path: '/api/participants/:id' as const,
+      input: z.object({ name: z.string().min(1).max(100) }),
+      responses: {
+        200: z.custom<Participant>(),
+        400: errorSchemas.validation,
+        403: errorSchemas.validation,
+        404: errorSchemas.notFound,
+      },
+    },
     delete: {
       method: 'DELETE' as const,
       path: '/api/participants/:id' as const,

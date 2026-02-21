@@ -46,6 +46,7 @@ export interface IStorage {
   joinBarbecue(bbqId: number, name: string, userId: string): Promise<Participant>;
   inviteParticipant(bbqId: number, name: string, userId: string): Promise<Participant>;
   acceptParticipant(id: number): Promise<Participant | undefined>;
+  updateParticipantName(id: number, name: string): Promise<Participant | undefined>;
   deleteParticipant(id: number): Promise<void>;
   getMemberships(userId: string): Promise<Membership[]>;
 
@@ -175,6 +176,11 @@ export class DatabaseStorage implements IStorage {
 
   async acceptParticipant(id: number): Promise<Participant | undefined> {
     const [updated] = await db.update(participants).set({ status: "accepted" }).where(eq(participants.id, id)).returning();
+    return updated;
+  }
+
+  async updateParticipantName(id: number, name: string): Promise<Participant | undefined> {
+    const [updated] = await db.update(participants).set({ name }).where(eq(participants.id, id)).returning();
     return updated;
   }
 

@@ -591,7 +591,10 @@ export default function Home() {
         setSelectedBbqId(data.id);
         setNewBbqName(""); setNewBbqDate(new Date().toISOString().split('T')[0]); setNewBbqAllowOptIn(false);
         setIsNewBbqOpen(false);
-      }
+      },
+      onError: (err: Error) => {
+        toast({ title: t.bbq.create, description: err.message || "Failed to create barbecue", variant: "destructive" });
+      },
     });
   };
 

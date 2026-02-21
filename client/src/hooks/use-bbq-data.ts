@@ -27,9 +27,13 @@ export function useCreateBarbecue() {
       const res = await fetch(api.barbecues.create.path, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify(data),
       });
-      if (!res.ok) throw new Error("Failed to create barbecue");
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { message?: string }).message || "Failed to create barbecue");
+      }
       return res.json() as Promise<Barbecue>;
     },
     onSuccess: () => {

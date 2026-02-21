@@ -1,4 +1,4 @@
-import { pgTable, text, serial, numeric, integer, timestamp, boolean, unique } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, numeric, integer, timestamp, boolean, unique, json } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -21,6 +21,13 @@ export const passwordResetTokens = pgTable("password_reset_tokens", {
   userId: integer("user_id").references(() => users.id, { onDelete: 'cascade' }).notNull(),
   expiresAt: timestamp("expires_at").notNull(),
   usedAt: timestamp("used_at"),
+});
+
+/** Session table used by connect-pg-simple (express-session). Declared here so Drizzle does not propose dropping it on db:push. */
+export const session = pgTable("session", {
+  sid: text("sid").primaryKey(),
+  sess: json("sess").notNull(),
+  expire: timestamp("expire").notNull(),
 });
 
 export const barbecues = pgTable("barbecues", {

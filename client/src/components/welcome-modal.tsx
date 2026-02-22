@@ -7,7 +7,8 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/hooks/use-language";
-import { Receipt, Sparkles } from "lucide-react";
+import { SplannoLogo } from "@/components/splanno-logo";
+import { Sparkles } from "lucide-react";
 
 type WelcomeModalProps = {
   open: boolean;
@@ -38,8 +39,8 @@ export function WelcomeModal({
     <Dialog open={open} onOpenChange={handleClose}>
       <DialogContent className="sm:max-w-md border-primary/20 bg-gradient-to-b from-background to-card">
         <DialogHeader className="space-y-4 text-center">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-accent shadow-lg shadow-orange-500/20">
-            <Receipt className="h-7 w-7 text-white" />
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-accent shadow-lg shadow-orange-500/20 [--brand-secondary:0_0%_100%]">
+            <SplannoLogo size="lg" iconOnly />
           </div>
           <div className="flex items-center justify-center gap-1.5 text-primary">
             <Sparkles className="h-4 w-4" />

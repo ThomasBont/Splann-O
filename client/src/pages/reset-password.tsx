@@ -5,7 +5,8 @@ import { useLanguage } from "@/hooks/use-language";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Flame, EyeOff, Eye, CheckCircle2, AlertCircle } from "lucide-react";
+import { SplannoLogo } from "@/components/splanno-logo";
+import { EyeOff, Eye, CheckCircle2, AlertCircle } from "lucide-react";
 
 export default function ResetPassword() {
   const { t } = useLanguage();
@@ -43,9 +44,7 @@ export default function ResetPassword() {
     <div className="min-h-screen flex items-center justify-center bg-background px-4">
       <div className="w-full max-w-sm bg-card border border-white/10 rounded-2xl p-6 shadow-xl">
         <div className="flex items-center gap-2 mb-6">
-          <div className="bg-gradient-to-br from-primary to-accent p-1.5 rounded-lg">
-            <Flame className="w-5 h-5 text-white" fill="currentColor" />
-          </div>
+          <SplannoLogo size="sm" iconOnly />
           <h1 className="font-display text-primary font-bold text-lg">{t.title}</h1>
         </div>
 

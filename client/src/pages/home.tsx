@@ -29,6 +29,7 @@ import { AddPersonDialog } from "@/components/add-person-dialog";
 import { AddExpenseDialog } from "@/components/add-expense-dialog";
 import { WelcomeModal } from "@/components/welcome-modal";
 import { DiscoverModal } from "@/components/discover-modal";
+import { SplannoLogo } from "@/components/splanno-logo";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import {
   Users, Receipt, Wallet, Trash2, Edit2,
@@ -158,9 +159,7 @@ export function AuthDialog({
       <DraggableDialogContent className="sm:max-w-sm" data-testid="dialog-auth">
         <DialogHeader>
           <div className="flex items-center gap-2 mb-1">
-            <div className="bg-gradient-to-br from-primary to-accent p-1.5 rounded-lg">
-              <Receipt className="w-5 h-5 text-white" />
-            </div>
+            <SplannoLogo size="sm" iconOnly />
             <h1 className="font-display text-primary font-bold text-lg truncate">{t.title}</h1>
           </div>
           <DialogTitle className="text-base">{isCheckingAuth ? t.auth.loginTitle : titles[tab]}</DialogTitle>
@@ -752,9 +751,7 @@ export default function Home() {
       <header className="sticky top-0 z-50 bg-background/80 backdrop-blur-lg border-b border-white/5" data-testid="header">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
-            <div className="bg-gradient-to-br from-primary to-accent p-1.5 sm:p-2 rounded-lg shadow-lg shadow-orange-500/20 flex-shrink-0">
-              <Receipt className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
-            </div>
+            <SplannoLogo size="md" iconOnly className="flex-shrink-0" />
             <div className="min-w-0">
               <h1 className="text-base sm:text-xl md:text-2xl font-bold font-display text-primary tracking-tight truncate" data-testid="text-app-title">
                 {t.title}

@@ -8,6 +8,18 @@
   --font-display: 'Playfair Display', serif;
   --font-body: 'DM Sans', sans-serif;
 
+  /* Brand colors (Splanno logo – light mode / white bg base) */
+  --brand-primary: 43 86% 60%;    /* Gold */
+  --brand-secondary: 240 20% 10%; /* Dark */
+  --brand-accent: 16 75% 52%;    /* Orange */
+
+  /* Splanno logo colors (two bubbles + accents) */
+  --splanno-blue: 217 76% 59%;     /* Left bubble – #4A88E8 */
+  --splanno-orange: 35 94% 60%;    /* Right bubble – #F8A93C */
+  --splanno-green: 140 45% 58%;    /* Money icon green */
+  --splanno-purple: 249 80% 67%;   /* Floating dots – #7B68EE */
+  --splanno-text: 0 0% 19%;        /* "splanno" wordmark – #303030 */
+
   /* Custom Palette based on requirements */
   --background: 240 20% 10%;      /* #14141f - Deep dark blue-grey */
   --foreground: 0 0% 95%;         /* #f2f2f2 - Off white */
@@ -42,6 +54,16 @@
   /* Semantic Colors */
   --success: 154 63% 44%;         /* Green */
   --info: 201 64% 53%;            /* Blue */
+}
+
+/* Dark mode – brand colors for dark backgrounds */
+.dark,
+[data-theme="dark"] {
+  --brand-primary: 43 86% 60%;    /* Gold (unchanged) */
+  --brand-secondary: 0 0% 95%;    /* Light text on dark */
+  --brand-accent: 16 75% 55%;     /* Slightly brighter orange */
+  /* Splanno logo on dark */
+  --splanno-text: 0 0% 92%;       /* Light text on dark */
 }
 
 @layer base {

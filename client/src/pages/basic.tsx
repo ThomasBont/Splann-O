@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Link } from "wouter";
+import { SplannoLogo } from "@/components/splanno-logo";
 import { ArrowLeft, Plus, Trash2, Receipt, Users } from "lucide-react";
 
 type Participant = { id: string; name: string };
@@ -121,6 +122,7 @@ export default function Basic() {
             {t.basic.backToLanding}
           </a>
         </Link>
+        <SplannoLogo size="sm" iconOnly />
         <span className="font-display font-bold text-primary truncate">{t.basic.pageTitle}</span>
       </header>
 

@@ -819,32 +819,6 @@ export default function Home() {
               </Button>
             ) : null}
 
-            {selectedBbqId && user && (
-              <>
-                {canManage && (
-                  <Button
-                    size="sm"
-                    onClick={() => setIsAddPersonOpen(true)}
-                    className="bg-primary text-primary-foreground font-bold px-2 sm:px-3 text-xs sm:text-sm"
-                    data-testid="button-add-person"
-                  >
-                    <Plus className="w-3.5 h-3.5 sm:mr-1" />
-                    <span className="hidden sm:inline">{t.addPerson}</span>
-                  </Button>
-                )}
-                {(isCreator || isAcceptedMember) && (
-                  <Button
-                    size="sm"
-                    onClick={() => setIsAddExpenseOpen(true)}
-                    className="bg-accent text-accent-foreground font-bold px-2 sm:px-3 text-xs sm:text-sm"
-                    data-testid="button-add-expense"
-                  >
-                    <Plus className="w-3.5 h-3.5 sm:mr-1" />
-                    <span className="hidden sm:inline">{t.addExpense}</span>
-                  </Button>
-                )}
-              </>
-            )}
           </div>
         </div>
       </header>
@@ -1194,14 +1168,26 @@ export default function Home() {
               )}
             </div>
 
-            {/* Participant Chips */}
-            {participants.length > 0 && (
-              <div className="bg-card/80 border border-white/5 rounded-2xl p-4 sm:p-6">
-                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+            {/* Participants — Add Person lives here */}
+            <div className="bg-card/80 border border-white/5 rounded-2xl p-4 sm:p-6">
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
                   {t.participants}
                 </h3>
-                <div className="flex flex-wrap gap-2">
-                  {participants.map((p: Participant) => {
+                {canManage && (
+                  <Button
+                    size="sm"
+                    onClick={() => setIsAddPersonOpen(true)}
+                    className="bg-primary text-primary-foreground font-bold shrink-0"
+                    data-testid="button-add-person"
+                  >
+                    <Plus className="w-4 h-4 mr-1.5" />
+                    {t.addPerson}
+                  </Button>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {participants.map((p: Participant) => {
                     const paid = expenses
                       .filter((e: ExpenseWithParticipant) => e.participantId === p.id)
                       .reduce((s: number, e: ExpenseWithParticipant) => s + Number(e.amount), 0);
@@ -1293,9 +1279,8 @@ export default function Home() {
                       </div>
                     );
                   })}
-                </div>
               </div>
-            )}
+            </div>
 
             {/* Tabs */}
             <Tabs defaultValue="expenses">

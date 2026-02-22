@@ -72,8 +72,8 @@ const EVENT_TYPE_I18N_KEYS: Record<string, string> = {
   city_trip: "cityTrip", cinema: "cinema", theme_park: "themePark", day_out: "dayOut", other_trip: "otherTrip",
 };
 
-// ─── Auth Dialog ──────────────────────────────────────────────────────────────
-function AuthDialog({
+// ─── Auth Dialog (exported for LoginShell) ─────────────────────────────────────
+export function AuthDialog({
   open,
   onOpenChange,
   isCheckingAuth = false,

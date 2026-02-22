@@ -6,7 +6,7 @@ import { LanguageProvider } from "@/hooks/use-language";
 import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
 import Basic from "@/pages/basic";
-import Home from "@/pages/home";
+import AppRoute from "@/pages/app-route";
 import ResetPassword from "@/pages/reset-password";
 
 function Router() {
@@ -14,7 +14,7 @@ function Router() {
     <Switch>
       <Route path="/" component={Landing} />
       <Route path="/basic" component={Basic} />
-      <Route path="/app" component={Home} />
+      <Route path="/app" component={AppRoute} />
       <Route path="/reset-password" component={ResetPassword} />
       <Route component={NotFound} />
     </Switch>

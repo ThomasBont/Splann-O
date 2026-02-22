@@ -1,5 +1,6 @@
 import { useLanguage, LANGUAGES } from "@/hooks/use-language";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Link } from "wouter";
 import { Receipt, UserCircle } from "lucide-react";
 
@@ -51,9 +52,9 @@ export default function Landing() {
                 </div>
                 <h2 className="font-semibold text-foreground mb-1">{t.landing.basicTitle}</h2>
                 <p className="text-xs text-muted-foreground mb-4">{t.landing.basicDesc}</p>
-                <Button variant="outline" size="sm" className="w-full">
+                <span className={cn(buttonVariants({ variant: "outline", size: "sm" }), "w-full inline-flex justify-center")}>
                   {t.landing.tryBasic}
-                </Button>
+                </span>
               </div>
             </a>
           </Link>
@@ -66,9 +67,9 @@ export default function Landing() {
                 </div>
                 <h2 className="font-semibold text-foreground mb-1">{t.landing.fullTitle}</h2>
                 <p className="text-xs text-muted-foreground mb-4">{t.landing.fullDesc}</p>
-                <Button size="sm" className="w-full bg-primary text-primary-foreground">
+                <span className={cn(buttonVariants({ size: "sm" }), "w-full inline-flex justify-center bg-primary text-primary-foreground")}>
                   {t.landing.logInFull}
-                </Button>
+                </span>
               </div>
             </a>
           </Link>

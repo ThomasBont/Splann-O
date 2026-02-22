@@ -265,7 +265,7 @@ interface Translations {
 
 const translations: Record<Language, Translations> = {
   en: {
-    title: "The Ortega Asado App",
+    title: "Splanno",
     subtitle: "Split costs, stay friends",
     addPerson: "Add Person",
     addExpense: "Add Expense",
@@ -428,7 +428,7 @@ const translations: Record<Language, Translations> = {
     tripsComingSoon: "Trips coming soon. Create events under Parties for now.",
   },
   es: {
-    title: "La App de Asado Ortega",
+    title: "Splanno",
     subtitle: "Cuentas claras, conservan la amistad!",
     addPerson: "Agregar Persona",
     addExpense: "Agregar Gasto",
@@ -591,7 +591,7 @@ const translations: Record<Language, Translations> = {
     tripsComingSoon: "Viajes próximamente. Por ahora creá eventos en Fiestas.",
   },
   it: {
-    title: "The Ortega Asado App",
+    title: "Splanno",
     subtitle: "Dividi il conto, goditi il momento",
     addPerson: "Aggiungi Persona",
     addExpense: "Aggiungi Spesa",
@@ -754,7 +754,7 @@ const translations: Record<Language, Translations> = {
     tripsComingSoon: "I viaggi sono in arrivo. Per ora crea eventi in Feste.",
   },
   nl: {
-    title: "The Ortega Asado App",
+    title: "Splanno",
     subtitle: "Deel de rekening, geniet van het moment",
     addPerson: "Persoon Toevoegen",
     addExpense: "Uitgave Toevoegen",

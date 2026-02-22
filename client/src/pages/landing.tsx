@@ -1,23 +1,35 @@
 import { useLanguage, LANGUAGES } from "@/hooks/use-language";
+import { useTheme } from "@/hooks/use-theme";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Link } from "wouter";
 import { SplannoLogo } from "@/components/splanno-logo";
-import { UserCircle } from "lucide-react";
+import { UserCircle, Sun, Moon } from "lucide-react";
 
 export default function Landing() {
   const { language, setLanguage, t } = useLanguage();
+  const { theme, setPreference } = useTheme();
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      <header className="border-b border-white/5 py-3 px-4 flex items-center justify-between">
+      <header className="border-b border-border py-3 px-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <SplannoLogo size="sm" iconOnly />
           <span className="font-display font-bold text-primary text-sm sm:text-base truncate">
             {t.title}
           </span>
         </div>
-        <div className="flex rounded-lg border border-white/10 overflow-hidden">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setPreference(theme === "dark" ? "light" : "dark")}
+            className="p-2 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+          >
+            {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          </button>
+          <div className="flex rounded-lg border border-border overflow-hidden">
           {LANGUAGES.map((lang) => (
             <button
               key={lang.code}
@@ -25,12 +37,13 @@ export default function Landing() {
               className={`px-2.5 py-1.5 text-xs font-bold transition-colors ${
                 language === lang.code
                   ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-white/5"
+                  : "text-muted-foreground hover:bg-muted/50"
               }`}
             >
               {lang.label}
             </button>
           ))}
+          </div>
         </div>
       </header>
 

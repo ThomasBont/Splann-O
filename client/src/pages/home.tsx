@@ -38,8 +38,9 @@ import {
   Beef, Wheat, Beer, Zap, Car, Package,
   UserCheck, UserX, LogOut, Crown, Clock, UserCircle,
   Lock, Globe, UserPlus, X, Eye, EyeOff, ChevronDown, ChevronUp, Compass,
-  Bell, UserPlus2, Search, Heart,
+  Bell, UserPlus2, Search, Heart, Sun, Moon,
 } from "lucide-react";
+import { useTheme } from "@/hooks/use-theme";
 import { motion, AnimatePresence } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 import type { ExpenseWithParticipant, Barbecue, Participant, FriendInfo, PendingRequestWithBbq } from "@shared/schema";
@@ -461,6 +462,7 @@ function StatCard({ label, value, icon, color }: { label: string; value: string 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function Home() {
   const { language, setLanguage, t } = useLanguage();
+  const { theme, setPreference } = useTheme();
   const { user, isLoading: isAuthLoading, logout } = useAuth();
   const username = user?.username ?? null;
   const { toast } = useToast();
@@ -763,8 +765,18 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
+            {/* Theme toggle */}
+            <button
+              type="button"
+              onClick={() => setPreference(theme === "dark" ? "light" : "dark")}
+              className="p-2 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+              title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+              aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            >
+              {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+            </button>
             {/* Language Tabs */}
-            <div className="flex rounded-lg border border-white/10 overflow-hidden" data-testid="language-tabs">
+            <div className="flex rounded-lg border border-border overflow-hidden" data-testid="language-tabs">
               {LANGUAGES.map(lang => (
                 <button
                   key={lang.code}
@@ -772,7 +784,7 @@ export default function Home() {
                   className={`px-2.5 py-1.5 text-xs font-bold transition-colors ${
                     language === lang.code
                       ? 'bg-primary text-primary-foreground'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-white/5'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
                   }`}
                   data-testid={`button-lang-${lang.code}`}
                 >
@@ -1559,7 +1571,7 @@ export default function Home() {
             <div className="space-y-2">
               <Label>{t.bbq.bbqName}</Label>
               <Input
-                placeholder={newEventType === "barbecue" ? "Asado Ortega 2026" : t.events.event}
+                placeholder={t.events.event}
                 value={newBbqName}
                 onChange={e => setNewBbqName(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && handleCreateBbq()}

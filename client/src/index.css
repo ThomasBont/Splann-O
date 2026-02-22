@@ -8,38 +8,76 @@
   --font-display: 'Playfair Display', serif;
   --font-body: 'DM Sans', sans-serif;
 
-  /* Brand colors (Splanno logo – light mode / white bg base) */
-  --brand-primary: 43 86% 60%;    /* Gold */
-  --brand-secondary: 240 20% 10%; /* Dark */
-  --brand-accent: 16 75% 52%;    /* Orange */
+  /* Brand / Splanno logo (shared) */
+  --brand-primary: 43 86% 60%;
+  --brand-secondary: 240 20% 10%;
+  --brand-accent: 16 75% 52%;
+  --splanno-blue: 217 76% 59%;
+  --splanno-orange: 35 94% 60%;
+  --splanno-green: 140 45% 58%;
+  --splanno-purple: 249 80% 67%;
+  --splanno-text: 0 0% 19%;
 
-  /* Splanno logo colors (two bubbles + accents) */
-  --splanno-blue: 217 76% 59%;     /* Left bubble – #4A88E8 */
-  --splanno-orange: 35 94% 60%;    /* Right bubble – #F8A93C */
-  --splanno-green: 140 45% 58%;    /* Money icon green */
-  --splanno-purple: 249 80% 67%;   /* Floating dots – #7B68EE */
-  --splanno-text: 0 0% 19%;        /* "splanno" wordmark – #303030 */
+  /* Light theme (default) */
+  --background: 0 0% 98%;
+  --foreground: 240 20% 12%;
 
-  /* Custom Palette based on requirements */
-  --background: 240 20% 10%;      /* #14141f - Deep dark blue-grey */
-  --foreground: 0 0% 95%;         /* #f2f2f2 - Off white */
+  --card: 0 0% 100%;
+  --card-foreground: 240 20% 12%;
 
-  --card: 240 18% 14%;            /* #1d1d2b */
+  --popover: 0 0% 100%;
+  --popover-foreground: 240 20% 12%;
+
+  --primary: 43 86% 60%;
+  --primary-foreground: 240 20% 10%;
+
+  --secondary: 240 6% 92%;
+  --secondary-foreground: 240 20% 20%;
+
+  --muted: 240 5% 92%;
+  --muted-foreground: 240 5% 45%;
+
+  --accent: 16 75% 52%;
+  --accent-foreground: 0 0% 100%;
+
+  --destructive: 0 62% 45%;
+  --destructive-foreground: 0 0% 98%;
+
+  --border: 240 6% 88%;
+  --input: 240 6% 88%;
+  --ring: 43 86% 60%;
+
+  --radius: 0.75rem;
+
+  --success: 154 63% 44%;
+  --info: 201 64% 53%;
+}
+
+/* Dark theme */
+.dark {
+  --brand-secondary: 0 0% 95%;
+  --brand-accent: 16 75% 55%;
+  --splanno-text: 0 0% 92%;
+
+  --background: 240 20% 10%;
+  --foreground: 0 0% 95%;
+
+  --card: 240 18% 14%;
   --card-foreground: 0 0% 95%;
 
   --popover: 240 18% 14%;
   --popover-foreground: 0 0% 95%;
 
-  --primary: 43 86% 60%;          /* #f0c040 - Gold */
+  --primary: 43 86% 60%;
   --primary-foreground: 240 20% 10%;
 
-  --secondary: 240 15% 20%;       /* Darker grey-blue for secondary actions */
+  --secondary: 240 15% 20%;
   --secondary-foreground: 0 0% 80%;
 
   --muted: 240 10% 25%;
   --muted-foreground: 240 5% 65%;
 
-  --accent: 16 75% 52%;           /* #e05c2a - Orange */
+  --accent: 16 75% 52%;
   --accent-foreground: 0 0% 100%;
 
   --destructive: 0 62% 30%;
@@ -48,22 +86,6 @@
   --border: 240 15% 20%;
   --input: 240 15% 20%;
   --ring: 43 86% 60%;
-
-  --radius: 0.75rem;
-
-  /* Semantic Colors */
-  --success: 154 63% 44%;         /* Green */
-  --info: 201 64% 53%;            /* Blue */
-}
-
-/* Dark mode – brand colors for dark backgrounds */
-.dark,
-[data-theme="dark"] {
-  --brand-primary: 43 86% 60%;    /* Gold (unchanged) */
-  --brand-secondary: 0 0% 95%;    /* Light text on dark */
-  --brand-accent: 16 75% 55%;     /* Slightly brighter orange */
-  /* Splanno logo on dark */
-  --splanno-text: 0 0% 92%;       /* Light text on dark */
 }
 
 @layer base {

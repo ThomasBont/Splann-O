@@ -1184,12 +1184,14 @@ export default function Home() {
               </select>
             </div>
 
-            {/* Stats Grid */}
+            {/* Stats Grid — hide Fair Share when opt-in expenses are allowed */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
               <StatCard label={t.totalSpent} value={formatMoney(totalSpent)} icon={<Wallet />} color="gold" />
               <StatCard label={t.participants} value={participantCount} icon={<Users />} color="blue" />
               <StatCard label={t.expenses} value={expenses.length} icon={<Receipt />} color="orange" />
-              <StatCard label={t.fairShare} value={formatMoney(fairShare)} icon={<Wallet />} color="green" />
+              {!allowOptIn && (
+                <StatCard label={t.fairShare} value={formatMoney(fairShare)} icon={<Wallet />} color="green" />
+              )}
             </div>
 
             {/* Participant Chips */}

@@ -294,7 +294,7 @@ const translations: Record<Language, Translations> = {
       owes: "owes", allSettled: "All settled up!", overpaid: "Overpaid", underpaid: "Underpaid",
     },
     bbq: {
-      allBarbecues: "Barbecues", newBarbecue: "New Barbecue", bbqName: "BBQ Name",
+      allBarbecues: "Barbecues", newBarbecue: "New Barbecue", bbqName: "Event name",
       date: "Date", currency: "Currency", create: "Create", delete: "Delete",
       selectBbq: "Select or create an event to get started", noBbqs: "No events yet",
       noBbqsSubtitle: "Create your first event to start tracking expenses.",
@@ -457,7 +457,7 @@ const translations: Record<Language, Translations> = {
       owes: "le debe a", allSettled: "¡Todo saldado!", overpaid: "Pagó de más", underpaid: "Debe",
     },
     bbq: {
-      allBarbecues: "Asados", newBarbecue: "Nuevo Asado", bbqName: "Nombre del Asado",
+      allBarbecues: "Asados", newBarbecue: "Nuevo Asado", bbqName: "Nombre del evento",
       date: "Fecha", currency: "Moneda", create: "Crear", delete: "Eliminar",
       selectBbq: "Seleccioná o creá un evento para empezar", noBbqs: "No hay eventos todavía",
       noBbqsSubtitle: "Creá tu primer evento para empezar a registrar gastos.",
@@ -620,7 +620,7 @@ const translations: Record<Language, Translations> = {
       owes: "deve a", allSettled: "Tutto saldato!", overpaid: "Eccedenza", underpaid: "Debito",
     },
     bbq: {
-      allBarbecues: "Barbecue", newBarbecue: "Nuovo BBQ", bbqName: "Nome BBQ",
+      allBarbecues: "Barbecue", newBarbecue: "Nuovo BBQ", bbqName: "Nome evento",
       date: "Data", currency: "Valuta", create: "Crea", delete: "Elimina",
       selectBbq: "Seleziona o crea un evento per iniziare", noBbqs: "Nessun evento ancora",
       noBbqsSubtitle: "Crea il tuo primo evento per tracciare le spese.",
@@ -783,7 +783,7 @@ const translations: Record<Language, Translations> = {
       owes: "is verschuldigd aan", allSettled: "Alles verrekend!", overpaid: "Te veel betaald", underpaid: "Te weinig betaald",
     },
     bbq: {
-      allBarbecues: "Barbecues", newBarbecue: "Nieuwe BBQ", bbqName: "BBQ Naam",
+      allBarbecues: "Barbecues", newBarbecue: "Nieuwe BBQ", bbqName: "Naam van het evenement",
       date: "Datum", currency: "Valuta", create: "Aanmaken", delete: "Verwijderen",
       selectBbq: "Selecteer of maak een evenement om te beginnen", noBbqs: "Nog geen evenementen",
       noBbqsSubtitle: "Maak je eerste evenement aan om uitgaven bij te houden.",

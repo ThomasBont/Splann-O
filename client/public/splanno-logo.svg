@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+  <!-- Blue rounded rect (receipt container) -->
+  <path d="M2 12a6 6 0 0 1 6-6h12a6 6 0 0 1 6 6v24a6 6 0 0 1-6 6H8a6 6 0 0 1-6-6V12z" fill="#4A88E8"/>
+  <!-- Receipt with check -->
+  <rect x="8" y="14" width="12" height="14" rx="1.5" fill="white"/>
+  <path d="M12 22l2 2 4-4" stroke="#5BA3F5" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <!-- Yellow/orange fold -->
+  <path d="M22 12a6 6 0 0 1 6-6h12a6 6 0 0 1 6 6v24a6 6 0 0 1-6 6H28a6 6 0 0 1-6-6V12z" fill="#F8A93C"/>
+  <!-- Green card with $ -->
+  <rect x="28" y="14" width="14" height="18" rx="2" fill="#7BCF7B"/>
+  <text x="35" y="24" text-anchor="middle" dominant-baseline="middle" fill="white" font-size="10" font-weight="bold" font-family="system-ui,sans-serif">$</text>
+  <!-- Accent dots -->
+  <circle cx="24" cy="5" r="2" fill="#E88BB5"/>
+  <circle cx="38" cy="6" r="1.5" fill="#5BA3F5"/>
+  <circle cx="40" cy="42" r="1.4" fill="#7BCF7B"/>
+</svg>

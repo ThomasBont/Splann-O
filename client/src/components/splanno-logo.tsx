@@ -1,6 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import { useTheme } from "@/hooks/use-theme";
 
 const SIZE_MAP = {
   sm: 40,
@@ -20,10 +21,10 @@ export interface SplannoLogoProps {
   className?: string;
 }
 
-const LOGO_SRC = "/splanno-logo.png";
+const LOGO_SRC = "/splanno-logo.svg";
 
 /**
- * Splanno logo: uses the official brand image asset.
+ * Splanno logo: transparent SVG, theme-aware. Safe on light and dark backgrounds.
  * Retina-friendly; supports size and icon-only (square crop) modes.
  */
 export function SplannoLogo({
@@ -32,6 +33,9 @@ export function SplannoLogo({
   className,
 }: SplannoLogoProps) {
   const px = SIZE_MAP[size];
+  const { theme } = useTheme();
+  const dropShadowClass =
+    theme === "dark" ? "drop-shadow-[0_2px_6px_rgba(0,0,0,0.4)]" : "";
 
   if (iconOnly) {
     return (
@@ -45,7 +49,10 @@ export function SplannoLogo({
           alt=""
           width={px}
           height={px}
-          className="w-full h-full object-cover object-left"
+          className={cn(
+            "w-full h-full object-cover object-left",
+            dropShadowClass
+          )}
           style={{ borderRadius: "12%" }}
           loading="eager"
           fetchPriority="high"
@@ -65,7 +72,7 @@ export function SplannoLogo({
         alt="Splanno"
         height={px}
         width="auto"
-        className="h-full w-auto object-contain"
+        className={cn("h-full w-auto object-contain", dropShadowClass)}
         loading="eager"
         fetchPriority="high"
       />

@@ -357,7 +357,7 @@ function AuthDialog({
           </div>
         )}
         </>
-        )
+        )}
       </DraggableDialogContent>
     </Dialog>
   );

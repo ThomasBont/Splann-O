@@ -12,8 +12,8 @@ export function serveStatic(app: Express) {
 
   app.use(express.static(distPath));
 
-  // SPA fallback: serve index.html for any path not matched by static files or API
-  app.get("*", (_req, res) => {
+  // SPA fallback: serve index.html for any path not matched by static files or API (named wildcard for path-to-regexp)
+  app.get("/{*splat}", (_req, res) => {
     res.sendFile(path.resolve(distPath, "index.html"));
   });
 }

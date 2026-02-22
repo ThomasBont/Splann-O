@@ -1,11 +1,12 @@
 import { useState, useMemo } from "react";
 import { useLanguage, CURRENCIES, type CurrencyCode } from "@/hooks/use-language";
+import { useTheme } from "@/hooks/use-theme";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Link } from "wouter";
 import { SplannoLogo } from "@/components/splanno-logo";
-import { ArrowLeft, Plus, Trash2, Receipt, Users } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Receipt, Users, Sun, Moon } from "lucide-react";
 
 type Participant = { id: string; name: string };
 type Expense = { id: string; description: string; amount: number; paidById: string };
@@ -54,6 +55,7 @@ function getCurrencyLabel(cur: (typeof CURRENCIES)[0], lang: string): string {
 
 export default function Basic() {
   const { t, language } = useLanguage();
+  const { theme, setPreference } = useTheme();
   const [participants, setParticipants] = useState<Participant[]>(() => loadStored().participants);
   const [expenses, setExpenses] = useState<Expense[]>(() => loadStored().expenses);
   const [currency, setCurrency] = useState<CurrencyCode>(loadStoredCurrency);
@@ -151,6 +153,15 @@ export default function Basic() {
         <SplannoLogo size="sm" iconOnly />
         <span className="font-display font-bold text-primary truncate">{t.basic.pageTitle}</span>
         <div className="ml-auto flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setPreference(theme === "dark" ? "light" : "dark")}
+            className="p-2 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+          >
+            {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          </button>
           <label htmlFor="basic-currency" className="text-xs text-muted-foreground whitespace-nowrap">
             {t.bbq.currency}:
           </label>

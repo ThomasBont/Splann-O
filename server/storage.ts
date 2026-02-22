@@ -115,8 +115,8 @@ export class DatabaseStorage implements IStorage {
     const username = u.username;
     await db.delete(passwordResetTokens).where(eq(passwordResetTokens.userId, userId));
     await db.delete(friendships).where(or(eq(friendships.requesterId, userId), eq(friendships.addresseeId, userId)));
+    await db.delete(barbecues).where(eq(barbecues.creatorId, username));
     await db.update(participants).set({ userId: null }).where(eq(participants.userId, username));
-    await db.update(barbecues).set({ creatorId: null }).where(eq(barbecues.creatorId, username));
     await db.delete(users).where(eq(users.id, userId));
   }
 

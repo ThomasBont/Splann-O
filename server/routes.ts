@@ -207,6 +207,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json(items);
   });
 
+  app.get(api.barbecues.listPublic.path, async (_req, res) => {
+    const items = await storage.getBarbecues();
+    res.json(items);
+  });
+
   app.post(api.barbecues.create.path, async (req, res) => {
     try {
       const bodySchema = api.barbecues.create.input.extend({ date: z.coerce.date() });

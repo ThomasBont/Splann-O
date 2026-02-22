@@ -59,6 +59,13 @@ export const api = {
         404: errorSchemas.notFound,
       },
     },
+    listPublic: {
+      method: 'GET' as const,
+      path: '/api/barbecues/public' as const,
+      responses: {
+        200: z.array(z.custom<Barbecue>()),
+      },
+    },
   },
   participants: {
     list: {

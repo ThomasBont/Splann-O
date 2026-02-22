@@ -253,6 +253,13 @@ interface Translations {
     dayOut: string;
     otherTrip: string;
   };
+  discover: {
+    title: string;
+    empty: string;
+    creator: string;
+    view: string;
+    join: string;
+  };
   tripsComingSoon: string;
 }
 
@@ -411,6 +418,13 @@ const translations: Record<Language, Translations> = {
       dayOut: "Day out",
       otherTrip: "Other",
     },
+    discover: {
+      title: "Discover",
+      empty: "No public events yet.",
+      creator: "by",
+      view: "View",
+      join: "Join",
+    },
     tripsComingSoon: "Trips coming soon. Create events under Parties for now.",
   },
   es: {
@@ -566,6 +580,13 @@ const translations: Record<Language, Translations> = {
       themePark: "Parque de diversiones",
       dayOut: "Día afuera",
       otherTrip: "Otro",
+    },
+    discover: {
+      title: "Descubrir",
+      empty: "Aún no hay eventos públicos.",
+      creator: "por",
+      view: "Ver",
+      join: "Unirse",
     },
     tripsComingSoon: "Viajes próximamente. Por ahora creá eventos en Fiestas.",
   },
@@ -723,6 +744,13 @@ const translations: Record<Language, Translations> = {
       dayOut: "Dagje uit",
       otherTrip: "Anders",
     },
+    discover: {
+      title: "Scopri",
+      empty: "Nessun evento pubblico ancora.",
+      creator: "da",
+      view: "Apri",
+      join: "Unisciti",
+    },
     tripsComingSoon: "I viaggi sono in arrivo. Per ora crea eventi in Feste.",
   },
   nl: {
@@ -878,6 +906,13 @@ const translations: Record<Language, Translations> = {
       themePark: "Attractiepark",
       dayOut: "Dagje uit",
       otherTrip: "Anders",
+    },
+    discover: {
+      title: "Ontdekken",
+      empty: "Nog geen openbare evenementen.",
+      creator: "door",
+      view: "Bekijken",
+      join: "Deelnemen",
     },
     tripsComingSoon: "Trips komen binnenkort. Maak voor nu evenementen onder Feesten.",
   },

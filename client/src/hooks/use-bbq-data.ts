@@ -13,6 +13,17 @@ export function useBarbecues() {
   });
 }
 
+export function usePublicBarbecues() {
+  return useQuery({
+    queryKey: ['/api/barbecues/public'],
+    queryFn: async () => {
+      const res = await fetch(api.barbecues.listPublic.path, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch public events");
+      return res.json() as Promise<Barbecue[]>;
+    },
+  });
+}
+
 export function useCreateBarbecue() {
   const queryClient = useQueryClient();
   return useMutation({

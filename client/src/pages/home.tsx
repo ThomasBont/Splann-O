@@ -10,6 +10,7 @@ import {
 } from "@/hooks/use-participants";
 import { useExpenses, useDeleteExpense, useExpenseShares, useSetExpenseShare } from "@/hooks/use-expenses";
 import { useBarbecues, useCreateBarbecue, useDeleteBarbecue, useUpdateBarbecue } from "@/hooks/use-bbq-data";
+import { useQueryClient } from "@tanstack/react-query";
 import { useFriends, useFriendRequests, useAllPendingRequests, useAcceptFriendRequest, useRemoveFriend } from "@/hooks/use-friends";
 import { ProfileDialog } from "@/components/profile-dialog";
 import { Button } from "@/components/ui/button";
@@ -27,6 +28,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { AddPersonDialog } from "@/components/add-person-dialog";
 import { AddExpenseDialog } from "@/components/add-expense-dialog";
 import { WelcomeModal } from "@/components/welcome-modal";
+import { DiscoverModal } from "@/components/discover-modal";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import {
   Users, Receipt, Wallet, Trash2, Edit2,
@@ -34,7 +36,7 @@ import {
   CalendarDays, Loader2,
   Beef, Wheat, Beer, Zap, Car, Package,
   UserCheck, UserX, LogOut, Crown, Clock, UserCircle,
-  Lock, Globe, UserPlus, X, Eye, EyeOff, ChevronDown, ChevronUp,
+  Lock, Globe, UserPlus, X, Eye, EyeOff, ChevronDown, ChevronUp, Compass,
   Bell, UserPlus2, Search, Heart,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -491,7 +493,9 @@ export default function Home() {
   const [notifOpen, setNotifOpen] = useState(false);
   const [showAuthDialog, setShowAuthDialog] = useState(true);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
+  const [discoverOpen, setDiscoverOpen] = useState(false);
   const prevPendingCountRef = useRef(allPendingRequests.length);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     if (user) {
@@ -637,6 +641,29 @@ export default function Home() {
     });
   };
 
+  const handleDiscoverJoin = (bbq: Barbecue) => {
+    if (!username) return;
+    joinBbq.mutate(
+      { bbqId: bbq.id, name: username, userId: username },
+      {
+        onSuccess: () => {
+          toast({ title: t.user.joinBbq, description: `${t.user.pending}...` });
+          queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/barbecues/public"] });
+          setSelectedBbqId(bbq.id);
+          setArea((bbq as Barbecue & { area?: string }).area === "trips" ? "trips" : "parties");
+          setDiscoverOpen(false);
+        },
+        onError: (err: any) => {
+          const msg = err.message;
+          if (msg === "already_joined") toast({ title: t.user.joined });
+          else if (msg === "already_pending") toast({ title: t.user.pending });
+          else toast({ title: msg, variant: "destructive" });
+        },
+      }
+    );
+  };
+
   const handleCreateBbq = () => {
     if (!newBbqName.trim()) return;
     createBbq.mutate({
@@ -708,6 +735,18 @@ export default function Home() {
           }}
         />
       )}
+
+      <DiscoverModal
+        open={discoverOpen}
+        onOpenChange={setDiscoverOpen}
+        username={username}
+        onSelectEvent={(bbq) => {
+          setSelectedBbqId(bbq.id);
+          setArea((bbq as Barbecue & { area?: string }).area === "trips" ? "trips" : "parties");
+          setDiscoverOpen(false);
+        }}
+        onJoin={handleDiscoverJoin}
+      />
 
       {/* Header */}
       <header className="sticky top-0 z-50 bg-background/80 backdrop-blur-lg border-b border-white/5" data-testid="header">
@@ -866,7 +905,7 @@ export default function Home() {
 
       {/* Parties | Trips top-level nav */}
       <div className="sticky top-[57px] z-40 bg-background/90 backdrop-blur-md border-b border-white/5" data-testid="section-area-tabs">
-        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 flex items-center justify-between gap-4">
           <div className="flex rounded-lg border border-white/10 overflow-hidden inline-flex">
             <button
               onClick={() => setArea("parties")}
@@ -887,6 +926,16 @@ export default function Home() {
               {t.nav.trips}
             </button>
           </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setDiscoverOpen(true)}
+            className="border-white/10 text-muted-foreground hover:text-foreground hover:bg-white/5"
+            data-testid="button-discover"
+          >
+            <Compass className="w-4 h-4 mr-1.5" />
+            {t.discover.title}
+          </Button>
         </div>
       </div>
 

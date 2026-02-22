@@ -47,22 +47,6 @@ export default function Landing() {
         </div>
       </header>
 
-<<<<<<< HEAD
-      <main className="relative flex-1 flex flex-col items-center justify-center overflow-hidden hero-bg">
-        {/* Watermark: large Splanno logo behind hero, brand atmosphere only */}
-        <div
-          className="absolute inset-0 z-0 flex items-center justify-center pointer-events-none select-none"
-          aria-hidden
-        >
-          <div className="translate-y-[-5%] scale-150 sm:scale-[2] opacity-[0.04] sm:opacity-[0.05] blur-[3px] sm:blur-[4px]">
-            <SplannoLogo size="2xl" />
-          </div>
-        </div>
-
-        {/* Content above watermark */}
-        <div className="relative z-10 flex flex-col items-center w-full max-w-[1100px] mx-auto px-4 sm:px-6 py-12 sm:py-16 md:py-20">
-          <div className="flex justify-center mb-8 sm:mb-10">
-=======
       <main className="relative isolate flex-1 flex flex-col items-center justify-center px-4 py-8 sm:py-12 overflow-hidden">
         {/* Watermark: dedicated background layer behind hero content (non-interactive) */}
         <div className="absolute inset-0 z-0 pointer-events-none" aria-hidden>
@@ -81,7 +65,6 @@ export default function Landing() {
         {/* Content above watermark + veil */}
         <div className="relative z-20 flex flex-col items-center w-full">
           <div className="scale-[0.75] sm:scale-100 origin-center mb-6 sm:mb-8">
->>>>>>> 625fedfc (Codex try)
             <SplannoLogo size="xl" />
           </div>
           <h1 className="font-hero text-3xl sm:text-4xl md:text-5xl font-semibold tracking-tight text-center text-foreground mb-2 sm:mb-3">

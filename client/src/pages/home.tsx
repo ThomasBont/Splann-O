@@ -493,7 +493,7 @@ export default function Home() {
   const deleteBbq = useDeleteBarbecue();
   const updateBbq = useUpdateBarbecue();
 
-  const selectedBbq = barbecuesForArea.find((b: Barbecue) => b.id === selectedBbqId) ?? barbecues.find((b: Barbecue) => b.id === selectedBbqId) || null;
+  const selectedBbq = barbecuesForArea.find((b: Barbecue) => b.id === selectedBbqId) ?? (barbecues.find((b: Barbecue) => b.id === selectedBbqId) || null);
   const currency = (selectedBbq?.currency as CurrencyCode) || "EUR";
   const currencyInfo = CURRENCIES.find(c => c.code === currency) || CURRENCIES[0];
   const currenciesToShow = user?.preferredCurrencyCodes?.length ? CURRENCIES.filter(c => user!.preferredCurrencyCodes!.includes(c.code)) : CURRENCIES;

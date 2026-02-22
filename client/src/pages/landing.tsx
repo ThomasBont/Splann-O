@@ -4,7 +4,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Link } from "wouter";
 import { SplannoLogo } from "@/components/splanno-logo";
-import { UserCircle, Sun, Moon } from "lucide-react";
+import { UserCircle, Sun, Moon, Receipt } from "lucide-react";
 
 export default function Landing() {
   const { language, setLanguage, t } = useLanguage();
@@ -47,37 +47,37 @@ export default function Landing() {
         </div>
       </header>
 
-      <main className="relative flex-1 flex flex-col items-center justify-center px-4 py-8 sm:py-12 overflow-hidden">
+      <main className="relative flex-1 flex flex-col items-center justify-center overflow-hidden hero-bg">
         {/* Watermark: subtle logo behind content, non-interactive */}
         <div
           className="absolute inset-0 z-0 flex items-center justify-center pointer-events-none"
           aria-hidden
         >
-          <div className="translate-y-[-5%] scale-150 sm:scale-[2] opacity-[0.06] sm:opacity-[0.07]">
+          <div className="translate-y-[-5%] scale-150 sm:scale-[2] opacity-[0.05] sm:opacity-[0.06]">
             <SplannoLogo size="2xl" iconOnly />
           </div>
         </div>
 
         {/* Content above watermark */}
-        <div className="relative z-10 flex flex-col items-center w-full">
-          <div className="scale-[0.75] sm:scale-100 origin-center mb-6 sm:mb-8">
+        <div className="relative z-10 flex flex-col items-center w-full max-w-[1100px] mx-auto px-4 sm:px-6 py-12 sm:py-16 md:py-20">
+          <div className="flex justify-center mb-8 sm:mb-10">
             <SplannoLogo size="xl" />
           </div>
-          <h1 className="text-xl sm:text-2xl font-display font-bold text-center text-foreground mb-2">
+          <h1 className="font-hero text-3xl sm:text-4xl md:text-5xl font-semibold tracking-tight text-center text-foreground mb-2 sm:mb-3">
             {t.landing.heading}
           </h1>
-          <p className="text-sm text-muted-foreground text-center mb-8 max-w-sm">
+          <p className="text-base sm:text-lg text-muted-foreground text-center mb-10 sm:mb-12 max-w-xl mx-auto">
             {t.landing.subheading}
           </p>
 
-          <div className="grid sm:grid-cols-2 gap-4 w-full max-w-lg">
+          <div className="grid sm:grid-cols-2 gap-5 sm:gap-6 w-full max-w-2xl">
             <Link href="/basic" className="block h-full">
-              <div className="h-full p-6 rounded-2xl border border-white/10 bg-card/60 hover:bg-card/80 hover:border-primary/30 transition-all text-left group">
+              <div className="h-full p-6 sm:p-7 rounded-[18px] border border-border bg-card shadow-hero-card hover:shadow-md hover:-translate-y-0.5 hover:border-primary/20 transition-all duration-200 text-left group">
                 <div className="w-10 h-10 rounded-xl bg-muted/50 flex items-center justify-center mb-4 group-hover:bg-primary/20 text-[hsl(var(--brand-primary))]">
-                  <SplannoLogo size="sm" iconOnly />
+                  <Receipt className="w-5 h-5" />
                 </div>
                 <h2 className="font-semibold text-foreground mb-1">{t.landing.basicTitle}</h2>
-                <p className="text-xs text-muted-foreground mb-4">{t.landing.basicDesc}</p>
+                <p className="text-sm text-muted-foreground mb-4">{t.landing.basicDesc}</p>
                 <span className={cn(buttonVariants({ variant: "outline", size: "sm" }), "w-full inline-flex justify-center")}>
                   {t.landing.tryBasic}
                 </span>
@@ -85,12 +85,12 @@ export default function Landing() {
             </Link>
 
             <Link href="/login" className="block h-full">
-              <div className="h-full p-6 rounded-2xl border border-white/10 bg-card/60 hover:bg-card/80 hover:border-primary/30 transition-all text-left group">
+              <div className="h-full p-6 sm:p-7 rounded-[18px] border border-border bg-card shadow-hero-card hover:shadow-md hover:-translate-y-0.5 hover:border-primary/20 transition-all duration-200 text-left group">
                 <div className="w-10 h-10 rounded-xl bg-muted/50 flex items-center justify-center mb-4 group-hover:bg-primary/20">
                   <UserCircle className="w-5 h-5 text-muted-foreground group-hover:text-primary" />
                 </div>
                 <h2 className="font-semibold text-foreground mb-1">{t.landing.fullTitle}</h2>
-                <p className="text-xs text-muted-foreground mb-4">{t.landing.fullDesc}</p>
+                <p className="text-sm text-muted-foreground mb-4">{t.landing.fullDesc}</p>
                 <span className={cn(buttonVariants({ size: "sm" }), "w-full inline-flex justify-center bg-primary text-primary-foreground")}>
                   {t.landing.logInFull}
                 </span>

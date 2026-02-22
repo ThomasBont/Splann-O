@@ -20,7 +20,11 @@ const CATEGORY_COLORS: Record<string, string> = {
   Drinks: 'border-l-blue-500',
   Charcoal: 'border-l-gray-500',
   Transportation: 'border-l-green-500',
-  Other: 'border-l-purple-500'
+  Other: 'border-l-purple-500',
+  Food: 'border-l-orange-500',
+  Transport: 'border-l-green-500',
+  Tickets: 'border-l-violet-500',
+  Accommodation: 'border-l-sky-500',
 };
 
 export function ExpenseItem({ id, category, item, amount, participantName, onEdit, onDelete, delay = 0 }: ExpenseItemProps) {

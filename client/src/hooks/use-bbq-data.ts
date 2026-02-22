@@ -23,6 +23,8 @@ export function useCreateBarbecue() {
       creatorId?: string;
       isPublic?: boolean;
       allowOptInExpenses?: boolean;
+      area?: string;
+      eventType?: string;
     }) => {
       const res = await fetch(api.barbecues.create.path, {
         method: "POST",

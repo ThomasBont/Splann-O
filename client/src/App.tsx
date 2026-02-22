@@ -4,14 +4,18 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { LanguageProvider } from "@/hooks/use-language";
 import NotFound from "@/pages/not-found";
+import Landing from "@/pages/landing";
+import Basic from "@/pages/basic";
 import Home from "@/pages/home";
 import ResetPassword from "@/pages/reset-password";
 
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={Home}/>
-      <Route path="/reset-password" component={ResetPassword}/>
+      <Route path="/" component={Landing} />
+      <Route path="/basic" component={Basic} />
+      <Route path="/app" component={Home} />
+      <Route path="/reset-password" component={ResetPassword} />
       <Route component={NotFound} />
     </Switch>
   );

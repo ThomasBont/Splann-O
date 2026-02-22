@@ -29,7 +29,7 @@ import { AddExpenseDialog } from "@/components/add-expense-dialog";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import {
   Users, Receipt, Wallet, Trash2, Edit2,
-  Flame, Plus, ArrowRight, CheckCircle2,
+  Receipt, Flame, Plus, ArrowRight, CheckCircle2,
   CalendarDays, Loader2,
   Beef, Wheat, Beer, Zap, Car, Package,
   UserCheck, UserX, LogOut, Crown, Clock, UserCircle,
@@ -42,10 +42,34 @@ import type { ExpenseWithParticipant, Barbecue, Participant, FriendInfo, Pending
 
 const CATEGORY_COLORS: Record<string, string> = {
   Meat: '#e05c2a', Bread: '#f0c040', Drinks: '#3b82f6',
-  Charcoal: '#64748b', Transportation: '#10b981', Other: '#a855f7'
+  Charcoal: '#64748b', Transportation: '#10b981', Other: '#a855f7',
+  Food: '#e05c2a', Transport: '#10b981', Tickets: '#8b5cf6', Accommodation: '#0ea5e9',
 };
 const CATEGORY_ICON_COMPONENTS: Record<string, typeof Beef> = {
-  Meat: Beef, Bread: Wheat, Drinks: Beer, Charcoal: Zap, Transportation: Car, Other: Package
+  Meat: Beef, Bread: Wheat, Drinks: Beer, Charcoal: Zap, Transportation: Car, Other: Package,
+  Food: Beef, Transport: Car, Tickets: Receipt, Accommodation: Package,
+};
+
+const CATEGORIES_BY_EVENT_TYPE: Record<string, string[]> = {
+  barbecue: ["Meat", "Bread", "Drinks", "Charcoal", "Transportation", "Other"],
+  dinner_party: ["Food", "Drinks", "Transport", "Tickets", "Other"],
+  birthday: ["Food", "Drinks", "Transport", "Tickets", "Other"],
+  other_party: ["Food", "Drinks", "Transport", "Tickets", "Other"],
+  city_trip: ["Transport", "Tickets", "Food", "Accommodation", "Other"],
+  cinema: ["Tickets", "Food", "Drinks", "Other"],
+  theme_park: ["Tickets", "Food", "Drinks", "Transport", "Other"],
+  day_out: ["Food", "Drinks", "Transport", "Tickets", "Other"],
+  other_trip: ["Food", "Drinks", "Transport", "Tickets", "Other"],
+};
+
+function getCategoriesForEventType(eventType: string | undefined): string[] {
+  if (!eventType) return ["Meat", "Bread", "Drinks", "Charcoal", "Transportation", "Other"];
+  return CATEGORIES_BY_EVENT_TYPE[eventType] ?? ["Food", "Drinks", "Transport", "Tickets", "Other"];
+}
+
+const EVENT_TYPE_I18N_KEYS: Record<string, string> = {
+  barbecue: "barbecue", dinner_party: "dinnerParty", birthday: "birthday", other_party: "otherParty",
+  city_trip: "cityTrip", cinema: "cinema", theme_park: "themePark", day_out: "dayOut", other_trip: "otherTrip",
 };
 
 // ─── Auth Dialog ──────────────────────────────────────────────────────────────
@@ -125,7 +149,7 @@ function AuthDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open
         <DialogHeader>
           <div className="flex items-center gap-2 mb-1">
             <div className="bg-gradient-to-br from-primary to-accent p-1.5 rounded-lg">
-              <Flame className="w-5 h-5 text-white" fill="currentColor" />
+              <Receipt className="w-5 h-5 text-white" />
             </div>
             <h1 className="font-display text-primary font-bold text-lg truncate">{t.title}</h1>
           </div>
@@ -423,6 +447,7 @@ export default function Home() {
   const username = user?.username ?? null;
   const { toast } = useToast();
 
+  const [area, setArea] = useState<"parties" | "trips">("parties");
   const [selectedBbqId, setSelectedBbqId] = useState<number | null>(null);
   const [isNewBbqOpen, setIsNewBbqOpen] = useState(false);
   const [newBbqName, setNewBbqName] = useState("");
@@ -430,6 +455,8 @@ export default function Home() {
   const [newBbqCurrency, setNewBbqCurrency] = useState<CurrencyCode>("EUR");
   const [newBbqIsPublic, setNewBbqIsPublic] = useState(true);
   const [newBbqAllowOptIn, setNewBbqAllowOptIn] = useState(false);
+  const [newEventArea, setNewEventArea] = useState<"parties" | "trips">("parties");
+  const [newEventType, setNewEventType] = useState<string>("barbecue");
 
   const [isAddPersonOpen, setIsAddPersonOpen] = useState(false);
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
@@ -459,11 +486,14 @@ export default function Home() {
   }, [allPendingRequests.length]);
 
   const { data: barbecues = [], isLoading: isLoadingBbqs } = useBarbecues();
+  const partiesEventTypes = ["barbecue", "dinner_party", "birthday", "other_party"] as const;
+  const tripsEventTypes = ["city_trip", "cinema", "theme_park", "day_out", "other_trip"] as const;
+  const barbecuesForArea = useMemo(() => barbecues.filter((b: Barbecue) => ((b as any).area ?? "parties") === area), [barbecues, area]);
   const createBbq = useCreateBarbecue();
   const deleteBbq = useDeleteBarbecue();
   const updateBbq = useUpdateBarbecue();
 
-  const selectedBbq = barbecues.find((b: Barbecue) => b.id === selectedBbqId) || null;
+  const selectedBbq = barbecuesForArea.find((b: Barbecue) => b.id === selectedBbqId) ?? barbecues.find((b: Barbecue) => b.id === selectedBbqId) || null;
   const currency = (selectedBbq?.currency as CurrencyCode) || "EUR";
   const currencyInfo = CURRENCIES.find(c => c.code === currency) || CURRENCIES[0];
   const currenciesToShow = user?.preferredCurrencyCodes?.length ? CURRENCIES.filter(c => user!.preferredCurrencyCodes!.includes(c.code)) : CURRENCIES;
@@ -586,10 +616,14 @@ export default function Home() {
       creatorId: username || undefined,
       isPublic: newBbqIsPublic,
       allowOptInExpenses: newBbqAllowOptIn,
+      area: newEventArea,
+      eventType: newEventType,
     }, {
       onSuccess: (data: Barbecue) => {
         setSelectedBbqId(data.id);
+        setArea((data as any).area === "trips" ? "trips" : "parties");
         setNewBbqName(""); setNewBbqDate(new Date().toISOString().split('T')[0]); setNewBbqAllowOptIn(false);
+        setNewEventArea("parties"); setNewEventType("barbecue");
         setIsNewBbqOpen(false);
       },
       onError: (err: Error) => {
@@ -638,7 +672,7 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
             <div className="bg-gradient-to-br from-primary to-accent p-1.5 sm:p-2 rounded-lg shadow-lg shadow-orange-500/20 flex-shrink-0">
-              <Flame className="w-5 h-5 sm:w-6 sm:h-6 text-white" fill="currentColor" />
+              <Receipt className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
             </div>
             <div className="min-w-0">
               <h1 className="text-base sm:text-xl md:text-2xl font-bold font-display text-primary tracking-tight truncate" data-testid="text-app-title">
@@ -788,17 +822,44 @@ export default function Home() {
         </div>
       </header>
 
-      {/* BBQ Scrollable Strip — tucked just below header */}
-      <div className="sticky top-[57px] z-40 bg-background/90 backdrop-blur-md border-b border-white/5" data-testid="section-bbq-selector">
+      {/* Parties | Trips top-level nav */}
+      <div className="sticky top-[57px] z-40 bg-background/90 backdrop-blur-md border-b border-white/5" data-testid="section-area-tabs">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+          <div className="flex rounded-lg border border-white/10 overflow-hidden inline-flex">
+            <button
+              onClick={() => setArea("parties")}
+              className={`px-4 py-2.5 text-sm font-semibold transition-colors ${
+                area === "parties" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+              }`}
+              data-testid="tab-parties"
+            >
+              {t.nav.parties}
+            </button>
+            <button
+              onClick={() => setArea("trips")}
+              className={`px-4 py-2.5 text-sm font-semibold transition-colors ${
+                area === "trips" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+              }`}
+              data-testid="tab-trips"
+            >
+              {t.nav.trips}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Event strip (Parties only) */}
+      {area === "parties" && (
+      <div className="sticky top-[114px] z-30 bg-background/90 backdrop-blur-md border-b border-white/5" data-testid="section-bbq-selector">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-2">
           <div className="overflow-x-auto -mx-1 px-1 pb-1">
             <div className="flex gap-2 items-center min-w-max">
               {isLoadingBbqs ? (
                 <Loader2 className="w-4 h-4 animate-spin text-muted-foreground mx-2" />
-              ) : barbecues.length === 0 ? (
+              ) : barbecuesForArea.length === 0 ? (
                 <span className="text-xs text-muted-foreground px-2 py-1.5 italic">{t.bbq.noBbqs}</span>
               ) : (
-                barbecues.map((bbq: Barbecue) => {
+                barbecuesForArea.map((bbq: Barbecue) => {
                   const isSelected = bbq.id === selectedBbqId;
                   const cur = CURRENCIES.find(c => c.code === bbq.currency) || CURRENCIES[0];
                   const isBbqCreator = !!(username && bbq.creatorId === username);
@@ -872,26 +933,38 @@ export default function Home() {
               )}
 
               {/* Separator */}
-              {barbecues.length > 0 && <div className="w-px h-5 bg-white/10 flex-shrink-0 mx-1" />}
+              {barbecuesForArea.length > 0 && <div className="w-px h-5 bg-white/10 flex-shrink-0 mx-1" />}
 
-              {/* New BBQ button */}
+              {/* New event button */}
               {user && (
                 <button
-                  onClick={() => setIsNewBbqOpen(true)}
+                  onClick={() => { setNewEventArea(area); setNewEventType(area === "trips" ? "city_trip" : "barbecue"); setIsNewBbqOpen(true); }}
                   className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-muted-foreground hover:text-primary hover:bg-primary/10 border border-dashed border-white/10 hover:border-primary/30 transition-all flex-shrink-0"
                   data-testid="button-new-bbq"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  {t.bbq.newBarbecue}
+                  {t.events.newEvent}
                 </button>
               )}
             </div>
           </div>
         </div>
       </div>
+      )}
 
       <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8 space-y-6 sm:space-y-8">
-
+        {area === "trips" ? (
+          <div className="text-center py-16 text-muted-foreground" data-testid="section-trips-coming-soon">
+            <Receipt className="w-12 h-12 mx-auto mb-4 opacity-20" />
+            <p className="text-lg font-medium mb-4">{t.tripsComingSoon}</p>
+            {user && (
+              <Button variant="outline" onClick={() => { setNewEventArea("trips"); setNewEventType("city_trip"); setIsNewBbqOpen(true); }} data-testid="button-new-event-trips">
+                {t.events.newEvent}
+              </Button>
+            )}
+          </div>
+        ) : (
+        <>
         {/* Pending Requests Panel */}
         {isCreator && pendingRequests.length > 0 && (
           <motion.div
@@ -1338,24 +1411,48 @@ export default function Home() {
           </>
         ) : (
           <div className="text-center py-16 text-muted-foreground">
-            <Flame className="w-12 h-12 mx-auto mb-4 opacity-20" />
+            <Receipt className="w-12 h-12 mx-auto mb-4 opacity-20" />
             <p className="text-lg font-medium">{t.bbq.selectBbq}</p>
           </div>
         )}
+        </>
+        )}
       </main>
 
-      {/* Create BBQ Dialog */}
-      <Dialog open={isNewBbqOpen} onOpenChange={setIsNewBbqOpen}>
+      {/* Create event dialog */}
+      <Dialog open={isNewBbqOpen} onOpenChange={(open) => { setIsNewBbqOpen(open); if (!open) { setNewEventArea(area); setNewEventType(area === "trips" ? "city_trip" : "barbecue"); } }}>
         <DraggableDialogContent className="sm:max-w-md" data-testid="dialog-new-bbq">
           <DialogHeader>
-            <DialogTitle className="font-display text-primary text-xl">{t.bbq.newBarbecue}</DialogTitle>
+            <DialogTitle className="font-display text-primary text-xl">{t.events.newEvent}</DialogTitle>
             <DialogDescription>{t.subtitle}</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
+              <Label>{t.nav.parties} / {t.nav.trips}</Label>
+              <div className="flex rounded-lg border border-white/10 overflow-hidden">
+                <button type="button" onClick={() => { setNewEventArea("parties"); setNewEventType("barbecue"); }} className={`flex-1 py-2.5 text-sm font-semibold transition-colors ${newEventArea === "parties" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-white/5"}`}>{t.nav.parties}</button>
+                <button type="button" onClick={() => { setNewEventArea("trips"); setNewEventType("city_trip"); }} className={`flex-1 py-2.5 text-sm font-semibold transition-colors ${newEventArea === "trips" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-white/5"}`}>{t.nav.trips}</button>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>{t.events.event} {t.modals.categoryLabel}</Label>
+              <Select value={newEventType} onValueChange={setNewEventType}>
+                <SelectTrigger data-testid="select-event-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {newEventArea === "parties" ? partiesEventTypes.map((type) => (
+                    <SelectItem key={type} value={type}>{t.eventTypes[EVENT_TYPE_I18N_KEYS[type] as keyof typeof t.eventTypes] ?? type}</SelectItem>
+                  )) : tripsEventTypes.map((type) => (
+                    <SelectItem key={type} value={type}>{t.eventTypes[EVENT_TYPE_I18N_KEYS[type] as keyof typeof t.eventTypes] ?? type}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
               <Label>{t.bbq.bbqName}</Label>
               <Input
-                placeholder="Asado Ortega 2026"
+                placeholder={newEventType === "barbecue" ? "Asado Ortega 2026" : t.events.event}
                 value={newBbqName}
                 onChange={e => setNewBbqName(e.target.value)}
                 onKeyDown={e => e.key === "Enter" && handleCreateBbq()}
@@ -1411,6 +1508,7 @@ export default function Home() {
               </div>
               <p className="text-xs text-muted-foreground">{newBbqIsPublic ? t.bbq.publicDesc : t.bbq.privateDesc}</p>
             </div>
+            {newEventType === "barbecue" && (
             <div className="flex items-start gap-3">
               <input
                 type="checkbox"
@@ -1425,6 +1523,7 @@ export default function Home() {
                 <p className="text-xs text-muted-foreground mt-0.5">{t.bbq.allowOptInExpensesDesc}</p>
               </div>
             </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setIsNewBbqOpen(false)}>{t.modals.cancel}</Button>
@@ -1454,6 +1553,7 @@ export default function Home() {
         bbqId={selectedBbqId}
         editingExpense={editingExpense}
         currencySymbol={currencyInfo.symbol}
+        categories={getCategoriesForEventType((selectedBbq as any)?.eventType)}
       />
 
       {/* Profile / Friends Dialog */}

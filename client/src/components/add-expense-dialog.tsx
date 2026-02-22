@@ -28,16 +28,22 @@ interface AddExpenseDialogProps {
   editingExpense?: ExpenseWithParticipant | null;
   bbqId: number | null;
   currencySymbol: string;
+  /** Category keys for the current event type (e.g. barbecue vs city_trip). Defaults to barbecue set if omitted. */
+  categories?: string[];
 }
 
-export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, currencySymbol }: AddExpenseDialogProps) {
+const DEFAULT_CATEGORIES = ["Meat", "Bread", "Drinks", "Charcoal", "Transportation", "Other"];
+
+export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, currencySymbol, categories: categoriesProp }: AddExpenseDialogProps) {
   const { t } = useLanguage();
   const participants = useParticipants(bbqId);
   const createExpense = useCreateExpense(bbqId);
   const updateExpense = useUpdateExpense(bbqId);
 
+  const categories = categoriesProp ?? DEFAULT_CATEGORIES;
+
   const [participantId, setParticipantId] = useState<string>("");
-  const [category, setCategory] = useState<string>("Meat");
+  const [category, setCategory] = useState<string>(categories[0] ?? "Other");
   const [item, setItem] = useState("");
   const [amount, setAmount] = useState("");
 
@@ -52,12 +58,12 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
         if (participants.data && participants.data.length > 0) {
           setParticipantId(participants.data[0].id.toString());
         }
-        setCategory("Meat");
+        setCategory(categories[0] ?? "Other");
         setItem("");
         setAmount("");
       }
     }
-  }, [open, editingExpense, participants.data]);
+  }, [open, editingExpense, participants.data, categories]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,7 +88,6 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
   };
 
   const isPending = createExpense.isPending || updateExpense.isPending;
-  const categories = Object.keys(t.categories) as Array<keyof typeof t.categories>;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -120,7 +125,7 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
               </SelectTrigger>
               <SelectContent className="bg-card border-white/10">
                 {categories.map((cat) => (
-                  <SelectItem key={cat} value={cat}>{t.categories[cat]}</SelectItem>
+                  <SelectItem key={cat} value={cat}>{t.categories[cat as keyof typeof t.categories] ?? cat}</SelectItem>
                 ))}
               </SelectContent>
             </Select>

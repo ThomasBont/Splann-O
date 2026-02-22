@@ -30,6 +30,9 @@ export const session = pgTable("session", {
   expire: timestamp("expire").notNull(),
 });
 
+export const eventTypeEnum = ["barbecue", "dinner_party", "birthday", "other_party", "city_trip", "cinema", "theme_park", "day_out", "other_trip"] as const;
+export const areaEnum = ["parties", "trips"] as const;
+
 export const barbecues = pgTable("barbecues", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
@@ -38,6 +41,8 @@ export const barbecues = pgTable("barbecues", {
   creatorId: text("creator_id"),
   isPublic: boolean("is_public").notNull().default(true),
   allowOptInExpenses: boolean("allow_opt_in_expenses").notNull().default(false),
+  area: text("area").notNull().default("parties"),
+  eventType: text("event_type").notNull().default("barbecue"),
 });
 
 export const participants = pgTable("participants", {

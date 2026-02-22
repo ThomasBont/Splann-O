@@ -63,6 +63,10 @@ interface Translations {
     Charcoal: string;
     Transportation: string;
     Other: string;
+    Food: string;
+    Transport: string;
+    Tickets: string;
+    Accommodation: string;
   };
   modals: {
     addPersonTitle: string;
@@ -207,12 +211,50 @@ interface Translations {
     newFriendRequest: string;
     fromUser: string;
   };
+  landing: {
+    heading: string;
+    subheading: string;
+    basicTitle: string;
+    basicDesc: string;
+    fullTitle: string;
+    fullDesc: string;
+    tryBasic: string;
+    logInFull: string;
+  };
+  basic: {
+    backToLanding: string;
+    pageTitle: string;
+    adPlaceholder: string;
+  };
+  nav: {
+    parties: string;
+    trips: string;
+  };
+  events: {
+    event: string;
+    newEvent: string;
+    noEventsYet: string;
+    noEventsSubtitle: string;
+    selectEvent: string;
+  };
+  eventTypes: {
+    barbecue: string;
+    dinnerParty: string;
+    birthday: string;
+    otherParty: string;
+    cityTrip: string;
+    cinema: string;
+    themePark: string;
+    dayOut: string;
+    otherTrip: string;
+  };
+  tripsComingSoon: string;
 }
 
 const translations: Record<Language, Translations> = {
   en: {
     title: "The Ortega Asado App",
-    subtitle: "Split the bill, keep the vibes",
+    subtitle: "Split costs, stay friends",
     addPerson: "Add Person",
     addExpense: "Add Expense",
     totalSpent: "Total Spent",
@@ -221,12 +263,13 @@ const translations: Record<Language, Translations> = {
     fairShare: "Fair Share",
     tabs: { expenses: "Expenses", split: "Split Check" },
     emptyState: {
-      title: "Fire up the grill!",
-      subtitle: "Start by adding participants, then log your expenses.",
+      title: "Create an event",
+      subtitle: "Add participants and log expenses to split costs.",
     },
     categories: {
       Meat: "Meat", Bread: "Bread", Drinks: "Drinks",
       Charcoal: "Charcoal", Transportation: "Transportation", Other: "Other",
+      Food: "Food", Transport: "Transport", Tickets: "Tickets", Accommodation: "Accommodation",
     },
     modals: {
       addPersonTitle: "Add Participant", addExpenseTitle: "Record Expense",
@@ -241,8 +284,8 @@ const translations: Record<Language, Translations> = {
     bbq: {
       allBarbecues: "Barbecues", newBarbecue: "New Barbecue", bbqName: "BBQ Name",
       date: "Date", currency: "Currency", create: "Create", delete: "Delete",
-      selectBbq: "Select a barbecue to get started", noBbqs: "No barbecues yet",
-      noBbqsSubtitle: "Create your first barbecue event to start tracking expenses.",
+      selectBbq: "Select an event to get started", noBbqs: "No events yet",
+      noBbqsSubtitle: "Create your first event to start tracking expenses.",
       breakdown: "Breakdown", hostedBy: "Hosted by", you: "you",
       visibility: "Visibility", publicEvent: "Public", privateEvent: "Private",
       publicDesc: "Anyone can see and request to join",
@@ -264,7 +307,7 @@ const translations: Record<Language, Translations> = {
       displayNamePlaceholder: "e.g. Carlos (optional)",
       password: "Password", confirmPassword: "Confirm Password",
       loginTitle: "Welcome back", registerTitle: "Create account",
-      welcomeBack: "Sign in to continue", createAccount: "Join the asado",
+      welcomeBack: "Sign in to continue", createAccount: "Get started",
       alreadyHaveAccount: "Already have an account?", dontHaveAccount: "Don't have an account?",
       usernameTaken: "That username is already taken",
       emailTaken: "An account with that email already exists",
@@ -289,7 +332,7 @@ const translations: Record<Language, Translations> = {
       tokenInvalid: "This reset link is invalid or has expired.",
     },
     user: {
-      setupTitle: "Welcome! Pick a username", setupSubtitle: "Your name identifies you across barbecues.",
+      setupTitle: "Welcome! Pick a username", setupSubtitle: "Your name identifies you in shared events.",
       usernamePlaceholder: "e.g. Carlos", confirm: "Let's Go!",
       joinBbq: "Join", pending: "Pending", joined: "Joined",
       pendingRequests: "Join Requests", accept: "Accept", reject: "Reject",
@@ -321,6 +364,44 @@ const translations: Record<Language, Translations> = {
       newFriendRequest: "New friend request",
       fromUser: "from",
     },
+    landing: {
+      heading: "Split costs, stay friends",
+      subheading: "Choose how you want to use the app",
+      basicTitle: "Basic (no account)",
+      basicDesc: "Simple expense split. No sign-up. Try it now.",
+      fullTitle: "Full version",
+      fullDesc: "Parties, trips, events. Save and share with friends.",
+      tryBasic: "Try without account",
+      logInFull: "Log in for full features",
+    },
+    basic: {
+      backToLanding: "Back",
+      pageTitle: "Basic split",
+      adPlaceholder: "Advertisement",
+    },
+    nav: {
+      parties: "Parties",
+      trips: "Trips",
+    },
+    events: {
+      event: "Event",
+      newEvent: "New event",
+      noEventsYet: "No events yet",
+      noEventsSubtitle: "Create your first event to start tracking expenses.",
+      selectEvent: "Select an event to get started",
+    },
+    eventTypes: {
+      barbecue: "Barbecue",
+      dinnerParty: "Dinner party",
+      birthday: "Birthday",
+      otherParty: "Other",
+      cityTrip: "City trip",
+      cinema: "Cinema",
+      themePark: "Theme park",
+      dayOut: "Day out",
+      otherTrip: "Other",
+    },
+    tripsComingSoon: "Trips coming soon. Create events under Parties for now.",
   },
   es: {
     title: "La App de Asado Ortega",
@@ -333,12 +414,13 @@ const translations: Record<Language, Translations> = {
     fairShare: "Cuota Justa",
     tabs: { expenses: "Gastos", split: "Dividir Cuenta" },
     emptyState: {
-      title: "¡Prendé la parrilla!",
-      subtitle: "Empezá agregando participantes, luego registrá los gastos.",
+      title: "Crear un evento",
+      subtitle: "Agregá participantes y cargá gastos para repartir costos.",
     },
     categories: {
       Meat: "Carne", Bread: "Pan", Drinks: "Bebidas",
       Charcoal: "Carbón", Transportation: "Transporte", Other: "Otros",
+      Food: "Comida", Transport: "Transporte", Tickets: "Entradas", Accommodation: "Alojamiento",
     },
     modals: {
       addPersonTitle: "Agregar Participante", addExpenseTitle: "Registrar Gasto",
@@ -353,8 +435,8 @@ const translations: Record<Language, Translations> = {
     bbq: {
       allBarbecues: "Asados", newBarbecue: "Nuevo Asado", bbqName: "Nombre del Asado",
       date: "Fecha", currency: "Moneda", create: "Crear", delete: "Eliminar",
-      selectBbq: "Seleccioná un asado para empezar", noBbqs: "No hay asados todavía",
-      noBbqsSubtitle: "Creá tu primer asado para empezar a registrar gastos.",
+      selectBbq: "Seleccioná un evento para empezar", noBbqs: "No hay eventos todavía",
+      noBbqsSubtitle: "Creá tu primer evento para empezar a registrar gastos.",
       breakdown: "Desglose", hostedBy: "Organizado por", you: "vos",
       visibility: "Visibilidad", publicEvent: "Público", privateEvent: "Privado",
       publicDesc: "Cualquiera puede ver y solicitar unirse",
@@ -376,7 +458,7 @@ const translations: Record<Language, Translations> = {
       displayNamePlaceholder: "ej. Carlos (opcional)",
       password: "Contraseña", confirmPassword: "Confirmar Contraseña",
       loginTitle: "Bienvenido de vuelta", registerTitle: "Crear cuenta",
-      welcomeBack: "Iniciá sesión para continuar", createAccount: "Unite al asado",
+      welcomeBack: "Iniciá sesión para continuar", createAccount: "Crear cuenta",
       alreadyHaveAccount: "¿Ya tenés cuenta?", dontHaveAccount: "¿No tenés cuenta?",
       usernameTaken: "Ese nombre de usuario ya está en uso",
       emailTaken: "Ya existe una cuenta con ese correo",
@@ -401,7 +483,7 @@ const translations: Record<Language, Translations> = {
       tokenInvalid: "Este enlace es inválido o expiró.",
     },
     user: {
-      setupTitle: "¡Bienvenido! Elegí un nombre", setupSubtitle: "Tu nombre te identificará en los asados.",
+      setupTitle: "¡Bienvenido! Elegí un nombre", setupSubtitle: "Tu nombre te identifica en eventos compartidos.",
       usernamePlaceholder: "ej. Carlos", confirm: "¡Vamos!",
       joinBbq: "Unirse", pending: "Pendiente", joined: "Unido",
       pendingRequests: "Solicitudes", accept: "Aceptar", reject: "Rechazar",
@@ -433,6 +515,44 @@ const translations: Record<Language, Translations> = {
       newFriendRequest: "Nueva solicitud de amistad",
       fromUser: "de",
     },
+    landing: {
+      heading: "Cuentas claras, conservan la amistad",
+      subheading: "Elegí cómo querés usar la app",
+      basicTitle: "Básico (sin cuenta)",
+      basicDesc: "Reparto simple de gastos. Sin registro.",
+      fullTitle: "Versión completa",
+      fullDesc: "Fiestas, viajes, eventos. Guardá y compartí con amigos.",
+      tryBasic: "Probar sin cuenta",
+      logInFull: "Entrar para todas las funciones",
+    },
+    basic: {
+      backToLanding: "Volver",
+      pageTitle: "Reparto básico",
+      adPlaceholder: "Publicidad",
+    },
+    nav: {
+      parties: "Fiestas",
+      trips: "Viajes",
+    },
+    events: {
+      event: "Evento",
+      newEvent: "Nuevo evento",
+      noEventsYet: "No hay eventos todavía",
+      noEventsSubtitle: "Creá tu primer evento para registrar gastos.",
+      selectEvent: "Seleccioná un evento para empezar",
+    },
+    eventTypes: {
+      barbecue: "Asado",
+      dinnerParty: "Cena",
+      birthday: "Cumpleaños",
+      otherParty: "Otro",
+      cityTrip: "Viaje ciudad",
+      cinema: "Cine",
+      themePark: "Parque de diversiones",
+      dayOut: "Día afuera",
+      otherTrip: "Otro",
+    },
+    tripsComingSoon: "Viajes próximamente. Por ahora creá eventos en Fiestas.",
   },
   it: {
     title: "The Ortega Asado App",
@@ -445,12 +565,13 @@ const translations: Record<Language, Translations> = {
     fairShare: "Quota Equa",
     tabs: { expenses: "Spese", split: "Divisione" },
     emptyState: {
-      title: "Accendi la griglia!",
-      subtitle: "Inizia aggiungendo partecipanti, poi registra le spese.",
+      title: "Crea un evento",
+      subtitle: "Aggiungi partecipanti e registra le spese per dividere i costi.",
     },
     categories: {
       Meat: "Carne", Bread: "Pane", Drinks: "Bevande",
       Charcoal: "Carbone", Transportation: "Trasporto", Other: "Altro",
+      Food: "Cibo", Transport: "Trasporto", Tickets: "Biglietti", Accommodation: "Alloggio",
     },
     modals: {
       addPersonTitle: "Aggiungi Partecipante", addExpenseTitle: "Registra Spesa",
@@ -465,8 +586,8 @@ const translations: Record<Language, Translations> = {
     bbq: {
       allBarbecues: "Barbecue", newBarbecue: "Nuovo BBQ", bbqName: "Nome BBQ",
       date: "Data", currency: "Valuta", create: "Crea", delete: "Elimina",
-      selectBbq: "Seleziona un barbecue per iniziare", noBbqs: "Nessun barbecue ancora",
-      noBbqsSubtitle: "Crea il tuo primo evento barbecue.",
+      selectBbq: "Seleziona un evento per iniziare", noBbqs: "Nessun evento ancora",
+      noBbqsSubtitle: "Crea il tuo primo evento per tracciare le spese.",
       breakdown: "Riepilogo", hostedBy: "Organizzato da", you: "tu",
       visibility: "Visibilità", publicEvent: "Pubblico", privateEvent: "Privato",
       publicDesc: "Chiunque può vedere e richiedere di partecipare",
@@ -488,7 +609,7 @@ const translations: Record<Language, Translations> = {
       displayNamePlaceholder: "es. Carlo (opzionale)",
       password: "Password", confirmPassword: "Conferma Password",
       loginTitle: "Bentornato", registerTitle: "Crea account",
-      welcomeBack: "Accedi per continuare", createAccount: "Unisciti all'asado",
+      welcomeBack: "Accedi per continuare", createAccount: "Registrati",
       alreadyHaveAccount: "Hai già un account?", dontHaveAccount: "Non hai un account?",
       usernameTaken: "Questo nome utente è già in uso",
       emailTaken: "Esiste già un account con questa email",
@@ -513,7 +634,7 @@ const translations: Record<Language, Translations> = {
       tokenInvalid: "Questo link non è valido o è scaduto.",
     },
     user: {
-      setupTitle: "Benvenuto! Scegli un nome", setupSubtitle: "Il tuo nome ti identificherà nei barbecue.",
+      setupTitle: "Benvenuto! Scegli un nome", setupSubtitle: "Il tuo nome ti identifica negli eventi condivisi.",
       usernamePlaceholder: "es. Carlo", confirm: "Andiamo!",
       joinBbq: "Unisciti", pending: "In attesa", joined: "Unito",
       pendingRequests: "Richieste", accept: "Accetta", reject: "Rifiuta",
@@ -545,6 +666,44 @@ const translations: Record<Language, Translations> = {
       newFriendRequest: "Nuova richiesta di amicizia",
       fromUser: "da",
     },
+    landing: {
+      heading: "Split costs, stay friends",
+      subheading: "Scegli come usare l'app",
+      basicTitle: "Base (senza account)",
+      basicDesc: "Split spese semplice. Nessuna registrazione.",
+      fullTitle: "Versione completa",
+      fullDesc: "Feste, viaggi, eventi. Salva e condividi con amici.",
+      tryBasic: "Prova senza account",
+      logInFull: "Accedi per tutte le funzioni",
+    },
+    basic: {
+      backToLanding: "Indietro",
+      pageTitle: "Split base",
+      adPlaceholder: "Pubblicità",
+    },
+    nav: {
+      parties: "Feesten",
+      trips: "Trips",
+    },
+    events: {
+      event: "Evenement",
+      newEvent: "Nieuw evenement",
+      noEventsYet: "Nog geen evenementen",
+      noEventsSubtitle: "Maak je eerste evenement om uitgaven bij te houden.",
+      selectEvent: "Selecteer een evenement om te beginnen",
+    },
+    eventTypes: {
+      barbecue: "Barbecue",
+      dinnerParty: "Diner",
+      birthday: "Verjaardag",
+      otherParty: "Anders",
+      cityTrip: "Stedentrip",
+      cinema: "Bioscoop",
+      themePark: "Attractiepark",
+      dayOut: "Dagje uit",
+      otherTrip: "Anders",
+    },
+    tripsComingSoon: "I viaggi sono in arrivo. Per ora crea eventi in Feste.",
   },
   nl: {
     title: "The Ortega Asado App",
@@ -557,12 +716,13 @@ const translations: Record<Language, Translations> = {
     fairShare: "Eerlijk Aandeel",
     tabs: { expenses: "Uitgaven", split: "Verdeling" },
     emptyState: {
-      title: "Steek de grill aan!",
-      subtitle: "Begin met het toevoegen van deelnemers, dan registreer je de uitgaven.",
+      title: "Maak een evenement",
+      subtitle: "Voeg deelnemers toe en log uitgaven om kosten te verdelen.",
     },
     categories: {
       Meat: "Vlees", Bread: "Brood", Drinks: "Drankjes",
       Charcoal: "Houtskool", Transportation: "Transport", Other: "Overig",
+      Food: "Eten", Transport: "Vervoer", Tickets: "Tickets", Accommodation: "Accommodatie",
     },
     modals: {
       addPersonTitle: "Deelnemer Toevoegen", addExpenseTitle: "Uitgave Registreren",
@@ -577,8 +737,8 @@ const translations: Record<Language, Translations> = {
     bbq: {
       allBarbecues: "Barbecues", newBarbecue: "Nieuwe BBQ", bbqName: "BBQ Naam",
       date: "Datum", currency: "Valuta", create: "Aanmaken", delete: "Verwijderen",
-      selectBbq: "Selecteer een barbecue om te beginnen", noBbqs: "Nog geen barbecues",
-      noBbqsSubtitle: "Maak je eerste barbecue-evenement aan.",
+      selectBbq: "Selecteer een evenement om te beginnen", noBbqs: "Nog geen evenementen",
+      noBbqsSubtitle: "Maak je eerste evenement aan om uitgaven bij te houden.",
       breakdown: "Overzicht", hostedBy: "Georganiseerd door", you: "jij",
       visibility: "Zichtbaarheid", publicEvent: "Openbaar", privateEvent: "Privé",
       publicDesc: "Iedereen kan zien en deelname aanvragen",
@@ -600,7 +760,7 @@ const translations: Record<Language, Translations> = {
       displayNamePlaceholder: "bijv. Carlos (optioneel)",
       password: "Wachtwoord", confirmPassword: "Bevestig Wachtwoord",
       loginTitle: "Welkom terug", registerTitle: "Account aanmaken",
-      welcomeBack: "Log in om verder te gaan", createAccount: "Doe mee aan het asado",
+      welcomeBack: "Log in om verder te gaan", createAccount: "Account aanmaken",
       alreadyHaveAccount: "Heb je al een account?", dontHaveAccount: "Heb je geen account?",
       usernameTaken: "Die gebruikersnaam is al in gebruik",
       emailTaken: "Er bestaat al een account met dat e-mailadres",
@@ -625,7 +785,7 @@ const translations: Record<Language, Translations> = {
       tokenInvalid: "Deze link is ongeldig of verlopen.",
     },
     user: {
-      setupTitle: "Welkom! Kies een gebruikersnaam", setupSubtitle: "Je naam identificeert je bij barbecues.",
+      setupTitle: "Welkom! Kies een gebruikersnaam", setupSubtitle: "Je naam identificeert je bij gedeelde evenementen.",
       usernamePlaceholder: "bijv. Carlos", confirm: "Let's Go!",
       joinBbq: "Deelnemen", pending: "In behandeling", joined: "Deelnemer",
       pendingRequests: "Aanvragen", accept: "Accepteren", reject: "Afwijzen",
@@ -657,6 +817,44 @@ const translations: Record<Language, Translations> = {
       newFriendRequest: "Nieuw vriendschapsverzoek",
       fromUser: "van",
     },
+    landing: {
+      heading: "Deel de rekening, blijf vrienden",
+      subheading: "Kies hoe je de app wilt gebruiken",
+      basicTitle: "Basis (zonder account)",
+      basicDesc: "Eenvoudige kostenverdeling. Geen aanmelding.",
+      fullTitle: "Volledige versie",
+      fullDesc: "Feesten, trips, evenementen. Bewaar en deel met vrienden.",
+      tryBasic: "Probeer zonder account",
+      logInFull: "Log in voor alle functies",
+    },
+    basic: {
+      backToLanding: "Terug",
+      pageTitle: "Eenvoudige verdeling",
+      adPlaceholder: "Advertentie",
+    },
+    nav: {
+      parties: "Feesten",
+      trips: "Trips",
+    },
+    events: {
+      event: "Evenement",
+      newEvent: "Nieuw evenement",
+      noEventsYet: "Nog geen evenementen",
+      noEventsSubtitle: "Maak je eerste evenement om uitgaven bij te houden.",
+      selectEvent: "Selecteer een evenement om te beginnen",
+    },
+    eventTypes: {
+      barbecue: "Barbecue",
+      dinnerParty: "Diner",
+      birthday: "Verjaardag",
+      otherParty: "Anders",
+      cityTrip: "Stedentrip",
+      cinema: "Bioscoop",
+      themePark: "Attractiepark",
+      dayOut: "Dagje uit",
+      otherTrip: "Anders",
+    },
+    tripsComingSoon: "Trips komen binnenkort. Maak voor nu evenementen onder Feesten.",
   },
 };
 

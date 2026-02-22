@@ -48,12 +48,12 @@ export default function Landing() {
       </header>
 
       <main className="relative flex-1 flex flex-col items-center justify-center overflow-hidden hero-bg">
-        {/* Watermark: soft logo behind headline, decorative only */}
+        {/* Watermark: large Splanno logo behind hero, brand atmosphere only */}
         <div
           className="absolute inset-0 z-0 flex items-center justify-center pointer-events-none select-none"
           aria-hidden
         >
-          <div className="translate-y-[-5%] scale-150 sm:scale-[2] opacity-[0.03] sm:opacity-[0.04] blur-[2px] sm:blur-[3px]">
+          <div className="translate-y-[-5%] scale-150 sm:scale-[2] opacity-[0.04] sm:opacity-[0.05] blur-[3px] sm:blur-[4px]">
             <SplannoLogo size="2xl" />
           </div>
         </div>

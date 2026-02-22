@@ -59,7 +59,7 @@ export default function Landing() {
             </a>
           </Link>
 
-          <Link href="/app">
+          <Link href="/login">
             <a className="block">
               <div className="h-full p-6 rounded-2xl border border-white/10 bg-card/60 hover:bg-card/80 hover:border-primary/30 transition-all text-left group">
                 <div className="w-10 h-10 rounded-xl bg-muted/50 flex items-center justify-center mb-4 group-hover:bg-primary/20">

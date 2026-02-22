@@ -72,12 +72,13 @@ const EVENT_TYPE_I18N_KEYS: Record<string, string> = {
   city_trip: "cityTrip", cinema: "cinema", theme_park: "themePark", day_out: "dayOut", other_trip: "otherTrip",
 };
 
-// ─── Auth Dialog (exported for LoginShell) ─────────────────────────────────────
+// ─── Auth Dialog (exported for LoginShell / Login page) ───────────────────────
 export function AuthDialog({
   open,
   onOpenChange,
   isCheckingAuth = false,
-}: { open: boolean; onOpenChange: (open: boolean) => void; isCheckingAuth?: boolean }) {
+  onSuccess,
+}: { open: boolean; onOpenChange: (open: boolean) => void; isCheckingAuth?: boolean; onSuccess?: () => void }) {
   const { t } = useLanguage();
   const { toast } = useToast();
   const { login, register, forgotPassword } = useAuth();
@@ -98,6 +99,7 @@ export function AuthDialog({
     if (!username || !password) return;
     try {
       await login.mutateAsync({ username, password });
+      onSuccess?.();
     } catch (e: any) {
       const msg = e.message;
       setError(msg === "invalid_credentials" ? t.auth.invalidCredentials : msg);
@@ -112,6 +114,7 @@ export function AuthDialog({
     try {
       const result = await register.mutateAsync({ username, email, displayName: displayName || undefined, password }) as { emailSent?: boolean };
       if (result?.emailSent === false) toast({ title: t.auth.welcomeEmailNotSent, variant: "default" });
+      onSuccess?.();
     } catch (e: any) {
       const msg = e.message;
       if (msg === "username_taken") setError(t.auth.usernameTaken);

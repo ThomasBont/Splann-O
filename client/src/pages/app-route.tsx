@@ -1,17 +1,32 @@
+import { useEffect } from "react";
+import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import Home from "@/pages/home";
-import { LoginShell } from "@/pages/login-shell";
+import { Loader2 } from "lucide-react";
 
 /**
- * /app route: show login shell when not authenticated so we never run
- * auth-dependent hooks (useBarbecues, useFriends, etc.) and avoid blank page.
- * When authenticated, render full Home.
+ * /app route: redirect to /login when not authenticated; render Home when authenticated.
  */
 export default function AppRoute() {
+  const [, setLocation] = useLocation();
   const { user, isLoading: isAuthLoading } = useAuth();
 
+  useEffect(() => {
+    if (!isAuthLoading && !user) {
+      setLocation("/login");
+    }
+  }, [user, isAuthLoading, setLocation]);
+
+  if (isAuthLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
   if (!user) {
-    return <LoginShell isCheckingAuth={isAuthLoading} />;
+    return null;
   }
 
   return <Home />;

@@ -31,7 +31,8 @@ export async function setupVite(server: Server, app: Express) {
 
   app.use(vite.middlewares);
 
-  app.use("/{*path}", async (req, res, next) => {
+  // SPA fallback: serve index.html for any path (so /app, /basic, etc. work on refresh or direct load)
+  app.get("*", async (req, res, next) => {
     const url = req.originalUrl;
 
     try {

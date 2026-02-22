@@ -29,7 +29,7 @@ import { AddExpenseDialog } from "@/components/add-expense-dialog";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import {
   Users, Receipt, Wallet, Trash2, Edit2,
-  Receipt, Flame, Plus, ArrowRight, CheckCircle2,
+  Flame, Plus, ArrowRight, CheckCircle2,
   CalendarDays, Loader2,
   Beef, Wheat, Beer, Zap, Car, Package,
   UserCheck, UserX, LogOut, Crown, Clock, UserCircle,

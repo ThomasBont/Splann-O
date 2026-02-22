@@ -26,6 +26,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AddPersonDialog } from "@/components/add-person-dialog";
 import { AddExpenseDialog } from "@/components/add-expense-dialog";
+import { WelcomeModal } from "@/components/welcome-modal";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import {
   Users, Receipt, Wallet, Trash2, Edit2,
@@ -489,7 +490,20 @@ export default function Home() {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [showAuthDialog, setShowAuthDialog] = useState(true);
+  const [showWelcomeModal, setShowWelcomeModal] = useState(false);
   const prevPendingCountRef = useRef(allPendingRequests.length);
+
+  useEffect(() => {
+    if (user) {
+      try {
+        if (sessionStorage.getItem("ortega_show_welcome") === "1") {
+          setShowWelcomeModal(true);
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }, [user]);
 
   useEffect(() => {
     if (allPendingRequests.length > prevPendingCountRef.current) {
@@ -678,6 +692,22 @@ export default function Home() {
         onOpenChange={(open) => { if (!open) setShowAuthDialog(false); }}
         isCheckingAuth={isAuthLoading}
       />
+
+      {user && (
+        <WelcomeModal
+          open={showWelcomeModal}
+          onOpenChange={setShowWelcomeModal}
+          userName={user.displayName || user.username}
+          onGetStarted={() => {
+            try {
+              sessionStorage.removeItem("ortega_show_welcome");
+            } catch {
+              // ignore
+            }
+            setShowWelcomeModal(false);
+          }}
+        />
+      )}
 
       {/* Header */}
       <header className="sticky top-0 z-50 bg-background/80 backdrop-blur-lg border-b border-white/5" data-testid="header">

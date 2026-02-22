@@ -221,6 +221,11 @@ interface Translations {
     tryBasic: string;
     logInFull: string;
   };
+  welcome: {
+    title: string;
+    description: string;
+    getStarted: string;
+  };
   basic: {
     backToLanding: string;
     pageTitle: string;
@@ -374,6 +379,11 @@ const translations: Record<Language, Translations> = {
       tryBasic: "Try without account",
       logInFull: "Log in for full features",
     },
+    welcome: {
+      title: "Welcome, {name}!",
+      description: "Create parties and trips, add events, invite friends, and split expenses in a snap.",
+      getStarted: "Get Started",
+    },
     basic: {
       backToLanding: "Back",
       pageTitle: "Basic split",
@@ -524,6 +534,11 @@ const translations: Record<Language, Translations> = {
       fullDesc: "Fiestas, viajes, eventos. Guardá y compartí con amigos.",
       tryBasic: "Probar sin cuenta",
       logInFull: "Entrar para todas las funciones",
+    },
+    welcome: {
+      title: "¡Bienvenido, {name}!",
+      description: "Creá fiestas y viajes, agregá eventos, invitá amigos y repartí gastos en un toque.",
+      getStarted: "Empezar",
     },
     basic: {
       backToLanding: "Volver",
@@ -676,6 +691,11 @@ const translations: Record<Language, Translations> = {
       tryBasic: "Prova senza account",
       logInFull: "Accedi per tutte le funzioni",
     },
+    welcome: {
+      title: "Benvenuto, {name}!",
+      description: "Crea feste e viaggi, aggiungi eventi, invita amici e dividi le spese in un attimo.",
+      getStarted: "Inizia",
+    },
     basic: {
       backToLanding: "Indietro",
       pageTitle: "Split base",
@@ -826,6 +846,11 @@ const translations: Record<Language, Translations> = {
       fullDesc: "Feesten, trips, evenementen. Bewaar en deel met vrienden.",
       tryBasic: "Probeer zonder account",
       logInFull: "Log in voor alle functies",
+    },
+    welcome: {
+      title: "Welkom, {name}!",
+      description: "Maak feesten en trips, voeg evenementen toe, nodig vrienden uit en deel kosten eenvoudig.",
+      getStarted: "Aan de slag",
     },
     basic: {
       backToLanding: "Terug",

@@ -41,6 +41,11 @@ export function useAuth() {
       queryClient.invalidateQueries({ queryKey: ['/api/auth/me'] });
       queryClient.invalidateQueries({ queryKey: ['/api/barbecues'] });
       queryClient.invalidateQueries({ queryKey: ['/api/memberships'] });
+      try {
+        sessionStorage.setItem('ortega_show_welcome', '1');
+      } catch {
+        // ignore
+      }
     },
   });
 
@@ -59,6 +64,11 @@ export function useAuth() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/auth/me'] });
       queryClient.invalidateQueries({ queryKey: ['/api/barbecues'] });
+      try {
+        sessionStorage.setItem('ortega_show_welcome', '1');
+      } catch {
+        // ignore
+      }
     },
   });
 
@@ -68,6 +78,7 @@ export function useAuth() {
     },
     onSuccess: () => {
       queryClient.clear();
+      window.location.href = '/';
     },
   });
 

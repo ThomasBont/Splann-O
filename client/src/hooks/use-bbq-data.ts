@@ -6,7 +6,7 @@ export function useBarbecues() {
   return useQuery({
     queryKey: ['/api/barbecues'],
     queryFn: async () => {
-      const res = await fetch(api.barbecues.list.path);
+      const res = await fetch(api.barbecues.list.path, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to fetch barbecues");
       return res.json() as Promise<Barbecue[]>;
     },

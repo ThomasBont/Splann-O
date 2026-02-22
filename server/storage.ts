@@ -144,7 +144,6 @@ export class DatabaseStorage implements IStorage {
     const participatingIds = new Set(userParticipations.map(p => p.bbqId));
 
     return all.filter(b => {
-      if (b.isPublic) return true;
       if (b.creatorId === currentUsername) return true;
       if (participatingIds.has(b.id)) return true;
       return false;

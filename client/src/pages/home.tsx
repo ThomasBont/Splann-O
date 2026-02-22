@@ -1009,6 +1009,25 @@ export default function Home() {
                         >{joinBbq.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : t.user.joinBbq}</button>
                       )}
 
+                      {/* Non-creator: leave event (remove from my tabs) */}
+                      {!isBbqCreator && membership && participantId && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteParticipant.mutate(participantId, {
+                              onSuccess: () => {
+                                queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] });
+                                if (selectedBbqId === bbq.id) setSelectedBbqId(null);
+                              },
+                            });
+                          }}
+                          disabled={deleteParticipant.isPending}
+                          className="text-muted-foreground/40 hover:text-destructive transition-colors p-0.5"
+                          title={t.user.leave}
+                          data-testid={`button-leave-bbq-${bbq.id}`}
+                        ><X className="w-3 h-3" /></button>
+                      )}
+
                       {/* Creator: delete button */}
                       {isBbqCreator && (
                         <button

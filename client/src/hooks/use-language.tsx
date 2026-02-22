@@ -296,7 +296,7 @@ const translations: Record<Language, Translations> = {
     bbq: {
       allBarbecues: "Barbecues", newBarbecue: "New Barbecue", bbqName: "BBQ Name",
       date: "Date", currency: "Currency", create: "Create", delete: "Delete",
-      selectBbq: "Select an event to get started", noBbqs: "No events yet",
+      selectBbq: "Select or create an event to get started", noBbqs: "No events yet",
       noBbqsSubtitle: "Create your first event to start tracking expenses.",
       breakdown: "Breakdown", hostedBy: "Hosted by", you: "you",
       visibility: "Visibility", publicEvent: "Public", privateEvent: "Private",
@@ -405,7 +405,7 @@ const translations: Record<Language, Translations> = {
       newEvent: "New event",
       noEventsYet: "No events yet",
       noEventsSubtitle: "Create your first event to start tracking expenses.",
-      selectEvent: "Select an event to get started",
+      selectEvent: "Select or create an event to get started",
     },
     eventTypes: {
       barbecue: "Barbecue",
@@ -459,7 +459,7 @@ const translations: Record<Language, Translations> = {
     bbq: {
       allBarbecues: "Asados", newBarbecue: "Nuevo Asado", bbqName: "Nombre del Asado",
       date: "Fecha", currency: "Moneda", create: "Crear", delete: "Eliminar",
-      selectBbq: "Seleccioná un evento para empezar", noBbqs: "No hay eventos todavía",
+      selectBbq: "Seleccioná o creá un evento para empezar", noBbqs: "No hay eventos todavía",
       noBbqsSubtitle: "Creá tu primer evento para empezar a registrar gastos.",
       breakdown: "Desglose", hostedBy: "Organizado por", you: "vos",
       visibility: "Visibilidad", publicEvent: "Público", privateEvent: "Privado",
@@ -568,7 +568,7 @@ const translations: Record<Language, Translations> = {
       newEvent: "Nuevo evento",
       noEventsYet: "No hay eventos todavía",
       noEventsSubtitle: "Creá tu primer evento para registrar gastos.",
-      selectEvent: "Seleccioná un evento para empezar",
+      selectEvent: "Seleccioná o creá un evento para empezar",
     },
     eventTypes: {
       barbecue: "Asado",
@@ -622,7 +622,7 @@ const translations: Record<Language, Translations> = {
     bbq: {
       allBarbecues: "Barbecue", newBarbecue: "Nuovo BBQ", bbqName: "Nome BBQ",
       date: "Data", currency: "Valuta", create: "Crea", delete: "Elimina",
-      selectBbq: "Seleziona un evento per iniziare", noBbqs: "Nessun evento ancora",
+      selectBbq: "Seleziona o crea un evento per iniziare", noBbqs: "Nessun evento ancora",
       noBbqsSubtitle: "Crea il tuo primo evento per tracciare le spese.",
       breakdown: "Riepilogo", hostedBy: "Organizzato da", you: "tu",
       visibility: "Visibilità", publicEvent: "Pubblico", privateEvent: "Privato",
@@ -723,15 +723,15 @@ const translations: Record<Language, Translations> = {
       adPlaceholder: "Pubblicità",
     },
     nav: {
-      parties: "Feesten",
-      trips: "Trips",
+      parties: "Feste",
+      trips: "Viaggi",
     },
     events: {
-      event: "Evenement",
-      newEvent: "Nieuw evenement",
-      noEventsYet: "Nog geen evenementen",
-      noEventsSubtitle: "Maak je eerste evenement om uitgaven bij te houden.",
-      selectEvent: "Selecteer een evenement om te beginnen",
+      event: "Evento",
+      newEvent: "Nuovo evento",
+      noEventsYet: "Nessun evento ancora",
+      noEventsSubtitle: "Crea il tuo primo evento per tracciare le spese.",
+      selectEvent: "Seleziona o crea un evento per iniziare",
     },
     eventTypes: {
       barbecue: "Barbecue",
@@ -785,7 +785,7 @@ const translations: Record<Language, Translations> = {
     bbq: {
       allBarbecues: "Barbecues", newBarbecue: "Nieuwe BBQ", bbqName: "BBQ Naam",
       date: "Datum", currency: "Valuta", create: "Aanmaken", delete: "Verwijderen",
-      selectBbq: "Selecteer een evenement om te beginnen", noBbqs: "Nog geen evenementen",
+      selectBbq: "Selecteer of maak een evenement om te beginnen", noBbqs: "Nog geen evenementen",
       noBbqsSubtitle: "Maak je eerste evenement aan om uitgaven bij te houden.",
       breakdown: "Overzicht", hostedBy: "Georganiseerd door", you: "jij",
       visibility: "Zichtbaarheid", publicEvent: "Openbaar", privateEvent: "Privé",
@@ -894,7 +894,7 @@ const translations: Record<Language, Translations> = {
       newEvent: "Nieuw evenement",
       noEventsYet: "Nog geen evenementen",
       noEventsSubtitle: "Maak je eerste evenement om uitgaven bij te houden.",
-      selectEvent: "Selecteer een evenement om te beginnen",
+      selectEvent: "Selecteer of maak een evenement om te beginnen",
     },
     eventTypes: {
       barbecue: "Barbecue",

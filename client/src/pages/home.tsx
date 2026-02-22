@@ -1057,7 +1057,7 @@ export default function Home() {
               {/* New event button */}
               {user && (
                 <button
-                  onClick={() => { setNewEventArea(area); setNewEventType(area === "trips" ? "city_trip" : "barbecue"); setIsNewBbqOpen(true); }}
+                  onClick={() => { setNewEventArea(area); setNewEventType("barbecue"); setIsNewBbqOpen(true); }}
                   className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-muted-foreground hover:text-primary hover:bg-primary/10 border border-dashed border-white/10 hover:border-primary/30 transition-all flex-shrink-0"
                   data-testid="button-new-bbq"
                 >

@@ -162,7 +162,7 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
                       onClick={() => {
                         updateProfile.mutate(
                           {
-                            displayName: draftDisplayName || null,
+                            displayName: draftDisplayName || undefined,
                             profileImageUrl: draftProfileImageUrl || null,
                             bio: draftBio || null,
                             preferredCurrencyCodes: draftCurrencies.length === CURRENCIES.length ? null : draftCurrencies,

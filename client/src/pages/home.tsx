@@ -37,7 +37,7 @@ import {
   CalendarDays, Loader2,
   Beef, Wheat, Beer, Zap, Car, Package,
   UserCheck, UserX, LogOut, Crown, Clock, UserCircle,
-  Lock, Globe, UserPlus, X, Eye, EyeOff, ChevronDown, ChevronUp, Compass,
+  Lock, Globe, UserPlus, X, Eye, EyeOff, Compass,
   Bell, UserPlus2, Search, Heart, Sun, Moon,
 } from "lucide-react";
 import { useTheme } from "@/hooks/use-theme";
@@ -369,77 +369,6 @@ export function AuthDialog({
   );
 }
 
-// ─── Currency Conversion Bar ──────────────────────────────────────────────────
-function CurrencyBar({ total, fairShare, bbqCurrency, currenciesToShow }: { total: number; fairShare: number; bbqCurrency: CurrencyCode; currenciesToShow: typeof CURRENCIES }) {
-  const { t } = useLanguage();
-  const [expanded, setExpanded] = useState(() => {
-    try { return localStorage.getItem('currencyBarExpanded') !== 'false'; } catch { return true; }
-  });
-  const toggle = () => {
-    const next = !expanded;
-    setExpanded(next);
-    try { localStorage.setItem('currencyBarExpanded', String(next)); } catch {}
-  };
-  return (
-    <div className="bg-card/60 border border-white/5 rounded-2xl p-4">
-      <button
-        onClick={toggle}
-        className="flex items-center justify-between w-full cursor-pointer group"
-        data-testid="button-toggle-currency"
-      >
-        <h3 className="text-sm font-semibold text-muted-foreground group-hover:text-foreground transition-colors">{t.bbq.currencyConversion}</h3>
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] text-muted-foreground bg-secondary/40 px-2 py-0.5 rounded-full">{t.bbq.approxRates}</span>
-          {expanded ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
-        </div>
-      </button>
-      <AnimatePresence>
-        {expanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }} className="overflow-hidden"
-          >
-            <div className="overflow-x-auto -mx-1 px-1 pb-1 mt-3">
-              <div className="flex gap-2.5 min-w-max">
-                {currenciesToShow.map(cur => {
-                  const convTotal = convertCurrency(total, bbqCurrency, cur.code);
-                  const convShare = convertCurrency(fairShare, bbqCurrency, cur.code);
-                  const isNative = cur.code === bbqCurrency;
-                  return (
-                    <div
-                      key={cur.code}
-                      className={`flex-shrink-0 rounded-xl border px-3 py-2.5 min-w-[130px] transition-colors ${
-                        isNative ? 'border-primary/40 bg-primary/8' : 'border-white/5 bg-secondary/20'
-                      }`}
-                      data-testid={`currency-card-${cur.code}`}
-                    >
-                      <div className="flex items-center gap-1.5 mb-2">
-                        <span className="text-xs font-bold text-foreground">{cur.symbol}</span>
-                        <span className={`text-xs font-semibold ${isNative ? 'text-primary' : 'text-muted-foreground'}`}>{cur.code}</span>
-                        {isNative && <span className="text-[9px] bg-primary/20 text-primary px-1 rounded font-bold">native</span>}
-                      </div>
-                      <div className="space-y-1">
-                        <div>
-                          <div className="text-[9px] text-muted-foreground uppercase tracking-wide">{t.totalSpent}</div>
-                          <div className="text-sm font-bold">{cur.symbol}{convTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                        </div>
-                        <div>
-                          <div className="text-[9px] text-muted-foreground uppercase tracking-wide">{t.bbq.yourShare}</div>
-                          <div className="text-sm font-semibold text-primary">{cur.symbol}{convShare.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
 // ─── Stat Card ────────────────────────────────────────────────────────────────
 function StatCard({ label, value, icon, color }: { label: string; value: string | number; icon: any; color: string }) {
   const colors: Record<string, string> = {
@@ -531,7 +460,8 @@ export default function Home() {
   const selectedBbq = barbecuesForArea.find((b: Barbecue) => b.id === selectedBbqId) ?? (barbecues.find((b: Barbecue) => b.id === selectedBbqId) || null);
   const currency = (selectedBbq?.currency as CurrencyCode) || "EUR";
   const currencyInfo = CURRENCIES.find(c => c.code === currency) || CURRENCIES[0];
-  const currenciesToShow = user?.preferredCurrencyCodes?.length ? CURRENCIES.filter(c => user!.preferredCurrencyCodes!.includes(c.code)) : CURRENCIES;
+  const [displayCurrency, setDisplayCurrency] = useState<CurrencyCode>(currency);
+  const displayCurrencyInfo = CURRENCIES.find(c => c.code === displayCurrency) || CURRENCIES[0];
   const isCreator = !!(username && selectedBbq?.creatorId === username);
   const isPrivate = selectedBbq ? !selectedBbq.isPublic : false;
 
@@ -553,6 +483,10 @@ export default function Home() {
   const acceptInvite = useAcceptInvite();
   const declineInvite = useDeclineInvite();
 
+  useEffect(() => {
+    setDisplayCurrency(currency);
+  }, [currency]);
+
   const getCurrencyLabel = (cur: typeof CURRENCIES[0]) => {
     if (language === 'es') return cur.labelEs;
     if (language === 'it') return cur.labelIt;
@@ -565,7 +499,10 @@ export default function Home() {
     return m ? { status: m.status, participantId: m.participantId } : null;
   };
 
-  const formatMoney = (amount: number) => `${currencyInfo.symbol}${amount.toFixed(2)}`;
+  const formatMoney = (amount: number) => {
+    const converted = convertCurrency(amount, currency, displayCurrency);
+    return `${displayCurrencyInfo.symbol}${converted.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
 
   const totalSpent = expenses.reduce((sum: number, exp: ExpenseWithParticipant) => sum + Number(exp.amount), 0);
   const participantCount = participants.length;
@@ -1227,6 +1164,26 @@ export default function Home() {
               </div>
             )}
 
+            {/* Currency selector (like Basic version) */}
+            <div className="flex items-center gap-2">
+              <label htmlFor="event-display-currency" className="text-xs text-muted-foreground whitespace-nowrap">
+                {t.bbq.currency}:
+              </label>
+              <select
+                id="event-display-currency"
+                value={displayCurrency}
+                onChange={(e) => setDisplayCurrency(e.target.value as CurrencyCode)}
+                className="h-8 rounded-md border border-input bg-background px-2 text-sm text-foreground"
+                data-testid="select-display-currency"
+              >
+                {CURRENCIES.map((c) => (
+                  <option key={c.code} value={c.code}>
+                    {c.symbol} {getCurrencyLabel(c)}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             {/* Stats Grid */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
               <StatCard label={t.totalSpent} value={formatMoney(totalSpent)} icon={<Wallet />} color="gold" />
@@ -1234,11 +1191,6 @@ export default function Home() {
               <StatCard label={t.expenses} value={expenses.length} icon={<Receipt />} color="orange" />
               <StatCard label={t.fairShare} value={formatMoney(fairShare)} icon={<Wallet />} color="green" />
             </div>
-
-            {/* Currency Conversion Bar */}
-            {totalSpent > 0 && (
-              <CurrencyBar total={totalSpent} fairShare={fairShare} bbqCurrency={currency} currenciesToShow={currenciesToShow} />
-            )}
 
             {/* Participant Chips */}
             {participants.length > 0 && (
@@ -1441,18 +1393,24 @@ export default function Home() {
                               <Cell key={entry.name} fill={CATEGORY_COLORS[entry.name] || '#888'} />
                             ))}
                           </Pie>
-                          <Tooltip formatter={(value: number | string) => [`${currencyInfo.symbol}${Number(value).toFixed(2)}`, '']}
+                          <Tooltip formatter={(value: number | string) => {
+                            const converted = convertCurrency(Number(value), currency, displayCurrency);
+                            return [`${displayCurrencyInfo.symbol}${converted.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, ''];
+                          }}
                             contentStyle={{ background: 'hsl(var(--card))', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }} />
                         </PieChart>
                       </ResponsiveContainer>
                       <div className="space-y-1.5 flex-1 min-w-[120px]">
-                        {chartData.map(d => (
-                          <div key={d.name} className="flex items-center gap-2 text-xs">
-                            <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: CATEGORY_COLORS[d.name] }} />
-                            <span className="text-muted-foreground flex-1">{d.translatedName}</span>
-                            <span className="font-semibold">{currencyInfo.symbol}{d.value.toFixed(2)}</span>
-                          </div>
-                        ))}
+                        {chartData.map(d => {
+                          const converted = convertCurrency(d.value, currency, displayCurrency);
+                          return (
+                            <div key={d.name} className="flex items-center gap-2 text-xs">
+                              <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: CATEGORY_COLORS[d.name] }} />
+                              <span className="text-muted-foreground flex-1">{d.translatedName}</span>
+                              <span className="font-semibold">{displayCurrencyInfo.symbol}{converted.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   </div>

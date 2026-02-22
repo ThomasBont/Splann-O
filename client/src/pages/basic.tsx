@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { useLanguage } from "@/hooks/use-language";
+import { useLanguage, CURRENCIES, type CurrencyCode } from "@/hooks/use-language";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -11,6 +11,7 @@ type Participant = { id: string; name: string };
 type Expense = { id: string; description: string; amount: number; paidById: string };
 
 const STORAGE_KEY = "basic-split-data";
+const STORAGE_KEY_CURRENCY = "basic-currency";
 
 function loadStored(): { participants: Participant[]; expenses: Expense[] } {
   try {
@@ -32,14 +33,39 @@ function saveStored(participants: Participant[], expenses: Expense[]) {
   } catch {}
 }
 
+function loadStoredCurrency(): CurrencyCode {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_CURRENCY);
+    if (raw && CURRENCIES.some((c) => c.code === raw)) return raw as CurrencyCode;
+  } catch {}
+  return "EUR";
+}
+
 function uuid() {
   return crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+function getCurrencyLabel(cur: (typeof CURRENCIES)[0], lang: string): string {
+  if (lang === "es") return cur.labelEs;
+  if (lang === "it") return cur.labelIt;
+  if (lang === "nl") return cur.labelNl;
+  return cur.label;
+}
+
 export default function Basic() {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const [participants, setParticipants] = useState<Participant[]>(() => loadStored().participants);
   const [expenses, setExpenses] = useState<Expense[]>(() => loadStored().expenses);
+  const [currency, setCurrency] = useState<CurrencyCode>(loadStoredCurrency);
+
+  const { symbol } = CURRENCIES.find((c) => c.code === currency) ?? CURRENCIES[0];
+
+  const persistCurrency = (code: CurrencyCode) => {
+    setCurrency(code);
+    try {
+      localStorage.setItem(STORAGE_KEY_CURRENCY, code);
+    } catch {}
+  };
 
   useMemo(() => saveStored(participants, expenses), [participants, expenses]);
 
@@ -115,7 +141,7 @@ export default function Basic() {
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
-      <header className="border-b border-white/5 py-3 px-4 flex items-center gap-3">
+      <header className="border-b border-border py-3 px-4 flex flex-wrap items-center gap-3">
         <Link href="/">
           <a className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors text-sm">
             <ArrowLeft className="w-4 h-4" />
@@ -124,6 +150,23 @@ export default function Basic() {
         </Link>
         <SplannoLogo size="sm" iconOnly />
         <span className="font-display font-bold text-primary truncate">{t.basic.pageTitle}</span>
+        <div className="ml-auto flex items-center gap-2">
+          <label htmlFor="basic-currency" className="text-xs text-muted-foreground whitespace-nowrap">
+            {t.bbq.currency}:
+          </label>
+          <select
+            id="basic-currency"
+            value={currency}
+            onChange={(e) => persistCurrency(e.target.value as CurrencyCode)}
+            className="h-8 rounded-md border border-input bg-background px-2 text-sm text-foreground"
+          >
+            {CURRENCIES.map((c) => (
+              <option key={c.code} value={c.code}>
+                {c.symbol} {getCurrencyLabel(c, language)}
+              </option>
+            ))}
+          </select>
+        </div>
       </header>
 
       <main className="flex-1 px-4 py-6 max-w-2xl mx-auto w-full space-y-6">
@@ -178,7 +221,7 @@ export default function Basic() {
           </div>
           <ul className="space-y-2">
             {expenses.map((e) => (
-              <li key={e.id} className="flex flex-wrap items-center gap-2 p-2 rounded-lg bg-card/40 border border-white/5">
+              <li key={e.id} className="flex flex-wrap items-center gap-2 p-2 rounded-lg bg-card/40 border border-border">
                 <Input
                   placeholder={t.modals.itemLabel}
                   value={e.description}
@@ -189,7 +232,7 @@ export default function Basic() {
                   type="number"
                   min={0}
                   step={0.01}
-                  placeholder={t.modals.amountLabel}
+                  placeholder={`${t.modals.amountLabel} (${symbol})`}
                   value={e.amount || ""}
                   onChange={(ev) =>
                     updateExpense(e.id, { amount: parseFloat(ev.target.value) || 0 })
@@ -221,22 +264,22 @@ export default function Basic() {
         </section>
 
         {n > 0 && (
-          <section className="rounded-2xl border border-white/10 bg-card/60 p-4 space-y-2">
+          <section className="rounded-2xl border border-border bg-card/60 p-4 space-y-2">
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">{t.totalSpent}</span>
-              <span className="font-medium">€{total.toFixed(2)}</span>
+              <span className="font-medium">{symbol}{total.toFixed(2)}</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">{t.fairShare}</span>
-              <span className="font-medium">€{fairShare.toFixed(2)}</span>
+              <span className="font-medium">{symbol}{fairShare.toFixed(2)}</span>
             </div>
             {settlements.length > 0 && (
-              <div className="pt-2 border-t border-white/5">
+              <div className="pt-2 border-t border-border">
                 <p className="text-xs text-muted-foreground mb-2">{t.split.settlement}</p>
                 <ul className="space-y-1 text-sm">
                   {settlements.map((s, i) => (
                     <li key={i}>
-                      <strong>{s.from}</strong> {t.split.owes} <strong>{s.to}</strong>: €
+                      <strong>{s.from}</strong> {t.split.owes} <strong>{s.to}</strong>: {symbol}
                       {s.amount.toFixed(2)}
                     </li>
                   ))}
@@ -249,7 +292,7 @@ export default function Basic() {
           </section>
         )}
 
-        <aside className="min-h-[80px] rounded-xl border border-dashed border-white/10 flex items-center justify-center text-xs text-muted-foreground">
+        <aside className="min-h-[80px] rounded-xl border border-dashed border-border flex items-center justify-center text-xs text-muted-foreground">
           {t.basic.adPlaceholder}
         </aside>
       </main>

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { AuthDialog } from "@/pages/home";
@@ -11,6 +11,7 @@ import { ArrowLeft, Loader2 } from "lucide-react";
 export default function LoginPage() {
   const [, setLocation] = useLocation();
   const { user, isLoading: isAuthLoading } = useAuth();
+  const [dialogOpen, setDialogOpen] = useState(true);
 
   useEffect(() => {
     if (!isAuthLoading && user) {
@@ -43,8 +44,11 @@ export default function LoginPage() {
       </div>
       <div className="flex-1 flex items-center justify-center px-4 pb-20">
         <AuthDialog
-          open={true}
-          onOpenChange={() => {}}
+          open={dialogOpen}
+          onOpenChange={(open) => {
+            setDialogOpen(open);
+            if (!open) setLocation("/");
+          }}
           isCheckingAuth={false}
           onSuccess={() => setLocation("/app")}
         />

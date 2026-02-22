@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { AuthDialog } from "@/pages/home";
 import { Link } from "wouter";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Loader2 } from "lucide-react";
 
 /**
  * Dedicated full-page Login/Sign-up. Redirects to /app on success or when already logged in.
@@ -20,8 +20,9 @@ export default function LoginPage() {
 
   if (isAuthLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="animate-pulse text-muted-foreground text-sm">{/* loading */}</div>
+      <div className="min-h-screen flex flex-col items-center justify-center gap-3 bg-background">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        <p className="text-sm text-muted-foreground">Loading...</p>
       </div>
     );
   }

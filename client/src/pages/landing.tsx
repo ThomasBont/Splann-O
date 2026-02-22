@@ -44,34 +44,30 @@ export default function Landing() {
         </p>
 
         <div className="grid sm:grid-cols-2 gap-4 w-full max-w-lg">
-          <Link href="/basic">
-            <a className="block">
-              <div className="h-full p-6 rounded-2xl border border-white/10 bg-card/60 hover:bg-card/80 hover:border-primary/30 transition-all text-left group">
-                <div className="w-10 h-10 rounded-xl bg-muted/50 flex items-center justify-center mb-4 group-hover:bg-primary/20">
-                  <Receipt className="w-5 h-5 text-muted-foreground group-hover:text-primary" />
-                </div>
-                <h2 className="font-semibold text-foreground mb-1">{t.landing.basicTitle}</h2>
-                <p className="text-xs text-muted-foreground mb-4">{t.landing.basicDesc}</p>
-                <span className={cn(buttonVariants({ variant: "outline", size: "sm" }), "w-full inline-flex justify-center")}>
-                  {t.landing.tryBasic}
-                </span>
+          <Link href="/basic" className="block h-full">
+            <div className="h-full p-6 rounded-2xl border border-white/10 bg-card/60 hover:bg-card/80 hover:border-primary/30 transition-all text-left group">
+              <div className="w-10 h-10 rounded-xl bg-muted/50 flex items-center justify-center mb-4 group-hover:bg-primary/20">
+                <Receipt className="w-5 h-5 text-muted-foreground group-hover:text-primary" />
               </div>
-            </a>
+              <h2 className="font-semibold text-foreground mb-1">{t.landing.basicTitle}</h2>
+              <p className="text-xs text-muted-foreground mb-4">{t.landing.basicDesc}</p>
+              <span className={cn(buttonVariants({ variant: "outline", size: "sm" }), "w-full inline-flex justify-center")}>
+                {t.landing.tryBasic}
+              </span>
+            </div>
           </Link>
 
-          <Link href="/login">
-            <a className="block">
-              <div className="h-full p-6 rounded-2xl border border-white/10 bg-card/60 hover:bg-card/80 hover:border-primary/30 transition-all text-left group">
-                <div className="w-10 h-10 rounded-xl bg-muted/50 flex items-center justify-center mb-4 group-hover:bg-primary/20">
-                  <UserCircle className="w-5 h-5 text-muted-foreground group-hover:text-primary" />
-                </div>
-                <h2 className="font-semibold text-foreground mb-1">{t.landing.fullTitle}</h2>
-                <p className="text-xs text-muted-foreground mb-4">{t.landing.fullDesc}</p>
-                <span className={cn(buttonVariants({ size: "sm" }), "w-full inline-flex justify-center bg-primary text-primary-foreground")}>
-                  {t.landing.logInFull}
-                </span>
+          <Link href="/login" className="block h-full">
+            <div className="h-full p-6 rounded-2xl border border-white/10 bg-card/60 hover:bg-card/80 hover:border-primary/30 transition-all text-left group">
+              <div className="w-10 h-10 rounded-xl bg-muted/50 flex items-center justify-center mb-4 group-hover:bg-primary/20">
+                <UserCircle className="w-5 h-5 text-muted-foreground group-hover:text-primary" />
               </div>
-            </a>
+              <h2 className="font-semibold text-foreground mb-1">{t.landing.fullTitle}</h2>
+              <p className="text-xs text-muted-foreground mb-4">{t.landing.fullDesc}</p>
+              <span className={cn(buttonVariants({ size: "sm" }), "w-full inline-flex justify-center bg-primary text-primary-foreground")}>
+                {t.landing.logInFull}
+              </span>
+            </div>
           </Link>
         </div>
       </main>

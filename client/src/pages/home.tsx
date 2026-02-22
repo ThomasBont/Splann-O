@@ -73,7 +73,11 @@ const EVENT_TYPE_I18N_KEYS: Record<string, string> = {
 };
 
 // ─── Auth Dialog ──────────────────────────────────────────────────────────────
-function AuthDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+function AuthDialog({
+  open,
+  onOpenChange,
+  isCheckingAuth = false,
+}: { open: boolean; onOpenChange: (open: boolean) => void; isCheckingAuth?: boolean }) {
   const { t } = useLanguage();
   const { toast } = useToast();
   const { login, register, forgotPassword } = useAuth();
@@ -153,10 +157,17 @@ function AuthDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open
             </div>
             <h1 className="font-display text-primary font-bold text-lg truncate">{t.title}</h1>
           </div>
-          <DialogTitle className="text-base">{titles[tab]}</DialogTitle>
-          <DialogDescription>{subtitles[tab]}</DialogDescription>
+          <DialogTitle className="text-base">{isCheckingAuth ? t.auth.loginTitle : titles[tab]}</DialogTitle>
+          <DialogDescription>{isCheckingAuth ? t.auth.welcomeBack : subtitles[tab]}</DialogDescription>
         </DialogHeader>
 
+        {isCheckingAuth ? (
+          <div className="flex flex-col items-center justify-center py-8 gap-3">
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            <p className="text-sm text-muted-foreground">{t.auth.welcomeBack}</p>
+          </div>
+        ) : (
+        <>
         {/* Tab selector — only for login/register */}
         {(tab === "login" || tab === "register") && (
           <div className="flex rounded-lg border border-white/10 overflow-hidden mb-2">
@@ -345,6 +356,8 @@ function AuthDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open
             </button>
           </div>
         )}
+        </>
+        )
       </DraggableDialogContent>
     </Dialog>
   );
@@ -654,18 +667,14 @@ export default function Home() {
   const canManage = isCreator;
   const isAcceptedMember = !isCreator && !!myParticipant;
 
-  // Show auth dialog if not loading and not logged in
-  if (isAuthLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-      </div>
-    );
-  }
-
+  // Always render shell so /app never shows a blank page; show login dialog when not authenticated (or still loading auth)
   return (
     <div className="min-h-screen pb-20">
-      <AuthDialog open={!user && showAuthDialog} onOpenChange={(open) => { if (!open) setShowAuthDialog(false); }} />
+      <AuthDialog
+        open={isAuthLoading || (!user && showAuthDialog)}
+        onOpenChange={(open) => { if (!open) setShowAuthDialog(false); }}
+        isCheckingAuth={isAuthLoading}
+      />
 
       {/* Header */}
       <header className="sticky top-0 z-50 bg-background/80 backdrop-blur-lg border-b border-white/5" data-testid="header">

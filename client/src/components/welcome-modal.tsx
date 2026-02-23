@@ -40,7 +40,7 @@ export function WelcomeModal({
       <DialogContent className="sm:max-w-md border-primary/20 bg-gradient-to-b from-background to-card">
         <DialogHeader className="space-y-4 text-center">
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-accent shadow-lg shadow-orange-500/20 [--brand-secondary:0_0%_100%]">
-            <SplannoLogo size="lg" iconOnly />
+            <SplannoLogo variant="icon" size={40} />
           </div>
           <div className="flex items-center justify-center gap-1.5 text-primary">
             <Sparkles className="h-4 w-4" />

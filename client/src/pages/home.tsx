@@ -160,7 +160,7 @@ export function AuthDialog({
       <DraggableDialogContent className="sm:max-w-sm" data-testid="dialog-auth">
         <DialogHeader>
           <div className="flex items-center justify-center mb-2">
-            <SplannoLogo size="md" />
+            <SplannoLogo variant="full" size={56} />
           </div>
           <DialogTitle className="text-base">{isCheckingAuth ? t.auth.loginTitle : titles[tab]}</DialogTitle>
           <DialogDescription>{isCheckingAuth ? t.auth.welcomeBack : subtitles[tab]}</DialogDescription>
@@ -689,7 +689,7 @@ export default function Home() {
       <header className="sticky top-0 z-50 bg-background/80 backdrop-blur-lg border-b border-white/5" data-testid="header">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">
-            <SplannoLogo size="md" iconOnly className="flex-shrink-0" />
+            <SplannoLogo variant="icon" size={32} className="flex-shrink-0" />
             <div className="min-w-0">
               <h1 className="text-base sm:text-xl md:text-2xl font-bold font-display text-primary tracking-tight truncate" data-testid="text-app-title">
                 {t.title}

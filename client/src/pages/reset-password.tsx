@@ -44,7 +44,7 @@ export default function ResetPassword() {
     <div className="min-h-screen flex items-center justify-center bg-background px-4">
       <div className="w-full max-w-sm bg-card border border-white/10 rounded-2xl p-6 shadow-xl">
         <div className="flex items-center gap-2 mb-6">
-          <SplannoLogo size="sm" iconOnly />
+          <SplannoLogo variant="icon" size={28} />
           <h1 className="font-display text-primary font-bold text-lg">{t.title}</h1>
         </div>
 

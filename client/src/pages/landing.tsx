@@ -14,7 +14,7 @@ export default function Landing() {
     <div className="min-h-screen bg-background flex flex-col">
       <header className="border-b border-border py-3 px-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <SplannoLogo size="sm" iconOnly />
+          <SplannoLogo variant="icon" size={32} />
           <span className="font-display font-bold text-primary text-sm sm:text-base truncate">
             {t.title}
           </span>
@@ -65,7 +65,7 @@ export default function Landing() {
         {/* Content above watermark + veil */}
         <div className="relative z-20 flex flex-col items-center w-full">
           <div className="scale-[0.75] sm:scale-100 origin-center mb-6 sm:mb-8">
-            <SplannoLogo size="xl" />
+            <SplannoLogo variant="full" size={88} />
           </div>
           <h1 className="font-hero text-3xl sm:text-4xl md:text-5xl font-semibold tracking-tight text-center text-foreground mb-2 sm:mb-3">
             {t.landing.heading}

@@ -21,11 +21,26 @@ export interface SplannoLogoProps {
   className?: string;
 }
 
-const LOGO_SRC = "/splanno-logo.svg";
+// Single transparent icon source used for both light and dark themes.
+// The wordmark is rendered as text so it can adapt to the current theme colors.
+const LOGO_ICON_SRC = "/splanno-logo.svg";
+
+const WORDMARK_SIZE_MAP: Record<SplannoLogoSize, string> = {
+  sm: "text-lg",
+  md: "text-xl",
+  lg: "text-2xl",
+  xl: "text-3xl",
+  "2xl": "text-4xl",
+};
 
 /**
- * Splanno logo: transparent SVG, theme-aware. Safe on light and dark backgrounds.
- * Retina-friendly; supports size and icon-only (square crop) modes.
+ * Official Splanno logo.
+ *
+ * - `iconOnly` → brand icon only (square), used for nav, favicon, compact UI.
+ * - default (full) → icon + wordmark, for hero/auth/marketing.
+ *
+ * Theme-aware via `useTheme` for subtle dark-mode shadow; wordmark color uses
+ * the `--brand-secondary` token so it stays readable on light/dark backgrounds.
  */
 export function SplannoLogo({
   size = "md",
@@ -45,15 +60,11 @@ export function SplannoLogo({
         aria-hidden
       >
         <img
-          src={LOGO_SRC}
+          src={LOGO_ICON_SRC}
           alt=""
           width={px}
           height={px}
-          className={cn(
-            "w-full h-full object-cover object-left",
-            dropShadowClass
-          )}
-          style={{ borderRadius: "12%" }}
+          className={cn("w-full h-full object-contain", dropShadowClass)}
           loading="eager"
           fetchPriority="high"
         />
@@ -63,19 +74,30 @@ export function SplannoLogo({
 
   return (
     <span
-      className={cn("inline-flex items-center justify-center shrink-0", className)}
+      className={cn(
+        "inline-flex items-center gap-2 shrink-0",
+        className
+      )}
       style={{ height: px }}
       aria-hidden
     >
       <img
-        src={LOGO_SRC}
-        alt="Splanno"
+        src={LOGO_ICON_SRC}
+        alt=""
         height={px}
         width="auto"
         className={cn("h-full w-auto object-contain", dropShadowClass)}
         loading="eager"
         fetchPriority="high"
       />
+      <span
+        className={cn(
+          "font-display font-semibold tracking-tight text-[hsl(var(--brand-secondary))]",
+          WORDMARK_SIZE_MAP[size]
+        )}
+      >
+        Splanno
+      </span>
     </span>
   );
 }

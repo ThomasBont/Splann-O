@@ -159,9 +159,8 @@ export function AuthDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DraggableDialogContent className="sm:max-w-sm" data-testid="dialog-auth">
         <DialogHeader>
-          <div className="flex items-center gap-2 mb-1">
-            <SplannoLogo size="sm" iconOnly />
-            <h1 className="font-display text-primary font-bold text-lg truncate">{t.title}</h1>
+          <div className="flex items-center justify-center mb-2">
+            <SplannoLogo size="md" />
           </div>
           <DialogTitle className="text-base">{isCheckingAuth ? t.auth.loginTitle : titles[tab]}</DialogTitle>
           <DialogDescription>{isCheckingAuth ? t.auth.welcomeBack : subtitles[tab]}</DialogDescription>
@@ -1131,7 +1130,7 @@ export default function Home() {
                   className="rounded border-white/20"
                   data-testid="checkbox-bbq-allow-opt-in"
                 />
-                <label htmlFor="bbq-opt-in-toggle" className="text-sm cursor-pointer flex-1">
+                <label htmlFor="bbq-opt-in-toggle" className="text-xs cursor-pointer flex-1">
                   {t.bbq.allowOptInExpenses}
                 </label>
                 {updateBbq.isPending && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}

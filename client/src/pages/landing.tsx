@@ -47,15 +47,8 @@ export default function Landing() {
         </div>
       </header>
 
-      <main className="relative isolate flex-1 flex flex-col items-center justify-center px-4 py-8 sm:py-12 overflow-hidden">
-        {/* Readability veil above watermark, below content */}
-        <div
-          className="absolute inset-0 z-10 pointer-events-none bg-[radial-gradient(circle_at_50%_30%,hsl(var(--background)/0.18),hsl(var(--background)/0.72)_48%,hsl(var(--background)/0.92)_100%)]"
-          aria-hidden
-        />
-
-        {/* Content above watermark + veil */}
-        <div className="relative z-20 flex flex-col items-center w-full">
+      <main className="relative flex-1 flex flex-col items-center justify-center px-4 py-8 sm:py-12 overflow-hidden">
+        <div className="relative z-10 flex flex-col items-center w-full">
           <div className="scale-[0.75] sm:scale-100 origin-center mb-6 sm:mb-8">
             <SplannoLogo variant="full" size={88} />
           </div>

@@ -1,4 +1,4 @@
-import { useLanguage, LANGUAGES } from "@/hooks/use-language";
+import { useLanguage, SELECTABLE_LANGUAGES } from "@/hooks/use-language";
 import { useTheme } from "@/hooks/use-theme";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -13,9 +13,9 @@ export default function Landing() {
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <header className="border-b border-border py-3 px-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <SplannoLogo variant="icon" size={32} />
-          <span className="font-display font-bold text-primary text-sm sm:text-base truncate">
+        <div className="flex items-center gap-3">
+          <SplannoLogo variant="icon" size={40} />
+          <span className="font-display font-bold text-primary text-base sm:text-lg truncate">
             {t.title}
           </span>
         </div>
@@ -30,7 +30,7 @@ export default function Landing() {
             {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </button>
           <div className="flex rounded-lg border border-border overflow-hidden">
-          {LANGUAGES.map((lang) => (
+          {SELECTABLE_LANGUAGES.map((lang) => (
             <button
               key={lang.code}
               onClick={() => setLanguage(lang.code)}
@@ -49,10 +49,10 @@ export default function Landing() {
 
       <main className="relative flex-1 flex flex-col items-center justify-center px-4 py-8 sm:py-12 overflow-hidden">
         <div className="relative z-10 flex flex-col items-center w-full">
-          <div className="scale-[0.75] sm:scale-100 origin-center mb-6 sm:mb-8">
-            <SplannoLogo variant="full" size={88} />
+          <div className="scale-[0.85] sm:scale-100 origin-center mb-6 sm:mb-8">
+            <SplannoLogo variant="full" size={104} />
           </div>
-          <h1 className="font-hero text-3xl sm:text-4xl md:text-5xl font-semibold tracking-tight text-center text-foreground mb-2 sm:mb-3">
+          <h1 className="font-hero text-xl sm:text-2xl md:text-3xl font-semibold tracking-tight text-center text-foreground mb-2 sm:mb-3">
             {t.landing.heading}
           </h1>
           <p className="text-base sm:text-lg text-muted-foreground text-center mb-10 sm:mb-12 max-w-xl mx-auto">

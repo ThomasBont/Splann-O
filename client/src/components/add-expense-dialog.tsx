@@ -30,11 +30,15 @@ interface AddExpenseDialogProps {
   currencySymbol: string;
   /** Category keys for the current event type (e.g. barbecue vs city_trip). Defaults to barbecue set if omitted. */
   categories?: string[];
+  /** Pre-fill item label when opening for a recommended expense template. */
+  defaultItem?: string;
+  /** Pre-fill category when opening for a recommended expense template. */
+  defaultCategory?: string;
 }
 
 const DEFAULT_CATEGORIES = ["Meat", "Bread", "Drinks", "Charcoal", "Transportation", "Other"];
 
-export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, currencySymbol, categories: categoriesProp }: AddExpenseDialogProps) {
+export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, currencySymbol, categories: categoriesProp, defaultItem: defaultItemProp, defaultCategory: defaultCategoryProp }: AddExpenseDialogProps) {
   const { t } = useLanguage();
   const participants = useParticipants(bbqId);
   const createExpense = useCreateExpense(bbqId);
@@ -58,12 +62,13 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
         if (participants.data && participants.data.length > 0) {
           setParticipantId(participants.data[0].id.toString());
         }
-        setCategory(categories[0] ?? "Other");
-        setItem("");
+        const cat = defaultCategoryProp ?? categories[0] ?? "Other";
+        setCategory(categories.includes(cat) ? cat : categories[0] ?? "Other");
+        setItem(defaultItemProp ?? "");
         setAmount("");
       }
     }
-  }, [open, editingExpense, participants.data, categories]);
+  }, [open, editingExpense, participants.data, categories, defaultItemProp, defaultCategoryProp]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

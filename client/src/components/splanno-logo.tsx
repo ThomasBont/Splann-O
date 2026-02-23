@@ -12,57 +12,56 @@ export interface SplannoLogoProps {
   className?: string;
 }
 
-/** Single source of truth: /public/branding assets. Transparent PNGs, no white boxes. */
-const ASSETS = {
-  icon: {
-    light: "/branding/splanno-icon-light.png",
-    dark: "/branding/splanno-icon-dark.png",
-  },
-  full: {
-    light: "/branding/splanno-logo-light.png",
-    dark: "/branding/splanno-logo-dark.png",
-  },
-} as const;
-
 /**
- * Reusable Splanno logo. Automatically switches by theme (Tailwind dark:).
- * - Navbar: use variant="icon"
- * - Hero: use variant="full"
- * Transparent backgrounds only; no background on container.
+ * Simple inline logo: wallet + calendar in one, with "Splanno" wordmark.
+ * No external assets; uses CSS variables for theme.
  */
 export function SplannoLogo({
   variant = "icon",
   size = 32,
   className,
 }: SplannoLogoProps) {
-  const { light, dark } = ASSETS[variant];
+  const iconSize = variant === "full" ? Math.round(size * 0.9) : size;
+  const textSize = Math.round(size * 0.44);
 
   return (
     <span
-      className={cn("inline-block shrink-0 bg-transparent", className)}
+      className={cn("inline-flex items-center gap-2 shrink-0", className)}
       style={{ height: size }}
       aria-hidden
     >
-      <img
-        src={light}
-        alt=""
-        role="presentation"
-        height={size}
-        className="block dark:hidden h-full w-auto max-w-none object-contain object-left"
-        style={{ height: size }}
-        loading="eager"
-        fetchPriority="high"
-      />
-      <img
-        src={dark}
-        alt=""
-        role="presentation"
-        height={size}
-        className="hidden dark:block h-full w-auto max-w-none object-contain object-left"
-        style={{ height: size }}
-        loading="eager"
-        fetchPriority="high"
-      />
+      <svg
+        width={iconSize}
+        height={iconSize}
+        viewBox="0 0 40 40"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        className="shrink-0"
+      >
+        {/* Calendar: left side - pad with binding tab + grid */}
+        <rect x="2" y="6" width="18" height="22" rx="2.5" fill="hsl(var(--primary))" fillOpacity="0.9" />
+        <path d="M2 10h18" stroke="hsl(var(--primary-foreground))" strokeOpacity="0.4" strokeWidth="1.2" />
+        <rect x="6" y="14" width="3" height="3" rx="0.5" fill="hsl(var(--primary-foreground))" fillOpacity="0.5" />
+        <rect x="11" y="14" width="3" height="3" rx="0.5" fill="hsl(var(--primary-foreground))" fillOpacity="0.5" />
+        <rect x="6" y="19" width="3" height="3" rx="0.5" fill="hsl(var(--primary-foreground))" fillOpacity="0.5" />
+        <rect x="11" y="19" width="3" height="3" rx="0.5" fill="hsl(var(--primary-foreground))" fillOpacity="0.5" />
+        {/* Wallet: right side - card shape with fold */}
+        <rect x="20" y="8" width="18" height="24" rx="3" fill="hsl(var(--primary))" />
+        <path d="M28 20h2" stroke="hsl(var(--primary-foreground))" strokeOpacity="0.6" strokeWidth="1.5" strokeLinecap="round" />
+        <circle cx="28" cy="14" r="2.5" fill="hsl(var(--primary-foreground))" fillOpacity="0.5" />
+      </svg>
+      {variant === "full" && (
+        <span
+          className="font-semibold tracking-tight text-foreground shrink-0"
+          style={{
+            fontSize: textSize,
+            lineHeight: 1,
+            fontFamily: "var(--font-body), system-ui, sans-serif",
+          }}
+        >
+          Splanno
+        </span>
+      )}
     </span>
   );
 }

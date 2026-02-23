@@ -26,6 +26,17 @@ export const LANGUAGES: { code: Language; label: string }[] = [
   { code: "nl", label: "NL" },
 ];
 
+/**
+ * Languages currently selectable in the UI. Set to ["en","es"] during development.
+ * To re-enable all: change to LANGUAGES.map(l => l.code) or ["en","es","it","nl"]
+ */
+export const ENABLED_LANGUAGES: readonly Language[] = ["en", "es"];
+
+/** Languages shown in the language switcher. Other languages remain in translations but are hidden. */
+export const SELECTABLE_LANGUAGES = LANGUAGES.filter((l) =>
+  (ENABLED_LANGUAGES as readonly string[]).includes(l.code)
+);
+
 export const EUR_RATES: Record<CurrencyCode, number> = {
   EUR: 1,
   USD: 1.08,
@@ -245,9 +256,22 @@ interface Translations {
   eventTypes: {
     barbecue: string;
     dinnerParty: string;
+    dinnerNight: string;
     birthday: string;
+    houseParty: string;
+    gameNight: string;
+    movieNight: string;
+    poolParty: string;
+    afterParty: string;
     otherParty: string;
     cityTrip: string;
+    vacation: string;
+    roadTrip: string;
+    backpacking: string;
+    skiTrip: string;
+    festivalTrip: string;
+    bachelorTrip: string;
+    workation: string;
     cinema: string;
     themePark: string;
     dayOut: string;
@@ -410,9 +434,22 @@ const translations: Record<Language, Translations> = {
     eventTypes: {
       barbecue: "Barbecue",
       dinnerParty: "Dinner party",
+      dinnerNight: "Dinner Night",
       birthday: "Birthday",
+      houseParty: "House Party",
+      gameNight: "Game Night",
+      movieNight: "Movie Night",
+      poolParty: "Pool Party",
+      afterParty: "After Party",
       otherParty: "Other",
       cityTrip: "City trip",
+      vacation: "Vacation",
+      roadTrip: "Road trip",
+      backpacking: "Backpacking",
+      skiTrip: "Ski trip",
+      festivalTrip: "Festival trip",
+      bachelorTrip: "Bachelor trip",
+      workation: "Workation",
       cinema: "Cinema",
       themePark: "Theme park",
       dayOut: "Day out",
@@ -573,9 +610,22 @@ const translations: Record<Language, Translations> = {
     eventTypes: {
       barbecue: "Asado",
       dinnerParty: "Cena",
+      dinnerNight: "Noche de cena",
       birthday: "Cumpleaños",
+      houseParty: "Fiesta en casa",
+      gameNight: "Noche de juegos",
+      movieNight: "Noche de película",
+      poolParty: "Fiesta de piscina",
+      afterParty: "After party",
       otherParty: "Otro",
       cityTrip: "Viaje ciudad",
+      vacation: "Vacaciones",
+      roadTrip: "Road trip",
+      backpacking: "Mochilero",
+      skiTrip: "Esquí",
+      festivalTrip: "Festival",
+      bachelorTrip: "Despedida",
+      workation: "Workation",
       cinema: "Cine",
       themePark: "Parque de diversiones",
       dayOut: "Día afuera",
@@ -735,14 +785,27 @@ const translations: Record<Language, Translations> = {
     },
     eventTypes: {
       barbecue: "Barbecue",
-      dinnerParty: "Diner",
-      birthday: "Verjaardag",
-      otherParty: "Anders",
-      cityTrip: "Stedentrip",
-      cinema: "Bioscoop",
-      themePark: "Attractiepark",
-      dayOut: "Dagje uit",
-      otherTrip: "Anders",
+      dinnerParty: "Cena",
+      dinnerNight: "Cena a casa",
+      birthday: "Compleanno",
+      houseParty: "Festa a casa",
+      gameNight: "Serata giochi",
+      movieNight: "Serata cinema",
+      poolParty: "Festa in piscina",
+      afterParty: "After party",
+      otherParty: "Altro",
+      cityTrip: "Viaggio città",
+      vacation: "Vacanza",
+      roadTrip: "Road trip",
+      backpacking: "Zaino in spalla",
+      skiTrip: "Sci",
+      festivalTrip: "Festival",
+      bachelorTrip: "Addio al celibato",
+      workation: "Workation",
+      cinema: "Cinema",
+      themePark: "Parco divertimenti",
+      dayOut: "Gita",
+      otherTrip: "Altro",
     },
     discover: {
       title: "Scopri",
@@ -899,9 +962,22 @@ const translations: Record<Language, Translations> = {
     eventTypes: {
       barbecue: "Barbecue",
       dinnerParty: "Diner",
+      dinnerNight: "Diner avond",
       birthday: "Verjaardag",
+      houseParty: "Houseparty",
+      gameNight: "Spelavond",
+      movieNight: "Filmavond",
+      poolParty: "Zwemfeest",
+      afterParty: "Afterparty",
       otherParty: "Anders",
       cityTrip: "Stedentrip",
+      vacation: "Vakantie",
+      roadTrip: "Roadtrip",
+      backpacking: "Backpacken",
+      skiTrip: "Skivakantie",
+      festivalTrip: "Festival",
+      bachelorTrip: "Vrijgezellenfeest",
+      workation: "Workation",
       cinema: "Bioscoop",
       themePark: "Attractiepark",
       dayOut: "Dagje uit",
@@ -925,7 +1001,13 @@ const LanguageContext = createContext<{
 } | null>(null);
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
-  const [language, setLanguage] = useState<Language>("en");
+  const [languageState, setLanguageState] = useState<Language>("en");
+  const language: Language = (ENABLED_LANGUAGES as readonly string[]).includes(languageState)
+    ? languageState
+    : "en";
+  const setLanguage = (lang: Language) => {
+    if ((ENABLED_LANGUAGES as readonly string[]).includes(lang)) setLanguageState(lang);
+  };
   return (
     <LanguageContext.Provider value={{ language, setLanguage, t: translations[language] }}>
       {children}

@@ -3,7 +3,7 @@ import fs from "fs";
 import path from "path";
 
 export function serveStatic(app: Express) {
-  // ✅ NEW: serve your repo root /public folder (where branding lives)
+  // Serve repo root /public folder if present
   const rootPublicPath = path.resolve(process.cwd(), "public");
   app.use(express.static(rootPublicPath));
 

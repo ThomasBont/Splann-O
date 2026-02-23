@@ -150,8 +150,10 @@ export default function Basic() {
             {t.basic.backToLanding}
           </a>
         </Link>
-        <SplannoLogo variant="icon" size={28} />
-        <span className="font-display font-bold text-primary truncate">{t.basic.pageTitle}</span>
+        <SplannoLogo variant="icon" size={36} />
+        <span className="font-display font-bold text-primary text-base sm:text-lg truncate">
+          {t.basic.pageTitle}
+        </span>
         <div className="ml-auto flex items-center gap-2">
           <button
             type="button"

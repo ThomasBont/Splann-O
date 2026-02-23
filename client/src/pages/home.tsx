@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { useLanguage, CURRENCIES, LANGUAGES, type CurrencyCode, convertCurrency } from "@/hooks/use-language";
+import { useLanguage, CURRENCIES, SELECTABLE_LANGUAGES, type CurrencyCode, convertCurrency } from "@/hooks/use-language";
 import { useAuth } from "@/hooks/use-auth";
 import {
   useParticipants, useCreateParticipant, useDeleteParticipant, useUpdateParticipantName,
@@ -27,13 +27,14 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AddPersonDialog } from "@/components/add-person-dialog";
 import { AddExpenseDialog } from "@/components/add-expense-dialog";
+import { RecommendedExpenses } from "@/components/recommended-expenses";
 import { WelcomeModal } from "@/components/welcome-modal";
 import { DiscoverModal } from "@/components/discover-modal";
 import { SplannoLogo } from "@/components/splanno-logo";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import {
   Users, Receipt, Wallet, Trash2, Edit2,
-  Flame, Plus, ArrowRight, CheckCircle2,
+  Plus, ArrowRight, CheckCircle2,
   CalendarDays, Loader2,
   Beef, Wheat, Beer, Zap, Car, Package,
   UserCheck, UserX, LogOut, Crown, Clock, UserCircle,
@@ -41,8 +42,22 @@ import {
   Bell, UserPlus2, Search, Heart, Sun, Moon,
 } from "lucide-react";
 import { useTheme } from "@/hooks/use-theme";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
+import {
+  getEventTemplate,
+  getTemplateData,
+  EventTemplateWrapper,
+  getTripTemplate,
+  getPartyTemplate,
+  isTripEventType,
+  isPartyEventType,
+  TRIP_TYPE_KEYS,
+  defaultBarbecueTemplateData,
+  defaultBirthdayTemplateData,
+  type BarbecueTemplateData,
+  type BirthdayTemplateData,
+} from "@/eventTemplates";
 import type { ExpenseWithParticipant, Barbecue, Participant, FriendInfo, PendingRequestWithBbq } from "@shared/schema";
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -55,16 +70,30 @@ const CATEGORY_ICON_COMPONENTS: Record<string, typeof Beef> = {
   Food: Beef, Transport: Car, Tickets: Receipt, Accommodation: Package,
 };
 
+const PARTY_CATEGORIES = ["Food", "Drinks", "Transport", "Tickets", "Other"];
 const CATEGORIES_BY_EVENT_TYPE: Record<string, string[]> = {
   barbecue: ["Meat", "Bread", "Drinks", "Charcoal", "Transportation", "Other"],
-  dinner_party: ["Food", "Drinks", "Transport", "Tickets", "Other"],
+  dinner_party: PARTY_CATEGORIES,
   birthday: ["Food", "Drinks", "Transport", "Tickets", "Other"],
-  other_party: ["Food", "Drinks", "Transport", "Tickets", "Other"],
+  house_party: PARTY_CATEGORIES,
+  game_night: PARTY_CATEGORIES,
+  movie_night: PARTY_CATEGORIES,
+  pool_party: PARTY_CATEGORIES,
+  after_party: PARTY_CATEGORIES,
+  default: PARTY_CATEGORIES,
+  other_party: PARTY_CATEGORIES,
   city_trip: ["Transport", "Tickets", "Food", "Accommodation", "Other"],
+  vacation: ["Accommodation", "Food", "Tickets", "Transport", "Other"],
+  road_trip: ["Transport", "Food", "Tickets", "Accommodation", "Other"],
+  backpacking: ["Accommodation", "Transport", "Food", "Other"],
+  ski_trip: ["Tickets", "Accommodation", "Drinks", "Other"],
+  festival_trip: ["Tickets", "Accommodation", "Drinks", "Transport", "Other"],
+  bachelor_trip: ["Accommodation", "Tickets", "Drinks", "Other"],
+  workation: ["Accommodation", "Other", "Food", "Transport"],
   cinema: ["Tickets", "Food", "Drinks", "Other"],
   theme_park: ["Tickets", "Food", "Drinks", "Transport", "Other"],
   day_out: ["Food", "Drinks", "Transport", "Tickets", "Other"],
-  other_trip: ["Food", "Drinks", "Transport", "Tickets", "Other"],
+  other_trip: ["Food", "Drinks", "Transport", "Tickets", "Accommodation", "Other"],
 };
 
 function getCategoriesForEventType(eventType: string | undefined): string[] {
@@ -73,8 +102,28 @@ function getCategoriesForEventType(eventType: string | undefined): string[] {
 }
 
 const EVENT_TYPE_I18N_KEYS: Record<string, string> = {
-  barbecue: "barbecue", dinner_party: "dinnerParty", birthday: "birthday", other_party: "otherParty",
-  city_trip: "cityTrip", cinema: "cinema", theme_park: "themePark", day_out: "dayOut", other_trip: "otherTrip",
+  default: "otherParty",
+  barbecue: "barbecue",
+  birthday: "birthday",
+  dinner_party: "dinnerNight",
+  house_party: "houseParty",
+  game_night: "gameNight",
+  movie_night: "movieNight",
+  pool_party: "poolParty",
+  after_party: "afterParty",
+  other_party: "otherParty",
+  city_trip: "cityTrip",
+  vacation: "vacation",
+  road_trip: "roadTrip",
+  backpacking: "backpacking",
+  ski_trip: "skiTrip",
+  festival_trip: "festivalTrip",
+  bachelor_trip: "bachelorTrip",
+  workation: "workation",
+  cinema: "cinema",
+  theme_park: "themePark",
+  day_out: "dayOut",
+  other_trip: "otherTrip",
 };
 
 // ─── Auth Dialog (exported for LoginShell / Login page) ───────────────────────
@@ -394,6 +443,7 @@ export default function Home() {
   const { user, isLoading: isAuthLoading, logout } = useAuth();
   const username = user?.username ?? null;
   const { toast } = useToast();
+  const shouldReduceMotion = useReducedMotion();
 
   const [area, setArea] = useState<"parties" | "trips">("parties");
   const [selectedBbqId, setSelectedBbqId] = useState<number | null>(null);
@@ -408,6 +458,7 @@ export default function Home() {
 
   const [isAddPersonOpen, setIsAddPersonOpen] = useState(false);
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
+  const [recommendedExpenseTemplate, setRecommendedExpenseTemplate] = useState<{ item: string; category: string } | null>(null);
   const [editingExpense, setEditingExpense] = useState<ExpenseWithParticipant | null>(null);
   const [editingParticipantId, setEditingParticipantId] = useState<number | null>(null);
   const [editingParticipantName, setEditingParticipantName] = useState("");
@@ -449,8 +500,22 @@ export default function Home() {
   }, [allPendingRequests.length]);
 
   const { data: barbecues = [], isLoading: isLoadingBbqs } = useBarbecues();
-  const partiesEventTypes = ["barbecue", "dinner_party", "birthday", "other_party"] as const;
-  const tripsEventTypes = ["city_trip", "cinema", "theme_park", "day_out", "other_trip"] as const;
+  const PARTY_EVENT_TYPE_OPTIONS = [
+    { value: "barbecue", label: t.eventTypes.barbecue },
+    { value: "birthday", label: t.eventTypes.birthday },
+    { value: "dinner_party", label: t.eventTypes.dinnerNight },
+    { value: "house_party", label: t.eventTypes.houseParty },
+    { value: "game_night", label: t.eventTypes.gameNight },
+    { value: "movie_night", label: t.eventTypes.movieNight },
+    { value: "pool_party", label: t.eventTypes.poolParty },
+    { value: "after_party", label: t.eventTypes.afterParty },
+    { value: "other_party", label: t.eventTypes.otherParty },
+  ] as const;
+  const eventTypeOptions = newEventArea === "trips" ? TRIP_TYPE_KEYS : PARTY_EVENT_TYPE_OPTIONS.map(o => o.value);
+  const isValidEventType = (v: string) =>
+    newEventArea === "trips"
+      ? (TRIP_TYPE_KEYS as readonly string[]).includes(v)
+      : PARTY_EVENT_TYPE_OPTIONS.some(o => o.value === v);
   const barbecuesForArea = useMemo(() => barbecues.filter((b: Barbecue) => ((b as any).area ?? "parties") === area), [barbecues, area]);
   const createBbq = useCreateBarbecue();
   const deleteBbq = useDeleteBarbecue();
@@ -603,6 +668,13 @@ export default function Home() {
 
   const handleCreateBbq = () => {
     if (!newBbqName.trim()) return;
+    // Template-specific default data at creation time
+    let templateData: unknown | null = null;
+    if (newEventType === "barbecue") {
+      templateData = defaultBarbecueTemplateData;
+    } else if (newEventType === "birthday") {
+      templateData = defaultBirthdayTemplateData;
+    }
     createBbq.mutate({
       name: newBbqName.trim(),
       date: new Date(newBbqDate).toISOString(),
@@ -612,6 +684,7 @@ export default function Home() {
       allowOptInExpenses: newBbqAllowOptIn,
       area: newEventArea,
       eventType: newEventType,
+      templateData,
     }, {
       onSuccess: (data: Barbecue) => {
         setSelectedBbqId(data.id);
@@ -687,11 +760,11 @@ export default function Home() {
 
       {/* Header */}
       <header className="sticky top-0 z-50 bg-background/80 backdrop-blur-lg border-b border-white/5" data-testid="header">
-        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-3 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <SplannoLogo variant="icon" size={32} className="flex-shrink-0" />
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <SplannoLogo variant="icon" size={40} className="flex-shrink-0" />
             <div className="min-w-0">
-              <h1 className="text-base sm:text-xl md:text-2xl font-bold font-display text-primary tracking-tight truncate" data-testid="text-app-title">
+              <h1 className="text-lg sm:text-2xl md:text-3xl font-bold font-display text-primary tracking-tight truncate" data-testid="text-app-title">
                 {t.title}
               </h1>
               <p className="hidden md:block text-xs text-muted-foreground uppercase tracking-widest font-medium">
@@ -713,7 +786,7 @@ export default function Home() {
             </button>
             {/* Language Tabs */}
             <div className="flex rounded-lg border border-border overflow-hidden" data-testid="language-tabs">
-              {LANGUAGES.map(lang => (
+              {SELECTABLE_LANGUAGES.map(lang => (
                 <button
                   key={lang.code}
                   onClick={() => setLanguage(lang.code)}
@@ -858,8 +931,8 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Event strip (Parties only) */}
-      {area === "parties" && (
+      {/* Event strip (Parties & Trips) */}
+      {(
       <div className="sticky top-[114px] z-30 bg-background/90 backdrop-blur-md border-b border-white/5" data-testid="section-bbq-selector">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-2">
           <div className="overflow-x-auto -mx-1 px-1 pb-1">
@@ -967,7 +1040,7 @@ export default function Home() {
               {/* New event button */}
               {user && (
                 <button
-                  onClick={() => { setNewEventArea(area); setNewEventType("barbecue"); setIsNewBbqOpen(true); }}
+                  onClick={() => { setNewEventArea(area); setNewEventType(area === "trips" ? "city_trip" : "barbecue"); setIsNewBbqOpen(true); }}
                   className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-muted-foreground hover:text-primary hover:bg-primary/10 border border-dashed border-white/10 hover:border-primary/30 transition-all flex-shrink-0"
                   data-testid="button-new-bbq"
                 >
@@ -982,17 +1055,7 @@ export default function Home() {
       )}
 
       <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8 space-y-6 sm:space-y-8">
-        {area === "trips" ? (
-          <div className="text-center py-16 text-muted-foreground" data-testid="section-trips-coming-soon">
-            <Receipt className="w-12 h-12 mx-auto mb-4 opacity-20" />
-            <p className="text-lg font-medium mb-4">{t.tripsComingSoon}</p>
-            {user && (
-              <Button variant="outline" onClick={() => { setNewEventArea("trips"); setNewEventType("city_trip"); setIsNewBbqOpen(true); }} data-testid="button-new-event-trips">
-                {t.events.newEvent}
-              </Button>
-            )}
-          </div>
-        ) : (
+        {
         <>
         {/* Pending Requests Panel */}
         {isCreator && pendingRequests.length > 0 && (
@@ -1116,9 +1179,87 @@ export default function Home() {
         )}
 
         {/* Main Content */}
-        {selectedBbqId ? (
-          <>
-            {/* Creator: Opt-in expenses toggle */}
+        {selectedBbqId ? (() => {
+          const eventTemplate = getEventTemplate(selectedBbq?.eventType);
+          const hasHero = eventTemplate.heroStyle !== "none";
+          const bbqTemplateData: BarbecueTemplateData = getTemplateData(
+            selectedBbq as any,
+            defaultBarbecueTemplateData,
+          );
+          const birthdayTemplateData: BirthdayTemplateData = getTemplateData(
+            selectedBbq as any,
+            defaultBirthdayTemplateData,
+          );
+          return (
+            <EventTemplateWrapper
+              template={eventTemplate}
+              decorationClass={isPartyEventType(selectedBbq?.eventType) ? getPartyTemplate(selectedBbq?.eventType).decorationClass : undefined}
+              backgroundStyle={isPartyEventType(selectedBbq?.eventType) ? getPartyTemplate(selectedBbq?.eventType).backgroundStyle : undefined}
+            >
+              {hasHero && (
+                <div
+                  className="h-1.5 w-full rounded-t-lg mb-4 bg-accent"
+                  aria-hidden
+                />
+              )}
+              {/* Party hero: all party types use template from registry */}
+              {isPartyEventType(selectedBbq?.eventType) && (() => {
+                const party = getPartyTemplate(selectedBbq?.eventType);
+                const Icon = party.icon;
+                return (
+                  <div className="mb-4 rounded-2xl border border-accent/25 bg-accent/10 px-4 py-3 flex items-center gap-3">
+                    <motion.div
+                      className="w-9 h-9 rounded-lg bg-accent/25 flex items-center justify-center flex-shrink-0"
+                      initial={shouldReduceMotion ? false : { scale: 0.9, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      transition={{ duration: 0.3, ease: "easeOut" }}
+                    >
+                      <Icon className="w-5 h-5 text-accent-foreground" />
+                    </motion.div>
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-accent-foreground">
+                        {party.label}
+                      </p>
+                      <p className="text-sm text-muted-foreground truncate">
+                        {party.hero.subtitle}
+                      </p>
+                    </div>
+                    {party.hero.emoji && (
+                      <span className="text-lg flex-shrink-0" aria-hidden>{party.hero.emoji}</span>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {isTripEventType(selectedBbq?.eventType) && (() => {
+                const trip = getTripTemplate(selectedBbq?.eventType);
+                const Icon = trip.icon;
+                return (
+                  <div className="mb-4 rounded-2xl border border-accent/25 bg-accent/10 px-4 py-3 flex items-center gap-3">
+                    <motion.div
+                      className="w-9 h-9 rounded-lg bg-accent/25 flex items-center justify-center flex-shrink-0"
+                      initial={shouldReduceMotion ? false : { scale: 0.9, opacity: 0 }}
+                      animate={{ scale: 1, opacity: 1 }}
+                      transition={{ duration: 0.3, ease: "easeOut" }}
+                    >
+                      <Icon className="w-5 h-5 text-accent-foreground" />
+                    </motion.div>
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-accent-foreground">
+                        {trip.label}
+                      </p>
+                      <p className="text-sm text-muted-foreground truncate">
+                        {trip.hero.subtitle}
+                      </p>
+                    </div>
+                    {trip.hero.emoji && (
+                      <span className="text-lg flex-shrink-0" aria-hidden>{trip.hero.emoji}</span>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Creator: Opt-in expenses toggle */}
             {isCreator && selectedBbqId && (
               <div className="flex items-center gap-3 p-3 rounded-xl bg-secondary/20 border border-white/5">
                 <input
@@ -1166,6 +1307,78 @@ export default function Home() {
                 <StatCard label={t.fairShare} value={formatMoney(fairShare)} icon={<Wallet />} color="green" />
               )}
             </div>
+
+            {/* Template-specific optional sections */}
+            {eventTemplate.key === "barbecue" && (
+              <div className="mt-4 bg-card/80 border border-orange-500/25 rounded-2xl p-4 sm:p-5 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+                    BBQ Roles
+                  </h3>
+                  <span className="text-[11px] text-muted-foreground">
+                    Optional coordination helpers
+                  </span>
+                </div>
+                <ul className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
+                  {bbqTemplateData.roles.map((role) => (
+                    <li key={role.id} className="rounded-xl bg-secondary/40 border border-white/10 px-3 py-2">
+                      <p className="font-medium">{role.label}</p>
+                      {role.description && (
+                        <p className="text-xs text-muted-foreground">
+                          {role.description}
+                        </p>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {eventTemplate.key === "birthday" && (
+              <div className="mt-4 bg-card/80 border border-pink-500/25 rounded-2xl p-4 sm:p-5 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+                    Gift contributions
+                  </h3>
+                  <span className="text-[11px] text-muted-foreground">
+                    Based on current expenses
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between gap-3">
+                  <p className="text-xs text-muted-foreground">
+                    Use expenses to track who chipped in for the gift. This summary shows each person’s total.
+                  </p>
+                  <span className="text-xs font-semibold text-muted-foreground whitespace-nowrap">
+                    Total: {formatMoney(totalSpent)}
+                  </span>
+                </div>
+                <ul className="space-y-1.5 text-sm">
+                  {participants.map((p: Participant) => {
+                    // Derive contribution amounts from expenses; templateData can be used for richer UIs later
+                    const paid = expenses
+                      .filter((e: ExpenseWithParticipant) => e.participantId === p.id)
+                      .reduce((sum: number, e: ExpenseWithParticipant) => sum + Number(e.amount), 0);
+                    if (!paid) return null;
+                    return (
+                      <li key={p.id} className="flex items-center justify-between gap-3">
+                        <span className="truncate">{p.name}</span>
+                        <span className="font-semibold text-primary">{formatMoney(paid)}</span>
+                      </li>
+                    );
+                  })}
+                  {participants.every((p: Participant) => {
+                    const paid = expenses
+                      .filter((e: ExpenseWithParticipant) => e.participantId === p.id)
+                      .reduce((sum: number, e: ExpenseWithParticipant) => sum + Number(e.amount), 0);
+                    return paid === 0;
+                  }) && (
+                    <li className="text-xs text-muted-foreground">
+                      No gift contributions yet. Add expenses to start tracking.
+                    </li>
+                  )}
+                </ul>
+              </div>
+            )}
 
             {/* Participants — Add Person lives here */}
             <div className="bg-card/80 border border-white/5 rounded-2xl p-4 sm:p-6">
@@ -1290,12 +1503,36 @@ export default function Home() {
 
               {/* Expenses Tab */}
               <TabsContent value="expenses" className="mt-4 space-y-4">
+                {/* Recommended expenses — trip events */}
+                {isTripEventType(selectedBbq?.eventType) && (isCreator || isAcceptedMember) && (
+                  <RecommendedExpenses
+                    presets={getTripTemplate(selectedBbq?.eventType).expenseTemplates}
+                    onAddPreset={(p) => {
+                      setRecommendedExpenseTemplate(p);
+                      setEditingExpense(null);
+                      setIsAddExpenseOpen(true);
+                    }}
+                    helper={getTripTemplate(selectedBbq?.eventType).helper}
+                  />
+                )}
+                {/* Recommended expenses — party events (Smart Party Expense Presets) */}
+                {isPartyEventType(selectedBbq?.eventType) && (isCreator || isAcceptedMember) && (
+                  <RecommendedExpenses
+                    presets={getPartyTemplate(selectedBbq?.eventType).recommendedExpenses}
+                    onAddPreset={(p) => {
+                      setRecommendedExpenseTemplate(p);
+                      setEditingExpense(null);
+                      setIsAddExpenseOpen(true);
+                    }}
+                    title="Recommended expenses"
+                  />
+                )}
                 {/* Add Expense button — visible for creator + accepted members */}
                 {(isCreator || isAcceptedMember) && (
                   <div className="flex justify-end">
                     <Button
                       size="sm"
-                      onClick={() => setIsAddExpenseOpen(true)}
+                      onClick={() => { setRecommendedExpenseTemplate(null); setEditingExpense(null); setIsAddExpenseOpen(true); }}
                       className="bg-accent text-accent-foreground font-bold"
                       data-testid="button-add-expense-tab"
                     >
@@ -1471,15 +1708,16 @@ export default function Home() {
                 </div>
               </TabsContent>
             </Tabs>
-          </>
-        ) : (
+            </EventTemplateWrapper>
+          );
+        })() : (
           <div className="text-center py-16 text-muted-foreground">
             <Receipt className="w-12 h-12 mx-auto mb-4 opacity-20" />
             <p className="text-lg font-medium">{t.bbq.selectBbq}</p>
           </div>
         )}
         </>
-        )}
+        }
       </main>
 
       {/* Create event dialog */}
@@ -1493,24 +1731,58 @@ export default function Home() {
             <div className="space-y-2">
               <Label>{t.nav.parties} / {t.nav.trips}</Label>
               <div className="flex rounded-lg border border-white/10 overflow-hidden">
-                <button type="button" onClick={() => { setNewEventArea("parties"); setNewEventType("barbecue"); }} className={`flex-1 py-2.5 text-sm font-semibold transition-colors ${newEventArea === "parties" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-white/5"}`}>{t.nav.parties}</button>
-                <button type="button" onClick={() => { setNewEventArea("trips"); setNewEventType("city_trip"); }} className={`flex-1 py-2.5 text-sm font-semibold transition-colors ${newEventArea === "trips" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-white/5"}`}>{t.nav.trips}</button>
+                <button
+                  type="button"
+                  onClick={() => { setNewEventArea("parties"); setNewEventType("barbecue"); }}
+                  className={`flex-1 py-2.5 text-sm font-semibold transition-colors ${newEventArea === "parties" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-white/5"}`}
+                >
+                  {t.nav.parties}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setNewEventArea("trips"); setNewEventType("city_trip"); }}
+                  className={`flex-1 py-2.5 text-sm font-semibold transition-colors ${newEventArea === "trips" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-white/5"}`}
+                >
+                  {t.nav.trips}
+                </button>
               </div>
             </div>
             <div className="space-y-2">
-              <Label>{t.events.event} {t.modals.categoryLabel}</Label>
-              <Select value={newEventType} onValueChange={setNewEventType}>
+              <Label>Event type</Label>
+              <Select
+                value={isValidEventType(newEventType) ? newEventType : eventTypeOptions[0]}
+                onValueChange={setNewEventType}
+              >
                 <SelectTrigger data-testid="select-event-type">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {newEventArea === "parties" ? partiesEventTypes.map((type) => (
-                    <SelectItem key={type} value={type}>{t.eventTypes[EVENT_TYPE_I18N_KEYS[type] as keyof typeof t.eventTypes] ?? type}</SelectItem>
-                  )) : tripsEventTypes.map((type) => (
-                    <SelectItem key={type} value={type}>{t.eventTypes[EVENT_TYPE_I18N_KEYS[type] as keyof typeof t.eventTypes] ?? type}</SelectItem>
-                  ))}
+                  {newEventArea === "trips"
+                    ? TRIP_TYPE_KEYS.map((key) => {
+                        const trip = getTripTemplate(key);
+                        const Icon = trip.icon;
+                        return (
+                          <SelectItem key={key} value={key}>
+                            <span className="flex items-center gap-2">
+                              <Icon className="w-4 h-4 shrink-0 text-muted-foreground" />
+                              {trip.label}
+                            </span>
+                          </SelectItem>
+                        );
+                      })
+                    : PARTY_EVENT_TYPE_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </SelectItem>
+                      ))}
                 </SelectContent>
               </Select>
+              {newEventArea === "trips" && isValidEventType(newEventType) && (
+                <div className="mt-2 rounded-lg border border-accent/20 bg-accent/5 px-3 py-2 flex items-center gap-2">
+                  <span className="text-lg" aria-hidden>{getTripTemplate(newEventType).hero.emoji}</span>
+                  <p className="text-xs text-muted-foreground">{getTripTemplate(newEventType).hero.subtitle}</p>
+                </div>
+              )}
             </div>
             <div className="space-y-2">
               <Label>{t.bbq.bbqName}</Label>
@@ -1612,11 +1884,19 @@ export default function Home() {
       {/* Add/Edit Expense Dialog */}
       <AddExpenseDialog
         open={isAddExpenseOpen}
-        onOpenChange={(open) => { setIsAddExpenseOpen(open); if (!open) setEditingExpense(null); }}
+        onOpenChange={(open) => {
+          setIsAddExpenseOpen(open);
+          if (!open) {
+            setEditingExpense(null);
+            setRecommendedExpenseTemplate(null);
+          }
+        }}
         bbqId={selectedBbqId}
         editingExpense={editingExpense}
         currencySymbol={currencyInfo.symbol}
         categories={getCategoriesForEventType((selectedBbq as any)?.eventType)}
+        defaultItem={editingExpense ? undefined : recommendedExpenseTemplate?.item}
+        defaultCategory={editingExpense ? undefined : recommendedExpenseTemplate?.category}
       />
 
       {/* Profile / Friends Dialog */}

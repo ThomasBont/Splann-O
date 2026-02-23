@@ -30,7 +30,11 @@ export const session = pgTable("session", {
   expire: timestamp("expire").notNull(),
 });
 
-export const eventTypeEnum = ["barbecue", "dinner_party", "birthday", "other_party", "city_trip", "cinema", "theme_park", "day_out", "other_trip"] as const;
+export const eventTypeEnum = [
+  "default", "barbecue", "birthday", "dinner_party", "house_party", "game_night", "movie_night", "pool_party", "after_party", "other_party",
+  "city_trip", "vacation", "road_trip", "backpacking", "ski_trip", "festival_trip", "bachelor_trip", "workation", "other_trip",
+  "cinema", "theme_park", "day_out",
+] as const;
 export const areaEnum = ["parties", "trips"] as const;
 
 export const barbecues = pgTable("barbecues", {
@@ -42,7 +46,8 @@ export const barbecues = pgTable("barbecues", {
   isPublic: boolean("is_public").notNull().default(true),
   allowOptInExpenses: boolean("allow_opt_in_expenses").notNull().default(false),
   area: text("area").notNull().default("parties"),
-  eventType: text("event_type").notNull().default("barbecue"),
+  eventType: text("event_type").notNull().default("default"),
+  templateData: json("template_data").$type<unknown | null>().default(null),
 });
 
 export const participants = pgTable("participants", {

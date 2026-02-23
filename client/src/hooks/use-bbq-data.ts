@@ -36,6 +36,7 @@ export function useCreateBarbecue() {
       allowOptInExpenses?: boolean;
       area?: string;
       eventType?: string;
+      templateData?: unknown;
     }) => {
       const res = await fetch(api.barbecues.create.path, {
         method: "POST",

@@ -3,6 +3,10 @@ import fs from "fs";
 import path from "path";
 
 export function serveStatic(app: Express) {
+  // ✅ NEW: serve your repo root /public folder (where branding lives)
+  const rootPublicPath = path.resolve(process.cwd(), "public");
+  app.use(express.static(rootPublicPath));
+
   const distPath = path.resolve(__dirname, "public");
   if (!fs.existsSync(distPath)) {
     throw new Error(
@@ -12,7 +16,7 @@ export function serveStatic(app: Express) {
 
   app.use(express.static(distPath));
 
-  // SPA fallback: serve index.html for any path not matched by static files or API (named wildcard for path-to-regexp)
+  // SPA fallback
   app.get("/{*splat}", (_req, res) => {
     res.sendFile(path.resolve(distPath, "index.html"));
   });

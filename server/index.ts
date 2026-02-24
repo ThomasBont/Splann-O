@@ -1,3 +1,5 @@
+console.log("[env] NODE_ENV=", process.env.NODE_ENV);
+console.log("[env] BETA_MODE=", process.env.BETA_MODE);
 import dotenv from "dotenv";
 // Only load .env in dev; production uses Render env vars (never override with committed .env)
 if (process.env.NODE_ENV !== "production") {

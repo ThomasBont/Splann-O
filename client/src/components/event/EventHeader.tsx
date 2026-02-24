@@ -11,7 +11,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Plus, MoreHorizontal } from "lucide-react";
+import { Plus, MoreHorizontal, Link2 } from "lucide-react";
 
 export interface EventHeaderProps {
   category: EventCategory;
@@ -32,6 +32,9 @@ export interface EventHeaderProps {
   onOptInChange?: (checked: boolean) => void;
   optInPending?: boolean;
   onDelete?: () => void;
+  /** Optional: invite link for "Copy invite link" in dropdown */
+  inviteLinkUrl?: string;
+  onCopyInviteLink?: () => void;
 }
 
 /**
@@ -54,6 +57,8 @@ export function EventHeader({
   onOptInChange,
   optInPending,
   onDelete,
+  inviteLinkUrl,
+  onCopyInviteLink,
 }: EventHeaderProps) {
   const { t } = useLanguage();
   const theme = getEventTheme(category, type);
@@ -120,6 +125,12 @@ export function EventHeader({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56">
+                  {inviteLinkUrl && onCopyInviteLink && import.meta.env.VITE_ENABLE_SHARING !== "false" && (
+                    <DropdownMenuItem onClick={onCopyInviteLink}>
+                      <Link2 className="w-4 h-4 mr-2" />
+                      Copy invite link
+                    </DropdownMenuItem>
+                  )}
                   {onOptInChange && (
                     <DropdownMenuItem asChild>
                       <label className="flex cursor-pointer items-center gap-2 px-2 py-1.5 text-sm">

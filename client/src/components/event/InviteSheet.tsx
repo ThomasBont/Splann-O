@@ -37,6 +37,8 @@ export interface InviteSheetProps {
   onInviteFriend: (username: string) => void;
   /** Remove/cancel invite */
   onRejectInvite: (participantId: number) => void;
+  /** Optional: open profile when clicking a friend's name */
+  onViewUser?: (username: string) => void;
 }
 
 /**
@@ -59,6 +61,7 @@ export function InviteSheet({
   participantUserIds = new Set(),
   onInviteFriend,
   onRejectInvite,
+  onViewUser,
 }: InviteSheetProps) {
   const [open, setOpen] = useState(false);
 
@@ -113,9 +116,19 @@ export function InviteSheet({
                       data-testid={`friend-invite-${f.friendshipId}`}
                     >
                       <UserCircle className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                      <span className="font-medium truncate max-w-[120px]">
-                        {f.displayName || f.username}
-                      </span>
+                      {onViewUser ? (
+                        <button
+                          type="button"
+                          onClick={() => onViewUser(f.username)}
+                          className="font-medium truncate max-w-[120px] text-left hover:text-primary hover:underline"
+                        >
+                          {f.displayName || f.username}
+                        </button>
+                      ) : (
+                        <span className="font-medium truncate max-w-[120px]">
+                          {f.displayName || f.username}
+                        </span>
+                      )}
                       {alreadyInvited ? (
                         <span className="text-[10px] text-muted-foreground shrink-0">
                           {invited}

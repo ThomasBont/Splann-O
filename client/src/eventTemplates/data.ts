@@ -9,6 +9,8 @@ export type BarbecueRole = {
 
 export type BarbecueTemplateData = {
   roles: BarbecueRole[];
+  /** Custom expense categories added by the event creator. */
+  customCategories?: string[];
 };
 
 export const defaultBarbecueTemplateData: BarbecueTemplateData = {
@@ -29,6 +31,7 @@ export const defaultBarbecueTemplateData: BarbecueTemplateData = {
       description: "Coordinates bread, salads, and vegetarian options.",
     },
   ],
+  customCategories: [],
 };
 
 export type BirthdayContribution = {
@@ -38,10 +41,13 @@ export type BirthdayContribution = {
 
 export type BirthdayTemplateData = {
   contributions: BirthdayContribution[];
+  /** Custom expense categories added by the event creator. */
+  customCategories?: string[];
 };
 
 export const defaultBirthdayTemplateData: BirthdayTemplateData = {
   contributions: [],
+  customCategories: [],
 };
 
 /**

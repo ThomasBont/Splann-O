@@ -49,6 +49,8 @@ export const barbecues = pgTable("barbecues", {
   area: text("area").notNull().default("parties"),
   eventType: text("event_type").notNull().default("default"),
   templateData: json("template_data").$type<unknown | null>().default(null),
+  /** Stable invite token for /join/:token links. Generated on create. */
+  inviteToken: text("invite_token").unique(),
 });
 
 export const participants = pgTable("participants", {
@@ -107,6 +109,7 @@ export type InsertExpense = z.infer<typeof insertExpenseSchema>;
 
 export type ExpenseWithParticipant = Expense & {
   participantName: string;
+  participantUserId?: string | null;
 };
 
 export type Friendship = typeof friendships.$inferSelect;

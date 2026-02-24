@@ -64,16 +64,16 @@ export const DraggableDialogContent = React.forwardRef<
 
   return (
     <DialogPortal>
-      <DialogOverlay />
+      {/* Backdrop: z-40, closes modal on outside click only */}
+      <DialogOverlay className="z-40 !bg-black/50" />
+      {/* Modal card: z-50, pointer-events-auto, above backdrop */}
       <DialogPrimitive.Content
         ref={setRefs}
         className={cn(
-          "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg gap-4 border bg-background p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg",
+          "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg gap-4 border bg-background p-6 shadow-lg duration-200 pointer-events-auto data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[state=closed]:slide-out-to-left-1/2 data-[state=closed]:slide-out-to-top-[48%] data-[state=open]:slide-in-from-left-1/2 data-[state=open]:slide-in-from-top-[48%] sm:rounded-lg",
           className
         )}
         style={{
-          left: "50%",
-          top: "50%",
           transform: `translate(calc(-50% + ${position.x}px), calc(-50% + ${position.y}px))`,
         }}
         onPointerDown={handlePointerDown}
@@ -81,17 +81,15 @@ export const DraggableDialogContent = React.forwardRef<
         onPointerCancel={handlePointerUp}
         {...props}
       >
-        {React.Children.map(children, (child, index) => {
-          if (index === 0 && React.isValidElement(child)) {
-            return (
-              <div className={cn(DRAG_HANDLE_CLASS, "cursor-grab active:cursor-grabbing")}>
-                {child}
-              </div>
-            );
-          }
-          return child;
-        })}
-        <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">
+        {/* Dedicated drag handle: only this bar triggers dragging, content stays clickable */}
+        <div
+          className={cn(DRAG_HANDLE_CLASS, "cursor-grab active:cursor-grabbing w-12 h-1.5 rounded-full bg-muted-foreground/30 mx-auto -mt-2 mb-2 shrink-0 pointer-events-auto")}
+          aria-hidden
+        />
+        <div className="relative z-10 pointer-events-auto">
+          {children}
+        </div>
+        <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground z-10 pointer-events-auto">
           <X className="h-4 w-4" />
           <span className="sr-only">Close</span>
         </DialogPrimitive.Close>

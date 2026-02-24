@@ -11,11 +11,13 @@ import Basic from "@/pages/basic";
 import LoginPage from "@/pages/login";
 import AppRoute from "@/pages/app-route";
 import ResetPassword from "@/pages/reset-password";
+import JoinPage from "@/pages/join";
 
 function Router() {
   return (
     <Switch>
       <Route path="/" component={Landing} />
+      <Route path="/join/:token" component={JoinPage} />
       <Route path="/basic" component={Basic} />
       <Route path="/login" component={LoginPage} />
       <Route path="/app" component={AppRoute} />

@@ -22,6 +22,7 @@ import {
   type PendingRequestWithBbq,
 } from "@shared/schema";
 import { eq, and, or, ne, inArray } from "drizzle-orm";
+import crypto from "crypto";
 
 export interface IStorage {
   createUser(u: InsertUser): Promise<User>;
@@ -38,7 +39,9 @@ export interface IStorage {
 
   getBarbecues(currentUsername?: string): Promise<Barbecue[]>;
   getBarbecue(id: number): Promise<Barbecue | undefined>;
+  getBarbecueByInviteToken(token: string): Promise<Barbecue | undefined>;
   createBarbecue(b: InsertBarbecue): Promise<Barbecue>;
+  ensureBarbecueInviteToken(id: number): Promise<Barbecue | undefined>;
   updateBarbecue(id: number, updates: { allowOptInExpenses?: boolean }): Promise<Barbecue | undefined>;
   deleteBarbecue(id: number): Promise<void>;
 
@@ -91,6 +94,28 @@ export class DatabaseStorage implements IStorage {
   async getUserById(id: number): Promise<User | undefined> {
     const [u] = await db.select().from(users).where(eq(users.id, id));
     return u;
+  }
+
+  /** Public profile + stats for viewing other users. No email/preferredCurrencies. */
+  async getPublicProfileWithStats(username: string): Promise<{ user: Pick<User, "id" | "username" | "displayName" | "profileImageUrl" | "avatarUrl" | "bio">; stats: { eventsCount: number; friendsCount: number; totalSpent: number } } | undefined> {
+    const u = await this.getUserByUsername(username);
+    if (!u) return undefined;
+    const userId = u.id;
+
+    const createdIds = (await db.select({ id: barbecues.id }).from(barbecues).where(eq(barbecues.creatorId, username))).map(r => r.id);
+    const participatedIds = (await db.select({ barbecueId: participants.barbecueId }).from(participants).where(eq(participants.userId, username))).map(r => r.barbecueId);
+    const eventsCount = new Set([...createdIds, ...participatedIds]).size;
+
+    const friendRows = await db.select().from(friendships).where(and(or(eq(friendships.requesterId, userId), eq(friendships.addresseeId, userId)), eq(friendships.status, "accepted")));
+    const friendsCount = friendRows.length;
+
+    const spentRows = await db.select({ amount: expenses.amount }).from(expenses).innerJoin(participants, eq(expenses.participantId, participants.id)).where(eq(participants.userId, username));
+    const totalSpent = spentRows.reduce((s, r) => s + parseFloat(String(r.amount || 0)), 0);
+
+    return {
+      user: { id: u.id, username: u.username, displayName: u.displayName, profileImageUrl: u.profileImageUrl, avatarUrl: u.avatarUrl, bio: u.bio },
+      stats: { eventsCount, friendsCount, totalSpent },
+    };
   }
 
   async updateUserPassword(id: number, passwordHash: string): Promise<void> {
@@ -155,14 +180,30 @@ export class DatabaseStorage implements IStorage {
     return b;
   }
 
+  async getBarbecueByInviteToken(token: string): Promise<Barbecue | undefined> {
+    const [b] = await db.select().from(barbecues).where(eq(barbecues.inviteToken, token));
+    return b;
+  }
+
   async createBarbecue(b: InsertBarbecue): Promise<Barbecue> {
-    const [bbq] = await db.insert(barbecues).values(b).returning();
+    const inviteToken = crypto.randomBytes(32).toString("hex");
+    const [bbq] = await db.insert(barbecues).values({ ...b, inviteToken }).returning();
     return bbq;
   }
 
-  async updateBarbecue(id: number, updates: { allowOptInExpenses?: boolean }): Promise<Barbecue | undefined> {
+  async ensureBarbecueInviteToken(id: number): Promise<Barbecue | undefined> {
+    const [existing] = await db.select().from(barbecues).where(eq(barbecues.id, id));
+    if (!existing) return undefined;
+    if (existing.inviteToken) return existing;
+    const inviteToken = crypto.randomBytes(32).toString("hex");
+    const [updated] = await db.update(barbecues).set({ inviteToken }).where(eq(barbecues.id, id)).returning();
+    return updated;
+  }
+
+  async updateBarbecue(id: number, updates: { allowOptInExpenses?: boolean; templateData?: unknown }): Promise<Barbecue | undefined> {
     const set: Record<string, unknown> = {};
     if (updates.allowOptInExpenses !== undefined) set.allowOptInExpenses = updates.allowOptInExpenses;
+    if (updates.templateData !== undefined) set.templateData = updates.templateData;
     if (Object.keys(set).length === 0) return this.getBarbecue(id);
     const [b] = await db.update(barbecues).set(set as any).where(eq(barbecues.id, id)).returning();
     return b;
@@ -234,14 +275,14 @@ export class DatabaseStorage implements IStorage {
     const allParticipants = await this.getParticipants(bbqId);
     return allExpenses.map(e => {
       const p = allParticipants.find(p => p.id === e.participantId);
-      return { ...e, participantName: p ? p.name : 'Unknown' };
+      return { ...e, participantName: p ? p.name : 'Unknown', participantUserId: p?.userId ?? null };
     });
   }
 
-  async createExpense(e: InsertExpense): Promise<Expense> {
+  async createExpense(e: InsertExpense, options?: { optInByDefault?: boolean }): Promise<Expense> {
     const [expense] = await db.insert(expenses).values({ ...e, amount: e.amount.toString() }).returning();
     const bbq = await this.getBarbecue(e.barbecueId);
-    if (bbq?.allowOptInExpenses) {
+    if (bbq?.allowOptInExpenses && options?.optInByDefault !== true) {
       const accepted = await this.getParticipants(e.barbecueId);
       if (accepted.length > 0) {
         await db.insert(expenseShares).values(accepted.map(p => ({ expenseId: expense.id, participantId: p.id })));

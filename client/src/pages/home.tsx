@@ -9,18 +9,15 @@ import {
   useAcceptInvite, useDeclineInvite,
 } from "@/hooks/use-participants";
 import { useExpenses, useDeleteExpense, useExpenseShares, useSetExpenseShare } from "@/hooks/use-expenses";
-import { useBarbecues, useCreateBarbecue, useDeleteBarbecue, useUpdateBarbecue } from "@/hooks/use-bbq-data";
+import { useBarbecues, useCreateBarbecue, useDeleteBarbecue, useUpdateBarbecue, useEnsureInviteToken } from "@/hooks/use-bbq-data";
 import { useQueryClient } from "@tanstack/react-query";
 import { useFriends, useFriendRequests, useAllPendingRequests, useAcceptFriendRequest, useRemoveFriend } from "@/hooks/use-friends";
-import { ProfileDialog } from "@/components/profile-dialog";
+import { UserProfileModal } from "@/components/user-profile-modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { EventTabs, EventTabsContent, EventTabsList, EventTabsTrigger } from "@/components/event/EventTabs";
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
-} from "@/components/ui/dialog";
-import { DraggableDialogContent } from "@/components/ui/draggable-dialog-content";
+import { Modal } from "@/components/ui/modal";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -31,6 +28,10 @@ import { EventHeader } from "@/components/event/EventHeader";
 import { QuickAddChips } from "@/components/event/QuickAddChips";
 import { EmptyState } from "@/components/event/EmptyState";
 import { InviteSheet } from "@/components/event/InviteSheet";
+import { InviteLink } from "@/components/events/invite-link";
+import { ShareSettlementActions } from "@/components/share/share-settlement-actions";
+import { ShareRecapActions } from "@/components/share/share-recap-actions";
+import { generateSettleCardData, generateRecapCardData } from "@/utils/shareCard";
 import { WelcomeModal } from "@/components/welcome-modal";
 import { DiscoverModal } from "@/components/discover-modal";
 import { SplannoLogo } from "@/components/splanno-logo";
@@ -39,10 +40,9 @@ import {
   Receipt, Trash2, Edit2,
   Plus, ArrowRight, CheckCircle2,
   CalendarDays, Loader2,
-  Beef, Wheat, Beer, Zap, Car, Package,
   UserCheck, UserX, LogOut, Crown, Clock, UserCircle,
   Lock, Globe, UserPlus, X, Eye, EyeOff, Compass,
-  Bell, UserPlus2, Search, Heart, Sun, Moon,
+  Bell, UserPlus2, Search, Heart, Sun, Moon, MessageCircle,
 } from "lucide-react";
 import { useTheme } from "@/hooks/use-theme";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
@@ -62,55 +62,25 @@ import {
   getExpenseTemplates,
   getExpenseTemplateHelper,
 } from "@/eventTemplates";
+import { getCategoriesForEvent, getCategoryDef } from "@/config/expenseCategories";
+import { getEventActivity } from "@/utils/eventActivity";
+import { EventActivityFeed } from "@/components/event/EventActivityFeed";
 import { getEventTheme } from "@/theme/useEventTheme";
 import { TRIP_THEME_KEYS, PARTY_THEME_KEYS } from "@/theme/eventThemes";
 import { normalizeEvent, getEventArea } from "@/utils/eventUtils";
 import type { ExpenseWithParticipant, Barbecue, Participant, FriendInfo, PendingRequestWithBbq } from "@shared/schema";
 
+/** Fallback colors for expense chart. Extended for custom categories (hash-based). */
 const CATEGORY_COLORS: Record<string, string> = {
   Meat: '#e05c2a', Bread: '#f0c040', Drinks: '#3b82f6',
   Charcoal: '#64748b', Transportation: '#10b981', Other: '#a855f7',
   Food: '#e05c2a', Transport: '#10b981', Tickets: '#8b5cf6', Accommodation: '#0ea5e9',
-};
-const CATEGORY_ICON_COMPONENTS: Record<string, typeof Beef> = {
-  Meat: Beef, Bread: Wheat, Drinks: Beer, Charcoal: Zap, Transportation: Car, Other: Package,
-  Food: Beef, Transport: Car, Tickets: Receipt, Accommodation: Package,
+  Activities: '#06b6d4', Groceries: '#84cc16', Snacks: '#f59e0b', Supplies: '#6b7280',
+  Parking: '#6366f1', Tips: '#ec4899', Entertainment: '#14b8a6',
 };
 
-const PARTY_CATEGORIES = ["Food", "Drinks", "Transport", "Tickets", "Other"];
-const CATEGORIES_BY_EVENT_TYPE: Record<string, string[]> = {
-  barbecue: ["Meat", "Bread", "Drinks", "Charcoal", "Transportation", "Other"],
-  dinner_party: PARTY_CATEGORIES,
-  birthday: ["Food", "Drinks", "Transport", "Tickets", "Other"],
-  house_party: PARTY_CATEGORIES,
-  game_night: PARTY_CATEGORIES,
-  movie_night: PARTY_CATEGORIES,
-  pool_party: PARTY_CATEGORIES,
-  after_party: PARTY_CATEGORIES,
-  default: PARTY_CATEGORIES,
-  other_party: PARTY_CATEGORIES,
-  city_trip: ["Transport", "Tickets", "Food", "Accommodation", "Other"],
-  road_trip: ["Transport", "Food", "Tickets", "Accommodation", "Other"],
-  hiking_trip: ["Transport", "Food", "Tickets", "Accommodation", "Other"],
-  beach_trip: ["Accommodation", "Food", "Tickets", "Transport", "Other"],
-  ski_trip: ["Tickets", "Accommodation", "Drinks", "Other"],
-  festival_trip: ["Tickets", "Accommodation", "Drinks", "Transport", "Other"],
-  camping: ["Accommodation", "Food", "Other", "Transport"],
-  weekend_getaway: ["Accommodation", "Food", "Transport", "Tickets", "Other"],
-  business_trip: ["Accommodation", "Food", "Transport", "Other"],
-  cinema: ["Tickets", "Food", "Drinks", "Other"],
-  theme_park: ["Tickets", "Food", "Drinks", "Transport", "Other"],
-  day_out: ["Food", "Drinks", "Transport", "Tickets", "Other"],
-  other_trip: ["Food", "Drinks", "Transport", "Tickets", "Accommodation", "Other"],
-  vacation: ["Accommodation", "Food", "Tickets", "Transport", "Other"],
-  backpacking: ["Accommodation", "Transport", "Food", "Other"],
-  bachelor_trip: ["Accommodation", "Tickets", "Drinks", "Other"],
-  workation: ["Accommodation", "Other", "Food", "Transport"],
-};
-
-function getCategoriesForEventType(eventType: string | undefined): string[] {
-  if (!eventType) return ["Meat", "Bread", "Drinks", "Charcoal", "Transportation", "Other"];
-  return CATEGORIES_BY_EVENT_TYPE[eventType] ?? ["Food", "Drinks", "Transport", "Tickets", "Other"];
+function getCategoryColor(cat: string): string {
+  return CATEGORY_COLORS[cat] ?? `hsl(${(cat.split("").reduce((a, c) => a + c.charCodeAt(0), 0) % 360)}, 60%, 50%)`;
 }
 
 // ─── Auth Dialog (exported for LoginShell / Login page) ───────────────────────
@@ -192,17 +162,20 @@ export function AuthDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DraggableDialogContent className="sm:max-w-sm" data-testid="dialog-auth">
-        <DialogHeader>
-          <div className="flex items-center justify-center mb-2">
-            <SplannoLogo variant="full" size={56} />
-          </div>
-          <DialogTitle className="text-base">{isCheckingAuth ? t.auth.loginTitle : titles[tab]}</DialogTitle>
-          <DialogDescription>{isCheckingAuth ? t.auth.welcomeBack : subtitles[tab]}</DialogDescription>
-        </DialogHeader>
+    <Modal
+      open={open}
+      onClose={() => onOpenChange(false)}
+      onOpenChange={onOpenChange}
+      title={isCheckingAuth ? t.auth.loginTitle : titles[tab]}
+      size="sm"
+      data-testid="dialog-auth"
+    >
+      <div className="flex items-center justify-center mb-2">
+        <SplannoLogo variant="full" size={56} className="pointer-events-none" />
+      </div>
+      <p className="text-sm text-muted-foreground text-center mb-4">{isCheckingAuth ? t.auth.welcomeBack : subtitles[tab]}</p>
 
-        {isCheckingAuth ? (
+      {isCheckingAuth ? (
           <div className="flex flex-col items-center justify-center py-8 gap-3">
             <Loader2 className="w-8 h-8 animate-spin text-primary" />
             <p className="text-sm text-muted-foreground">{t.auth.welcomeBack}</p>
@@ -399,8 +372,7 @@ export function AuthDialog({
         )}
         </>
         )}
-      </DraggableDialogContent>
-    </Dialog>
+    </Modal>
   );
 }
 
@@ -426,7 +398,7 @@ export default function Home() {
 
   const [isAddPersonOpen, setIsAddPersonOpen] = useState(false);
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
-  const [recommendedExpenseTemplate, setRecommendedExpenseTemplate] = useState<{ item: string; category: string } | null>(null);
+  const [recommendedExpenseTemplate, setRecommendedExpenseTemplate] = useState<{ item: string; category: string; optInDefault?: boolean } | null>(null);
   const [editingExpense, setEditingExpense] = useState<ExpenseWithParticipant | null>(null);
   const [editingParticipantId, setEditingParticipantId] = useState<number | null>(null);
   const [editingParticipantName, setEditingParticipantName] = useState("");
@@ -438,6 +410,7 @@ export default function Home() {
   const acceptFriendReq = useAcceptFriendRequest();
   const removeFriendMut = useRemoveFriend();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [viewedProfileUsername, setViewedProfileUsername] = useState<string | null>(null);
   const [notifOpen, setNotifOpen] = useState(false);
   const [showAuthDialog, setShowAuthDialog] = useState(true);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
@@ -477,8 +450,23 @@ export default function Home() {
   const createBbq = useCreateBarbecue();
   const deleteBbq = useDeleteBarbecue();
   const updateBbq = useUpdateBarbecue();
+  const ensureInviteToken = useEnsureInviteToken();
 
   const selectedBbq = barbecuesForArea.find((b: Barbecue) => b.id === selectedBbqId) ?? (barbecues.find((b: Barbecue) => b.id === selectedBbqId) || null);
+  const customCategories = useMemo(
+    () => (getTemplateData(selectedBbq, defaultBarbecueTemplateData) as BarbecueTemplateData).customCategories ?? [],
+    [selectedBbq],
+  );
+  const handleAddCustomCategory = (name: string) => {
+    if (!selectedBbqId || !selectedBbq || !isCreator) return;
+    const current = (selectedBbq.templateData as Record<string, unknown>) ?? {};
+    const currentCustom = Array.isArray(current.customCategories) ? current.customCategories : [];
+    if (currentCustom.includes(name)) return;
+    updateBbq.mutate({
+      id: selectedBbqId,
+      templateData: { ...current, customCategories: [...currentCustom, name] },
+    });
+  };
   const currency = (selectedBbq?.currency as CurrencyCode) || "EUR";
   const currencyInfo = CURRENCIES.find(c => c.code === currency) || CURRENCIES[0];
   const [displayCurrency, setDisplayCurrency] = useState<CurrencyCode>(currency);
@@ -531,7 +519,10 @@ export default function Home() {
   const shareSet = new Set(expenseSharesList.map(s => `${s.expenseId}:${s.participantId}`));
   const getParticipantsInExpense = (expenseId: number) => {
     const forExp = expenseSharesList.filter(s => s.expenseId === expenseId);
-    if (forExp.length === 0) return participants.map((p: Participant) => p.id);
+    if (forExp.length === 0) {
+      if (allowOptIn) return [];
+      return participants.map((p: Participant) => p.id);
+    }
     return forExp.map(s => s.participantId);
   };
   const getFairShareForParticipant = (participantId: number) => {
@@ -666,7 +657,7 @@ export default function Home() {
     inviteParticipant.mutate(inviteUsername.trim(), {
       onSuccess: () => {
         setInviteUsername("");
-        toast({ title: t.bbq.inviteSent });
+        toast({ variant: "success", title: t.bbq.inviteSent });
       },
       onError: (err: any) => {
         const msg = err.message;
@@ -813,7 +804,7 @@ export default function Home() {
                   size="icon"
                   variant="ghost"
                   className="relative"
-                  onClick={() => setIsProfileOpen(true)}
+                  onClick={() => { setViewedProfileUsername(null); setIsProfileOpen(true); }}
                   data-testid="button-profile"
                 >
                   <UserCircle className="w-4 h-4" />
@@ -1085,6 +1076,29 @@ export default function Home() {
                 onOptInChange={(checked) => selectedBbqId && updateBbq.mutate({ id: selectedBbqId, allowOptInExpenses: checked })}
                 optInPending={updateBbq.isPending}
                 onDelete={selectedBbqId ? () => handleDeleteBbq(selectedBbqId) : undefined}
+                inviteLinkUrl={
+                  selectedBbq?.inviteToken
+                    ? `${typeof window !== "undefined" ? window.location.origin : ""}/join/${selectedBbq.inviteToken}`
+                    : undefined
+                }
+                onCopyInviteLink={
+                  selectedBbq?.inviteToken
+                    ? async () => {
+                        const url = `${typeof window !== "undefined" ? window.location.origin : ""}/join/${selectedBbq.inviteToken}`;
+                        await navigator.clipboard.writeText(url);
+                        toast({ title: t.bbq.copySuccess });
+                      }
+                    : selectedBbq && isCreator && !selectedBbq.inviteToken
+                      ? async () => {
+                          const bbq = await ensureInviteToken.mutateAsync(selectedBbq.id);
+                          if (bbq?.inviteToken) {
+                            const url = `${typeof window !== "undefined" ? window.location.origin : ""}/join/${bbq.inviteToken}`;
+                            await navigator.clipboard.writeText(url);
+                            toast({ title: t.bbq.copySuccess });
+                          }
+                        }
+                      : undefined
+                }
               />
 
               {/* Inline stats row */}
@@ -1173,10 +1187,34 @@ export default function Home() {
                 <EventTabsTrigger value="people" data-testid="tab-people">{t.tabs.people}</EventTabsTrigger>
                 <EventTabsTrigger value="split" data-testid="tab-split">{t.tabs.split}</EventTabsTrigger>
                 <EventTabsTrigger value="notes" data-testid="tab-notes">{t.tabs.notes}</EventTabsTrigger>
+                <EventTabsTrigger value="chat" data-testid="tab-chat">{t.tabs.chat}</EventTabsTrigger>
               </EventTabsList>
 
               {/* People Tab */}
               <EventTabsContent value="people" className="space-y-4">
+                {(canManage || isCreator) && (
+                  <InviteLink
+                    url={
+                      selectedBbq?.inviteToken
+                        ? `${typeof window !== "undefined" ? window.location.origin : ""}/join/${selectedBbq.inviteToken}`
+                        : ""
+                    }
+                    onEnsureToken={
+                      selectedBbq && !selectedBbq.inviteToken && isCreator
+                        ? async () => {
+                            const bbq = await ensureInviteToken.mutateAsync(selectedBbq.id);
+                            return bbq?.inviteToken
+                              ? `${typeof window !== "undefined" ? window.location.origin : ""}/join/${bbq.inviteToken}`
+                              : null;
+                          }
+                        : undefined
+                    }
+                    label={t.bbq.inviteLink}
+                    copyLabel={t.bbq.copy}
+                    copySuccess={t.bbq.copySuccess}
+                    shareLabel={t.bbq.share}
+                  />
+                )}
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">{t.participants}</h3>
                   <div className="flex items-center gap-2">
@@ -1209,6 +1247,7 @@ export default function Home() {
                         participantUserIds={new Set(participants.map((p: Participant) => p.userId).filter(Boolean) as string[])}
                         onInviteFriend={(username) => inviteParticipant.mutate(username)}
                         onRejectInvite={(id) => rejectParticipant.mutate(id)}
+                        onViewUser={(u) => { setViewedProfileUsername(u); setIsProfileOpen(true); }}
                       />
                     )}
                   </div>
@@ -1269,7 +1308,18 @@ export default function Home() {
                           </>
                         ) : (
                           <>
-                            <span className="font-medium">{p.name}</span>
+                            {p.userId ? (
+                              <button
+                                type="button"
+                                onClick={() => { setViewedProfileUsername(p.userId!); setIsProfileOpen(true); }}
+                                className="font-medium text-left hover:text-primary hover:underline"
+                                data-testid={`link-participant-profile-${p.id}`}
+                              >
+                                {p.name}
+                              </button>
+                            ) : (
+                              <span className="font-medium">{p.name}</span>
+                            )}
                             {isOwn && (
                               <button
                                 onClick={() => { setEditingParticipantId(p.id); setEditingParticipantName(p.name); }}
@@ -1321,7 +1371,7 @@ export default function Home() {
                         theme={getEventTheme(category, type)}
                         presets={getExpenseTemplates(category, type)}
                         onAdd={(p) => {
-                          setRecommendedExpenseTemplate({ item: p.item, category: p.category });
+                          setRecommendedExpenseTemplate({ item: p.item, category: p.category, optInDefault: p.optInDefault });
                           setEditingExpense(null);
                           setIsAddExpenseOpen(true);
                         }}
@@ -1360,8 +1410,8 @@ export default function Home() {
                 ) : (
                   <div className="space-y-2">
                     {expenses.map((exp: ExpenseWithParticipant) => {
-                      const IconComp = CATEGORY_ICON_COMPONENTS[exp.category] || Package;
-                      const color = CATEGORY_COLORS[exp.category] || '#888';
+                      const IconComp = getCategoryDef(exp.category).icon;
+                      const color = getCategoryColor(exp.category);
                       const everyoneInByDefault = expenseSharesList.length === 0;
                       const isInForExp = myParticipant
                         ? (everyoneInByDefault ? true : shareSet.has(`${exp.id}:${myParticipant.id}`))
@@ -1378,7 +1428,20 @@ export default function Home() {
                           <div className="flex-1 min-w-0">
                             <div className="font-medium text-sm truncate">{exp.item}</div>
                             <div className="text-xs text-muted-foreground">
-                              {t.categories[exp.category as keyof typeof t.categories] || exp.category} · {exp.participantName}
+                              {t.categories[exp.category as keyof typeof t.categories] || exp.category}
+                              {" · "}
+                              {exp.participantUserId ? (
+                                <button
+                                  type="button"
+                                  onClick={() => { setViewedProfileUsername(exp.participantUserId!); setIsProfileOpen(true); }}
+                                  className="hover:text-primary hover:underline"
+                                  data-testid={`link-expense-payer-${exp.id}`}
+                                >
+                                  {exp.participantName}
+                                </button>
+                              ) : (
+                                exp.participantName
+                              )}
                             </div>
                           </div>
                           {allowOptIn && myParticipant && (
@@ -1424,7 +1487,7 @@ export default function Home() {
                         <PieChart>
                           <Pie data={chartData} dataKey="value" cx="50%" cy="50%" outerRadius={65} innerRadius={40}>
                             {chartData.map((entry) => (
-                              <Cell key={entry.name} fill={CATEGORY_COLORS[entry.name] || '#888'} />
+                              <Cell key={entry.name} fill={getCategoryColor(entry.name)} />
                             ))}
                           </Pie>
                           <Tooltip formatter={(value: number | string) => {
@@ -1439,7 +1502,7 @@ export default function Home() {
                           const converted = convertCurrency(d.value, currency, displayCurrency);
                           return (
                             <div key={d.name} className="flex items-center gap-2 text-xs">
-                              <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: CATEGORY_COLORS[d.name] }} />
+                              <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: getCategoryColor(d.name) }} />
                               <span className="text-muted-foreground flex-1">{d.translatedName}</span>
                               <span className="font-semibold">{displayCurrencyInfo.symbol}{converted.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                             </div>
@@ -1447,6 +1510,36 @@ export default function Home() {
                         })}
                       </div>
                     </div>
+                  </div>
+                )}
+
+                {/* Recent Activity — below expenses */}
+                {selectedBbq && (
+                  <div className="mt-8 pt-6 border-t border-border/50">
+                    <EventActivityFeed
+                      items={getEventActivity({
+                        event: {
+                          id: selectedBbq.id,
+                          name: selectedBbq.name,
+                          date: selectedBbq.date,
+                          currency: selectedBbq.currency,
+                          creatorId: selectedBbq.creatorId,
+                        },
+                        expenses: expenses.map((e: ExpenseWithParticipant) => ({
+                          id: e.id,
+                          item: e.item,
+                          amount: e.amount,
+                          participantName: e.participantName,
+                        })),
+                        participants: participants.map((p: Participant) => ({
+                          id: p.id,
+                          name: p.name,
+                          userId: p.userId,
+                        })),
+                        creatorDisplayName: selectedBbq.creatorId === username ? user?.displayName : undefined,
+                      })}
+                      title={t.activity.recentActivity}
+                    />
                   </div>
                 )}
               </EventTabsContent>
@@ -1491,6 +1584,40 @@ export default function Home() {
                   )}
                 </div>
 
+                {/* Event Recap share (when there's expense data) */}
+                {totalSpent > 0 && participantCount > 0 && (() => {
+                  const { category, type } = normalizeEvent(selectedBbq ?? {});
+                  const eventTheme = getEventTheme(category, type);
+                  const biggestSpender = [...participants].map((p) => ({
+                    name: p.name,
+                    paid: expenses.filter((e: ExpenseWithParticipant) => e.participantId === p.id).reduce((s: number, e: ExpenseWithParticipant) => s + Number(e.amount), 0),
+                  })).sort((a, b) => b.paid - a.paid)[0];
+                  const recapData = generateRecapCardData(
+                    { name: selectedBbq?.name ?? "", currency: selectedBbq?.currency ?? "EUR" },
+                    {
+                      totalSpent,
+                      participantCount,
+                      expenseCount: expenses.length,
+                      funStat: biggestSpender?.paid
+                        ? { type: "biggest_spender" as const, label: "Biggest spender", value: `${biggestSpender.name} (${formatMoney(biggestSpender.paid)})` }
+                        : undefined,
+                    }
+                  );
+                  return (
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <span className="text-xs text-muted-foreground">Share event recap</span>
+                      <ShareRecapActions
+                        data={recapData}
+                        theme={eventTheme}
+                        shareImageLabel={t.split.shareImage}
+                        copyImageLabel={t.split.copyImage}
+                        downloadLabel={t.split.download}
+                        onCopySuccess={() => toast({ title: t.bbq.copySuccess })}
+                      />
+                    </div>
+                  );
+                })()}
+
                 {/* Settlement Plan */}
                   <div className="rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-4 shadow-[var(--shadow-sm)]">
                   <h3 className="text-sm font-semibold text-muted-foreground mb-4">{t.split.settlement}</h3>
@@ -1501,19 +1628,43 @@ export default function Home() {
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      {settlements.map((s, i) => (
-                        <div key={i} className="flex items-center gap-3 border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]/50 rounded-[var(--radius-md)] px-3 py-2.5" data-testid={`settlement-${i}`}>
-                          <div className="w-8 h-8 bg-red-500/10 rounded-lg flex items-center justify-center flex-shrink-0">
-                            <ArrowRight className="w-4 h-4 text-red-400" />
+                      {settlements.map((s, i) => {
+                        const { category, type } = normalizeEvent(selectedBbq ?? {});
+                        const eventTheme = getEventTheme(category, type);
+                        const subtitle = (t.eventTypes as Record<string, string>)[eventTheme.labelKey] ?? eventTheme.copy.tagline;
+                        const settleCardData = generateSettleCardData(
+                          {
+                            name: selectedBbq?.name ?? "",
+                            subtitle,
+                            currency: selectedBbq?.currency ?? "EUR",
+                          },
+                          s,
+                          subtitle
+                        );
+                        return (
+                          <div key={i} className="flex flex-col gap-2 border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]/50 rounded-[var(--radius-md)] px-3 py-2.5" data-testid={`settlement-${i}`}>
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 bg-red-500/10 rounded-lg flex items-center justify-center flex-shrink-0">
+                                <ArrowRight className="w-4 h-4 text-red-400" />
+                              </div>
+                              <div className="flex-1 text-sm">
+                                <span className="font-bold text-red-400">{s.from}</span>
+                                <span className="text-muted-foreground mx-2">{t.split.owes}</span>
+                                <span className="font-bold text-green-400">{s.to}</span>
+                              </div>
+                              <span className="font-bold text-primary flex-shrink-0">{formatMoney(s.amount)}</span>
+                            </div>
+                            <ShareSettlementActions
+                              data={settleCardData}
+                              theme={eventTheme}
+                              shareImageLabel={t.split.shareImage}
+                              copyImageLabel={t.split.copyImage}
+                              downloadLabel={t.split.download}
+                              onCopySuccess={() => toast({ title: t.bbq.copySuccess })}
+                            />
                           </div>
-                          <div className="flex-1 text-sm">
-                            <span className="font-bold text-red-400">{s.from}</span>
-                            <span className="text-muted-foreground mx-2">{t.split.owes}</span>
-                            <span className="font-bold text-green-400">{s.to}</span>
-                          </div>
-                          <span className="font-bold text-primary flex-shrink-0">{formatMoney(s.amount)}</span>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -1524,6 +1675,37 @@ export default function Home() {
                 <div className="rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-6 text-center text-muted-foreground shadow-[var(--shadow-sm)]">
                   <p className="text-sm">{t.tabs.notes} — coming soon.</p>
                   <p className="text-xs mt-1">Add notes, reminders, or shared info for your event.</p>
+                </div>
+              </EventTabsContent>
+
+              {/* Chat Tab — placeholder */}
+              <EventTabsContent value="chat">
+                <div
+                  className="flex flex-col items-center justify-center py-16 px-6 rounded-xl border border-border bg-card/50"
+                  style={{
+                    background: "linear-gradient(to bottom, hsl(var(--card)), hsl(var(--muted) / 0.15))",
+                  }}
+                >
+                  <div className="w-14 h-14 rounded-full flex items-center justify-center bg-primary/10 text-primary mb-4">
+                    <MessageCircle className="w-7 h-7" />
+                  </div>
+                  <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wider bg-primary/15 text-primary mb-2">
+                    {t.activity.soon}
+                  </span>
+                  <h3 className="text-lg font-semibold font-display text-foreground">
+                    {t.activity.chatComingSoon}
+                  </h3>
+                  <p className="text-sm text-muted-foreground text-center max-w-[260px] mt-1">
+                    {t.activity.chatSubtitle}
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-5 opacity-70 cursor-not-allowed"
+                    disabled
+                  >
+                    {t.activity.enableChat}
+                  </Button>
                 </div>
               </EventTabsContent>
             </EventTabs>
@@ -1541,13 +1723,29 @@ export default function Home() {
       </main>
 
       {/* Create event dialog */}
-      <Dialog open={isNewBbqOpen} onOpenChange={(open) => { setIsNewBbqOpen(open); if (!open) { setNewEventArea(area); setNewEventType(area === "trips" ? "city_trip" : "barbecue"); } }}>
-        <DraggableDialogContent className="sm:max-w-md" data-testid="dialog-new-bbq">
-          <DialogHeader>
-            <DialogTitle className="font-display text-primary text-xl">{t.events.newEvent}</DialogTitle>
-            <DialogDescription>{t.subtitle}</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
+      <Modal
+        open={isNewBbqOpen}
+        onClose={() => { setIsNewBbqOpen(false); setNewEventArea(area); setNewEventType(area === "trips" ? "city_trip" : "barbecue"); }}
+        onOpenChange={(open) => { setIsNewBbqOpen(open); if (!open) { setNewEventArea(area); setNewEventType(area === "trips" ? "city_trip" : "barbecue"); } }}
+        title={t.events.newEvent}
+        size="md"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setIsNewBbqOpen(false)}>{t.modals.cancel}</Button>
+            <Button
+              onClick={handleCreateBbq}
+              disabled={!newBbqName.trim() || createBbq.isPending}
+              className="bg-primary text-primary-foreground font-bold"
+              data-testid="button-create-bbq"
+            >
+              {createBbq.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : t.bbq.create}
+            </Button>
+          </>
+        }
+        data-testid="dialog-new-bbq"
+      >
+        <p className="text-sm text-muted-foreground mb-4">{t.subtitle}</p>
+        <div className="space-y-4">
             <div className="space-y-2">
               <Label>{t.nav.parties} / {t.nav.trips}</Label>
               <div className="flex rounded-lg border border-white/10 overflow-hidden">
@@ -1687,19 +1885,7 @@ export default function Home() {
             </div>
             )}
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsNewBbqOpen(false)}>{t.modals.cancel}</Button>
-            <Button
-              onClick={handleCreateBbq}
-              disabled={!newBbqName.trim() || createBbq.isPending}
-              className="bg-primary text-primary-foreground font-bold"
-              data-testid="button-create-bbq"
-            >
-              {createBbq.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : t.bbq.create}
-            </Button>
-          </DialogFooter>
-        </DraggableDialogContent>
-      </Dialog>
+      </Modal>
 
       {/* Add Person Dialog */}
       <AddPersonDialog
@@ -1721,13 +1907,21 @@ export default function Home() {
         bbqId={selectedBbqId}
         editingExpense={editingExpense}
         currencySymbol={currencyInfo.symbol}
-        categories={getCategoriesForEventType((selectedBbq as any)?.eventType)}
+        categories={getCategoriesForEvent((selectedBbq as any)?.eventType, customCategories)}
         defaultItem={editingExpense ? undefined : recommendedExpenseTemplate?.item}
         defaultCategory={editingExpense ? undefined : recommendedExpenseTemplate?.category}
+        defaultOptIn={editingExpense ? undefined : recommendedExpenseTemplate?.optInDefault}
+        allowOptIn={allowOptIn}
+        onAddCustomCategory={isCreator ? handleAddCustomCategory : undefined}
       />
 
       {/* Profile / Friends Dialog */}
-      <ProfileDialog open={isProfileOpen} onOpenChange={setIsProfileOpen} />
+      <UserProfileModal
+        open={isProfileOpen}
+        onOpenChange={(open) => { setIsProfileOpen(open); if (!open) setViewedProfileUsername(null); }}
+        username={viewedProfileUsername}
+        onViewUser={(username) => setViewedProfileUsername(username)}
+      />
     </div>
   );
 }

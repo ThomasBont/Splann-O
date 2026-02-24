@@ -238,6 +238,29 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json(bbq);
   });
 
+  /** Resolve invite token to event info (public, for /join/:token page). */
+  app.get("/api/join/:token", async (req, res) => {
+    const bbq = await storage.getBarbecueByInviteToken(req.params.token);
+    if (!bbq) return res.status(404).json({ message: "Invite not found" });
+    res.json({
+      bbqId: bbq.id,
+      name: bbq.name,
+      eventType: bbq.eventType,
+      currency: bbq.currency,
+    });
+  });
+
+  /** Ensure event has invite token (backfill for legacy events). Creator only. */
+  app.post("/api/barbecues/:id/ensure-invite-token", requireAuth, async (req, res) => {
+    const id = Number(req.params.id);
+    const bbq = await storage.getBarbecue(id);
+    if (!bbq) return res.status(404).json({ message: "Event not found" });
+    if (bbq.creatorId !== req.session.username) return res.status(403).json({ message: "Only the creator can update this event" });
+    const updated = await storage.ensureBarbecueInviteToken(id);
+    if (!updated) return res.status(404).json({ message: "Event not found" });
+    res.json(updated);
+  });
+
   app.delete(api.barbecues.delete.path, async (req, res) => {
     await storage.deleteBarbecue(Number(req.params.id));
     res.status(204).send();
@@ -249,7 +272,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const bbq = await storage.getBarbecue(id);
       if (!bbq) return res.status(404).json({ message: "BBQ not found" });
       if (bbq.creatorId !== req.session.username) return res.status(403).json({ message: "Only the creator can update this BBQ" });
-      const schema = z.object({ allowOptInExpenses: z.boolean().optional() });
+      const schema = z.object({ allowOptInExpenses: z.boolean().optional(), templateData: z.unknown().optional() });
       const body = schema.parse(req.body);
       const updated = await storage.updateBarbecue(id, body);
       if (!updated) return res.status(404).json({ message: "BBQ not found" });
@@ -378,7 +401,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         participantId: z.coerce.number(),
       });
       const input = bodySchema.parse(req.body);
-      const created = await storage.createExpense({ ...input, barbecueId: Number(req.params.bbqId) });
+      const { optInByDefault, ...expenseData } = input;
+      const created = await storage.createExpense(
+        { ...expenseData, barbecueId: Number(req.params.bbqId) },
+        { optInByDefault }
+      );
       res.status(201).json(created);
     } catch (err) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
@@ -483,7 +510,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json(all);
   });
 
-  // Search users (for adding friends)
+  // Search users (for adding friends) - must be before /:username
   app.get("/api/users/search", requireAuth, async (req, res) => {
     const query = (req.query.q as string || "").toLowerCase().trim();
     if (!query || query.length < 2) return res.json([]);
@@ -493,6 +520,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       (u.username.toLowerCase().includes(query) || (u.displayName && u.displayName.toLowerCase().includes(query)))
     ).slice(0, 10);
     res.json(results);
+  });
+
+  // Public profile by username (for viewing other users)
+  app.get("/api/users/:username", requireAuth, async (req, res) => {
+    const username = Array.isArray(req.params.username) ? req.params.username[0] : req.params.username;
+    if (!username) return res.status(400).json({ message: "Username required" });
+    const profile = await storage.getPublicProfileWithStats(username);
+    if (!profile) return res.status(404).json({ message: "User not found" });
+    res.json(profile);
   });
 
   return httpServer;

@@ -59,16 +59,37 @@ export function useCreateBarbecue() {
 export function useUpdateBarbecue() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, allowOptInExpenses }: { id: number; allowOptInExpenses?: boolean }) => {
+    mutationFn: async ({ id, allowOptInExpenses, templateData }: { id: number; allowOptInExpenses?: boolean; templateData?: unknown }) => {
       const url = buildUrl(api.barbecues.update.path, { id });
+      const body: Record<string, unknown> = {};
+      if (allowOptInExpenses !== undefined) body.allowOptInExpenses = allowOptInExpenses;
+      if (templateData !== undefined) body.templateData = templateData;
       const res = await fetch(url, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ allowOptInExpenses }),
+        body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error("Failed to update barbecue");
       return res.json() as Promise<Barbecue>;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/barbecues'] });
+    },
+  });
+}
+
+export function useEnsureInviteToken() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const res = await fetch(`/api/barbecues/${id}/ensure-invite-token`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to ensure invite token");
+      const bbq = (await res.json()) as Barbecue;
+      return bbq;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/barbecues'] });

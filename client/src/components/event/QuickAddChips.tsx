@@ -14,10 +14,17 @@ import type { ExpenseTemplateItem } from "@/eventTemplates";
 
 const VISIBLE_COUNT = 5;
 
+export interface QuickAddPreset {
+  item: string;
+  category: string;
+  /** When true, expense defaults to opt-in (participants must opt in). */
+  optInDefault?: boolean;
+}
+
 export interface QuickAddChipsProps {
   presets: ExpenseTemplateItem[];
-  onAdd: (preset: { item: string; category: string }) => void;
-  /** Show "opt-in" badge on chips when event has opt-in */
+  onAdd: (preset: QuickAddPreset) => void;
+  /** Show "opt-in" badge on chips when event has opt-in and preset.optInDefault is true */
   allowOptIn?: boolean;
   /** Optional theme token for subtle hover accent */
   theme?: ThemeToken;
@@ -45,11 +52,11 @@ export function QuickAddChips({
           key={`${p.label}-${p.category}`}
           icon={p.icon}
           accentHover={!!theme}
-          onClick={() => onAdd({ item: p.label, category: p.category })}
+          onClick={() => onAdd({ item: p.label, category: p.category, optInDefault: p.optInDefault })}
           data-testid={`chip-quickadd-${p.label.replace(/\s/g, "-").toLowerCase()}`}
         >
           {p.label}
-          {allowOptIn && p.splitMode === "opt-in" && (
+          {allowOptIn && p.optInDefault === true && (
             <span className="text-[9px] text-muted-foreground ml-0.5">opt-in</span>
           )}
         </EventChip>
@@ -71,14 +78,14 @@ export function QuickAddChips({
               <DropdownMenuItem
                 key={`${p.label}-${p.category}`}
                 onClick={() => {
-                  onAdd({ item: p.label, category: p.category });
+                  onAdd({ item: p.label, category: p.category, optInDefault: p.optInDefault });
                   setOpen(false);
                 }}
                 className="flex items-center gap-2"
               >
                 {p.icon && <span aria-hidden>{p.icon}</span>}
                 {p.label}
-                {allowOptIn && p.splitMode === "opt-in" && (
+                {allowOptIn && p.optInDefault === true && (
                   <span className="text-[10px] text-muted-foreground">opt-in</span>
                 )}
               </DropdownMenuItem>

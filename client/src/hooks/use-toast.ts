@@ -1,191 +1,232 @@
-import * as React from "react"
+import * as React from "react";
 
-import type {
-  ToastActionElement,
-  ToastProps,
-} from "@/components/ui/toast"
+export type ToastVariant = "success" | "error" | "info" | "warning" | "loading";
 
-const TOAST_LIMIT = 1
-const TOAST_REMOVE_DELAY = 1000000
-
-type ToasterToast = ToastProps & {
-  id: string
-  title?: React.ReactNode
-  description?: React.ReactNode
-  action?: ToastActionElement
+export interface ToastOptions {
+  title?: string;
+  /** Primary message. Legacy: "description" is aliased to message. */
+  message?: string;
+  /** @deprecated Use message. Kept for backward compatibility. */
+  description?: string;
+  variant?: ToastVariant | "default" | "destructive";
+  duration?: number;
+  actionLabel?: string;
+  onAction?: () => void;
+  dismissLabel?: string;
+  onDismiss?: () => void;
 }
 
-const actionTypes = {
-  ADD_TOAST: "ADD_TOAST",
-  UPDATE_TOAST: "UPDATE_TOAST",
-  DISMISS_TOAST: "DISMISS_TOAST",
-  REMOVE_TOAST: "REMOVE_TOAST",
-} as const
-
-let count = 0
-
-function genId() {
-  count = (count + 1) % Number.MAX_SAFE_INTEGER
-  return count.toString()
+export interface ToastItem extends Omit<ToastOptions, "description"> {
+  id: string;
+  message: string;
+  variant: ToastVariant;
+  duration: number;
+  addedAt: number;
+  timerId: ReturnType<typeof setTimeout> | null;
+  timerStartedAt: number | null;
+  /** When paused (hover), remaining ms until auto-dismiss */
+  pauseRemaining: number | null;
 }
 
-type ActionType = typeof actionTypes
+const MAX_VISIBLE = 4;
+const DEFAULT_DURATION = 3500;
+const COALESCE_WINDOW_MS = 2000;
 
-type Action =
-  | {
-      type: ActionType["ADD_TOAST"]
-      toast: ToasterToast
-    }
-  | {
-      type: ActionType["UPDATE_TOAST"]
-      toast: Partial<ToasterToast>
-    }
-  | {
-      type: ActionType["DISMISS_TOAST"]
-      toastId?: ToasterToast["id"]
-    }
-  | {
-      type: ActionType["REMOVE_TOAST"]
-      toastId?: ToasterToast["id"]
-    }
-
-interface State {
-  toasts: ToasterToast[]
-}
-
-const toastTimeouts = new Map<string, ReturnType<typeof setTimeout>>()
-
-const addToRemoveQueue = (toastId: string) => {
-  if (toastTimeouts.has(toastId)) {
-    return
+function genId(): string {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
   }
-
-  const timeout = setTimeout(() => {
-    toastTimeouts.delete(toastId)
-    dispatch({
-      type: "REMOVE_TOAST",
-      toastId: toastId,
-    })
-  }, TOAST_REMOVE_DELAY)
-
-  toastTimeouts.set(toastId, timeout)
+  return `toast-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
 }
 
-export const reducer = (state: State, action: Action): State => {
-  switch (action.type) {
-    case "ADD_TOAST":
-      return {
-        ...state,
-        toasts: [action.toast, ...state.toasts].slice(0, TOAST_LIMIT),
-      }
+const store: ToastItem[] = [];
+const listeners = new Set<() => void>();
 
-    case "UPDATE_TOAST":
-      return {
-        ...state,
-        toasts: state.toasts.map((t) =>
-          t.id === action.toast.id ? { ...t, ...action.toast } : t
-        ),
-      }
+function emit() {
+  listeners.forEach((fn) => fn());
+}
 
-    case "DISMISS_TOAST": {
-      const { toastId } = action
-
-      // ! Side effects ! - This could be extracted into a dismissToast() action,
-      // but I'll keep it here for simplicity
-      if (toastId) {
-        addToRemoveQueue(toastId)
-      } else {
-        state.toasts.forEach((toast) => {
-          addToRemoveQueue(toast.id)
-        })
-      }
-
-      return {
-        ...state,
-        toasts: state.toasts.map((t) =>
-          t.id === toastId || toastId === undefined
-            ? {
-                ...t,
-                open: false,
-              }
-            : t
-        ),
-      }
-    }
-    case "REMOVE_TOAST":
-      if (action.toastId === undefined) {
-        return {
-          ...state,
-          toasts: [],
-        }
-      }
-      return {
-        ...state,
-        toasts: state.toasts.filter((t) => t.id !== action.toastId),
-      }
+function clearTimer(item: ToastItem) {
+  if (item.timerId) {
+    clearTimeout(item.timerId);
+    item.timerId = null;
   }
 }
 
-const listeners: Array<(state: State) => void> = []
-
-let memoryState: State = { toasts: [] }
-
-function dispatch(action: Action) {
-  memoryState = reducer(memoryState, action)
-  listeners.forEach((listener) => {
-    listener(memoryState)
-  })
+function startTimer(item: ToastItem, remainingMs?: number) {
+  clearTimer(item);
+  if (item.variant === "loading") return;
+  const ms = remainingMs ?? item.duration;
+  if (ms <= 0) return;
+  item.timerStartedAt = Date.now();
+  item.timerId = setTimeout(() => {
+    item.timerId = null;
+    item.timerStartedAt = null;
+    dismissToast(item.id);
+  }, ms);
 }
 
-type Toast = Omit<ToasterToast, "id">
+function findCoalesceMatch(opts: ToastOptions): ToastItem | null {
+  const now = Date.now();
+  const msg = opts.message ?? opts.description ?? opts.title ?? "";
+  const variant = opts.variant === "destructive" ? "error" : opts.variant === "default" || !opts.variant ? "info" : opts.variant;
+  const key = `${opts.title ?? ""}|${msg}|${variant}`;
+  for (const t of store) {
+    if (t.variant === "loading") continue;
+    const tKey = `${t.title ?? ""}|${t.message}|${t.variant}`;
+    if (tKey === key && now - t.addedAt < COALESCE_WINDOW_MS) return t;
+  }
+  return null;
+}
 
-function toast({ ...props }: Toast) {
-  const id = genId()
-
-  const update = (props: ToasterToast) =>
-    dispatch({
-      type: "UPDATE_TOAST",
-      toast: { ...props, id },
-    })
-  const dismiss = () => dispatch({ type: "DISMISS_TOAST", toastId: id })
-
-  dispatch({
-    type: "ADD_TOAST",
-    toast: {
-      ...props,
-      id,
-      open: true,
-      onOpenChange: (open) => {
-        if (!open) dismiss()
-      },
-    },
-  })
-
-  return {
-    id: id,
-    dismiss,
-    update,
+function makeRoom(excludeId?: string) {
+  const nonLoading = store.filter((t) => t.variant !== "loading" && t.id !== excludeId);
+  if (store.length >= MAX_VISIBLE && nonLoading.length > 0) {
+    const toRemove = nonLoading[nonLoading.length - 1];
+    clearTimer(toRemove);
+    const idx = store.indexOf(toRemove);
+    if (idx > -1) store.splice(idx, 1);
   }
 }
 
-function useToast() {
-  const [state, setState] = React.useState<State>(memoryState)
+function normalizeOptions(opts: ToastOptions): ToastOptions {
+  const desc = opts.description ?? opts.message;
+  const hasDesc = desc != null && desc !== "";
+  const message = opts.message ?? opts.description ?? opts.title ?? "";
+  const title = hasDesc ? opts.title : undefined;
+  const variant =
+    opts.variant === "destructive"
+      ? "error"
+      : opts.variant === "default" || !opts.variant
+        ? "info"
+        : opts.variant;
+  return { ...opts, message, title, variant };
+}
+
+export function toast(opts: ToastOptions): string {
+  const normalized = normalizeOptions(opts);
+  const variant = normalized.variant as ToastVariant;
+  const duration = normalized.duration ?? (variant === "loading" ? 0 : DEFAULT_DURATION);
+  const message = normalized.message!;
+
+  const match = findCoalesceMatch(normalized);
+  if (match) {
+    updateToast(match.id, {
+      ...normalized,
+      duration,
+    });
+    return match.id;
+  }
+
+  const id = genId();
+  const item: ToastItem = {
+    id,
+    title: normalized.title,
+    message,
+    variant,
+    duration,
+    actionLabel: normalized.actionLabel,
+    onAction: normalized.onAction,
+    dismissLabel: normalized.dismissLabel ?? "Dismiss",
+    onDismiss: normalized.onDismiss,
+    addedAt: Date.now(),
+    timerId: null,
+    timerStartedAt: null,
+    pauseRemaining: null,
+  };
+
+  makeRoom(id);
+  store.unshift(item);
+  startTimer(item);
+  emit();
+  return id;
+}
+
+export function dismissToast(id?: string): void {
+  if (id) {
+    const item = store.find((t) => t.id === id);
+    if (item) {
+      clearTimer(item);
+      item.onDismiss?.();
+      const idx = store.indexOf(item);
+      if (idx > -1) store.splice(idx, 1);
+    }
+  } else {
+    store.forEach((t) => {
+      clearTimer(t);
+      t.onDismiss?.();
+    });
+    store.length = 0;
+  }
+  emit();
+}
+
+export function pauseToast(id: string): void {
+  const item = store.find((t) => t.id === id);
+  if (!item || item.variant === "loading") return;
+  if (item.timerId && item.timerStartedAt != null && item.duration > 0) {
+    const elapsed = Date.now() - item.timerStartedAt;
+    item.pauseRemaining = Math.max(0, item.duration - elapsed);
+  }
+  clearTimer(item);
+  item.timerStartedAt = null;
+}
+
+export function resumeToast(id: string): void {
+  const item = store.find((t) => t.id === id);
+  if (!item || item.variant === "loading") return;
+  const remaining = item.pauseRemaining ?? item.duration;
+  item.pauseRemaining = null;
+  startTimer(item, remaining);
+}
+
+export function updateToast(id: string, patch: Partial<ToastOptions>): void {
+  const item = store.find((t) => t.id === id);
+  if (!item) return;
+
+  if (patch.title !== undefined) item.title = patch.title;
+  if (patch.message !== undefined) item.message = patch.message;
+  if (patch.description !== undefined) item.message = patch.description;
+  if (patch.variant !== undefined) {
+    item.variant =
+      patch.variant === "destructive"
+        ? "error"
+        : patch.variant === "default"
+          ? "info"
+          : (patch.variant as ToastVariant);
+  }
+  if (patch.duration !== undefined) item.duration = patch.duration;
+  if (patch.actionLabel !== undefined) item.actionLabel = patch.actionLabel;
+  if (patch.onAction !== undefined) item.onAction = patch.onAction;
+  if (patch.dismissLabel !== undefined) item.dismissLabel = patch.dismissLabel;
+  if (patch.onDismiss !== undefined) item.onDismiss = patch.onDismiss;
+
+  clearTimer(item);
+  const newDuration = patch.duration ?? item.duration;
+  if (item.variant !== "loading" && newDuration > 0) {
+    startTimer(item, newDuration);
+  }
+  emit();
+}
+
+export function useToast() {
+  const [toasts, setToasts] = React.useState<ToastItem[]>([]);
 
   React.useEffect(() => {
-    listeners.push(setState)
+    setToasts([...store]);
+    const onUpdate = () => setToasts([...store]);
+    listeners.add(onUpdate);
     return () => {
-      const index = listeners.indexOf(setState)
-      if (index > -1) {
-        listeners.splice(index, 1)
-      }
-    }
-  }, [state])
+      listeners.delete(onUpdate);
+    };
+  }, []);
 
   return {
-    ...state,
+    toasts,
     toast,
-    dismiss: (toastId?: string) => dispatch({ type: "DISMISS_TOAST", toastId }),
-  }
+    dismissToast,
+    updateToast,
+    pauseToast,
+    resumeToast,
+  };
 }
-
-export { useToast, toast }

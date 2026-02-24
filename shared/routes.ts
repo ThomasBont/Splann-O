@@ -44,7 +44,7 @@ export const api = {
     update: {
       method: 'PATCH' as const,
       path: '/api/barbecues/:id' as const,
-      input: z.object({ allowOptInExpenses: z.boolean().optional() }),
+      input: z.object({ allowOptInExpenses: z.boolean().optional(), templateData: z.unknown().optional() }),
       responses: {
         200: z.custom<Barbecue>(),
         403: errorSchemas.validation,
@@ -149,7 +149,7 @@ export const api = {
     create: {
       method: 'POST' as const,
       path: '/api/barbecues/:bbqId/expenses' as const,
-      input: insertExpenseSchema.omit({ barbecueId: true }),
+      input: insertExpenseSchema.omit({ barbecueId: true }).extend({ optInByDefault: z.boolean().optional() }),
       responses: {
         201: z.custom<ExpenseWithParticipant>(),
         400: errorSchemas.validation,

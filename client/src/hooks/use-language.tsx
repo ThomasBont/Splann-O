@@ -75,6 +75,14 @@ interface Translations {
     people: string;
     split: string;
     notes: string;
+    chat: string;
+  };
+  activity: {
+    recentActivity: string;
+    chatComingSoon: string;
+    chatSubtitle: string;
+    enableChat: string;
+    soon: string;
   };
   emptyState: {
     title: string;
@@ -91,6 +99,31 @@ interface Translations {
     Transport: string;
     Tickets: string;
     Accommodation: string;
+    Activities: string;
+    Groceries: string;
+    Snacks: string;
+    Supplies: string;
+    Parking: string;
+    Tips: string;
+    Entertainment: string;
+  };
+  placeholders: {
+    meat: string;
+    bread: string;
+    drinks: string;
+    charcoal: string;
+    transport: string;
+    food: string;
+    tickets: string;
+    accommodation: string;
+    activities: string;
+    groceries: string;
+    snacks: string;
+    supplies: string;
+    parking: string;
+    tips: string;
+    entertainment: string;
+    other: string;
   };
   modals: {
     addPersonTitle: string;
@@ -104,6 +137,12 @@ interface Translations {
     cancel: string;
     add: string;
     save: string;
+    createCustomCategory: string;
+    expenseAdded: string;
+    expenseUpdated: string;
+    expenseAddFailed: string;
+    profileSaved: string;
+    linkCopied: string;
   };
   split: {
     contributions: string;
@@ -112,6 +151,9 @@ interface Translations {
     allSettled: string;
     overpaid: string;
     underpaid: string;
+    shareImage: string;
+    copyImage: string;
+    download: string;
   };
   bbq: {
     allBarbecues: string;
@@ -141,6 +183,10 @@ interface Translations {
     acceptInvite: string;
     declineInvite: string;
     pendingInvites: string;
+    inviteLink: string;
+    copy: string;
+    copySuccess: string;
+    share: string;
     currencyConversion: string;
     approxRates: string;
     yourShare: string;
@@ -148,6 +194,9 @@ interface Translations {
     allowOptInExpensesDesc: string;
     imIn: string;
     imOut: string;
+    optInExpenseLabel: string;
+    optInExpenseHintOn: string;
+    optInExpenseHintOff: string;
   };
   auth: {
     login: string;
@@ -302,6 +351,20 @@ interface Translations {
     view: string;
     join: string;
   };
+  profileStats: {
+    events: string;
+    friends: string;
+    totalSpent: string;
+  };
+  profileTabs: {
+    profile: string;
+    friends: string;
+    activity: string;
+    settings: string;
+  };
+  profileActivity: {
+    comingSoon: string;
+  };
   tripsComingSoon: string;
 }
 
@@ -315,7 +378,14 @@ const translations: Record<Language, Translations> = {
     participants: "Participants",
     expenses: "Expenses",
     fairShare: "Fair Share",
-    tabs: { expenses: "Expenses", people: "People", split: "Split Check", notes: "Notes" },
+    tabs: { expenses: "Expenses", people: "People", split: "Split Check", notes: "Notes", chat: "Chat" },
+    activity: {
+      recentActivity: "Recent activity",
+      chatComingSoon: "Chat is coming soon",
+      chatSubtitle: "We're building a lightweight group chat for each event.",
+      enableChat: "Enable chat",
+      soon: "Soon",
+    },
     emptyState: {
       title: "Create an event",
       subtitle: "Add participants and log expenses to split costs.",
@@ -324,16 +394,39 @@ const translations: Record<Language, Translations> = {
       Meat: "Meat", Bread: "Bread", Drinks: "Drinks",
       Charcoal: "Charcoal", Transportation: "Transportation", Other: "Other",
       Food: "Food", Transport: "Transport", Tickets: "Tickets", Accommodation: "Accommodation",
+      Activities: "Activities", Groceries: "Groceries", Snacks: "Snacks", Supplies: "Supplies",
+      Parking: "Parking", Tips: "Tips", Entertainment: "Entertainment",
+    },
+    placeholders: {
+      meat: "e.g. Ribeye steaks, chorizo, sausages",
+      bread: "e.g. Baguette, ciabatta, rolls",
+      drinks: "e.g. Beer, wine, cocktails, soft drinks",
+      charcoal: "e.g. Charcoal, firelighters, wood",
+      transport: "e.g. Uber, fuel, metro tickets, parking",
+      food: "e.g. Restaurant, takeaway, groceries",
+      tickets: "e.g. Museum, concert, entry pass",
+      accommodation: "e.g. Hotel, Airbnb, camping",
+      activities: "e.g. Tour, workshop, activity",
+      groceries: "e.g. Supermarket run, staples",
+      snacks: "e.g. Chips, nuts, cookies",
+      supplies: "e.g. Plates, napkins, utensils",
+      parking: "e.g. Parking meter, garage",
+      tips: "e.g. Waiter, driver, guide",
+      entertainment: "e.g. Cinema, bowling, games",
+      other: "e.g. Miscellaneous",
     },
     modals: {
       addPersonTitle: "Add Participant", addExpenseTitle: "Record Expense",
       editExpenseTitle: "Edit Expense", nameLabel: "Name", paidByLabel: "Paid By",
       categoryLabel: "Category", itemLabel: "Item Description", amountLabel: "Amount",
       cancel: "Cancel", add: "Add", save: "Save Changes",
+      createCustomCategory: "+ Create custom category…",
+      expenseAdded: "Expense added", expenseUpdated: "Expense updated", expenseAddFailed: "Couldn't add expense", profileSaved: "Profile saved", linkCopied: "Link copied",
     },
     split: {
       contributions: "Individual Contributions", settlement: "Settlement Plan",
       owes: "owes", allSettled: "All settled up!", overpaid: "Overpaid", underpaid: "Underpaid",
+      shareImage: "Share image", copyImage: "Copy image", download: "Download",
     },
     bbq: {
       allBarbecues: "Barbecues", newBarbecue: "New Barbecue", bbqName: "Event name",
@@ -348,12 +441,16 @@ const translations: Record<Language, Translations> = {
       invite: "Invite", inviteSent: "Invite sent!", alreadyMember: "Already a member",
       invited: "Invited", acceptInvite: "Accept", declineInvite: "Decline",
       pendingInvites: "Pending Invites",
+      inviteLink: "Invite link", copy: "Copy", copySuccess: "Copied!", share: "Share",
       currencyConversion: "In Other Currencies", approxRates: "Approximate rates",
       yourShare: "Your share",
       allowOptInExpenses: "Allow participants to choose which expenses they pay for",
       allowOptInExpensesDesc: "Participants can opt in or out per expense (e.g. skip meat or transport).",
       imIn: "I'm in",
       imOut: "I'm out",
+      optInExpenseLabel: "Participants opt in",
+      optInExpenseHintOn: "Only those who join pay",
+      optInExpenseHintOff: "Shared among everyone",
     },
     auth: {
       login: "Log In", register: "Sign Up", logout: "Log Out",
@@ -485,6 +582,9 @@ const translations: Record<Language, Translations> = {
       view: "View",
       join: "Join",
     },
+    profileStats: { events: "Events", friends: "Friends", totalSpent: "Total spent" },
+    profileTabs: { profile: "Profile", friends: "Friends", activity: "Activity", settings: "Settings" },
+    profileActivity: { comingSoon: "Activity coming soon." },
     tripsComingSoon: "Trips coming soon. Create events under Parties for now.",
   },
   es: {
@@ -496,7 +596,14 @@ const translations: Record<Language, Translations> = {
     participants: "Participantes",
     expenses: "Gastos",
     fairShare: "Cuota Justa",
-    tabs: { expenses: "Gastos", people: "Personas", split: "Dividir Cuenta", notes: "Notas" },
+    tabs: { expenses: "Gastos", people: "Personas", split: "Dividir Cuenta", notes: "Notas", chat: "Chat" },
+    activity: {
+      recentActivity: "Actividad reciente",
+      chatComingSoon: "El chat llegará pronto",
+      chatSubtitle: "Estamos construyendo un chat grupal ligero para cada evento.",
+      enableChat: "Activar chat",
+      soon: "Pronto",
+    },
     emptyState: {
       title: "Crear un evento",
       subtitle: "Agregá participantes y cargá gastos para repartir costos.",
@@ -505,16 +612,39 @@ const translations: Record<Language, Translations> = {
       Meat: "Carne", Bread: "Pan", Drinks: "Bebidas",
       Charcoal: "Carbón", Transportation: "Transporte", Other: "Otros",
       Food: "Comida", Transport: "Transporte", Tickets: "Entradas", Accommodation: "Alojamiento",
+      Activities: "Actividades", Groceries: "Compras", Snacks: "Snacks", Supplies: "Insumos",
+      Parking: "Estacionamiento", Tips: "Propinas", Entertainment: "Entretenimiento",
+    },
+    placeholders: {
+      meat: "ej. Chorizo, costilla, achuras",
+      bread: "ej. Pan, facturas, criollos",
+      drinks: "ej. Cerveza, vino, gaseosas",
+      charcoal: "ej. Carbón, encendedor, leña",
+      transport: "ej. Uber, nafta, subte, estacionamiento",
+      food: "ej. Restaurante, delivery, supermercado",
+      tickets: "ej. Museo, recital, entrada",
+      accommodation: "ej. Hotel, Airbnb, camping",
+      activities: "ej. Paseo, taller, actividad",
+      groceries: "ej. Supermercado, almacén",
+      snacks: "ej. Papas, galletas, frutos secos",
+      supplies: "ej. Platos, servilletas, cubiertos",
+      parking: "ej. Playa, garage",
+      tips: "ej. Mozo, chofer, guía",
+      entertainment: "ej. Cine, bolos, juegos",
+      other: "ej. Varios",
     },
     modals: {
       addPersonTitle: "Agregar Participante", addExpenseTitle: "Registrar Gasto",
       editExpenseTitle: "Editar Gasto", nameLabel: "Nombre", paidByLabel: "Pagado Por",
       categoryLabel: "Categoría", itemLabel: "Descripción del Ítem", amountLabel: "Monto",
       cancel: "Cancelar", add: "Agregar", save: "Guardar Cambios",
+      createCustomCategory: "+ Crear categoría personalizada…",
+      expenseAdded: "Gasto agregado", expenseUpdated: "Gasto actualizado", expenseAddFailed: "No se pudo agregar el gasto", profileSaved: "Perfil guardado", linkCopied: "Enlace copiado",
     },
     split: {
       contributions: "Contribuciones Individuales", settlement: "Plan de Pagos",
       owes: "le debe a", allSettled: "¡Todo saldado!", overpaid: "Pagó de más", underpaid: "Debe",
+      shareImage: "Compartir imagen", copyImage: "Copiar imagen", download: "Descargar",
     },
     bbq: {
       allBarbecues: "Asados", newBarbecue: "Nuevo Asado", bbqName: "Nombre del evento",
@@ -529,12 +659,16 @@ const translations: Record<Language, Translations> = {
       invite: "Invitar", inviteSent: "¡Invitación enviada!", alreadyMember: "Ya es miembro",
       invited: "Invitado", acceptInvite: "Aceptar", declineInvite: "Rechazar",
       pendingInvites: "Invitaciones Pendientes",
+      inviteLink: "Enlace de invitación", copy: "Copiar", copySuccess: "¡Copiado!", share: "Compartir",
       currencyConversion: "En Otras Monedas", approxRates: "Tasas aproximadas",
       yourShare: "Tu cuota",
       allowOptInExpenses: "Permitir que los participantes elijan en qué gastos participan",
       allowOptInExpensesDesc: "Cada participante puede sumarse o no a cada gasto (ej. carne o transporte).",
       imIn: "Me sumo",
       imOut: "No me sumo",
+      optInExpenseLabel: "Los participantes se suman",
+      optInExpenseHintOn: "Solo pagan quienes se suman",
+      optInExpenseHintOff: "Compartido entre todos",
     },
     auth: {
       login: "Iniciar Sesión", register: "Registrarse", logout: "Cerrar Sesión",
@@ -666,6 +800,9 @@ const translations: Record<Language, Translations> = {
       view: "Ver",
       join: "Unirse",
     },
+    profileStats: { events: "Eventos", friends: "Amigos", totalSpent: "Total gastado" },
+    profileTabs: { profile: "Perfil", friends: "Amigos", activity: "Actividad", settings: "Configuración" },
+    profileActivity: { comingSoon: "Actividad próximamente." },
     tripsComingSoon: "Viajes próximamente. Por ahora creá eventos en Fiestas.",
   },
   it: {
@@ -677,7 +814,14 @@ const translations: Record<Language, Translations> = {
     participants: "Partecipanti",
     expenses: "Spese",
     fairShare: "Quota Equa",
-    tabs: { expenses: "Spese", people: "Persone", split: "Divisione", notes: "Note" },
+    tabs: { expenses: "Spese", people: "Persone", split: "Divisione", notes: "Note", chat: "Chat" },
+    activity: {
+      recentActivity: "Attività recente",
+      chatComingSoon: "La chat arriverà presto",
+      chatSubtitle: "Stiamo creando una chat di gruppo leggera per ogni evento.",
+      enableChat: "Abilita chat",
+      soon: "Prossimamente",
+    },
     emptyState: {
       title: "Crea un evento",
       subtitle: "Aggiungi partecipanti e registra le spese per dividere i costi.",
@@ -686,16 +830,39 @@ const translations: Record<Language, Translations> = {
       Meat: "Carne", Bread: "Pane", Drinks: "Bevande",
       Charcoal: "Carbone", Transportation: "Trasporto", Other: "Altro",
       Food: "Cibo", Transport: "Trasporto", Tickets: "Biglietti", Accommodation: "Alloggio",
+      Activities: "Attività", Groceries: "Spesa", Snacks: "Snack", Supplies: "Forniture",
+      Parking: "Parcheggio", Tips: "Mance", Entertainment: "Intrattenimento",
+    },
+    placeholders: {
+      meat: "es. Bistecca, salsicce, costolette",
+      bread: "es. Pane, focaccia, grissini",
+      drinks: "es. Birra, vino, cocktail",
+      charcoal: "es. Carbone, accendifuoco, legna",
+      transport: "es. Uber, benzina, biglietti metro",
+      food: "es. Ristorante, takeaway, spesa",
+      tickets: "es. Museo, concerto, ingresso",
+      accommodation: "es. Hotel, Airbnb, campeggio",
+      activities: "es. Tour, workshop, attività",
+      groceries: "es. Supermercato, spesa",
+      snacks: "es. Patatine, biscotti, noccioline",
+      supplies: "es. Piatti, tovaglioli, posate",
+      parking: "es. Parcheggio, garage",
+      tips: "es. Cameriere, autista, guida",
+      entertainment: "es. Cinema, bowling, giochi",
+      other: "es. Varie",
     },
     modals: {
       addPersonTitle: "Aggiungi Partecipante", addExpenseTitle: "Registra Spesa",
       editExpenseTitle: "Modifica Spesa", nameLabel: "Nome", paidByLabel: "Pagato Da",
       categoryLabel: "Categoria", itemLabel: "Descrizione", amountLabel: "Importo",
       cancel: "Annulla", add: "Aggiungi", save: "Salva",
+      createCustomCategory: "+ Crea categoria personalizzata…",
+      expenseAdded: "Spesa aggiunta", expenseUpdated: "Spesa aggiornata", expenseAddFailed: "Impossibile aggiungere la spesa", profileSaved: "Profilo salvato", linkCopied: "Link copiato",
     },
     split: {
       contributions: "Contributi Individuali", settlement: "Piano di Rimborso",
       owes: "deve a", allSettled: "Tutto saldato!", overpaid: "Eccedenza", underpaid: "Debito",
+      shareImage: "Condividi immagine", copyImage: "Copia immagine", download: "Scarica",
     },
     bbq: {
       allBarbecues: "Barbecue", newBarbecue: "Nuovo BBQ", bbqName: "Nome evento",
@@ -710,12 +877,16 @@ const translations: Record<Language, Translations> = {
       invite: "Invita", inviteSent: "Invito inviato!", alreadyMember: "Già membro",
       invited: "Invitato", acceptInvite: "Accetta", declineInvite: "Rifiuta",
       pendingInvites: "Inviti in Sospeso",
+      inviteLink: "Link invito", copy: "Copia", copySuccess: "Copiato!", share: "Condividi",
       currencyConversion: "In Altre Valute", approxRates: "Tassi approssimativi",
       yourShare: "La tua quota",
       allowOptInExpenses: "Permetti ai partecipanti di scegliere per quali spese pagare",
       allowOptInExpensesDesc: "Ogni partecipante può optare per ogni spesa (es. carne o trasporto).",
       imIn: "Partecipo",
       imOut: "Non partecipo",
+      optInExpenseLabel: "I partecipanti si uniscono",
+      optInExpenseHintOn: "Pagano solo chi si unisce",
+      optInExpenseHintOff: "Diviso tra tutti",
     },
     auth: {
       login: "Accedi", register: "Registrati", logout: "Esci",
@@ -847,6 +1018,9 @@ const translations: Record<Language, Translations> = {
       view: "Apri",
       join: "Unisciti",
     },
+    profileStats: { events: "Eventi", friends: "Amici", totalSpent: "Totale speso" },
+    profileTabs: { profile: "Profilo", friends: "Amici", activity: "Attività", settings: "Impostazioni" },
+    profileActivity: { comingSoon: "Attività in arrivo." },
     tripsComingSoon: "I viaggi sono in arrivo. Per ora crea eventi in Feste.",
   },
   nl: {
@@ -858,7 +1032,14 @@ const translations: Record<Language, Translations> = {
     participants: "Deelnemers",
     expenses: "Uitgaven",
     fairShare: "Eerlijk Aandeel",
-    tabs: { expenses: "Uitgaven", people: "Mensen", split: "Verdeling", notes: "Notities" },
+    tabs: { expenses: "Uitgaven", people: "Mensen", split: "Verdeling", notes: "Notities", chat: "Chat" },
+    activity: {
+      recentActivity: "Recente activiteit",
+      chatComingSoon: "Chat komt binnenkort",
+      chatSubtitle: "We bouwen een lichte groeps-chat voor elk evenement.",
+      enableChat: "Chat inschakelen",
+      soon: "Binnenkort",
+    },
     emptyState: {
       title: "Maak een evenement",
       subtitle: "Voeg deelnemers toe en log uitgaven om kosten te verdelen.",
@@ -867,16 +1048,39 @@ const translations: Record<Language, Translations> = {
       Meat: "Vlees", Bread: "Brood", Drinks: "Drankjes",
       Charcoal: "Houtskool", Transportation: "Transport", Other: "Overig",
       Food: "Eten", Transport: "Vervoer", Tickets: "Tickets", Accommodation: "Accommodatie",
+      Activities: "Activiteiten", Groceries: "Boodschappen", Snacks: "Snacks", Supplies: "Benodigdheden",
+      Parking: "Parkeren", Tips: "Fooien", Entertainment: "Ontspanning",
+    },
+    placeholders: {
+      meat: "bijv. Biefstuk, chorizo, worsten",
+      bread: "bijv. Stokbrood, ciabatta",
+      drinks: "bijv. Bier, wijn, cocktails",
+      charcoal: "bijv. Houtskool, aanmaakblokjes",
+      transport: "bijv. Uber, brandstof, OV",
+      food: "bijv. Restaurant, afhaal, boodschappen",
+      tickets: "bijv. Museum, concert, entree",
+      accommodation: "bijv. Hotel, Airbnb, camping",
+      activities: "bijv. Rondleiding, workshop",
+      groceries: "bijv. Supermarkt, boodschappen",
+      snacks: "bijv. Chips, noten, koekjes",
+      supplies: "bijv. Borden, servetten, bestek",
+      parking: "bijv. Parkeermeter, garage",
+      tips: "bijv. Ober, chauffeur, gids",
+      entertainment: "bijv. Bioscoop, bowling",
+      other: "bijv. Diversen",
     },
     modals: {
       addPersonTitle: "Deelnemer Toevoegen", addExpenseTitle: "Uitgave Registreren",
       editExpenseTitle: "Uitgave Bewerken", nameLabel: "Naam", paidByLabel: "Betaald Door",
       categoryLabel: "Categorie", itemLabel: "Omschrijving", amountLabel: "Bedrag",
       cancel: "Annuleren", add: "Toevoegen", save: "Opslaan",
+      createCustomCategory: "+ Aangepaste categorie aanmaken…",
+      expenseAdded: "Uitgave toegevoegd", expenseUpdated: "Uitgave bijgewerkt", expenseAddFailed: "Kon uitgave niet toevoegen", profileSaved: "Profiel opgeslagen", linkCopied: "Link gekopieerd",
     },
     split: {
       contributions: "Individuele Bijdragen", settlement: "Betaalplan",
       owes: "is verschuldigd aan", allSettled: "Alles verrekend!", overpaid: "Te veel betaald", underpaid: "Te weinig betaald",
+      shareImage: "Deel afbeelding", copyImage: "Kopieer afbeelding", download: "Downloaden",
     },
     bbq: {
       allBarbecues: "Barbecues", newBarbecue: "Nieuwe BBQ", bbqName: "Naam van het evenement",
@@ -891,12 +1095,16 @@ const translations: Record<Language, Translations> = {
       invite: "Uitnodigen", inviteSent: "Uitnodiging verstuurd!", alreadyMember: "Al lid",
       invited: "Uitgenodigd", acceptInvite: "Accepteren", declineInvite: "Afwijzen",
       pendingInvites: "Openstaande Uitnodigingen",
+      inviteLink: "Uitnodigingslink", copy: "Kopiëren", copySuccess: "Gekopieerd!", share: "Delen",
       currencyConversion: "In Andere Valuta's", approxRates: "Geschatte koersen",
       yourShare: "Jouw aandeel",
       allowOptInExpenses: "Laat deelnemers kiezen voor welke uitgaven ze betalen",
       allowOptInExpensesDesc: "Deelnemers kunnen per uitgave opt-in of opt-out (bijv. vlees of vervoer).",
       imIn: "Ik doe mee",
       imOut: "Ik doe niet mee",
+      optInExpenseLabel: "Deelnemers doen mee",
+      optInExpenseHintOn: "Alleen deelnemers betalen",
+      optInExpenseHintOff: "Gedeeld door iedereen",
     },
     auth: {
       login: "Inloggen", register: "Registreren", logout: "Uitloggen",
@@ -1028,6 +1236,9 @@ const translations: Record<Language, Translations> = {
       view: "Bekijken",
       join: "Deelnemen",
     },
+    profileStats: { events: "Evenementen", friends: "Vrienden", totalSpent: "Totaal besteed" },
+    profileTabs: { profile: "Profiel", friends: "Vrienden", activity: "Activiteit", settings: "Instellingen" },
+    profileActivity: { comingSoon: "Activiteit komt binnenkort." },
     tripsComingSoon: "Trips komen binnenkort. Maak voor nu evenementen onder Feesten.",
   },
 };

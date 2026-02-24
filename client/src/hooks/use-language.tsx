@@ -6,7 +6,9 @@
  *   VITE_ENABLE_ALL_LANGUAGES=true
  * This supports future expansion while limiting options in production.
  */
-import { createContext, useContext, useState, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+
+const STORAGE_KEY_LANGUAGE = "splanno-language";
 
 export type Language = "en" | "es" | "it" | "nl";
 
@@ -28,17 +30,12 @@ export const LANGUAGES: { code: Language; label: string }[] = [
 
 /**
  * Languages currently selectable in the UI.
- * Default: en, es only. In dev, set VITE_ENABLE_ALL_LANGUAGES=true to allow all.
+ * Always show all 4: EN, ES, IT, NL.
  */
-export const ENABLED_LANGUAGES: readonly Language[] =
-  import.meta.env.DEV && import.meta.env.VITE_ENABLE_ALL_LANGUAGES === "true"
-    ? (["en", "es", "it", "nl"] as const)
-    : (["en", "es"] as const);
+export const ENABLED_LANGUAGES: readonly Language[] = ["en", "es", "it", "nl"] as const;
 
-/** Languages shown in the language switcher. Other languages remain in translations but are hidden. */
-export const SELECTABLE_LANGUAGES = LANGUAGES.filter((l) =>
-  (ENABLED_LANGUAGES as readonly string[]).includes(l.code)
-);
+/** Languages shown in the language switcher (all 4). */
+export const SELECTABLE_LANGUAGES = LANGUAGES;
 
 /** Approximate rates to EUR. Unknown codes fall back to 1. */
 export const EUR_RATES: Record<string, number> = {
@@ -1858,10 +1855,17 @@ const LanguageContext = createContext<{
 } | null>(null);
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
-  const [languageState, setLanguageState] = useState<Language>("en");
+  const [languageState, setLanguageState] = useState<Language>(() => {
+    if (typeof window === "undefined") return "en";
+    const stored = localStorage.getItem(STORAGE_KEY_LANGUAGE) as Language | null;
+    return stored && (["en", "es", "it", "nl"] as const).includes(stored) ? stored : "en";
+  });
   const language: Language = (ENABLED_LANGUAGES as readonly string[]).includes(languageState)
     ? languageState
     : "en";
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY_LANGUAGE, language);
+  }, [language]);
   const setLanguage = (lang: Language) => {
     if ((ENABLED_LANGUAGES as readonly string[]).includes(lang)) setLanguageState(lang);
   };

@@ -98,6 +98,9 @@ import { normalizeEvent, getEventArea } from "@/utils/eventUtils";
 import { computeSplit, getFairShareForParticipant } from "@/lib/split/calc";
 import type { ExpenseWithParticipant, Barbecue, Participant, FriendInfo, PendingRequestWithBbq } from "@shared/schema";
 
+/** Currencies shown in the conversion bar (Total + Fair Share). */
+const CONVERSION_CURRENCIES: CurrencyCode[] = ["EUR", "USD", "GBP", "CHF", "MXN"];
+
 /** Fallback colors for expense chart. Extended for custom categories (hash-based). */
 const CATEGORY_COLORS: Record<string, string> = {
   Meat: '#e05c2a', Bread: '#f0c040', Drinks: '#3b82f6',
@@ -1002,7 +1005,12 @@ export default function Home() {
                         }`}
                         data-testid={`button-bbq-${bbq.id}`}
                       >
-                        {!bbq.isPublic && <Lock className="w-3 h-3 flex-shrink-0 opacity-70" />}
+                        {!bbq.isPublic && (
+                          <>
+                            <Lock className="w-3 h-3 flex-shrink-0 opacity-70" />
+                            <span className="text-[10px] opacity-80 hidden sm:inline">{t.bbq.privateEvent}</span>
+                          </>
+                        )}
                         {isBbqCreator && <Crown className="w-3 h-3 flex-shrink-0 opacity-80" />}
                         <span className="max-w-[120px] truncate">{bbq.name}</span>
                         <span className="text-[10px] opacity-60 hidden sm:inline">{cur.symbol}</span>
@@ -1241,6 +1249,41 @@ export default function Home() {
                   </span>
                 )}
               </div>
+
+              {/* Currency conversion bar: Total + Fair Share in 5 currencies */}
+              {totalSpent > 0 && (
+                <div className="mt-2 -mx-1 overflow-x-auto overflow-y-hidden" data-testid="currency-conversion-bar">
+                  <div className="flex gap-2 min-w-max px-1 py-1 pb-1">
+                    {CONVERSION_CURRENCIES.map((code) => {
+                      const info = getCurrency(code) ?? getCurrency("EUR")!;
+                      const totalConverted = convertCurrency(totalSpent, currency, code);
+                      const fairConverted = convertCurrency(fairShare, currency, code);
+                      const isEventCurrency = code === currency;
+                      return (
+                        <div
+                          key={code}
+                          className={`flex-shrink-0 rounded-lg border px-2.5 py-1.5 text-xs ${
+                            isEventCurrency
+                              ? "border-primary/30 bg-primary/5"
+                              : "border-border bg-muted/20"
+                          }`}
+                          data-testid={`currency-pill-${code}`}
+                        >
+                          <span className={`font-semibold ${isEventCurrency ? "text-primary" : "text-muted-foreground"}`}>
+                            {info.symbol} {code}
+                          </span>
+                          <div className="mt-0.5">
+                            <span className="text-foreground">{info.symbol}{totalConverted.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
+                            {!allowOptIn && (
+                              <span className="text-muted-foreground ml-1">/ {info.symbol}{fairConverted.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* Completion banner when event is settled */}
               {eventStatus === "settled" && (

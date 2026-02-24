@@ -13,6 +13,7 @@ import {
   useSearchUsers,
 } from "@/hooks/use-friends";
 import { useUserProfile } from "@/hooks/use-user-profile";
+import { usePlan } from "@/hooks/use-plan";
 import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -69,6 +70,7 @@ export function UserProfileModal({ open, onOpenChange, username: usernameProp, o
   const effectiveUsername = usernameProp ?? authUser?.username ?? null;
 
   const { data: profileData, isLoading: profileLoading } = useUserProfile(effectiveUsername);
+  const { data: planInfo } = usePlan(isOwnProfile);
   const { data: friends = [], isLoading: friendsLoading } = useFriends();
   const { data: friendRequests = [], isLoading: requestsLoading } = useFriendRequests();
   const sendRequest = useSendFriendRequest();
@@ -166,6 +168,24 @@ export function UserProfileModal({ open, onOpenChange, username: usernameProp, o
                   <p className="text-sm text-muted-foreground" data-testid="text-profile-username">
                     @{displayUser?.username}
                   </p>
+                  {isOwnProfile && planInfo && (
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`text-xs font-medium px-2 py-0.5 rounded ${
+                          planInfo.plan === "pro"
+                            ? "bg-primary/20 text-primary"
+                            : "bg-muted text-muted-foreground"
+                        }`}
+                      >
+                        {planInfo.plan === "pro" ? "Pro" : "Free"}
+                      </span>
+                      {planInfo.plan === "free" && (
+                        <a href="/upgrade" className="text-xs text-primary hover:underline">
+                          Upgrade
+                        </a>
+                      )}
+                    </div>
+                  )}
                   {isOwnProfile && authUser?.email && (
                     <p className="text-xs text-muted-foreground" data-testid="text-profile-email">{authUser.email}</p>
                   )}

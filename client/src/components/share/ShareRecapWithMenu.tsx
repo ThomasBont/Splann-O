@@ -2,6 +2,7 @@
 
 import { useRef } from "react";
 import { EventRecapCard } from "./event-recap-card";
+import { usePlan } from "@/hooks/use-plan";
 import { ShareMenu } from "./ShareMenu";
 import { buildSummaryShareText } from "@/lib/shareImage";
 import type { RecapCardData } from "@/utils/shareCard";
@@ -38,6 +39,8 @@ export function ShareRecapWithMenu({
   shareSummaryLabel = "Share summary",
 }: ShareRecapWithMenuProps) {
   const cardRef = useRef<HTMLDivElement>(null);
+  const { data: planInfo } = usePlan();
+  const showWatermark = planInfo?.features.watermarkExports ?? true;
 
   if (!ENABLE_SHARING) return null;
 
@@ -48,7 +51,7 @@ export function ShareRecapWithMenu({
         className="absolute -left-[9999px] -top-[9999px] w-[400px]"
         aria-hidden
       >
-        <EventRecapCard data={data} theme={theme} exportMode />
+        <EventRecapCard data={data} theme={theme} exportMode showWatermark={showWatermark} />
       </div>
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs text-muted-foreground">{shareSummaryLabel}</span>

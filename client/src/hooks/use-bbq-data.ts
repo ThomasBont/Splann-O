@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, buildUrl } from "@shared/routes";
 import type { Barbecue } from "@shared/schema";
+import { UpgradeRequiredError } from "@/lib/upgrade";
 
 export function useBarbecues() {
   return useQuery({
@@ -44,11 +45,14 @@ export function useCreateBarbecue() {
         credentials: "include",
         body: JSON.stringify(data),
       });
+      const body = await res.json().catch(() => ({}));
+      if (res.status === 402 && (body as { code?: string }).code === "UPGRADE_REQUIRED") {
+        throw new UpgradeRequiredError(body);
+      }
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
         throw new Error((body as { message?: string }).message || "Failed to create barbecue");
       }
-      return res.json() as Promise<Barbecue>;
+      return body as Barbecue;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/barbecues'] });

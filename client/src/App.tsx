@@ -4,6 +4,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { LanguageProvider } from "@/hooks/use-language";
 import { ThemeProvider } from "@/hooks/use-theme";
+import { UpgradeProvider } from "@/contexts/UpgradeContext";
 import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
 import ThemeGalleryPage from "@/pages/theme-gallery";
@@ -12,6 +13,7 @@ import LoginPage from "@/pages/login";
 import AppRoute from "@/pages/app-route";
 import ResetPassword from "@/pages/reset-password";
 import JoinPage from "@/pages/join";
+import UpgradePage from "@/pages/upgrade";
 
 function Router() {
   return (
@@ -23,6 +25,7 @@ function Router() {
       <Route path="/app" component={AppRoute} />
       <Route path="/reset-password" component={ResetPassword} />
       <Route path="/theme-gallery" component={ThemeGalleryPage} />
+      <Route path="/upgrade" component={UpgradePage} />
       <Route component={NotFound} />
     </Switch>
   );
@@ -33,8 +36,10 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <LanguageProvider>
-          <Router />
-          <Toaster />
+          <UpgradeProvider>
+            <Router />
+            <Toaster />
+          </UpgradeProvider>
         </LanguageProvider>
       </ThemeProvider>
     </QueryClientProvider>

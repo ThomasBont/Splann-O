@@ -5,6 +5,8 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { useJoinBarbecue } from "@/hooks/use-participants";
+import { useUpgrade } from "@/contexts/UpgradeContext";
+import { UpgradeRequiredError } from "@/lib/upgrade";
 import { Button } from "@/components/ui/button";
 import { SplannoLogo } from "@/components/splanno-logo";
 import { Loader2 } from "lucide-react";
@@ -34,6 +36,7 @@ export default function JoinPage() {
   });
 
   const joinBbq = useJoinBarbecue();
+  const { showUpgrade } = useUpgrade();
 
   useEffect(() => {
     if (joined && data) {
@@ -47,8 +50,12 @@ export default function JoinPage() {
       { bbqId: data.bbqId, name: user.username, userId: user.username },
       {
         onSuccess: () => setJoined(true),
-        onError: (err: any) => {
-          if (err.message === "already_joined" || err.message === "already_pending") {
+        onError: (err: unknown) => {
+          if (err instanceof UpgradeRequiredError) {
+            showUpgrade(err.payload);
+            return;
+          }
+          if ((err as Error).message === "already_joined" || (err as Error).message === "already_pending") {
             setJoined(true);
           }
         },

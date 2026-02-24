@@ -58,6 +58,8 @@ import {
 import { useTheme } from "@/hooks/use-theme";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
+import { useUpgrade } from "@/contexts/UpgradeContext";
+import { UpgradeRequiredError } from "@/lib/upgrade";
 import {
   getEventTemplate,
   getTemplateData,
@@ -401,6 +403,7 @@ export default function Home() {
   const { user, isLoading: isAuthLoading, logout } = useAuth();
   const username = user?.username ?? null;
   const { toast } = useToast();
+  const { showUpgrade } = useUpgrade();
   const shouldReduceMotion = useReducedMotion();
 
   const [area, setArea] = useState<"parties" | "trips">("parties");
@@ -568,8 +571,9 @@ export default function Home() {
     if (!username) return;
     joinBbq.mutate({ bbqId, name: username, userId: username }, {
       onSuccess: () => toast({ title: t.user.joinBbq, description: `${t.user.pending}...` }),
-      onError: (err: any) => {
-        const msg = err.message;
+      onError: (err: unknown) => {
+        if (err instanceof UpgradeRequiredError) { showUpgrade(err.payload); return; }
+        const msg = (err as Error).message;
         if (msg === "already_joined") toast({ title: t.user.joined });
         else if (msg === "already_pending") toast({ title: t.user.pending });
         else toast({ title: msg, variant: "destructive" });
@@ -590,8 +594,9 @@ export default function Home() {
           setArea(getEventArea(bbq));
           setDiscoverOpen(false);
         },
-        onError: (err: any) => {
-          const msg = err.message;
+        onError: (err: unknown) => {
+          if (err instanceof UpgradeRequiredError) { showUpgrade(err.payload); return; }
+          const msg = (err as Error).message;
           if (msg === "already_joined") toast({ title: t.user.joined });
           else if (msg === "already_pending") toast({ title: t.user.pending });
           else toast({ title: msg, variant: "destructive" });
@@ -627,8 +632,9 @@ export default function Home() {
         setNewEventArea("parties"); setNewEventType("barbecue");
         setIsNewBbqOpen(false);
       },
-      onError: (err: Error) => {
-        toast({ title: t.bbq.create, description: err.message || "Failed to create barbecue", variant: "destructive" });
+      onError: (err: unknown) => {
+        if (err instanceof UpgradeRequiredError) { showUpgrade(err.payload); return; }
+        toast({ title: t.bbq.create, description: (err as Error).message || "Failed to create barbecue", variant: "destructive" });
       },
     });
   };
@@ -645,8 +651,9 @@ export default function Home() {
         setInviteUsername("");
         toast({ variant: "success", title: t.bbq.inviteSent });
       },
-      onError: (err: any) => {
-        const msg = err.message;
+      onError: (err: unknown) => {
+        if (err instanceof UpgradeRequiredError) { showUpgrade(err.payload); return; }
+        const msg = (err as Error).message;
         toast({ title: msg === "already_member" ? t.bbq.alreadyMember : msg, variant: "destructive" });
       },
     });
@@ -1362,7 +1369,14 @@ export default function Home() {
                         friends={friends}
                         invitedParticipants={invitedParticipants}
                         participantUserIds={new Set(participants.map((p: Participant) => p.userId).filter(Boolean) as string[])}
-                        onInviteFriend={(username) => inviteParticipant.mutate(username)}
+                        onInviteFriend={(username) =>
+                          inviteParticipant.mutate(username, {
+                            onError: (err: unknown) => {
+                              if (err instanceof UpgradeRequiredError) showUpgrade(err.payload);
+                              else toast({ title: (err as Error).message, variant: "destructive" });
+                            },
+                          })
+                        }
                         onRejectInvite={(id) => rejectParticipant.mutate(id)}
                         onViewUser={(u) => { setViewedProfileUsername(u); setIsProfileOpen(true); }}
                       />

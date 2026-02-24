@@ -28,7 +28,8 @@ When exceeded, clients receive `429 Too Many Requests` with standard `Retry-Afte
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `FREE_MAX_EVENTS` | `10` | Max events a free user can create. Pro users have no limit. |
+| `FREE_MAX_EVENTS` | `3` | Max events a free user can create. Pro users have unlimited. |
+| `FREE_MAX_PARTICIPANTS` | `10` | Max participants per event for free plan. Pro users have unlimited. |
 | `ADMIN_USERNAMES` | - | Comma-separated usernames for admin endpoints (e.g. `admin,jane`). Required to call `PATCH /api/admin/users/:id/plan`. |
 
 ---

@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useLanguage } from "@/hooks/use-language";
 import { useCreateParticipant } from "@/hooks/use-participants";
+import { useUpgrade } from "@/contexts/UpgradeContext";
+import { UpgradeRequiredError } from "@/lib/upgrade";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +17,7 @@ interface AddPersonDialogProps {
 
 export function AddPersonDialog({ open, onOpenChange, bbqId }: AddPersonDialogProps) {
   const { t } = useLanguage();
+  const { showUpgrade } = useUpgrade();
   const [name, setName] = useState("");
   const createParticipant = useCreateParticipant(bbqId);
 
@@ -26,7 +29,10 @@ export function AddPersonDialog({ open, onOpenChange, bbqId }: AddPersonDialogPr
       onSuccess: () => {
         setName("");
         onOpenChange(false);
-      }
+      },
+      onError: (err: unknown) => {
+        if (err instanceof UpgradeRequiredError) showUpgrade(err.payload);
+      },
     });
   };
 

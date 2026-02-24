@@ -12,6 +12,8 @@ export interface SettleCardProps {
   square?: boolean;
   /** For export: use solid background for social compression. */
   exportMode?: boolean;
+  /** Show "Made with Splanno" watermark (Free plan). */
+  showWatermark?: boolean;
   className?: string;
 }
 
@@ -21,6 +23,7 @@ export function SettleCard({
   theme,
   square = true,
   exportMode = false,
+  showWatermark = false,
   className,
 }: SettleCardProps) {
   const s = data.settlements[0];
@@ -35,7 +38,7 @@ export function SettleCard({
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-2xl border border-white/10 shadow-xl",
+        "overflow-hidden rounded-2xl border border-white/10 shadow-xl relative",
         cardBg,
         square && "aspect-square flex flex-col",
         className
@@ -72,6 +75,14 @@ export function SettleCard({
           </p>
         </footer>
       </div>
+      {showWatermark && (
+        <div
+          className="absolute bottom-2 right-2 text-[10px] text-white/40 font-medium tracking-wide"
+          aria-hidden
+        >
+          Made with Splanno
+        </div>
+      )}
     </div>
   );
 }

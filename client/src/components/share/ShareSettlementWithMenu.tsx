@@ -2,6 +2,7 @@
 
 import { useRef } from "react";
 import { SettleCard } from "./settle-card";
+import { usePlan } from "@/hooks/use-plan";
 import { ShareMenu } from "./ShareMenu";
 import { buildSettlementShareText } from "@/lib/shareImage";
 import type { SettleCardData } from "@/utils/shareCard";
@@ -38,6 +39,8 @@ export function ShareSettlementWithMenu({
   className,
 }: ShareSettlementWithMenuProps) {
   const cardRef = useRef<HTMLDivElement>(null);
+  const { data: planInfo } = usePlan();
+  const showWatermark = planInfo?.features.watermarkExports ?? true;
   const s = data.settlements[0];
   const shareText = s ? buildSettlementShareText(s, data.eventName) : "Settled with Splanno";
 
@@ -50,7 +53,7 @@ export function ShareSettlementWithMenu({
         className="absolute -left-[9999px] -top-[9999px] w-[400px]"
         aria-hidden
       >
-        <SettleCard data={data} theme={theme} exportMode />
+        <SettleCard data={data} theme={theme} exportMode showWatermark={showWatermark} />
       </div>
       <ShareMenu
         targetRef={cardRef}

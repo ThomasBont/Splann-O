@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, buildUrl } from "@shared/routes";
 import type { InsertParticipant } from "@shared/routes";
 import type { Membership } from "@shared/schema";
+import { UpgradeRequiredError } from "@/lib/upgrade";
 
 export function useParticipants(bbqId: number | null) {
   return useQuery({
@@ -68,8 +69,10 @@ export function useCreateParticipant(bbqId: number | null) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       });
-      if (!res.ok) throw new Error("Failed to create participant");
-      return res.json();
+      const resBody = await res.json().catch(() => ({}));
+      if (res.status === 402 && resBody?.code === "UPGRADE_REQUIRED") throw new UpgradeRequiredError(resBody);
+      if (!res.ok) throw new Error(resBody?.message || "Failed to create participant");
+      return resBody;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/barbecues', bbqId, 'participants'] });
@@ -88,6 +91,7 @@ export function useJoinBarbecue() {
         body: JSON.stringify({ name, userId }),
       });
       const data = await res.json();
+      if (res.status === 402 && data?.code === "UPGRADE_REQUIRED") throw new UpgradeRequiredError(data);
       if (!res.ok) throw new Error(data.message || "Failed to join");
       return data;
     },
@@ -109,6 +113,7 @@ export function useInviteParticipant(bbqId: number | null) {
         body: JSON.stringify({ username }),
       });
       const data = await res.json();
+      if (res.status === 402 && data?.code === "UPGRADE_REQUIRED") throw new UpgradeRequiredError(data);
       if (!res.ok) throw new Error(data.message || "Failed to invite");
       return data;
     },

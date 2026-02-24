@@ -12,7 +12,8 @@ import crypto from "crypto";
 import { sendPasswordResetEmail, sendWelcomeEmail } from "./email";
 import { eq, and } from "drizzle-orm";
 import { loginLimiter, passwordResetLimiter } from "./middleware/rate-limit";
-import { canUseLimit } from "./lib/features";
+import { getEffectivePlan, getLimits } from "./lib/plan";
+import { upgradeRequired } from "./lib/errors";
 
 function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.session.userId) {
@@ -62,6 +63,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const user = await storage.getUserById(req.session.userId);
     if (!user) return res.json(null);
     res.json(serializeUser(user));
+  });
+
+  /** Plan info for authenticated user. */
+  app.get("/api/me/plan", requireAuth, async (req, res) => {
+    const user = await storage.getUserById(req.session.userId!);
+    if (!user) return res.status(404).json({ message: "User not found" });
+    const plan = getEffectivePlan(user);
+    const limits = getLimits(user);
+    res.json({
+      plan,
+      planExpiresAt: user.planExpiresAt?.toISOString() ?? null,
+      limits: {
+        maxEvents: limits.maxEvents,
+        maxParticipantsPerEvent: limits.maxParticipantsPerEvent,
+      },
+      features: {
+        exportImages: limits.exportImages,
+        watermarkExports: limits.watermarkExports,
+      },
+    });
   });
 
   app.get("/api/health", async (_req, res) => {
@@ -302,12 +323,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const input = bodySchema.parse(req.body);
       if (input.creatorId && input.creatorId.trim()) {
         const user = await storage.getUserByUsername(input.creatorId.trim());
+        const limits = getLimits(user ?? undefined);
         const count = await storage.countBarbecuesByCreator(input.creatorId.trim());
-        const check = canUseLimit(user ?? undefined, "events_created", count);
-        if (!check.allowed) {
-          return res.status(403).json({
-            message: `Free plan limit reached. You can create up to ${check.limit} events. Upgrade to Pro for unlimited events.`,
-          });
+        if (count >= limits.maxEvents) {
+          return upgradeRequired(res, "more_events", { current: count, max: limits.maxEvents });
         }
       }
       const created = await storage.createBarbecue(input);
@@ -464,10 +483,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.post(api.participants.create.path, async (req, res) => {
     try {
+      const bbqId = Number(req.params.bbqId);
+      const bbq = await storage.getBarbecue(bbqId);
+      if (!bbq) return res.status(404).json({ message: "Event not found" });
+      const creatorUser = bbq.creatorId ? await storage.getUserByUsername(bbq.creatorId) : undefined;
+      const limits = getLimits(creatorUser ?? undefined);
+      const participantCount = await storage.countParticipants(bbqId);
+      if (participantCount >= limits.maxParticipantsPerEvent) {
+        return upgradeRequired(res, "more_participants", { current: participantCount, max: limits.maxParticipantsPerEvent });
+      }
       const input = api.participants.create.input.parse(req.body);
       const created = await storage.createParticipant({
         ...input,
-        barbecueId: Number(req.params.bbqId),
+        barbecueId: bbqId,
         status: "accepted",
       });
       res.status(201).json(created);
@@ -481,6 +509,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const input = api.participants.join.input.parse(req.body);
       const bbqId = Number(req.params.bbqId);
+      const bbq = await storage.getBarbecue(bbqId);
+      if (!bbq) return res.status(404).json({ message: "Event not found" });
+      const creatorUser = bbq.creatorId ? await storage.getUserByUsername(bbq.creatorId) : undefined;
+      const limits = getLimits(creatorUser ?? undefined);
+      const participantCount = await storage.countParticipants(bbqId);
+      if (participantCount >= limits.maxParticipantsPerEvent) {
+        return upgradeRequired(res, "more_participants", { current: participantCount, max: limits.maxParticipantsPerEvent });
+      }
       const existing = await storage.getMemberships(input.userId);
       const alreadyIn = existing.find(m => m.bbqId === bbqId);
       if (alreadyIn) {
@@ -501,7 +537,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const schema = z.object({ username: z.string().min(1) });
       const { username } = schema.parse(req.body);
       const bbqId = Number(req.params.bbqId);
-
+      const bbq = await storage.getBarbecue(bbqId);
+      if (!bbq) return res.status(404).json({ message: "Event not found" });
+      const creatorUser = bbq.creatorId ? await storage.getUserByUsername(bbq.creatorId) : undefined;
+      const limits = getLimits(creatorUser ?? undefined);
+      const participantCount = await storage.countParticipants(bbqId);
+      if (participantCount >= limits.maxParticipantsPerEvent) {
+        return upgradeRequired(res, "more_participants", { current: participantCount, max: limits.maxParticipantsPerEvent });
+      }
       const existing = await storage.getMemberships(username);
       const alreadyIn = existing.find(m => m.bbqId === bbqId);
       if (alreadyIn) return res.status(409).json({ message: "already_member" });

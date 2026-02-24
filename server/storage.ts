@@ -56,6 +56,7 @@ export interface IStorage {
   deleteBarbecue(id: number): Promise<void>;
 
   getParticipants(bbqId: number): Promise<Participant[]>;
+  countParticipants(bbqId: number): Promise<number>;
   getPendingRequests(bbqId: number): Promise<Participant[]>;
   getInvitedParticipants(bbqId: number): Promise<Participant[]>;
   getParticipant(id: number): Promise<Participant | undefined>;
@@ -276,6 +277,11 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(participants).where(
       and(eq(participants.barbecueId, bbqId), eq(participants.status, "accepted"))
     );
+  }
+
+  async countParticipants(bbqId: number): Promise<number> {
+    const rows = await db.select({ id: participants.id }).from(participants).where(eq(participants.barbecueId, bbqId));
+    return rows.length;
   }
 
   async getPendingRequests(bbqId: number): Promise<Participant[]> {

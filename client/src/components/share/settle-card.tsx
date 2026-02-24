@@ -2,12 +2,8 @@
 
 import type { SettleCardData } from "@/utils/shareCard";
 import type { ThemeToken } from "@/theme/eventThemes";
-import { CURRENCIES } from "@/hooks/use-language";
+import { getCurrencySymbol } from "@/lib/currencies";
 import { cn } from "@/lib/utils";
-
-function getCurrencySymbol(code: string): string {
-  return CURRENCIES.find((c) => c.code === code)?.symbol ?? "€";
-}
 
 export interface SettleCardProps {
   data: SettleCardData;

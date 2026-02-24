@@ -1,4 +1,5 @@
 import { motion } from "framer-motion";
+import { motionTransition } from "@/lib/motion";
 
 interface StatsCardProps {
   icon: string;
@@ -13,7 +14,7 @@ export function StatsCard({ icon, value, label, colorClass = "text-white", delay
     <motion.div 
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.4, delay: delay * 0.1, ease: "easeOut" }}
+      transition={{ ...motionTransition.slow, delay: delay * 0.1 }}
       className="bg-card border border-white/5 rounded-xl p-5 shadow-lg flex flex-col gap-1.5 hover:border-white/10 transition-colors"
     >
       <span className="text-2xl mb-1 filter drop-shadow-md">{icon}</span>

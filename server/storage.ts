@@ -5,6 +5,7 @@ import {
   participants,
   expenses,
   expenseShares,
+  notes,
   passwordResetTokens,
   friendships,
   eventNotifications,
@@ -16,7 +17,9 @@ import {
   type InsertBarbecue,
   type InsertParticipant,
   type InsertExpense,
+  type InsertNote,
   type ExpenseWithParticipant,
+  type NoteWithAuthor,
   type Membership,
   type PasswordResetToken,
   type FriendInfo,
@@ -67,6 +70,11 @@ export interface IStorage {
   deleteExpense(id: number): Promise<void>;
   getExpenseShares(bbqId: number): Promise<{ expenseId: number; participantId: number }[]>;
   setExpenseShare(expenseId: number, participantId: number, inShare: boolean): Promise<void>;
+
+  getNotes(bbqId: number): Promise<NoteWithAuthor[]>;
+  createNote(n: InsertNote): Promise<NoteWithAuthor>;
+  updateNote(id: number, updates: { title?: string | null; body?: string; pinned?: boolean }): Promise<NoteWithAuthor | undefined>;
+  deleteNote(id: number): Promise<void>;
 
   sendFriendRequest(requesterId: number, addresseeId: number): Promise<void>;
   acceptFriendRequest(friendshipId: number): Promise<void>;
@@ -340,6 +348,36 @@ export class DatabaseStorage implements IStorage {
     } else {
       await db.delete(expenseShares).where(and(eq(expenseShares.expenseId, expenseId), eq(expenseShares.participantId, participantId)));
     }
+  }
+
+  async getNotes(bbqId: number): Promise<NoteWithAuthor[]> {
+    const rows = await db.select().from(notes).where(eq(notes.barbecueId, bbqId)).orderBy(desc(notes.createdAt));
+    const participantsList = await this.getParticipants(bbqId);
+    return rows.map((n) => {
+      const p = participantsList.find((x) => x.id === n.participantId);
+      return { ...n, authorName: p ? p.name : "Unknown" };
+    });
+  }
+
+  async createNote(n: InsertNote): Promise<NoteWithAuthor> {
+    const [row] = await db.insert(notes).values({ ...n, updatedAt: new Date() }).returning();
+    const p = await this.getParticipant(row.participantId);
+    return { ...row, authorName: p ? p.name : "Unknown" };
+  }
+
+  async updateNote(id: number, updates: { title?: string | null; body?: string; pinned?: boolean }): Promise<NoteWithAuthor | undefined> {
+    const set: Record<string, unknown> = { updatedAt: new Date() };
+    if (updates.title !== undefined) set.title = updates.title;
+    if (updates.body !== undefined) set.body = updates.body;
+    if (updates.pinned !== undefined) set.pinned = updates.pinned;
+    const [row] = await db.update(notes).set(set as any).where(eq(notes.id, id)).returning();
+    if (!row) return undefined;
+    const p = await this.getParticipant(row.participantId);
+    return { ...row, authorName: p ? p.name : "Unknown" };
+  }
+
+  async deleteNote(id: number): Promise<void> {
+    await db.delete(notes).where(eq(notes.id, id));
   }
 
   async sendFriendRequest(requesterId: number, addresseeId: number): Promise<void> {

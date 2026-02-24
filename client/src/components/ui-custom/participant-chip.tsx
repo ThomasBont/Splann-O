@@ -1,5 +1,6 @@
 import { X } from "lucide-react";
 import { motion } from "framer-motion";
+import { motionTransition } from "@/lib/motion";
 
 interface ParticipantChipProps {
   name: string;
@@ -12,6 +13,7 @@ export function ParticipantChip({ name, onRemove }: ParticipantChipProps) {
       initial={{ scale: 0.8, opacity: 0 }}
       animate={{ scale: 1, opacity: 1 }}
       exit={{ scale: 0.8, opacity: 0 }}
+      transition={motionTransition.normal}
       className="bg-secondary/50 border border-white/5 rounded-full pl-4 pr-2 py-1.5 flex items-center gap-2 hover:border-white/20 transition-colors group"
     >
       <span className="font-medium text-sm text-foreground">{name}</span>

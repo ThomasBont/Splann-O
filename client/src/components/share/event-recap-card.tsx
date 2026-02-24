@@ -2,12 +2,8 @@
 
 import type { RecapCardData } from "@/utils/shareCard";
 import type { ThemeToken } from "@/theme/eventThemes";
-import { CURRENCIES } from "@/hooks/use-language";
+import { getCurrencySymbol } from "@/lib/currencies";
 import { cn } from "@/lib/utils";
-
-function getCurrencySymbol(code: string): string {
-  return CURRENCIES.find((c) => c.code === code)?.symbol ?? "€";
-}
 
 export interface EventRecapCardProps {
   data: RecapCardData;
@@ -45,13 +41,33 @@ export function EventRecapCard({
       )}
       data-share-card="recap"
     >
-      <div className={cn("h-1.5 w-full opacity-80", stripClass)} aria-hidden />
+      <div className={cn("h-1.5 w-full opacity-80 rounded-full", stripClass)} aria-hidden />
       <div className="flex flex-1 flex-col justify-between p-6">
         <div>
           <h2 className="text-lg font-bold text-white tracking-tight">
             {data.eventName}
           </h2>
         </div>
+        {data.participantNames && data.participantNames.length > 0 && (
+          <div className="flex items-center gap-1.5 mt-3 flex-wrap">
+            {data.participantNames.slice(0, 6).map((name, i) => {
+              const initials = name.trim().split(/\s/).map((s) => s[0]).join("").toUpperCase().slice(0, 2) || "?";
+              const hues = [35, 330, 160, 210, 270, 50];
+              const h = hues[i % hues.length];
+              return (
+                <div
+                  key={i}
+                  className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-semibold text-white flex-shrink-0"
+                  style={{
+                    background: `linear-gradient(135deg, hsl(${h}, 65%, 50%), hsl(${h}, 70%, 38%))`,
+                  }}
+                >
+                  {initials}
+                </div>
+              );
+            })}
+          </div>
+        )}
         <div className="mt-4 space-y-2">
           <p className="text-xl font-bold text-white">
             {symbol}

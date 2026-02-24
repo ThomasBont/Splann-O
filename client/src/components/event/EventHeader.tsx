@@ -11,6 +11,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { CurrencyPicker } from "@/components/currency-picker";
 import { Plus, MoreHorizontal, Link2, Sparkles } from "lucide-react";
 
 export interface EventHeaderProps {
@@ -19,11 +20,12 @@ export interface EventHeaderProps {
   title: string;
   /** Formatted date string, optional */
   dateStr?: string;
-  /** Currency options + current selection */
+  /** Currency symbol for display (e.g. in stats) */
   currencySymbol: string;
-  currencyOptions: { value: string; label: string }[];
   displayCurrency: string;
   onCurrencyChange: (value: string) => void;
+  /** Profile favorites for currency picker (optional) */
+  profileFavorites?: string[];
   onAddExpense: () => void;
   addExpenseLabel?: string;
   /** Creator-only: opt-in toggle + delete */
@@ -67,9 +69,9 @@ export function EventHeader({
   title,
   dateStr,
   currencySymbol,
-  currencyOptions,
   displayCurrency,
   onCurrencyChange,
+  profileFavorites,
   onAddExpense,
   addExpenseLabel = "Add Expense",
   isCreator,
@@ -136,16 +138,14 @@ export function EventHeader({
                 {t.settleUp?.ctaShort ?? "Settle up"}
               </Button>
             )}
-            <select
+            <CurrencyPicker
               value={displayCurrency}
-              onChange={(e) => onCurrencyChange(e.target.value)}
-              className="h-8 rounded-[var(--radius-md)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-0))] px-2.5 text-xs text-foreground min-w-0 focus:outline-none focus:ring-1 focus:ring-ring"
+              onChange={onCurrencyChange}
+              profileFavorites={profileFavorites}
+              compact
+              triggerClassName="h-8 text-xs"
               data-testid="select-display-currency"
-            >
-              {currencyOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
+            />
             <Button
               size="sm"
               onClick={onAddExpense}

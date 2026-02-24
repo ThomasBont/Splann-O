@@ -196,12 +196,12 @@
     font-family: var(--font-hero);
   }
 
-  /* Premium SaaS — transitions & micro-interactions */
+  /* Premium SaaS — transitions & micro-interactions (aligned with motion.ts) */
   .transition-smooth {
-    transition: all 0.2s ease-out;
+    transition: all 180ms ease-out;
   }
   .transition-fast {
-    transition: all 0.15s ease-out;
+    transition: all 120ms ease-out;
   }
   .focus-ring {
     @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background;
@@ -210,7 +210,7 @@
     @apply focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-1;
   }
   .btn-interact {
-    @apply transition-all duration-150 ease-out;
+    transition: all 180ms ease-out;
   }
   .btn-interact:hover {
     transform: translateY(-1px);
@@ -238,5 +238,31 @@
   }
   .animate-demo-confetti {
     animation: demo-confetti-fall linear forwards;
+  }
+
+  /* Expense reaction emoji pop (scale 0.8 → 1.2 → 1) */
+  @keyframes reaction-pop {
+    0% {
+      transform: scale(0.8);
+    }
+    50% {
+      transform: scale(1.2);
+    }
+    100% {
+      transform: scale(1);
+    }
+  }
+  .animate-reaction-pop {
+    animation: reaction-pop 0.3s ease-out;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-reaction-pop {
+    animation: none;
+  }
+  .animate-demo-confetti {
+    animation: none;
+    opacity: 0;
   }
 }

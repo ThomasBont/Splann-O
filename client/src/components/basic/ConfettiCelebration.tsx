@@ -6,18 +6,22 @@ const PARTICLES = 40;
 const COLORS = ["#fbbf24", "#f59e0b", "#22c55e", "#3b82f6", "#ec4899", "#a855f7"];
 const EMOJIS = ["✨", "🎉", "❤️", "💚", "💙"];
 
-export function ConfettiCelebration({ onComplete }: { onComplete?: () => void }) {
+export function ConfettiCelebration({ onComplete, reducedMotion = false }: { onComplete?: () => void; reducedMotion?: boolean }) {
   const [visible, setVisible] = useState(true);
 
   useEffect(() => {
+    if (reducedMotion) {
+      onComplete?.();
+      return;
+    }
     const t = setTimeout(() => {
       setVisible(false);
       onComplete?.();
     }, 2500);
     return () => clearTimeout(t);
-  }, [onComplete]);
+  }, [onComplete, reducedMotion]);
 
-  if (!visible) return null;
+  if (reducedMotion || !visible) return null;
 
   return (
     <div className="fixed inset-0 pointer-events-none z-50 overflow-hidden">

@@ -3,30 +3,31 @@
 import * as React from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { motionTransition } from "@/lib/motion";
+import { PremiumPressable } from "@/components/ui/premium-pressable";
 
 const SIZE_CLASSES = {
   sm: "sm:max-w-sm",
   md: "sm:max-w-md",
   lg: "sm:max-w-lg",
   xl: "sm:max-w-2xl",
+  "2xl": "sm:max-w-[680px]",
 } as const;
 
 export interface ModalProps {
   open: boolean;
   onClose: () => void;
-  /** Optional: for compatibility with onOpenChange(boolean) */
   onOpenChange?: (open: boolean) => void;
   title?: React.ReactNode;
+  subtitle?: React.ReactNode;
   children: React.ReactNode;
   footer?: React.ReactNode;
-  size?: "sm" | "md" | "lg" | "xl";
+  size?: "sm" | "md" | "lg" | "xl" | "2xl";
   className?: string;
-  /** Hide the default close (X) button */
   hideCloseButton?: boolean;
-  /** When true, restricts modal height and enables scroll for content */
   scrollable?: boolean;
-  /** Optional data-testid for the modal card */
   "data-testid"?: string;
 }
 
@@ -43,11 +44,9 @@ function trapFocus(container: HTMLElement, e: KeyboardEvent) {
   if (e.key !== "Tab") return;
   const focusable = getFocusableElements(container);
   if (focusable.length === 0) return;
-
   const first = focusable[0];
   const last = focusable[focusable.length - 1];
   const active = document.activeElement as HTMLElement | null;
-
   if (e.shiftKey) {
     if (active === first) {
       e.preventDefault();
@@ -64,6 +63,7 @@ export function Modal({
   onClose,
   onOpenChange,
   title,
+  subtitle,
   children,
   footer,
   size = "md",
@@ -73,6 +73,7 @@ export function Modal({
   "data-testid": dataTestId,
 }: ModalProps) {
   const cardRef = React.useRef<HTMLDivElement>(null);
+  const prevActiveRef = React.useRef<HTMLElement | null>(null);
   const handleCloseRef = React.useRef(onClose);
   handleCloseRef.current = onClose;
 
@@ -80,6 +81,16 @@ export function Modal({
     handleCloseRef.current();
     onOpenChange?.(false);
   }, [onOpenChange]);
+
+  // Store focus before open, restore after close
+  React.useEffect(() => {
+    if (open) {
+      prevActiveRef.current = document.activeElement as HTMLElement | null;
+    } else if (prevActiveRef.current?.focus) {
+      prevActiveRef.current.focus();
+      prevActiveRef.current = null;
+    }
+  }, [open]);
 
   // Escape key
   React.useEffect(() => {
@@ -106,106 +117,155 @@ export function Modal({
   // Autofocus first input when opened
   React.useEffect(() => {
     if (!open || !cardRef.current) return;
-    const timer = requestAnimationFrame(() => {
+    const timer = setTimeout(() => {
       const firstInput = cardRef.current?.querySelector<HTMLElement>(
         'input:not([type="hidden"]), textarea, [role="combobox"]'
       );
       firstInput?.focus();
-    });
-    return () => cancelAnimationFrame(timer);
+    }, 100);
+    return () => clearTimeout(timer);
   }, [open]);
 
-  if (!open) return null;
-
-  const content = (
-    <>
-      {/* Backdrop: z-40, pointer-events-auto, closes on click */}
-      <div
-        className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm animate-in fade-in-0 duration-200"
-        style={{ animationDuration: "180ms" }}
-        aria-hidden
-        onClick={handleClose}
-      />
-      {/* Center wrapper: z-50, pointer-events-none so backdrop receives outside clicks */}
-      <div
-        className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none"
-        aria-hidden
-      >
-        {/* Modal card: pointer-events-auto, stops propagation so inside clicks don't close */}
-        <div
-          ref={cardRef}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby={title ? "modal-title" : undefined}
-          data-state={open ? "open" : "closed"}
-          className={cn(
-            "relative z-10 w-full pointer-events-auto",
-            "rounded-2xl border border-border bg-card text-card-foreground",
-            "shadow-xl shadow-black/20 dark:shadow-black/40",
-            "animate-in zoom-in-95 fade-in-0 duration-200",
-            SIZE_CLASSES[size],
-            scrollable && "flex flex-col max-h-[90vh] overflow-hidden",
-            className
-          )}
-          style={{ animationDuration: "180ms" }}
-          onClick={(e) => e.stopPropagation()}
-          data-testid={dataTestId}
-        >
-          {/* Subtle inner gradient overlay - decorative, pointer-events-none */}
-          <div
-            className="absolute inset-0 rounded-2xl pointer-events-none z-0"
-            style={{
-              background:
-                "linear-gradient(to bottom, hsl(var(--card)) 0%, hsl(var(--muted) / 0.3) 100%)",
-              opacity: 0.5,
-            }}
+  return createPortal(
+    <AnimatePresence mode="wait">
+      {open && (
+        <React.Fragment key="modal">
+          {/* Backdrop: dark overlay + blur */}
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={motionTransition.normal}
+            className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+            aria-hidden
+            onClick={handleClose}
           />
-          <div className={cn("relative z-10", scrollable ? "flex flex-col overflow-hidden flex-1 min-h-0" : "")}>
-            {/* Header: title + close button */}
-            {(title || !hideCloseButton) && (
-              <div className="flex items-start justify-between gap-4 px-6 pt-6 pb-0">
-                {title ? (
-                  <h2 id="modal-title" className="text-xl font-semibold font-display leading-tight">
-                    {title}
-                  </h2>
-                ) : (
-                  <span />
-                )}
-                {!hideCloseButton && (
-                  <button
-                    type="button"
-                    onClick={handleClose}
-                    className="rounded-md p-1.5 opacity-70 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 shrink-0"
-                    aria-label="Close"
-                    data-testid="modal-close"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                )}
-              </div>
-            )}
-            <div
+          {/* Center wrapper */}
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 pointer-events-none"
+            aria-hidden
+          >
+            {/* Modal card */}
+            <motion.div
+              ref={cardRef}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby={title ? "modal-title" : undefined}
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.96 }}
+              transition={motionTransition.normal}
               className={cn(
-                "px-6",
-                title || !hideCloseButton ? "pt-4" : "pt-6",
-                "pb-6",
-                scrollable && "overflow-y-auto flex-1 min-h-0"
+                "relative z-10 w-full pointer-events-auto overflow-hidden",
+                "rounded-2xl border border-border bg-background text-foreground",
+                "shadow-2xl shadow-black/25 dark:shadow-black/50",
+                "ring-1 ring-white/5 dark:ring-white/10",
+                "before:content-[''] before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-white/10 before:to-transparent before:pointer-events-none before:z-[1]",
+                SIZE_CLASSES[size],
+                scrollable && "flex flex-col max-h-[85vh] overflow-hidden",
+                className
               )}
+              onClick={(e) => e.stopPropagation()}
+              data-testid={dataTestId}
+              data-state={open ? "open" : "closed"}
             >
-              {children}
-            </div>
-            {footer !== undefined && footer !== null && footer !== false && (
-              <div className="px-6 pb-6 pt-4 flex flex-col-reverse sm:flex-row sm:justify-end gap-2 border-t border-border/50">
-                {footer}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    </>
-  );
+              <div className={cn("relative z-10", scrollable && "flex flex-col overflow-hidden flex-1 min-h-0")}>
+                {/* Sticky premium header */}
+                {(title || !hideCloseButton) && (
+                  <div
+                    className={cn(
+                      "sticky top-0 z-20 flex items-start justify-between gap-4",
+                      "px-6 sm:px-7 pt-6 sm:pt-7 pb-4",
+                      "border-b border-border/80",
+                      "bg-background/80 backdrop-blur-md",
+                      "rounded-t-2xl"
+                    )}
+                  >
+                    <div className="min-w-0 flex-1">
+                      {title && (
+                        <h2
+                          id="modal-title"
+                          className="text-xl font-semibold font-display tracking-tight text-foreground"
+                        >
+                          {title}
+                        </h2>
+                      )}
+                      {subtitle && (
+                        <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
+                      )}
+                    </div>
+                    {!hideCloseButton && (
+                      <PremiumPressable asChild>
+                        <button
+                          type="button"
+                          onClick={handleClose}
+                          className={cn(
+                            "rounded-lg p-2 -m-2 shrink-0",
+                            "text-muted-foreground hover:text-foreground hover:bg-muted/50",
+                            "focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
+                          )}
+                          aria-label="Close"
+                          data-testid="modal-close"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </PremiumPressable>
+                    )}
+                  </div>
+                )}
 
-  return createPortal(content, document.body);
+                {/* Scrollable content */}
+                <div
+                  className={cn(
+                    "px-6 sm:px-7 py-5 sm:py-6",
+                    scrollable && "overflow-y-auto flex-1 min-h-0 overscroll-contain",
+                    "[&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/20"
+                  )}
+                >
+                  {children}
+                </div>
+
+                {/* Sticky premium footer */}
+                {footer !== undefined && footer !== null && footer !== false && (
+                  <div
+                    className={cn(
+                      "sticky bottom-0 z-20",
+                      "px-6 sm:px-7 py-4 sm:py-5",
+                      "border-t border-border/80",
+                      "bg-gradient-to-t from-background via-background/95 to-background/80 backdrop-blur-md",
+                      "flex flex-col-reverse sm:flex-row sm:justify-end gap-3",
+                      "rounded-b-2xl"
+                    )}
+                  >
+                    {footer}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        </React.Fragment>
+      )}
+    </AnimatePresence>,
+    document.body
+  );
 }
 
 Modal.displayName = "Modal";
+
+/** Section wrapper for modal content. Provides consistent spacing. */
+export interface ModalSectionProps {
+  children: React.ReactNode;
+  title?: React.ReactNode;
+  className?: string;
+}
+
+export function ModalSection({ children, title, className }: ModalSectionProps) {
+  return (
+    <section className={cn("space-y-3", className)}>
+      {title && (
+        <h3 className="text-sm font-medium text-foreground tracking-tight">{title}</h3>
+      )}
+      {children}
+    </section>
+  );
+}

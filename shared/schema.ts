@@ -92,6 +92,24 @@ export const expenseShares = pgTable("expense_shares", {
   expenseParticipantUnique: unique().on(table.expenseId, table.participantId),
 }));
 
+export const notes = pgTable("notes", {
+  id: serial("id").primaryKey(),
+  barbecueId: integer("barbecue_id").references(() => barbecues.id, { onDelete: "cascade" }).notNull(),
+  participantId: integer("participant_id").references(() => participants.id, { onDelete: "cascade" }).notNull(),
+  title: text("title"),
+  body: text("body").notNull(),
+  pinned: boolean("pinned").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertNoteSchema = createInsertSchema(notes)
+  .omit({ id: true, createdAt: true, updatedAt: true })
+  .extend({
+    title: z.string().max(200).optional().nullable(),
+    body: z.string().min(1, "Note body is required").max(10000),
+  });
+
 export const friendships = pgTable("friendships", {
   id: serial("id").primaryKey(),
   requesterId: integer("requester_id").references(() => users.id, { onDelete: 'cascade' }).notNull(),
@@ -124,6 +142,13 @@ export type InsertExpense = z.infer<typeof insertExpenseSchema>;
 export type ExpenseWithParticipant = Expense & {
   participantName: string;
   participantUserId?: string | null;
+};
+
+export type Note = typeof notes.$inferSelect;
+export type InsertNote = z.infer<typeof insertNoteSchema>;
+
+export type NoteWithAuthor = Note & {
+  authorName: string;
 };
 
 export type Friendship = typeof friendships.$inferSelect;

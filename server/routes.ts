@@ -2,7 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
-import { users, expenses } from "@shared/schema";
+import { users, expenses, notes } from "@shared/schema";
 import { api } from "@shared/routes";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
@@ -495,6 +495,81 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get("/api/barbecues/:bbqId/expense-shares", async (req, res) => {
     const shares = await storage.getExpenseShares(Number(req.params.bbqId));
     res.json(shares);
+  });
+
+  // Notes (event-agnostic: eventId = barbecue id for parties/trips)
+  app.get(api.notes.list.path, async (req, res) => {
+    const eventId = Number(req.params.eventId);
+    const items = await storage.getNotes(eventId);
+    res.json(items);
+  });
+
+  app.post(api.notes.create.path, async (req, res) => {
+    try {
+      const eventId = Number(req.params.eventId);
+      const input = api.notes.create.input.parse(req.body);
+      const participant = await storage.getParticipant(input.participantId);
+      if (!participant || participant.barbecueId !== eventId) {
+        return res.status(403).json({ message: "Invalid participant for this event" });
+      }
+      const created = await storage.createNote({
+        barbecueId: eventId,
+        participantId: input.participantId,
+        title: input.title ?? null,
+        body: input.body,
+        pinned: input.pinned ?? false,
+      });
+      res.status(201).json(created);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        const first = err.errors[0];
+        const msg = first ? `${first.path.join(".")}: ${first.message}` : "Validation failed";
+        return res.status(400).json({ message: msg });
+      }
+      const message = err instanceof Error ? err.message : "Failed to create note";
+      if (process.env.NODE_ENV !== "production") {
+        console.error("[notes.create]", err);
+      }
+      return res.status(500).json({ message });
+    }
+  });
+
+  app.patch(api.notes.update.path, async (req, res) => {
+    try {
+      const noteId = Number(req.params.noteId);
+      const input = api.notes.update.input.parse(req.body);
+      const existing = await db.select().from(notes).where(eq(notes.id, noteId));
+      if (!existing[0]) return res.status(404).json({ message: "Note not found" });
+      const participant = await storage.getParticipant(existing[0].participantId);
+      const username = req.session.username;
+      if (username && participant?.userId && participant.userId !== username) {
+        return res.status(403).json({ message: "Can only edit your own notes" });
+      }
+      const updated = await storage.updateNote(noteId, input);
+      if (!updated) return res.status(404).json({ message: "Note not found" });
+      res.json(updated);
+    } catch (err) {
+      if (err instanceof z.ZodError) {
+        const first = err.errors[0];
+        const msg = first ? `${first.path.join(".")}: ${first.message}` : "Validation failed";
+        return res.status(400).json({ message: msg });
+      }
+      const message = err instanceof Error ? err.message : "Failed to update note";
+      return res.status(500).json({ message });
+    }
+  });
+
+  app.delete(api.notes.delete.path, async (req, res) => {
+    const noteId = Number(req.params.noteId);
+    const existing = await db.select().from(notes).where(eq(notes.id, noteId));
+    if (!existing[0]) return res.status(404).json({ message: "Note not found" });
+    const participant = await storage.getParticipant(existing[0].participantId);
+    const username = req.session.username;
+    if (username && participant?.userId && participant.userId !== username) {
+      return res.status(403).json({ message: "Can only delete your own notes" });
+    }
+    await storage.deleteNote(noteId);
+    res.status(204).send();
   });
 
   app.patch("/api/barbecues/:bbqId/expenses/:expenseId/share", requireAuth, async (req, res) => {

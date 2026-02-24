@@ -4,6 +4,7 @@ import { useCreateExpense, useUpdateExpense } from "@/hooks/use-expenses";
 import { useParticipants } from "@/hooks/use-participants";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
+import { PremiumPressable } from "@/components/ui/premium-pressable";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -128,19 +129,21 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
       scrollable
       footer={
         <>
-          <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
+          <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} className="w-full sm:w-auto">
             {t.modals.cancel}
           </Button>
-          <Button
-            type="submit"
-            form="add-expense-form"
-            disabled={isPending || !participantId || !item.trim() || !amount}
-            className="bg-accent text-accent-foreground font-bold"
-            data-testid="button-submit-expense"
-          >
+          <PremiumPressable asChild disabled={isPending || !participantId || !item.trim() || !amount}>
+            <Button
+              type="submit"
+              form="add-expense-form"
+              disabled={isPending || !participantId || !item.trim() || !amount}
+              className="w-full sm:w-auto bg-accent text-accent-foreground font-semibold shadow-lg shadow-accent/20 hover:shadow-accent/30"
+              data-testid="button-submit-expense"
+            >
             {isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
             {editingExpense ? t.modals.save : t.modals.add}
           </Button>
+          </PremiumPressable>
         </>
       }
       data-testid="modal-add-expense"

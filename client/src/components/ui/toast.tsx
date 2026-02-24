@@ -59,11 +59,10 @@ export function Toast({ item, onDismiss, onMouseEnter, onMouseLeave }: ToastProp
       onMouseLeave={() => onMouseLeave(item.id)}
       className={cn(
         "pointer-events-auto w-full rounded-xl border border-border bg-card text-card-foreground shadow-lg overflow-hidden",
-        "animate-in fade-in-0 slide-in-from-top-full duration-200",
-        "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-right-full data-[state=closed]:duration-200",
+        "animate-in fade-in-0 slide-in-from-top-full data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:slide-out-to-right-full",
+        "duration-[180ms] data-[state=closed]:duration-[180ms]",
         variant.accentClass
       )}
-      style={{ animationDuration: "180ms" }}
       data-toast-id={item.id}
     >
       <div className="flex items-start gap-3 p-4">

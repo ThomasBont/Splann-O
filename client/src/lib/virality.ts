@@ -4,6 +4,7 @@
  */
 
 import type { SettleCardData, RecapCardData } from "@/utils/shareCard";
+import { getCurrencySymbol } from "@/lib/currencies";
 
 export type SharePayloadType = "settle" | "recap" | "profileBadge";
 
@@ -38,7 +39,7 @@ export function generateSharePayload(
     }
     case "recap": {
       const d = data as unknown as RecapCardData;
-      const sym = d.currency === "USD" ? "$" : d.currency === "GBP" ? "£" : "€";
+      const sym = getCurrencySymbol(d.currency ?? "EUR");
       return {
         type: "recap",
         title: `${d.eventName} — Recap`,

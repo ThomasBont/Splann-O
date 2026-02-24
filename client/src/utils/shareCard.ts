@@ -29,6 +29,7 @@ export interface RecapCardData {
   totalSpent: number;
   participantCount: number;
   expenseCount: number;
+  participantNames?: string[];
   funStat?: {
     type: "biggest_spender" | "most_generous" | "total_expenses";
     label: string;
@@ -72,6 +73,7 @@ export function generateRecapCardData(
     totalSpent: number;
     participantCount: number;
     expenseCount: number;
+    participantNames?: string[];
     funStat?: { type: "biggest_spender" | "most_generous" | "total_expenses"; label: string; value: string };
   }
 ): RecapCardData {
@@ -80,6 +82,7 @@ export function generateRecapCardData(
     totalSpent: opts.totalSpent,
     participantCount: opts.participantCount,
     expenseCount: opts.expenseCount,
+    participantNames: opts.participantNames,
     funStat: opts.funStat,
     currency: event.currency ?? "EUR",
   };

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
-import { useLanguage, CURRENCIES, SELECTABLE_LANGUAGES, type CurrencyCode, convertCurrency } from "@/hooks/use-language";
+import { useLanguage, getCurrency, SELECTABLE_LANGUAGES, type CurrencyCode, convertCurrency } from "@/hooks/use-language";
 import { useAuth } from "@/hooks/use-auth";
 import {
   useParticipants, useCreateParticipant, useDeleteParticipant, useUpdateParticipantName,
@@ -17,13 +17,21 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { EventTabs, EventTabsContent, EventTabsList, EventTabsTrigger } from "@/components/event/EventTabs";
-import { Modal } from "@/components/ui/modal";
+import { Modal, ModalSection } from "@/components/ui/modal";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
+import { Switch } from "@/components/ui/switch";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AddPersonDialog } from "@/components/add-person-dialog";
 import { AddExpenseDialog } from "@/components/add-expense-dialog";
+import { CurrencyPicker } from "@/components/currency-picker";
 import { EventHeader } from "@/components/event/EventHeader";
 import { SettleUpModal } from "@/components/event/SettleUpModal";
 import { QuickAddChips } from "@/components/event/QuickAddChips";
@@ -67,6 +75,10 @@ import {
 import { getCategoriesForEvent, getCategoryDef } from "@/config/expenseCategories";
 import { getEventActivity } from "@/utils/eventActivity";
 import { EventActivityFeed } from "@/components/event/EventActivityFeed";
+import { NotesTab } from "@/components/event/NotesTab";
+import { ExpenseReactionBar } from "@/components/event/ExpenseReactionBar";
+import { AnimatedBalance } from "@/components/event/AnimatedBalance";
+import { useExpenseReactions } from "@/hooks/use-expense-reactions";
 import { getEventTheme } from "@/theme/useEventTheme";
 import { EventThemeProvider } from "@/themes/ThemeProvider";
 import { SignatureEffect } from "@/themes/SignatureEffect";
@@ -391,6 +403,8 @@ export default function Home() {
 
   const [area, setArea] = useState<"parties" | "trips">("parties");
   const [selectedBbqId, setSelectedBbqId] = useState<number | null>(null);
+  const reactionScopeId = selectedBbqId != null ? `ev-${selectedBbqId}` : "ev-none";
+  const { addReaction, getReactions } = useExpenseReactions(reactionScopeId);
   const [isNewBbqOpen, setIsNewBbqOpen] = useState(false);
   const [newBbqName, setNewBbqName] = useState("");
   const [newBbqDate, setNewBbqDate] = useState(new Date().toISOString().split('T')[0]);
@@ -479,9 +493,9 @@ export default function Home() {
     });
   };
   const currency = (selectedBbq?.currency as CurrencyCode) || "EUR";
-  const currencyInfo = CURRENCIES.find(c => c.code === currency) || CURRENCIES[0];
+  const currencyInfo = getCurrency(currency) ?? getCurrency("EUR")!;
   const [displayCurrency, setDisplayCurrency] = useState<CurrencyCode>(currency);
-  const displayCurrencyInfo = CURRENCIES.find(c => c.code === displayCurrency) || CURRENCIES[0];
+  const displayCurrencyInfo = getCurrency(displayCurrency) ?? getCurrency("EUR")!;
   const isCreator = !!(username && selectedBbq?.creatorId === username);
   const isPrivate = selectedBbq ? !selectedBbq.isPublic : false;
 
@@ -506,13 +520,6 @@ export default function Home() {
   useEffect(() => {
     setDisplayCurrency(currency);
   }, [currency]);
-
-  const getCurrencyLabel = (cur: typeof CURRENCIES[0]) => {
-    if (language === 'es') return cur.labelEs;
-    if (language === 'it') return cur.labelIt;
-    if (language === 'nl') return cur.labelNl;
-    return cur.label;
-  };
 
   const getMembershipStatus = (bbqId: number): { status: string; participantId: number } | null => {
     const m = memberships.find(m => m.bbqId === bbqId);
@@ -834,7 +841,7 @@ export default function Home() {
                                 {(p?.creatorName ?? "Someone")} {t.settleUp.participantBanner} 💸
                               </p>
                               <p className="text-[11px] text-muted-foreground">
-                                {t.settleUp.tapToSettle} {(CURRENCIES.find(c => c.code === (p?.currency ?? "EUR")) || CURRENCIES[0]).symbol}{(p?.amountOwed ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                {t.settleUp.tapToSettle} {(getCurrency(p?.currency ?? "EUR") ?? getCurrency("EUR"))!.symbol}{(p?.amountOwed ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                               </p>
                             </button>
                           );
@@ -967,7 +974,7 @@ export default function Home() {
               ) : (
                 barbecuesForArea.map((bbq: Barbecue) => {
                   const isSelected = bbq.id === selectedBbqId;
-                  const cur = CURRENCIES.find(c => c.code === bbq.currency) || CURRENCIES[0];
+                  const cur = getCurrency(bbq.currency) ?? getCurrency("EUR")!;
                   const isBbqCreator = !!(username && bbq.creatorId === username);
                   const membership = getMembershipStatus(bbq.id);
                   const memberStatus = membership?.status || null;
@@ -1146,9 +1153,9 @@ export default function Home() {
                 title={selectedBbq?.name ?? ""}
                 dateStr={selectedBbq?.date ? new Date(selectedBbq.date).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : undefined}
                 currencySymbol={displayCurrencyInfo.symbol}
-                currencyOptions={CURRENCIES.map((c) => ({ value: c.code, label: `${c.symbol} ${getCurrencyLabel(c)}` }))}
                 displayCurrency={displayCurrency}
                 onCurrencyChange={(v) => setDisplayCurrency(v as CurrencyCode)}
+                profileFavorites={user?.preferredCurrencyCodes}
                 onAddExpense={() => { setRecommendedExpenseTemplate(null); setEditingExpense(null); setIsAddExpenseOpen(true); }}
                 addExpenseLabel={t.addExpense}
                 isCreator={isCreator}
@@ -1561,59 +1568,67 @@ export default function Home() {
                       return (
                         <div
                           key={exp.id}
-                          className="flex items-center gap-3 rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] px-3 py-2.5 group shadow-[var(--shadow-sm)]"
+                          className="flex flex-col rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] px-3 py-2.5 group shadow-[var(--shadow-sm)]"
                           data-testid={`expense-item-${exp.id}`}
                         >
-                          <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-muted/40 dark:bg-muted/30">
-                            <IconComp className="w-4 h-4" style={{ color }} />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="font-medium text-sm truncate">{exp.item}</div>
-                            <div className="text-xs text-muted-foreground">
-                              {t.categories[exp.category as keyof typeof t.categories] || exp.category}
-                              {" · "}
-                              {exp.participantUserId ? (
-                                <button
-                                  type="button"
-                                  onClick={() => { setViewedProfileUsername(exp.participantUserId!); setIsProfileOpen(true); }}
-                                  className="hover:text-primary hover:underline"
-                                  data-testid={`link-expense-payer-${exp.id}`}
-                                >
-                                  {exp.participantName}
-                                </button>
-                              ) : (
-                                exp.participantName
-                              )}
+                          <div className="flex items-center gap-3">
+                            <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-muted/40 dark:bg-muted/30">
+                              <IconComp className="w-4 h-4" style={{ color }} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="font-medium text-sm truncate">{exp.item}</div>
+                              <div className="text-xs text-muted-foreground">
+                                {t.categories[exp.category as keyof typeof t.categories] || exp.category}
+                                {" · "}
+                                {exp.participantUserId ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => { setViewedProfileUsername(exp.participantUserId!); setIsProfileOpen(true); }}
+                                    className="hover:text-primary hover:underline"
+                                    data-testid={`link-expense-payer-${exp.id}`}
+                                  >
+                                    {exp.participantName}
+                                  </button>
+                                ) : (
+                                  exp.participantName
+                                )}
+                              </div>
+                            </div>
+                            {allowOptIn && myParticipant && (
+                              <button
+                                onClick={() => setExpenseShare.mutate({ expenseId: exp.id, in: !isInForExp })}
+                                disabled={setExpenseShare.isPending}
+                                className={`flex-shrink-0 text-xs font-semibold px-2 py-0.5 rounded border transition-colors ${
+                                  isInForExp ? 'bg-green-500/15 text-green-600 dark:text-green-400 border-green-500/25' : 'bg-muted/30 text-muted-foreground border-border/60 hover:border-border hover:bg-muted/50'
+                                }`}
+                                data-testid={`expense-share-toggle-${exp.id}`}
+                                title={isInForExp ? t.bbq.imOut : t.bbq.imIn}
+                              >
+                                {isInForExp ? t.bbq.imIn : t.bbq.imOut}
+                              </button>
+                            )}
+                            <div className="text-right flex-shrink-0">
+                              <div className="font-bold text-primary">{formatMoney(Number(exp.amount))}</div>
+                            </div>
+                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <Button size="icon" variant="ghost" className="w-7 h-7 text-muted-foreground hover:text-foreground"
+                                onClick={() => { setEditingExpense(exp); setIsAddExpenseOpen(true); }}
+                                data-testid={`button-edit-expense-${exp.id}`}>
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </Button>
+                              <Button size="icon" variant="ghost" className="w-7 h-7 text-muted-foreground hover:text-destructive"
+                                onClick={() => deleteExpense.mutate(exp.id)}
+                                data-testid={`button-delete-expense-${exp.id}`}>
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </Button>
                             </div>
                           </div>
-                          {allowOptIn && myParticipant && (
-                            <button
-                              onClick={() => setExpenseShare.mutate({ expenseId: exp.id, in: !isInForExp })}
-                              disabled={setExpenseShare.isPending}
-                              className={`flex-shrink-0 text-xs font-semibold px-2 py-0.5 rounded border transition-colors ${
-                                isInForExp ? 'bg-green-500/15 text-green-600 dark:text-green-400 border-green-500/25' : 'bg-muted/30 text-muted-foreground border-border/60 hover:border-border hover:bg-muted/50'
-                              }`}
-                              data-testid={`expense-share-toggle-${exp.id}`}
-                              title={isInForExp ? t.bbq.imOut : t.bbq.imIn}
-                            >
-                              {isInForExp ? t.bbq.imIn : t.bbq.imOut}
-                            </button>
-                          )}
-                          <div className="text-right flex-shrink-0">
-                            <div className="font-bold text-primary">{formatMoney(Number(exp.amount))}</div>
-                          </div>
-                          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Button size="icon" variant="ghost" className="w-7 h-7 text-muted-foreground hover:text-foreground"
-                              onClick={() => { setEditingExpense(exp); setIsAddExpenseOpen(true); }}
-                              data-testid={`button-edit-expense-${exp.id}`}>
-                              <Edit2 className="w-3.5 h-3.5" />
-                            </Button>
-                            <Button size="icon" variant="ghost" className="w-7 h-7 text-muted-foreground hover:text-destructive"
-                              onClick={() => deleteExpense.mutate(exp.id)}
-                              data-testid={`button-delete-expense-${exp.id}`}>
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </Button>
-                          </div>
+                          <ExpenseReactionBar
+                            expenseId={exp.id}
+                            reactions={getReactions(exp.id)}
+                            onReact={(emoji) => addReaction(exp.id, emoji)}
+                            reducedMotion={!!shouldReduceMotion}
+                          />
                         </div>
                       );
                     })}
@@ -1712,12 +1727,28 @@ export default function Home() {
                                 />
                               </div>
                             </div>
-                            <div className={`text-xs font-semibold px-2 py-0.5 rounded flex-shrink-0 ${
+                            <div className={`text-xs font-semibold px-2 py-0.5 rounded flex-shrink-0 transition-shadow duration-300 ${
                               isOver ? 'bg-green-500/15 text-green-600 dark:text-green-400' :
                               isUnder ? 'bg-red-500/15 text-red-600 dark:text-red-400' :
-                              'bg-muted/30 text-muted-foreground'
+                              'bg-green-500/10 text-green-600 dark:text-green-400 drop-shadow-[0_0_6px_rgba(34,197,94,0.25)]'
                             }`}>
-                              {isOver ? `+${formatMoney(b.balance)}` : isUnder ? formatMoney(b.balance) : '✓'}
+                              {isOver ? (
+                                <AnimatedBalance
+                                  value={b.balance}
+                                  format={(n) => `+${formatMoney(n)}`}
+                                  reducedMotion={!!shouldReduceMotion}
+                                  glowWhenZero={false}
+                                />
+                              ) : isUnder ? (
+                                <AnimatedBalance
+                                  value={b.balance}
+                                  format={formatMoney}
+                                  reducedMotion={!!shouldReduceMotion}
+                                  glowWhenZero={true}
+                                />
+                              ) : (
+                                "✓"
+                              )}
                             </div>
                           </div>
                         );
@@ -1740,6 +1771,7 @@ export default function Home() {
                       totalSpent,
                       participantCount,
                       expenseCount: expenses.length,
+                      participantNames: participants.map((p: Participant) => p.name),
                       funStat: biggestSpender?.paid
                         ? { type: "biggest_spender" as const, label: "Biggest spender", value: `${biggestSpender.name} (${formatMoney(biggestSpender.paid)})` }
                         : undefined,
@@ -1747,7 +1779,7 @@ export default function Home() {
                   );
                   return (
                     <div className="flex items-center justify-between gap-2 mb-2">
-                      <span className="text-xs text-muted-foreground">Share event recap</span>
+                      <span className="text-xs text-muted-foreground">{t.split.shareSummary}</span>
                       <ShareRecapActions
                         data={recapData}
                         theme={eventTheme}
@@ -1812,12 +1844,13 @@ export default function Home() {
                 </div>
               </EventTabsContent>
 
-              {/* Notes Tab — placeholder */}
+              {/* Notes Tab */}
               <EventTabsContent value="notes">
-                <div className="rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-6 text-center text-muted-foreground shadow-[var(--shadow-sm)]">
-                  <p className="text-sm">{t.tabs.notes} — coming soon.</p>
-                  <p className="text-xs mt-1">Add notes, reminders, or shared info for your event.</p>
-                </div>
+                <NotesTab
+                  eventId={selectedBbqId}
+                  myParticipantId={myParticipant?.id ?? null}
+                  canAddNote={!!myParticipant}
+                />
               </EventTabsContent>
 
               {/* Chat Tab — placeholder */}
@@ -1865,144 +1898,166 @@ export default function Home() {
         }
       </main>
 
-      {/* Create event dialog */}
+      {/* Create event dialog — premium section-based layout */}
       <Modal
         open={isNewBbqOpen}
         onClose={() => { setIsNewBbqOpen(false); setNewEventArea(area); setNewEventType(area === "trips" ? "city_trip" : "barbecue"); }}
         onOpenChange={(open) => { setIsNewBbqOpen(open); if (!open) { setNewEventArea(area); setNewEventType(area === "trips" ? "city_trip" : "barbecue"); } }}
         title={t.events.newEvent}
-        size="md"
+        subtitle={t.subtitle}
+        size="2xl"
+        scrollable
         footer={
-          <>
-            <Button variant="outline" onClick={() => setIsNewBbqOpen(false)}>{t.modals.cancel}</Button>
+          <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3 w-full">
+            <Button
+              variant="ghost"
+              onClick={() => setIsNewBbqOpen(false)}
+              className="w-full sm:w-auto order-2 sm:order-1"
+              data-testid="button-cancel-bbq"
+            >
+              {t.modals.cancel}
+            </Button>
             <Button
               onClick={handleCreateBbq}
               disabled={!newBbqName.trim() || createBbq.isPending}
-              className="bg-primary text-primary-foreground font-bold"
+              className="w-full sm:w-auto bg-primary text-primary-foreground font-semibold shadow-lg shadow-primary/20 hover:shadow-primary/30 hover:-translate-y-0.5 transition-all duration-150 order-1 sm:order-2"
               data-testid="button-create-bbq"
             >
               {createBbq.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : t.bbq.create}
             </Button>
-          </>
+          </div>
         }
         data-testid="dialog-new-bbq"
       >
-        <p className="text-sm text-muted-foreground mb-4">{t.subtitle}</p>
-        <div className="space-y-4">
-            <div className="space-y-2">
-              <Label>{t.nav.parties} / {t.nav.trips}</Label>
-              <div className="flex rounded-lg border border-white/10 overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => { setNewEventArea("parties"); setNewEventType("barbecue"); }}
-                  className={`flex-1 py-2.5 text-sm font-semibold transition-colors ${newEventArea === "parties" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-white/5"}`}
+        <div className="space-y-8">
+          {/* Section 1 — Event Basics */}
+          <ModalSection title={t.bbq.eventBasics}>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label className="text-muted-foreground">{t.nav.parties} / {t.nav.trips}</Label>
+                <div className="flex rounded-lg border border-border overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => { setNewEventArea("parties"); setNewEventType("barbecue"); }}
+                    className={`flex-1 py-2.5 text-sm font-semibold transition-colors ${newEventArea === "parties" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted/50"}`}
+                  >
+                    {t.nav.parties}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setNewEventArea("trips"); setNewEventType("city_trip"); }}
+                    className={`flex-1 py-2.5 text-sm font-semibold transition-colors ${newEventArea === "trips" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted/50"}`}
+                  >
+                    {t.nav.trips}
+                  </button>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-muted-foreground">Event type</Label>
+                <Select
+                  value={isValidEventType(newEventType) ? newEventType : (eventTypeOptions[0] ?? "barbecue")}
+                  onValueChange={setNewEventType}
                 >
-                  {t.nav.parties}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setNewEventArea("trips"); setNewEventType("city_trip"); }}
-                  className={`flex-1 py-2.5 text-sm font-semibold transition-colors ${newEventArea === "trips" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-white/5"}`}
-                >
-                  {t.nav.trips}
-                </button>
+                  <SelectTrigger data-testid="select-event-type" className="focus-visible:ring-2 focus-visible:ring-primary/40">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {newEventArea === "trips"
+                      ? TRIP_THEME_KEYS.map((key) => {
+                          const theme = getEventTheme("trip", key);
+                          const label = (t.eventTypes as Record<string, string>)[theme.labelKey] ?? theme.copy.tagline;
+                          return (
+                            <SelectItem key={key} value={key}>
+                              <span className="flex items-center gap-2">
+                                <span className="text-base leading-none" aria-hidden>{theme.icon}</span>
+                                {label}
+                              </span>
+                            </SelectItem>
+                          );
+                        })
+                      : PARTY_THEME_KEYS.map((key) => {
+                          const theme = getEventTheme("party", key);
+                          const label = (t.eventTypes as Record<string, string>)[theme.labelKey] ?? theme.copy.tagline;
+                          return (
+                            <SelectItem key={key} value={key}>
+                              <span className="flex items-center gap-2">
+                                <span className="text-base leading-none" aria-hidden>{theme.icon}</span>
+                                {label}
+                              </span>
+                            </SelectItem>
+                          );
+                        })}
+                  </SelectContent>
+                </Select>
+                {isValidEventType(newEventType) && (
+                  <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2 flex items-center gap-2">
+                    <span className="text-lg" aria-hidden>{getEventTheme(newEventArea === "trips" ? "trip" : "party", newEventType).icon}</span>
+                    <p className="text-xs text-muted-foreground">{getEventTheme(newEventArea === "trips" ? "trip" : "party", newEventType).copy.tagline}</p>
+                  </div>
+                )}
+              </div>
+              <div className="space-y-2">
+                <Label className="text-muted-foreground">{t.bbq.bbqName}</Label>
+                <Input
+                  placeholder={t.events.event}
+                  value={newBbqName}
+                  onChange={e => setNewBbqName(e.target.value)}
+                  onKeyDown={e => e.key === "Enter" && handleCreateBbq()}
+                  autoFocus
+                  data-testid="input-bbq-name"
+                  className="focus-visible:ring-2 focus-visible:ring-primary/40"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-muted-foreground">{t.bbq.date}</Label>
+                <Input
+                  type="date"
+                  value={newBbqDate}
+                  onChange={e => setNewBbqDate(e.target.value)}
+                  data-testid="input-bbq-date"
+                  className="focus-visible:ring-2 focus-visible:ring-primary/40"
+                />
               </div>
             </div>
-            <div className="space-y-2">
-              <Label>Event type</Label>
-              <Select
-                value={isValidEventType(newEventType) ? newEventType : (eventTypeOptions[0] ?? "barbecue")}
-                onValueChange={setNewEventType}
-              >
-                <SelectTrigger data-testid="select-event-type">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {newEventArea === "trips"
-                    ? TRIP_THEME_KEYS.map((key) => {
-                        const theme = getEventTheme("trip", key);
-                        const label = (t.eventTypes as Record<string, string>)[theme.labelKey] ?? theme.copy.tagline;
-                        return (
-                          <SelectItem key={key} value={key}>
-                            <span className="flex items-center gap-2">
-                              <span className="text-base leading-none" aria-hidden>{theme.icon}</span>
-                              {label}
-                            </span>
-                          </SelectItem>
-                        );
-                      })
-                    : PARTY_THEME_KEYS.map((key) => {
-                        const theme = getEventTheme("party", key);
-                        const label = (t.eventTypes as Record<string, string>)[theme.labelKey] ?? theme.copy.tagline;
-                        return (
-                          <SelectItem key={key} value={key}>
-                            <span className="flex items-center gap-2">
-                              <span className="text-base leading-none" aria-hidden>{theme.icon}</span>
-                              {label}
-                            </span>
-                          </SelectItem>
-                        );
-                      })}
-                </SelectContent>
-              </Select>
-              {isValidEventType(newEventType) && (
-                <div className="mt-2 rounded-lg border border-accent/20 bg-accent/5 px-3 py-2 flex items-center gap-2">
-                  <span className="text-lg" aria-hidden>{getEventTheme(newEventArea === "trips" ? "trip" : "party", newEventType).icon}</span>
-                  <p className="text-xs text-muted-foreground">{getEventTheme(newEventArea === "trips" ? "trip" : "party", newEventType).copy.tagline}</p>
-                </div>
-              )}
-            </div>
-            <div className="space-y-2">
-              <Label>{t.bbq.bbqName}</Label>
-              <Input
-                placeholder={t.events.event}
-                value={newBbqName}
-                onChange={e => setNewBbqName(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && handleCreateBbq()}
-                autoFocus
-                data-testid="input-bbq-name"
+          </ModalSection>
+
+          {/* Section 2 — Split Behavior */}
+          <ModalSection title={t.bbq.splitBehavior}>
+            <div className="flex items-center justify-between gap-4 rounded-xl border border-border/60 p-4 bg-muted/10">
+              <div className="space-y-0.5 min-w-0">
+                <Label htmlFor="new-bbq-flexible-split" className="text-sm font-medium cursor-pointer">
+                  {t.bbq.flexibleSplit}
+                </Label>
+                <p className="text-xs text-muted-foreground">{t.bbq.flexibleSplitDesc}</p>
+              </div>
+              <Switch
+                id="new-bbq-flexible-split"
+                checked={newBbqAllowOptIn}
+                onCheckedChange={setNewBbqAllowOptIn}
+                data-testid="switch-allow-opt-in-expenses"
               />
             </div>
+          </ModalSection>
+
+          {/* Section 3 — Privacy */}
+          <ModalSection title={t.bbq.privacy}>
             <div className="space-y-2">
-              <Label>{t.bbq.date}</Label>
-              <Input
-                type="date"
-                value={newBbqDate}
-                onChange={e => setNewBbqDate(e.target.value)}
-                data-testid="input-bbq-date"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label>{t.bbq.currency}</Label>
-              <Select value={newBbqCurrency} onValueChange={v => setNewBbqCurrency(v as CurrencyCode)}>
-                <SelectTrigger data-testid="select-bbq-currency">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {CURRENCIES.map(cur => (
-                    <SelectItem key={cur.code} value={cur.code}>
-                      {cur.symbol} — {getCurrencyLabel(cur)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label>{t.bbq.visibility}</Label>
-              <div className="flex rounded-lg border border-white/10 overflow-hidden">
+              <div className="flex rounded-lg border border-border overflow-hidden">
                 <button
+                  type="button"
                   onClick={() => setNewBbqIsPublic(true)}
-                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-semibold transition-colors ${
-                    newBbqIsPublic ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-white/5'
+                  className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-semibold transition-colors ${
+                    newBbqIsPublic ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted/50"
                   }`}
                   data-testid="button-visibility-public"
                 >
                   <Globe className="w-4 h-4" /> {t.bbq.publicEvent}
                 </button>
                 <button
+                  type="button"
                   onClick={() => setNewBbqIsPublic(false)}
-                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 text-sm font-semibold transition-colors ${
-                    newBbqIsPublic ? 'text-muted-foreground hover:bg-white/5' : 'bg-primary text-primary-foreground'
+                  className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-semibold transition-colors ${
+                    newBbqIsPublic ? "text-muted-foreground hover:bg-muted/50" : "bg-primary text-primary-foreground"
                   }`}
                   data-testid="button-visibility-private"
                 >
@@ -2011,23 +2066,27 @@ export default function Home() {
               </div>
               <p className="text-xs text-muted-foreground">{newBbqIsPublic ? t.bbq.publicDesc : t.bbq.privateDesc}</p>
             </div>
-            {newEventType === "barbecue" && (
-            <div className="flex items-start gap-3">
-              <input
-                type="checkbox"
-                id="new-bbq-opt-in"
-                checked={newBbqAllowOptIn}
-                onChange={e => setNewBbqAllowOptIn(e.target.checked)}
-                className="mt-1 rounded border-white/20"
-                data-testid="checkbox-allow-opt-in-expenses"
-              />
-              <div>
-                <Label htmlFor="new-bbq-opt-in" className="text-sm font-medium cursor-pointer">{t.bbq.allowOptInExpenses}</Label>
-                <p className="text-xs text-muted-foreground mt-0.5">{t.bbq.allowOptInExpensesDesc}</p>
-              </div>
-            </div>
-            )}
-          </div>
+          </ModalSection>
+
+          {/* Section 4 — Advanced (collapsible) */}
+          <Accordion type="single" collapsible className="rounded-xl border border-border/60 overflow-hidden">
+            <AccordionItem value="advanced" className="border-0">
+              <AccordionTrigger className="px-4 py-3 hover:no-underline hover:bg-muted/30 [&[data-state=open]>svg]:rotate-180">
+                {t.bbq.advancedOptions}
+              </AccordionTrigger>
+              <AccordionContent className="px-4 pb-4 pt-0">
+                <div className="space-y-2">
+                  <Label className="text-muted-foreground">{t.bbq.currency}</Label>
+                  <CurrencyPicker
+                    value={newBbqCurrency}
+                    onChange={(v) => setNewBbqCurrency(v as CurrencyCode)}
+                    data-testid="select-bbq-currency"
+                  />
+                </div>
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+        </div>
       </Modal>
 
       {/* Settle Up Modal */}
@@ -2075,7 +2134,7 @@ export default function Home() {
       />
 
       {showSettledConfetti && (
-        <ConfettiCelebration onComplete={() => setShowSettledConfetti(false)} />
+        <ConfettiCelebration onComplete={() => setShowSettledConfetti(false)} reducedMotion={!!shouldReduceMotion} />
       )}
 
       {/* Profile / Friends Dialog */}

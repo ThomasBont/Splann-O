@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from "react";
-import { useLanguage, CURRENCIES, type CurrencyCode } from "@/hooks/use-language";
+import { useLanguage, getCurrency, CoreCurrencies, type CurrencyCode } from "@/hooks/use-language";
 import { useTheme } from "@/hooks/use-theme";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,6 +36,11 @@ import { DemoShareCard } from "@/components/basic/DemoShareCard";
 import { ConfettiCelebration } from "@/components/basic/ConfettiCelebration";
 import { downloadCardAsImage } from "@/utils/exportCard";
 import { useToast } from "@/hooks/use-toast";
+import { useReducedMotion, motion } from "framer-motion";
+import { motionTransition } from "@/lib/motion";
+import { ExpenseReactionBar } from "@/components/event/ExpenseReactionBar";
+import { AnimatedBalance } from "@/components/event/AnimatedBalance";
+import { useExpenseReactions } from "@/hooks/use-expense-reactions";
 
 type Participant = { id: string; name: string };
 type Expense = { id: string; description: string; amount: number; paidById: string };
@@ -86,7 +91,7 @@ function saveStored(
 function loadStoredCurrency(): CurrencyCode {
   try {
     const raw = localStorage.getItem(STORAGE_KEY_CURRENCY);
-    if (raw && CURRENCIES.some((c) => c.code === raw)) return raw as CurrencyCode;
+    if (raw && CoreCurrencies.some((c) => c.code === raw)) return raw as CurrencyCode;
   } catch {}
   return "EUR";
 }
@@ -95,11 +100,8 @@ function uuid() {
   return crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-function getCurrencyLabel(cur: (typeof CURRENCIES)[0], lang: string): string {
-  if (lang === "es") return cur.labelEs;
-  if (lang === "it") return cur.labelIt;
-  if (lang === "nl") return cur.labelNl;
-  return cur.label;
+function getCurrencyLabel(cur: { code: string; symbol: string; name: string }): string {
+  return cur.name;
 }
 
 const LOCKED_TABS = [
@@ -114,6 +116,8 @@ export default function Basic() {
   const { theme, setPreference } = useTheme();
   const { toast } = useToast();
   const shareCardRef = useRef<HTMLDivElement>(null);
+  const shouldReduceMotion = useReducedMotion();
+  const { addReaction, getReactions, hydrate } = useExpenseReactions("basic-demo");
 
   const [scenarioIndex, setScenarioIndex] = useState(0);
   const [showConfetti, setShowConfetti] = useState(false);
@@ -160,7 +164,7 @@ export default function Basic() {
 
   const [currency, setCurrency] = useState<CurrencyCode>(loadStoredCurrency);
 
-  const { symbol } = CURRENCIES.find((c) => c.code === currency) ?? CURRENCIES[0];
+  const { symbol } = getCurrency(currency) ?? CoreCurrencies[0];
 
   const persistCurrency = (code: CurrencyCode) => {
     setCurrency(code);
@@ -185,6 +189,13 @@ export default function Basic() {
     });
     setParticipantColors(colors);
     setScenarioTitle(scenario.title);
+    // Seed fake reactions for first few expenses
+    const fakeReactions: Record<string, Record<string, number>> = {};
+    state.expenses.slice(0, 3).forEach((e, i) => {
+      const emojis = ["👍", "❤️", "🔥"] as const;
+      fakeReactions[e.id] = { [emojis[i]]: i + 1 };
+    });
+    hydrate(fakeReactions);
   };
 
   const cycleScenario = () => {
@@ -306,7 +317,7 @@ export default function Basic() {
   return (
     <div className="min-h-screen bg-background flex flex-col">
       {showConfetti && (
-        <ConfettiCelebration onComplete={() => setShowConfetti(false)} />
+        <ConfettiCelebration onComplete={() => setShowConfetti(false)} reducedMotion={!!shouldReduceMotion} />
       )}
 
       {/* Demo badge */}
@@ -345,9 +356,9 @@ export default function Basic() {
             onChange={(e) => persistCurrency(e.target.value as CurrencyCode)}
             className="h-8 rounded-lg border border-input bg-background px-2 text-sm text-foreground"
           >
-            {CURRENCIES.map((c) => (
+            {CoreCurrencies.map((c) => (
               <option key={c.code} value={c.code}>
-                {c.symbol} {getCurrencyLabel(c, language)}
+                {c.symbol} {getCurrencyLabel(c)}
               </option>
             ))}
           </select>
@@ -447,50 +458,58 @@ export default function Basic() {
             {expenses.map((e) => (
               <li
                 key={e.id}
-                className="flex flex-wrap items-center gap-2 p-3 rounded-xl bg-card/40 border border-border"
+                className="flex flex-col gap-2 p-3 rounded-xl bg-card/40 border border-border"
               >
-                <Input
-                  placeholder={t.modals.itemLabel}
-                  value={e.description}
-                  onChange={(ev) =>
-                    updateExpense(e.id, { description: ev.target.value })
-                  }
-                  className="w-28 sm:w-32 min-w-0 shrink"
+                <div className="flex flex-wrap items-center gap-2">
+                  <Input
+                    placeholder={t.modals.itemLabel}
+                    value={e.description}
+                    onChange={(ev) =>
+                      updateExpense(e.id, { description: ev.target.value })
+                    }
+                    className="w-28 sm:w-32 min-w-0 shrink"
+                  />
+                  <Input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    placeholder={`${symbol}`}
+                    value={e.amount || ""}
+                    onChange={(ev) =>
+                      updateExpense(e.id, {
+                        amount: parseFloat(ev.target.value) || 0,
+                      })
+                    }
+                    className="w-20"
+                  />
+                  <select
+                    value={e.paidById}
+                    onChange={(ev) =>
+                      updateExpense(e.id, { paidById: ev.target.value })
+                    }
+                    className="h-9 rounded-lg border border-input bg-background px-2 text-sm flex-1 min-w-[100px]"
+                  >
+                    {participants.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name || t.modals.nameLabel}
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="shrink-0 text-muted-foreground hover:text-destructive"
+                    onClick={() => removeExpense(e.id)}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </div>
+                <ExpenseReactionBar
+                  expenseId={e.id}
+                  reactions={getReactions(e.id)}
+                  onReact={(emoji) => addReaction(e.id, emoji)}
+                  reducedMotion={!!shouldReduceMotion}
                 />
-                <Input
-                  type="number"
-                  min={0}
-                  step={0.01}
-                  placeholder={`${symbol}`}
-                  value={e.amount || ""}
-                  onChange={(ev) =>
-                    updateExpense(e.id, {
-                      amount: parseFloat(ev.target.value) || 0,
-                    })
-                  }
-                  className="w-20"
-                />
-                <select
-                  value={e.paidById}
-                  onChange={(ev) =>
-                    updateExpense(e.id, { paidById: ev.target.value })
-                  }
-                  className="h-9 rounded-lg border border-input bg-background px-2 text-sm flex-1 min-w-[100px]"
-                >
-                  {participants.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name || t.modals.nameLabel}
-                    </option>
-                  ))}
-                </select>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="shrink-0 text-muted-foreground hover:text-destructive"
-                  onClick={() => removeExpense(e.id)}
-                >
-                  <Trash2 className="w-4 h-4" />
-                </Button>
               </li>
             ))}
           </ul>
@@ -500,14 +519,14 @@ export default function Basic() {
           <section className="rounded-2xl border border-border bg-card/60 p-4 sm:p-5 space-y-3">
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">{t.totalSpent}</span>
-              <span className="font-semibold">
+              <span className="font-semibold tabular-nums">
                 {symbol}
                 {total.toFixed(2)}
               </span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">{t.fairShare}</span>
-              <span className="font-semibold">
+              <span className="font-semibold tabular-nums">
                 {symbol}
                 {fairShare.toFixed(2)}
               </span>
@@ -526,8 +545,11 @@ export default function Basic() {
                 </p>
                 <ul className="space-y-2">
                   {settlements.map((s, i) => (
-                    <li
+                    <motion.li
                       key={i}
+                      initial={shouldReduceMotion ? undefined : { opacity: 0, y: 4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ ...motionTransition.normal, delay: i * 0.05 }}
                       className="flex items-center gap-2 text-sm p-2 rounded-lg bg-muted/30"
                     >
                       <span className="font-medium text-red-500 dark:text-red-400">
@@ -537,11 +559,14 @@ export default function Basic() {
                       <span className="font-medium text-green-600 dark:text-green-400">
                         {s.to}
                       </span>
-                      <span className="ml-auto font-semibold">
-                        {symbol}
-                        {s.amount.toFixed(2)}
+                      <span className="ml-auto font-semibold tabular-nums">
+                        <AnimatedBalance
+                          value={s.amount}
+                          format={(n) => `${symbol}${n.toFixed(2)}`}
+                          reducedMotion={!!shouldReduceMotion}
+                        />
                       </span>
-                    </li>
+                    </motion.li>
                   ))}
                 </ul>
               </div>
@@ -554,7 +579,7 @@ export default function Basic() {
               onClick={handleShare}
             >
               <Camera className="w-4 h-4 mr-2" />
-              {t.basic.shareThisSplit}
+              {t.basic.shareSummary}
             </Button>
           </section>
         )}
@@ -574,6 +599,7 @@ export default function Basic() {
               }))}
               settlements={settlements}
               symbol={symbol}
+              total={total}
             />
         </div>
 

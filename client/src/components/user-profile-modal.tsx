@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useLanguage } from "@/hooks/use-language";
 import { useAuth } from "@/hooks/use-auth";
-import { CURRENCIES } from "@/hooks/use-language";
+import { CoreCurrencies } from "@/hooks/use-language";
 import {
   useFriends,
   useFriendRequests,
@@ -35,6 +35,7 @@ import {
   Receipt,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { motionTransition } from "@/lib/motion";
 import type { FriendInfo } from "@shared/schema";
 
 function getInitials(displayName: string | null, username: string): string {
@@ -108,9 +109,10 @@ export function UserProfileModal({ open, onOpenChange, username: usernameProp, o
       open={open}
       onClose={() => onOpenChange(false)}
       onOpenChange={onOpenChange}
+      title={displayUser ? (isOwnProfile ? t.auth.profile : displayUser.displayName || displayUser.username) : undefined}
       size="lg"
       scrollable
-      className="sm:max-w-md bg-card border-border"
+      className="sm:max-w-md"
       data-testid="dialog-user-profile"
     >
       {profileLoading && !displayUser ? (
@@ -309,7 +311,7 @@ export function UserProfileModal({ open, onOpenChange, username: usernameProp, o
                   </div>
                   <AnimatePresence mode="wait">
                     {searchQuery.length >= 2 && (
-                      <motion.div key="search-results" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-1">
+                      <motion.div key="search-results" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={motionTransition.normal} className="space-y-1">
                         <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">{t.friends.addFriend}</p>
                         {searchLoading ? (
                           <div className="flex justify-center py-3"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
@@ -421,25 +423,25 @@ export function UserProfileModal({ open, onOpenChange, username: usernameProp, o
                     {t.user.preferredCurrencies}
                   </p>
                   <div className="flex flex-wrap gap-2">
-                    {CURRENCIES.map((cur) => {
+                    {CoreCurrencies.map((cur) => {
                       const checked = authUser?.preferredCurrencyCodes?.length ? authUser.preferredCurrencyCodes.includes(cur.code) : true;
                       return (
                         <label key={cur.code} className="flex items-center gap-2 cursor-pointer">
                           <Checkbox
                             checked={checked}
                             onCheckedChange={(checkedVal) => {
-                              const next = authUser?.preferredCurrencyCodes?.length ? [...authUser.preferredCurrencyCodes] : CURRENCIES.map((c) => c.code);
+                              const next = authUser?.preferredCurrencyCodes?.length ? [...authUser.preferredCurrencyCodes] : CoreCurrencies.map((c) => c.code);
                               const newList = checkedVal ? (next.includes(cur.code) ? next : [...next, cur.code]) : next.filter((c) => c !== cur.code);
-                              updateProfile.mutate({ preferredCurrencyCodes: newList.length === CURRENCIES.length ? null : newList });
+                              updateProfile.mutate({ preferredCurrencyCodes: newList.length === CoreCurrencies.length ? null : newList });
                             }}
                           />
-                          <span className="text-sm">{cur.code}</span>
+                          <span className="text-sm">{cur.symbol} {cur.code}</span>
                         </label>
                       );
                     })}
                   </div>
                   <p className="text-[11px] text-muted-foreground mt-2">
-                    {!authUser?.preferredCurrencyCodes?.length ? "All currencies shown by default." : "Currencies to display in events."}
+                    {!authUser?.preferredCurrencyCodes?.length ? "All common currencies shown by default." : "Currencies to display in events."}
                   </p>
                 </div>
               </TabsContent>

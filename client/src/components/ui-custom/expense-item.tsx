@@ -1,4 +1,5 @@
 import { motion } from "framer-motion";
+import { motionTransition } from "@/lib/motion";
 import { Edit2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useLanguage } from "@/hooks/use-language";
@@ -35,7 +36,7 @@ export function ExpenseItem({ id, category, item, amount, participantName, onEdi
     <motion.div
       initial={{ opacity: 0, x: -10 }}
       animate={{ opacity: 1, x: 0 }}
-      transition={{ duration: 0.3, delay: delay * 0.05 }}
+      transition={{ ...motionTransition.normal, delay: delay * 0.05 }}
       className={`bg-card/50 border border-white/5 rounded-lg p-4 flex items-center gap-4 hover:bg-card transition-colors group border-l-4 ${CATEGORY_COLORS[category] || 'border-l-gray-500'}`}
     >
       <div className="flex-1 min-w-0">

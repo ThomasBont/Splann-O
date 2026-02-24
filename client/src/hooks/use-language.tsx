@@ -10,22 +10,14 @@ import { createContext, useContext, useState, ReactNode } from "react";
 
 export type Language = "en" | "es" | "it" | "nl";
 
-export type CurrencyCode = "EUR" | "USD" | "ARS" | "GBP" | "MXN";
+/** Currency code (ISO 4217). Use string for any code; legacy union kept for compat. */
+export type CurrencyCode = string;
 
-export const CURRENCIES: {
-  code: CurrencyCode;
-  symbol: string;
-  label: string;
-  labelEs: string;
-  labelIt: string;
-  labelNl: string;
-}[] = [
-  { code: "EUR", symbol: "€", label: "Euro", labelEs: "Euro", labelIt: "Euro", labelNl: "Euro" },
-  { code: "USD", symbol: "$", label: "US Dollar", labelEs: "Dólar", labelIt: "Dollaro", labelNl: "Dollar" },
-  { code: "ARS", symbol: "AR$", label: "Argentine Peso", labelEs: "Peso Argentino", labelIt: "Peso Argentino", labelNl: "Argentijnse Peso" },
-  { code: "GBP", symbol: "£", label: "British Pound", labelEs: "Libra Esterlina", labelIt: "Sterlina", labelNl: "Pond Sterling" },
-  { code: "MXN", symbol: "MX$", label: "Mexican Peso", labelEs: "Peso Mexicano", labelIt: "Peso Messicano", labelNl: "Mexicaanse Peso" },
-];
+export { getCurrency, getCurrencyLabel, getCurrencyLabelShort, getCurrencySymbol, CoreCurrencies, AllCurrencies } from "@/lib/currencies";
+import { CoreCurrencies } from "@/lib/currencies";
+
+/** Legacy compatibility. Use CoreCurrencies from @/lib/currencies for full list. */
+export const CURRENCIES = CoreCurrencies;
 
 export const LANGUAGES: { code: Language; label: string }[] = [
   { code: "en", label: "EN" },
@@ -48,17 +40,31 @@ export const SELECTABLE_LANGUAGES = LANGUAGES.filter((l) =>
   (ENABLED_LANGUAGES as readonly string[]).includes(l.code)
 );
 
-export const EUR_RATES: Record<CurrencyCode, number> = {
+/** Approximate rates to EUR. Unknown codes fall back to 1. */
+export const EUR_RATES: Record<string, number> = {
   EUR: 1,
   USD: 1.08,
   ARS: 1050,
   GBP: 0.85,
   MXN: 18.0,
+  CHF: 0.95,
+  JPY: 165,
+  CAD: 1.47,
+  AUD: 1.65,
+  CNY: 7.8,
+  BRL: 5.4,
+  INR: 90,
+  KRW: 1450,
+  SEK: 11.3,
+  NOK: 11.5,
+  DKK: 7.45,
 };
 
 export function convertCurrency(amount: number, from: CurrencyCode, to: CurrencyCode): number {
-  const inEUR = amount / EUR_RATES[from];
-  return inEUR * EUR_RATES[to];
+  const fromRate = EUR_RATES[from] ?? 1;
+  const toRate = EUR_RATES[to] ?? 1;
+  const inEUR = amount / fromRate;
+  return inEUR * toRate;
 }
 
 interface Translations {
@@ -153,6 +159,27 @@ interface Translations {
     expenseAddFailed: string;
     profileSaved: string;
     linkCopied: string;
+    addNoteTitle: string;
+    editNoteTitle: string;
+    noteTitlePlaceholder: string;
+    noteBodyPlaceholder: string;
+    noteBodyRequired: string;
+    pinNote: string;
+    noteAdded: string;
+    noteUpdated: string;
+    noteDeleted: string;
+  };
+  notes: {
+    pinnedNote: string;
+    emptyTitle: string;
+    emptySubtitle: string;
+    addNoteCta: string;
+    justNow: string;
+    minutesAgo: string;
+    hoursAgo: string;
+    daysAgo: string;
+    by: string;
+    deleteConfirm: string;
   };
   split: {
     contributions: string;
@@ -165,6 +192,7 @@ interface Translations {
     shareImage: string;
     copyImage: string;
     download: string;
+    shareSummary: string;
   };
   settleUp: {
     cta: string;
@@ -224,6 +252,12 @@ interface Translations {
     yourShare: string;
     allowOptInExpenses: string;
     allowOptInExpensesDesc: string;
+    advancedOptions: string;
+    flexibleSplit: string;
+    flexibleSplitDesc: string;
+    eventBasics: string;
+    splitBehavior: string;
+    privacy: string;
     imIn: string;
     imOut: string;
     optInExpenseLabel: string;
@@ -389,6 +423,7 @@ interface Translations {
     whoOwesWho: string;
     tryAnotherScenario: string;
     shareThisSplit: string;
+    shareSummary: string;
     allSettledStillFriends: string;
     readyToUseCta: string;
     continueWithout: string;
@@ -532,11 +567,18 @@ const translations: Record<Language, Translations> = {
       cancel: "Cancel", add: "Add", save: "Save Changes",
       createCustomCategory: "+ Create custom category…",
       expenseAdded: "Expense added", expenseUpdated: "Expense updated", expenseAddFailed: "Couldn't add expense", profileSaved: "Profile saved", linkCopied: "Link copied",
+      addNoteTitle: "Add Note", editNoteTitle: "Edit Note", noteTitlePlaceholder: "Title (optional)", noteBodyPlaceholder: "Write your note…",
+      noteBodyRequired: "Note body is required", pinNote: "Pin to top", noteAdded: "Note added", noteUpdated: "Note updated", noteDeleted: "Note deleted",
+    },
+    notes: {
+      pinnedNote: "Pinned note", emptyTitle: "No notes yet", emptySubtitle: "Add reminders, ideas, or shared info for your event.",
+      addNoteCta: "Add note", justNow: "Just now", minutesAgo: "{{n}} min ago", hoursAgo: "{{n}} hr ago", daysAgo: "{{n}} days ago", by: "by",
+      deleteConfirm: "Delete this note?",
     },
     split: {
       contributions: "Individual Contributions", settlement: "Settlement Plan",
-      owes: "owes", allSettled: "All settled up!", allSettledStillFriends: "All settled. Friendship preserved.", overpaid: "Overpaid", underpaid: "Underpaid",
-      shareImage: "Share image", copyImage: "Copy image", download: "Download",
+      owes: "owes", allSettled: "All settled up!", allSettledStillFriends: "All settled. Friendship intact 🎉", overpaid: "Overpaid", underpaid: "Underpaid",
+      shareImage: "Share image", copyImage: "Copy image", download: "Download", shareSummary: "Share summary",
     },
     settleUp: {
       cta: "Ready to settle?",
@@ -577,6 +619,12 @@ const translations: Record<Language, Translations> = {
       yourShare: "Your share",
       allowOptInExpenses: "Allow participants to choose which expenses they pay for",
       allowOptInExpensesDesc: "Participants can opt in or out per expense (e.g. skip meat or transport).",
+      advancedOptions: "Advanced options",
+      flexibleSplit: "Flexible split",
+      flexibleSplitDesc: "Participants can choose which expenses they join",
+      eventBasics: "Event basics",
+      splitBehavior: "Split behavior",
+      privacy: "Privacy",
       imIn: "I'm in",
       imOut: "I'm out",
       optInExpenseLabel: "Participants opt in",
@@ -719,7 +767,8 @@ const translations: Record<Language, Translations> = {
       whoOwesWho: "Who owes who?",
       tryAnotherScenario: "Try another scenario",
       shareThisSplit: "Share this split",
-      allSettledStillFriends: "All settled. Still friends",
+      shareSummary: "Share summary",
+      allSettledStillFriends: "All settled. Friendship intact 🎉",
       readyToUseCta: "Ready to use this with real friends?",
       continueWithout: "Continue without account",
       unlockFull: "Unlock full version",
@@ -849,11 +898,18 @@ const translations: Record<Language, Translations> = {
       cancel: "Cancelar", add: "Agregar", save: "Guardar Cambios",
       createCustomCategory: "+ Crear categoría personalizada…",
       expenseAdded: "Gasto agregado", expenseUpdated: "Gasto actualizado", expenseAddFailed: "No se pudo agregar el gasto", profileSaved: "Perfil guardado", linkCopied: "Enlace copiado",
+      addNoteTitle: "Agregar Nota", editNoteTitle: "Editar Nota", noteTitlePlaceholder: "Título (opcional)", noteBodyPlaceholder: "Escribe tu nota…",
+      noteBodyRequired: "El contenido es obligatorio", pinNote: "Fijar arriba", noteAdded: "Nota agregada", noteUpdated: "Nota actualizada", noteDeleted: "Nota eliminada",
+    },
+    notes: {
+      pinnedNote: "Nota fijada", emptyTitle: "Sin notas aún", emptySubtitle: "Agrega recordatorios, ideas o información compartida.",
+      addNoteCta: "Agregar nota", justNow: "Ahora mismo", minutesAgo: "Hace {{n}} min", hoursAgo: "Hace {{n}} h", daysAgo: "Hace {{n}} días", by: "por",
+      deleteConfirm: "¿Eliminar esta nota?",
     },
     split: {
       contributions: "Contribuciones Individuales", settlement: "Plan de Pagos",
       owes: "le debe a", allSettled: "¡Todo saldado!", allSettledStillFriends: "Todo saldado. Amistad preservada.", overpaid: "Pagó de más", underpaid: "Debe",
-      shareImage: "Compartir imagen", copyImage: "Copiar imagen", download: "Descargar",
+      shareImage: "Compartir imagen", copyImage: "Copiar imagen", download: "Descargar", shareSummary: "Compartir resumen",
     },
     settleUp: {
       cta: "¿Listo para saldar?",
@@ -894,6 +950,12 @@ const translations: Record<Language, Translations> = {
       yourShare: "Tu cuota",
       allowOptInExpenses: "Permitir que los participantes elijan en qué gastos participan",
       allowOptInExpensesDesc: "Cada participante puede sumarse o no a cada gasto (ej. carne o transporte).",
+      advancedOptions: "Opciones avanzadas",
+      flexibleSplit: "Reparto flexible",
+      flexibleSplitDesc: "Los participantes pueden elegir en qué gastos participan",
+      eventBasics: "Datos del evento",
+      splitBehavior: "Reparto",
+      privacy: "Privacidad",
       imIn: "Me sumo",
       imOut: "No me sumo",
       optInExpenseLabel: "Los participantes se suman",
@@ -1036,6 +1098,7 @@ const translations: Record<Language, Translations> = {
       whoOwesWho: "¿Quién le debe a quién?",
       tryAnotherScenario: "Probar otro escenario",
       shareThisSplit: "Compartir este reparto",
+      shareSummary: "Compartir resumen",
       allSettledStillFriends: "Todo saldado. Siguen amigos",
       readyToUseCta: "¿Listo para usarlo con amigos de verdad?",
       continueWithout: "Seguir sin cuenta",
@@ -1166,11 +1229,18 @@ const translations: Record<Language, Translations> = {
       cancel: "Annulla", add: "Aggiungi", save: "Salva",
       createCustomCategory: "+ Crea categoria personalizzata…",
       expenseAdded: "Spesa aggiunta", expenseUpdated: "Spesa aggiornata", expenseAddFailed: "Impossibile aggiungere la spesa", profileSaved: "Profilo salvato", linkCopied: "Link copiato",
+      addNoteTitle: "Aggiungi Nota", editNoteTitle: "Modifica Nota", noteTitlePlaceholder: "Titolo (opzionale)", noteBodyPlaceholder: "Scrivi la tua nota…",
+      noteBodyRequired: "Il contenuto è obbligatorio", pinNote: "Fissa in alto", noteAdded: "Nota aggiunta", noteUpdated: "Nota aggiornata", noteDeleted: "Nota eliminata",
+    },
+    notes: {
+      pinnedNote: "Nota fissa", emptyTitle: "Nessuna nota", emptySubtitle: "Aggiungi promemoria, idee o informazioni condivise.",
+      addNoteCta: "Aggiungi nota", justNow: "Adesso", minutesAgo: "{{n}} min fa", hoursAgo: "{{n}} ore fa", daysAgo: "{{n}} giorni fa", by: "di",
+      deleteConfirm: "Eliminare questa nota?",
     },
     split: {
       contributions: "Contributi Individuali", settlement: "Piano di Rimborso",
       owes: "deve a", allSettled: "Tutto saldato!", allSettledStillFriends: "Tutto saldato. Amicizia preservata.", overpaid: "Eccedenza", underpaid: "Debito",
-      shareImage: "Condividi immagine", copyImage: "Copia immagine", download: "Scarica",
+      shareImage: "Condividi immagine", copyImage: "Copia immagine", download: "Scarica", shareSummary: "Condividi riepilogo",
     },
     settleUp: {
       cta: "Pronto a saldare?",
@@ -1211,6 +1281,12 @@ const translations: Record<Language, Translations> = {
       yourShare: "La tua quota",
       allowOptInExpenses: "Permetti ai partecipanti di scegliere per quali spese pagare",
       allowOptInExpensesDesc: "Ogni partecipante può optare per ogni spesa (es. carne o trasporto).",
+      advancedOptions: "Opzioni avanzate",
+      flexibleSplit: "Split flessibile",
+      flexibleSplitDesc: "I partecipanti possono scegliere a quali spese partecipare",
+      eventBasics: "Dati dell'evento",
+      splitBehavior: "Divisione",
+      privacy: "Privacy",
       imIn: "Partecipo",
       imOut: "Non partecipo",
       optInExpenseLabel: "I partecipanti si uniscono",
@@ -1353,6 +1429,7 @@ const translations: Record<Language, Translations> = {
       whoOwesWho: "Chi deve a chi?",
       tryAnotherScenario: "Prova un altro scenario",
       shareThisSplit: "Condividi questo split",
+      shareSummary: "Condividi riepilogo",
       allSettledStillFriends: "Tutto saldato. Ancora amici",
       readyToUseCta: "Pronto ad usarlo con amici veri?",
       continueWithout: "Continua senza account",
@@ -1483,11 +1560,18 @@ const translations: Record<Language, Translations> = {
       cancel: "Annuleren", add: "Toevoegen", save: "Opslaan",
       createCustomCategory: "+ Aangepaste categorie aanmaken…",
       expenseAdded: "Uitgave toegevoegd", expenseUpdated: "Uitgave bijgewerkt", expenseAddFailed: "Kon uitgave niet toevoegen", profileSaved: "Profiel opgeslagen", linkCopied: "Link gekopieerd",
+      addNoteTitle: "Notitie Toevoegen", editNoteTitle: "Notitie Bewerken", noteTitlePlaceholder: "Titel (optioneel)", noteBodyPlaceholder: "Schrijf je notitie…",
+      noteBodyRequired: "Inhoud is verplicht", pinNote: "Vastzetten", noteAdded: "Notitie toegevoegd", noteUpdated: "Notitie bijgewerkt", noteDeleted: "Notitie verwijderd",
+    },
+    notes: {
+      pinnedNote: "Vastgezette notitie", emptyTitle: "Nog geen notities", emptySubtitle: "Voeg herinneringen, ideeën of gedeelde info toe.",
+      addNoteCta: "Notitie toevoegen", justNow: "Zojuist", minutesAgo: "{{n}} min geleden", hoursAgo: "{{n}} uur geleden", daysAgo: "{{n}} dagen geleden", by: "door",
+      deleteConfirm: "Deze notitie verwijderen?",
     },
     split: {
       contributions: "Individuele Bijdragen", settlement: "Betaalplan",
       owes: "is verschuldigd aan", allSettled: "Alles verrekend!", allSettledStillFriends: "Alles verrekend. Vriendschap behouden.", overpaid: "Te veel betaald", underpaid: "Te weinig betaald",
-      shareImage: "Deel afbeelding", copyImage: "Kopieer afbeelding", download: "Downloaden",
+      shareImage: "Deel afbeelding", copyImage: "Kopieer afbeelding", download: "Downloaden", shareSummary: "Deel samenvatting",
     },
     settleUp: {
       cta: "Klaar om af te rekenen?",
@@ -1528,6 +1612,12 @@ const translations: Record<Language, Translations> = {
       yourShare: "Jouw aandeel",
       allowOptInExpenses: "Laat deelnemers kiezen voor welke uitgaven ze betalen",
       allowOptInExpensesDesc: "Deelnemers kunnen per uitgave opt-in of opt-out (bijv. vlees of vervoer).",
+      advancedOptions: "Geavanceerde opties",
+      flexibleSplit: "Flexibele verdeling",
+      flexibleSplitDesc: "Deelnemers kunnen kiezen aan welke uitgaven ze deelnemen",
+      eventBasics: "Evenementgegevens",
+      splitBehavior: "Verdeling",
+      privacy: "Privacy",
       imIn: "Ik doe mee",
       imOut: "Ik doe niet mee",
       optInExpenseLabel: "Deelnemers doen mee",
@@ -1670,6 +1760,7 @@ const translations: Record<Language, Translations> = {
       whoOwesWho: "Wie is wie verschuldigd?",
       tryAnotherScenario: "Probeer een ander scenario",
       shareThisSplit: "Deel deze verdeling",
+      shareSummary: "Deel samenvatting",
       allSettledStillFriends: "Alles verrekend. Nog steeds vrienden",
       readyToUseCta: "Klaar om dit te gebruiken met echte vrienden?",
       continueWithout: "Doorgaan zonder account",

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { insertBarbecueSchema, insertParticipantSchema, insertExpenseSchema } from './schema';
-import type { Barbecue, Participant, ExpenseWithParticipant, Membership } from './schema';
+import type { Barbecue, Participant, ExpenseWithParticipant, NoteWithAuthor, Membership } from './schema';
 
 export const errorSchemas = {
   validation: z.object({
@@ -173,7 +173,50 @@ export const api = {
         404: errorSchemas.notFound,
       },
     },
-  }
+  },
+  notes: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/events/:eventId/notes' as const,
+      responses: {
+        200: z.array(z.custom<NoteWithAuthor>()),
+      },
+    },
+    create: {
+      method: 'POST' as const,
+      path: '/api/events/:eventId/notes' as const,
+      input: z.object({
+        participantId: z.number(),
+        title: z.string().max(200).optional().nullable(),
+        body: z.string().min(1, "Note body is required").max(10000),
+        pinned: z.boolean().optional(),
+      }),
+      responses: {
+        201: z.custom<NoteWithAuthor>(),
+        400: errorSchemas.validation,
+      },
+    },
+    update: {
+      method: 'PATCH' as const,
+      path: '/api/notes/:noteId' as const,
+      input: z.object({ title: z.string().max(200).optional().nullable(), body: z.string().min(1).max(10000).optional(), pinned: z.boolean().optional() }),
+      responses: {
+        200: z.custom<NoteWithAuthor>(),
+        400: errorSchemas.validation,
+        403: errorSchemas.validation,
+        404: errorSchemas.notFound,
+      },
+    },
+    delete: {
+      method: 'DELETE' as const,
+      path: '/api/notes/:noteId' as const,
+      responses: {
+        204: z.void(),
+        403: errorSchemas.validation,
+        404: errorSchemas.notFound,
+      },
+    },
+  },
 };
 
 export function buildUrl(path: string, params?: Record<string, string | number>): string {
@@ -191,3 +234,4 @@ export function buildUrl(path: string, params?: Record<string, string | number>)
 export type InsertParticipant = z.infer<typeof api.participants.create.input>;
 export type InsertExpense = z.infer<typeof api.expenses.create.input>;
 export type UpdateExpenseRequest = z.infer<typeof api.expenses.update.input>;
+export type InsertNote = z.infer<typeof api.notes.create.input>;

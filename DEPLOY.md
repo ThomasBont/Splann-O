@@ -32,6 +32,7 @@ When exceeded, clients receive `429 Too Many Requests` with standard `Retry-Afte
 | `FREE_MAX_EVENTS` | `3` | Max events a free user can create. Pro users have unlimited. |
 | `FREE_MAX_PARTICIPANTS` | `10` | Max participants per event for free plan. Pro users have unlimited. |
 | `ADMIN_USERNAMES` | - | Comma-separated usernames for admin endpoints (e.g. `admin,jane`). Required to call `PATCH /api/admin/users/:id/plan`. |
+| `BETA_MODE` | - | Set to `1` to unlock Pro features for all logged-in users (no DB changes). Keeps paywall code intact for future monetization. |
 
 ---
 

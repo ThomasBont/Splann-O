@@ -1,7 +1,11 @@
 /**
  * Centralized plan logic for Free vs Pro.
  * Single source of truth for gating and limits. No Stripe yet.
+ *
+ * BETA_MODE: When process.env.BETA_MODE === "1", all logged-in users
+ * are treated as Pro (no DB changes). Unlocks Pro features without removing paywall code.
  */
+const BETA_MODE = process.env.BETA_MODE === "1";
 
 export type Plan = "free" | "pro";
 
@@ -42,6 +46,7 @@ const PRO_MAX_PARTICIPANTS = 1_000_000;
 /** Get effective plan from user. Pro expires when planExpiresAt is past. */
 export function getEffectivePlan(user: UserWithPlan | null | undefined): Plan {
   if (!user) return "free";
+  if (BETA_MODE) return "pro";
   const rawPlan = (user.plan ?? "free").toString().toLowerCase();
   const plan: Plan = rawPlan === "pro" ? "pro" : "free";
   if (plan === "pro" && user.planExpiresAt && new Date() > user.planExpiresAt) {

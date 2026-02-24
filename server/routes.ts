@@ -11,10 +11,24 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { sendPasswordResetEmail, sendWelcomeEmail } from "./email";
 import { eq, and } from "drizzle-orm";
+import { loginLimiter, passwordResetLimiter } from "./middleware/rate-limit";
+import { canUseLimit } from "./lib/features";
 
 function requireAuth(req: Request, res: Response, next: NextFunction) {
   if (!req.session.userId) {
     return res.status(401).json({ message: "Not authenticated" });
+  }
+  next();
+}
+
+function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  const admins = (process.env.ADMIN_USERNAMES ?? "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  const username = (req.session?.username as string)?.toLowerCase();
+  if (!username || !admins.includes(username)) {
+    return res.status(403).json({ message: "Admin only" });
   }
   next();
 }
@@ -121,7 +135,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.post("/api/auth/login", async (req, res) => {
+  app.post("/api/auth/login", loginLimiter, async (req, res) => {
     try {
       const schema = z.object({ username: z.string(), password: z.string() });
       const { username, password } = schema.parse(req.body);
@@ -185,7 +199,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     });
   });
 
-  app.post("/api/auth/forgot-password", async (req, res) => {
+  app.post("/api/auth/forgot-password", passwordResetLimiter, async (req, res) => {
     try {
       const { email } = z.object({ email: z.string().email() }).parse(req.body);
       const user = await storage.getUserByEmail(email);
@@ -211,7 +225,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.post("/api/auth/reset-password", async (req, res) => {
+  app.post("/api/auth/reset-password", passwordResetLimiter, async (req, res) => {
     try {
       const { token, password } = z.object({
         token: z.string(),
@@ -234,6 +248,29 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  /** Admin-only: set user plan. Gated by ADMIN_USERNAMES env (comma-separated). */
+  app.patch("/api/admin/users/:id/plan", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id)) return res.status(400).json({ message: "Invalid user ID" });
+      const body = z
+        .object({
+          plan: z.enum(["free", "pro"]),
+          planExpiresAt: z.union([z.string(), z.null()]).optional(),
+        })
+        .parse(req.body);
+      const user = await storage.getUserById(id);
+      if (!user) return res.status(404).json({ message: "User not found" });
+      const planExpiresAt = body.planExpiresAt ? new Date(body.planExpiresAt) : null;
+      const updated = await storage.updateUserPlan(id, body.plan, planExpiresAt);
+      if (!updated) return res.status(404).json({ message: "User not found" });
+      res.json({ id: updated.id, plan: updated.plan, planExpiresAt: updated.planExpiresAt?.toISOString() ?? null });
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
+  });
+
   // Barbecues
   app.get(api.barbecues.list.path, async (req, res) => {
     const currentUsername = req.session.username || (req.query.userId as string | undefined);
@@ -250,6 +287,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const bodySchema = api.barbecues.create.input.extend({ date: z.coerce.date() });
       const input = bodySchema.parse(req.body);
+      if (input.creatorId && input.creatorId.trim()) {
+        const user = await storage.getUserByUsername(input.creatorId.trim());
+        const count = await storage.countBarbecuesByCreator(input.creatorId.trim());
+        const check = canUseLimit(user ?? undefined, "events_created", count);
+        if (!check.allowed) {
+          return res.status(403).json({
+            message: `Free plan limit reached. You can create up to ${check.limit} events. Upgrade to Pro for unlimited events.`,
+          });
+        }
+      }
       const created = await storage.createBarbecue(input);
       if (input.creatorId && input.creatorId.trim()) {
         await storage.createParticipant({

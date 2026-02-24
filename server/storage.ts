@@ -35,6 +35,7 @@ export interface IStorage {
   getUserById(id: number): Promise<User | undefined>;
   updateUserPassword(id: number, passwordHash: string): Promise<void>;
   updateUserProfile(userId: number, updates: { displayName?: string; avatarUrl?: string | null; profileImageUrl?: string | null; bio?: string | null; preferredCurrencyCodes?: string | null }): Promise<User | undefined>;
+  updateUserPlan(userId: number, plan: "free" | "pro", planExpiresAt?: Date | null): Promise<User | undefined>;
   deleteUser(userId: number): Promise<void>;
 
   createPasswordResetToken(userId: number, token: string, expiresAt: Date): Promise<PasswordResetToken>;
@@ -43,6 +44,7 @@ export interface IStorage {
 
   getBarbecues(currentUsername?: string): Promise<Barbecue[]>;
   getBarbecue(id: number): Promise<Barbecue | undefined>;
+  countBarbecuesByCreator(username: string): Promise<number>;
   getBarbecueByInviteToken(token: string): Promise<Barbecue | undefined>;
   createBarbecue(b: InsertBarbecue): Promise<Barbecue>;
   ensureBarbecueInviteToken(id: number): Promise<Barbecue | undefined>;
@@ -146,6 +148,15 @@ export class DatabaseStorage implements IStorage {
     return u;
   }
 
+  async updateUserPlan(userId: number, plan: "free" | "pro", planExpiresAt?: Date | null): Promise<User | undefined> {
+    const [u] = await db
+      .update(users)
+      .set({ plan, planExpiresAt: planExpiresAt ?? null })
+      .where(eq(users.id, userId))
+      .returning();
+    return u;
+  }
+
   async deleteUser(userId: number): Promise<void> {
     const [u] = await db.select().from(users).where(eq(users.id, userId));
     if (!u) return;
@@ -190,6 +201,11 @@ export class DatabaseStorage implements IStorage {
   async getBarbecue(id: number): Promise<Barbecue | undefined> {
     const [b] = await db.select().from(barbecues).where(eq(barbecues.id, id));
     return b;
+  }
+
+  async countBarbecuesByCreator(username: string): Promise<number> {
+    const rows = await db.select({ id: barbecues.id }).from(barbecues).where(eq(barbecues.creatorId, username));
+    return rows.length;
   }
 
   async getBarbecueByInviteToken(token: string): Promise<Barbecue | undefined> {

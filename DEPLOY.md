@@ -5,6 +5,32 @@
 - `.env` is **not committed** (in `.gitignore`). Render env vars are the source of truth in production.
 - Do not commit secrets. Use Render's **Environment** tab for `DATABASE_URL`, `SESSION_SECRET`, etc.
 
+### Security & CORS
+
+| Variable | Description |
+|----------|-------------|
+| `FRONTEND_ORIGIN` | Comma-separated origins allowed by CORS (e.g. `https://app.example.com`). If unset, CORS middleware is not applied (same-origin only). |
+| `SESSION_SECRET` | Required for signed session cookies. Use a strong random value. |
+
+### Rate limiting
+
+Auth endpoints are rate-limited to reduce brute-force risk:
+
+| Endpoint | Limit |
+|----------|-------|
+| `POST /api/auth/login` | 10 requests / minute |
+| `POST /api/auth/forgot-password` | 5 requests / minute |
+| `POST /api/auth/reset-password` | 5 requests / minute |
+
+When exceeded, clients receive `429 Too Many Requests` with standard `Retry-After` header.
+
+### Plan gating (monetization)
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `FREE_MAX_EVENTS` | `10` | Max events a free user can create. Pro users have no limit. |
+| `ADMIN_USERNAMES` | - | Comma-separated usernames for admin endpoints (e.g. `admin,jane`). Required to call `PATCH /api/admin/users/:id/plan`. |
+
 ---
 
 ## Production migrations
@@ -58,6 +84,7 @@ If you prefer `psql` directly:
 ```bash
 psql "$DATABASE_URL" -f migrations/0000_app_meta.sql
 psql "$DATABASE_URL" -f migrations/0005_phase3_plan_tiers.sql
+psql "$DATABASE_URL" -f migrations/0006_phaseD_indexes.sql
 # ... etc, in order
 ```
 

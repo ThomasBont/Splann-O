@@ -5,6 +5,8 @@ if (process.env.NODE_ENV !== "production") {
 }
 
 import express, { type Request, Response, NextFunction } from "express";
+import cors from "cors";
+import helmet from "helmet";
 import session from "express-session";
 import ConnectPgSimple from "connect-pg-simple";
 import { registerRoutes } from "./routes";
@@ -40,6 +42,18 @@ app.use(express.urlencoded({ extended: false }));
 
 app.set("trust proxy", 1);
 
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    contentSecurityPolicy: false,
+  })
+);
+
+const frontendOrigin = process.env.FRONTEND_ORIGIN;
+if (frontendOrigin) {
+  app.use(cors({ origin: frontendOrigin.split(",").map((o) => o.trim()), credentials: true }));
+}
+
 const PgStore = ConnectPgSimple(session);
 app.use(
   session({
@@ -48,9 +62,8 @@ app.use(
     resave: false,
     saveUninitialized: false,
     cookie: {
-      maxAge: 30 * 24 * 60 * 60 * 1000,
+      maxAge: 7 * 24 * 60 * 60 * 1000,
       httpOnly: true,
-      // Secure cookies are only sent over HTTPS. For local production build (HTTP), set COOKIE_SECURE=0 so the session is stored.
       secure: process.env.NODE_ENV === "production" && process.env.COOKIE_SECURE !== "0",
       sameSite: "lax",
     },

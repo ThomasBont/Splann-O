@@ -1,35 +1,74 @@
 # Deployment Guide
 
-## Database migrations (required before first deploy / after schema changes)
+## Environment
 
-**Run migrations before deploying new code** or the app may fail with errors like `column "plan" does not exist`.
+- `.env` is **not committed** (in `.gitignore`). Render env vars are the source of truth in production.
+- Do not commit secrets. Use Render's **Environment** tab for `DATABASE_URL`, `SESSION_SECRET`, etc.
 
-### Local / production (using `DATABASE_URL`)
+---
 
-```bash
-# Required: add users.plan and users.plan_expires_at (fixes login)
-psql $DATABASE_URL -f migrations/0005_phase3_plan_tiers.sql
+## Production migrations
 
-# Optional: indexes and timestamps (Phase 0)
-psql $DATABASE_URL -f migrations/0003_phase0_indexes_constraints.sql
-```
+Run migrations **before** (or as part of) each deploy to avoid schema mismatch errors like `column "plan" does not exist`.
 
-### Render
+### Using the migration runner (recommended)
 
-1. Open your Web Service → **Shell** tab, or use **Background Workers** / a one-off job.
-2. Run:
-   ```bash
-   psql $DATABASE_URL -f migrations/0005_phase3_plan_tiers.sql
-   ```
-3. Or add a **Release Command** in Render dashboard:
-   ```
-   psql $DATABASE_URL -f migrations/0005_phase3_plan_tiers.sql
-   ```
-
-### Rollback (if needed)
+Uses `DATABASE_URL` and works with Supabase transaction pooler (port 6543).
 
 ```bash
-psql $DATABASE_URL -c "ALTER TABLE users DROP COLUMN IF EXISTS plan; ALTER TABLE users DROP COLUMN IF EXISTS plan_expires_at;"
+# Check current schema version and connectivity
+npm run db:check
+
+# Apply all pending migrations
+npm run db:migrate
 ```
 
-⚠️ After rollback, you must deploy code that does not reference `plan` (revert schema changes).
+For local runs against the pooler URL, ensure `DATABASE_URL` is set:
+
+```bash
+# Use quotes if the URL contains special chars (e.g. ! in password)
+export DATABASE_URL='postgres://user:pass@host.pooler.supabase.com:6543/postgres'
+npm run db:migrate
+```
+
+### On Render
+
+Add a **Release Command** so migrations run on each deploy:
+
+```
+npm run db:migrate
+```
+
+Render sets `DATABASE_URL` from the env, so no extra config is needed.
+
+To run migrations manually: Render → Web Service → **Shell** → `npm run db:migrate`.
+
+### Verify after deploy
+
+1. Open `https://your-app.onrender.com/api/health`
+2. Expect: `ok: true`, `db.ok: true`, `schemaVersion` as a number
+3. If `ok: false` or 503: migrations may not have run; check Release Command and logs
+
+---
+
+## Manual migrations (legacy)
+
+If you prefer `psql` directly:
+
+```bash
+psql "$DATABASE_URL" -f migrations/0000_app_meta.sql
+psql "$DATABASE_URL" -f migrations/0005_phase3_plan_tiers.sql
+# ... etc, in order
+```
+
+---
+
+## Rollback
+
+For `plan` columns:
+
+```bash
+psql "$DATABASE_URL" -c "ALTER TABLE users DROP COLUMN IF EXISTS plan; ALTER TABLE users DROP COLUMN IF EXISTS plan_expires_at;"
+```
+
+After rollback, deploy code that does not reference `plan` (revert schema changes).

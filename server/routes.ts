@@ -1,7 +1,8 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
-import { db } from "./db";
+import { db, pool } from "./db";
+import { parseDbUrl } from "./lib/db-utils";
 import { auditLog } from "./lib/audit";
 import { users, expenses, notes } from "@shared/schema";
 import { api } from "@shared/routes";
@@ -49,8 +50,40 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json(serializeUser(user));
   });
 
-  app.get("/api/health", (_req, res) => {
-    res.json({ emailConfigured: !!process.env.RESEND_API_KEY });
+  app.get("/api/health", async (_req, res) => {
+    const timestamp = new Date().toISOString();
+    const commit =
+      process.env.RENDER_GIT_COMMIT ?? process.env.VERCEL_GIT_COMMIT_SHA ?? null;
+    const parsed = process.env.DATABASE_URL
+      ? parseDbUrl(process.env.DATABASE_URL)
+      : null;
+
+    const dbInfo = {
+      host: parsed?.host ?? null,
+      port: parsed?.port ?? null,
+      user: parsed?.user ?? null,
+      database: parsed?.database ?? null,
+    };
+
+    try {
+      const result = await pool.query("SELECT schema_version FROM app_meta WHERE id = 1");
+      const schemaVersion = result.rows[0]?.schema_version ?? 0;
+      res.json({
+        ok: true,
+        db: { ok: true, ...dbInfo },
+        schemaVersion,
+        commit,
+        timestamp,
+      });
+    } catch {
+      res.status(503).json({
+        ok: false,
+        db: { ok: false, ...dbInfo },
+        schemaVersion: null,
+        commit,
+        timestamp,
+      });
+    }
   });
 
   app.post("/api/auth/register", async (req, res) => {

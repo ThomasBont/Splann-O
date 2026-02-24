@@ -124,6 +124,16 @@ interface Translations {
     tips: string;
     entertainment: string;
     other: string;
+    transportCity: string;
+    accommodationCity: string;
+    foodCity: string;
+    foodDinner: string;
+    foodMovie: string;
+    streaming: string;
+    decor: string;
+    transportRoad: string;
+    ticketsCity: string;
+    ticketsFestival: string;
   };
   modals: {
     addPersonTitle: string;
@@ -149,6 +159,7 @@ interface Translations {
     settlement: string;
     owes: string;
     allSettled: string;
+    allSettledStillFriends: string;
     overpaid: string;
     underpaid: string;
     shareImage: string;
@@ -218,6 +229,7 @@ interface Translations {
     optInExpenseLabel: string;
     optInExpenseHintOn: string;
     optInExpenseHintOff: string;
+    optInChipTooltip: string;
   };
   auth: {
     login: string;
@@ -502,6 +514,16 @@ const translations: Record<Language, Translations> = {
       tips: "e.g. Waiter, driver, guide",
       entertainment: "e.g. Cinema, bowling, games",
       other: "e.g. Miscellaneous",
+      transportCity: "e.g. Uber, Metro tickets",
+      accommodationCity: "e.g. Airbnb, Hotel night",
+      foodCity: "e.g. Tapas night, Restaurant",
+      foodDinner: "e.g. Tapas night, Ribeye steaks",
+      foodMovie: "e.g. Popcorn, Snacks",
+      streaming: "e.g. Netflix rental, Movie ticket",
+      decor: "e.g. Balloons, Candles",
+      transportRoad: "e.g. Fuel, Toll, Parking",
+      ticketsCity: "e.g. Museum entry, Attraction pass",
+      ticketsFestival: "e.g. Festival pass, Day ticket",
     },
     modals: {
       addPersonTitle: "Add Participant", addExpenseTitle: "Record Expense",
@@ -513,7 +535,7 @@ const translations: Record<Language, Translations> = {
     },
     split: {
       contributions: "Individual Contributions", settlement: "Settlement Plan",
-      owes: "owes", allSettled: "All settled up!", overpaid: "Overpaid", underpaid: "Underpaid",
+      owes: "owes", allSettled: "All settled up!", allSettledStillFriends: "All settled. Friendship preserved.", overpaid: "Overpaid", underpaid: "Underpaid",
       shareImage: "Share image", copyImage: "Copy image", download: "Download",
     },
     settleUp: {
@@ -560,6 +582,7 @@ const translations: Record<Language, Translations> = {
       optInExpenseLabel: "Participants opt in",
       optInExpenseHintOn: "Only those who join pay",
       optInExpenseHintOff: "Shared among everyone",
+      optInChipTooltip: "Participants can opt in/out for this expense.",
     },
     auth: {
       login: "Log In", register: "Sign Up", logout: "Log Out",
@@ -808,6 +831,16 @@ const translations: Record<Language, Translations> = {
       tips: "ej. Mozo, chofer, guía",
       entertainment: "ej. Cine, bolos, juegos",
       other: "ej. Varios",
+      transportCity: "ej. Uber, Metro",
+      accommodationCity: "ej. Airbnb, Hotel",
+      foodCity: "ej. Tapas, Restaurante",
+      foodDinner: "ej. Tapas, Bife",
+      foodMovie: "ej. Palomitas, Snacks",
+      streaming: "ej. Netflix, Entrada cine",
+      decor: "ej. Globos, Velas",
+      transportRoad: "ej. Nafta, Peaje, Estacionamiento",
+      ticketsCity: "ej. Museo, Atracción",
+      ticketsFestival: "ej. Pase festival, Día",
     },
     modals: {
       addPersonTitle: "Agregar Participante", addExpenseTitle: "Registrar Gasto",
@@ -819,7 +852,7 @@ const translations: Record<Language, Translations> = {
     },
     split: {
       contributions: "Contribuciones Individuales", settlement: "Plan de Pagos",
-      owes: "le debe a", allSettled: "¡Todo saldado!", overpaid: "Pagó de más", underpaid: "Debe",
+      owes: "le debe a", allSettled: "¡Todo saldado!", allSettledStillFriends: "Todo saldado. Amistad preservada.", overpaid: "Pagó de más", underpaid: "Debe",
       shareImage: "Compartir imagen", copyImage: "Copiar imagen", download: "Descargar",
     },
     settleUp: {
@@ -866,6 +899,7 @@ const translations: Record<Language, Translations> = {
       optInExpenseLabel: "Los participantes se suman",
       optInExpenseHintOn: "Solo pagan quienes se suman",
       optInExpenseHintOff: "Compartido entre todos",
+      optInChipTooltip: "Los participantes pueden sumarse o no a este gasto.",
     },
     auth: {
       login: "Iniciar Sesión", register: "Registrarse", logout: "Cerrar Sesión",
@@ -1114,6 +1148,16 @@ const translations: Record<Language, Translations> = {
       tips: "es. Cameriere, autista, guida",
       entertainment: "es. Cinema, bowling, giochi",
       other: "es. Varie",
+      transportCity: "es. Uber, Biglietti metro",
+      accommodationCity: "es. Airbnb, Notte hotel",
+      foodCity: "es. Tapas, Ristorante",
+      foodDinner: "es. Tapas, Bistecca",
+      foodMovie: "es. Popcorn, Snack",
+      streaming: "es. Noleggio Netflix, Biglietto cinema",
+      decor: "es. Palloncini, Candele",
+      transportRoad: "es. Benzina, Pedaggio, Parcheggio",
+      ticketsCity: "es. Ingresso museo, Attrazione",
+      ticketsFestival: "es. Pass festival, Giornaliero",
     },
     modals: {
       addPersonTitle: "Aggiungi Partecipante", addExpenseTitle: "Registra Spesa",
@@ -1125,7 +1169,7 @@ const translations: Record<Language, Translations> = {
     },
     split: {
       contributions: "Contributi Individuali", settlement: "Piano di Rimborso",
-      owes: "deve a", allSettled: "Tutto saldato!", overpaid: "Eccedenza", underpaid: "Debito",
+      owes: "deve a", allSettled: "Tutto saldato!", allSettledStillFriends: "Tutto saldato. Amicizia preservata.", overpaid: "Eccedenza", underpaid: "Debito",
       shareImage: "Condividi immagine", copyImage: "Copia immagine", download: "Scarica",
     },
     settleUp: {
@@ -1172,6 +1216,7 @@ const translations: Record<Language, Translations> = {
       optInExpenseLabel: "I partecipanti si uniscono",
       optInExpenseHintOn: "Pagano solo chi si unisce",
       optInExpenseHintOff: "Diviso tra tutti",
+      optInChipTooltip: "I partecipanti possono unirsi o meno a questa spesa.",
     },
     auth: {
       login: "Accedi", register: "Registrati", logout: "Esci",
@@ -1420,6 +1465,16 @@ const translations: Record<Language, Translations> = {
       tips: "bijv. Ober, chauffeur, gids",
       entertainment: "bijv. Bioscoop, bowling",
       other: "bijv. Diversen",
+      transportCity: "bijv. Uber, Metrokaartjes",
+      accommodationCity: "bijv. Airbnb, Hotelovernachting",
+      foodCity: "bijv. Tapas, Restaurant",
+      foodDinner: "bijv. Tapas, Biefstuk",
+      foodMovie: "bijv. Popcorn, Snacks",
+      streaming: "bijv. Netflix huur, Bioscoopkaartje",
+      decor: "bijv. Ballonnen, Kaarsen",
+      transportRoad: "bijv. Brandstof, Tol, Parkeren",
+      ticketsCity: "bijv. Museumentree, Attractie",
+      ticketsFestival: "bijv. Festivalpas, Dagkaart",
     },
     modals: {
       addPersonTitle: "Deelnemer Toevoegen", addExpenseTitle: "Uitgave Registreren",
@@ -1431,7 +1486,7 @@ const translations: Record<Language, Translations> = {
     },
     split: {
       contributions: "Individuele Bijdragen", settlement: "Betaalplan",
-      owes: "is verschuldigd aan", allSettled: "Alles verrekend!", overpaid: "Te veel betaald", underpaid: "Te weinig betaald",
+      owes: "is verschuldigd aan", allSettled: "Alles verrekend!", allSettledStillFriends: "Alles verrekend. Vriendschap behouden.", overpaid: "Te veel betaald", underpaid: "Te weinig betaald",
       shareImage: "Deel afbeelding", copyImage: "Kopieer afbeelding", download: "Downloaden",
     },
     settleUp: {
@@ -1478,6 +1533,7 @@ const translations: Record<Language, Translations> = {
       optInExpenseLabel: "Deelnemers doen mee",
       optInExpenseHintOn: "Alleen deelnemers betalen",
       optInExpenseHintOff: "Gedeeld door iedereen",
+      optInChipTooltip: "Deelnemers kunnen meedoen of niet voor deze uitgave.",
     },
     auth: {
       login: "Inloggen", register: "Registreren", logout: "Uitloggen",

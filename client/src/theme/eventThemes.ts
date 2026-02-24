@@ -140,7 +140,7 @@ const tripThemes = {
       tagline: "Maps, metros, and memories.",
       emptyExpensesTitle: "No expenses yet",
       emptyExpensesBody: "Add accommodation, transport, and activities to split costs.",
-      ctaAddFirstExpense: "Add first expense",
+      ctaAddFirstExpense: "Add transport or accommodation",
     },
   },
   road_trip: {
@@ -355,7 +355,7 @@ const partyThemes = {
       tagline: "Grill, chill, and keep the split fair.",
       emptyExpensesTitle: "No expenses yet",
       emptyExpensesBody: "Add meat, drinks, and charcoal to split the barbecue.",
-      ctaAddFirstExpense: "Add first expense",
+      ctaAddFirstExpense: "Add the first grill cost",
     },
   },
   birthday: {
@@ -502,7 +502,7 @@ const partyThemes = {
       tagline: "Snacks, screens, and simple splits.",
       emptyExpensesTitle: "No expenses yet",
       emptyExpensesBody: "Add streaming rental, snacks, and drinks.",
-      ctaAddFirstExpense: "Add first expense",
+      ctaAddFirstExpense: "Add snacks or streaming",
     },
   },
   other_party: {

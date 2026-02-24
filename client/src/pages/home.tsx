@@ -32,6 +32,7 @@ import { InviteSheet } from "@/components/event/InviteSheet";
 import { InviteLink } from "@/components/events/invite-link";
 import { ShareSettlementActions } from "@/components/share/share-settlement-actions";
 import { ShareRecapActions } from "@/components/share/share-recap-actions";
+import { ConfettiCelebration } from "@/components/basic/ConfettiCelebration";
 import { generateSettleCardData, generateRecapCardData } from "@/utils/shareCard";
 import { WelcomeModal } from "@/components/welcome-modal";
 import { DiscoverModal } from "@/components/discover-modal";
@@ -67,6 +68,8 @@ import { getCategoriesForEvent, getCategoryDef } from "@/config/expenseCategorie
 import { getEventActivity } from "@/utils/eventActivity";
 import { EventActivityFeed } from "@/components/event/EventActivityFeed";
 import { getEventTheme } from "@/theme/useEventTheme";
+import { EventThemeProvider } from "@/themes/ThemeProvider";
+import { SignatureEffect } from "@/themes/SignatureEffect";
 import { TRIP_THEME_KEYS, PARTY_THEME_KEYS } from "@/theme/eventThemes";
 import { normalizeEvent, getEventArea } from "@/utils/eventUtils";
 import type { ExpenseWithParticipant, Barbecue, Participant, FriendInfo, PendingRequestWithBbq } from "@shared/schema";
@@ -422,6 +425,8 @@ export default function Home() {
   const [discoverOpen, setDiscoverOpen] = useState(false);
   const prevPendingCountRef = useRef(allPendingRequests.length);
   const queryClient = useQueryClient();
+  const [showSettledConfetti, setShowSettledConfetti] = useState(false);
+  const settledCelebrationShownRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -692,6 +697,14 @@ export default function Home() {
     totalSpent !== settleSnapshot.total || expenses.length !== settleSnapshot.expenseCount
   );
   const allBalancesZero = balances.every((b: { balance: number }) => Math.abs(b.balance) < 0.01);
+
+  useEffect(() => {
+    const status = (selectedBbq?.status as string) ?? "active";
+    if (status !== "settled" || !selectedBbqId) return;
+    if (settledCelebrationShownRef.current === selectedBbqId) return;
+    settledCelebrationShownRef.current = selectedBbqId;
+    if (!shouldReduceMotion) setShowSettledConfetti(true);
+  }, [selectedBbq?.status, selectedBbqId, shouldReduceMotion]);
 
   // Always render shell so /app never shows a blank page; show login dialog when not authenticated (or still loading auth)
   return (
@@ -1115,14 +1128,19 @@ export default function Home() {
             selectedBbq as any,
             defaultBirthdayTemplateData,
           );
+          const eventCategory = normalizeEvent(selectedBbq ?? {}).category;
+          const eventKind = eventCategory === "trip" ? "trip" : "party";
           return (
+            <EventThemeProvider kind={eventKind} eventType={selectedBbq?.eventType}>
             <EventTemplateWrapper
               template={eventTemplate}
               decorationClass={isPartyEventType(selectedBbq?.eventType) ? getPartyTemplate(selectedBbq?.eventType).decorationClass : undefined}
               backgroundStyle={isPartyEventType(selectedBbq?.eventType) ? getPartyTemplate(selectedBbq?.eventType).backgroundStyle : undefined}
             >
-              {/* Row A: EventHeader */}
-              <EventHeader
+              {/* Event header with signature effect overlay */}
+              <div className="relative">
+                <SignatureEffect />
+                <EventHeader
                 category={normalizeEvent(selectedBbq ?? {}).category}
                 type={normalizeEvent(selectedBbq ?? {}).type}
                 title={selectedBbq?.name ?? ""}
@@ -1164,7 +1182,8 @@ export default function Home() {
                 eventStatus={eventStatus}
                 onSettleUp={isCreator ? () => setSettleUpModalOpen(true) : undefined}
                 settleUpPending={settleUp.isPending}
-              />
+                />
+              </div>
 
               {/* Participant settling banner: show when status=settling and current user owes */}
               {eventStatus === "settling" && !isCreator && myParticipant && (() => {
@@ -1204,6 +1223,14 @@ export default function Home() {
                   </span>
                 )}
               </div>
+
+              {/* Completion banner when event is settled */}
+              {eventStatus === "settled" && (
+                <div className="mt-4 rounded-xl border border-green-500/30 bg-green-500/10 px-4 py-2.5 flex items-center gap-2">
+                  <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0" />
+                  <p className="text-sm font-medium text-foreground">{t.split.allSettledStillFriends}</p>
+                </div>
+              )}
 
               {/* Creator: Mark as settled when all balances zero */}
               {isCreator && eventStatus === "settling" && allBalancesZero && (
@@ -1826,6 +1853,7 @@ export default function Home() {
             </EventTabs>
             </div>
             </EventTemplateWrapper>
+            </EventThemeProvider>
           );
         })() : (
           <div className="text-center py-16 text-muted-foreground">
@@ -2042,7 +2070,13 @@ export default function Home() {
         defaultOptIn={editingExpense ? undefined : recommendedExpenseTemplate?.optInDefault}
         allowOptIn={allowOptIn}
         onAddCustomCategory={isCreator ? handleAddCustomCategory : undefined}
+        eventType={selectedBbq?.eventType}
+        eventKind={area === "trips" ? "trip" : "party"}
       />
+
+      {showSettledConfetti && (
+        <ConfettiCelebration onComplete={() => setShowSettledConfetti(false)} />
+      )}
 
       {/* Profile / Friends Dialog */}
       <UserProfileModal

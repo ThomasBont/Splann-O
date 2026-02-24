@@ -27,7 +27,7 @@ import {
   History,
 } from "lucide-react";
 import {
-  DEMO_SCENARIOS,
+  DEMO_SCENARIOS_CYCLE,
   scenarioToState,
   getDefaultScenario,
   type DemoScenario,
@@ -155,7 +155,7 @@ export default function Basic() {
   });
 
   const [scenarioTitle, setScenarioTitle] = useState(
-    () => stored.scenarioTitle || DEMO_SCENARIOS[0].title
+    () => stored.scenarioTitle || DEMO_SCENARIOS_CYCLE[0].title
   );
 
   const [currency, setCurrency] = useState<CurrencyCode>(loadStoredCurrency);
@@ -188,9 +188,9 @@ export default function Basic() {
   };
 
   const cycleScenario = () => {
-    const next = (scenarioIndex + 1) % DEMO_SCENARIOS.length;
+    const next = (scenarioIndex + 1) % DEMO_SCENARIOS_CYCLE.length;
     setScenarioIndex(next);
-    applyScenario(DEMO_SCENARIOS[next]);
+    applyScenario(DEMO_SCENARIOS_CYCLE[next]);
   };
 
   const addParticipant = () => {

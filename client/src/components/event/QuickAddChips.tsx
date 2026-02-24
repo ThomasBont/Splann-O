@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
+import { useLanguage } from "@/hooks/use-language";
 import type { ThemeToken } from "@/theme/eventThemes";
 import { EventChip } from "@/components/event/EventChip";
 import {
@@ -10,6 +11,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type { ExpenseTemplateItem } from "@/eventTemplates";
 
 const VISIBLE_COUNT = 5;
@@ -44,22 +51,33 @@ export function QuickAddChips({
 
   const visible = presets.slice(0, VISIBLE_COUNT);
   const more = presets.slice(VISIBLE_COUNT);
+  const { t } = useLanguage();
+  const optInTooltip = t.bbq.optInChipTooltip ?? "Participants can opt in/out for this expense.";
 
   return (
+    <TooltipProvider delayDuration={300}>
     <div className="flex flex-wrap items-center gap-1.5">
       {visible.map((p) => (
-        <EventChip
-          key={`${p.label}-${p.category}`}
-          icon={p.icon}
-          accentHover={!!theme}
-          onClick={() => onAdd({ item: p.label, category: p.category, optInDefault: p.optInDefault })}
-          data-testid={`chip-quickadd-${p.label.replace(/\s/g, "-").toLowerCase()}`}
-        >
-          {p.label}
+        <Tooltip key={`${p.label}-${p.category}`}>
+          <TooltipTrigger asChild>
+            <EventChip
+              icon={p.icon}
+              accentHover={!!theme}
+              onClick={() => onAdd({ item: p.label, category: p.category, optInDefault: p.optInDefault })}
+              data-testid={`chip-quickadd-${p.label.replace(/\s/g, "-").toLowerCase()}`}
+            >
+              {p.label}
+              {allowOptIn && p.optInDefault === true && (
+                <span className="text-[9px] text-muted-foreground ml-0.5" title={optInTooltip}>opt-in</span>
+              )}
+            </EventChip>
+          </TooltipTrigger>
           {allowOptIn && p.optInDefault === true && (
-            <span className="text-[9px] text-muted-foreground ml-0.5">opt-in</span>
+            <TooltipContent side="bottom" className="max-w-[200px]">
+              {optInTooltip}
+            </TooltipContent>
           )}
-        </EventChip>
+        </Tooltip>
       ))}
       {more.length > 0 && (
         <DropdownMenu open={open} onOpenChange={setOpen}>
@@ -94,5 +112,6 @@ export function QuickAddChips({
         </DropdownMenu>
       )}
     </div>
+    </TooltipProvider>
   );
 }

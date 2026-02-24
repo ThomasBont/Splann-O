@@ -47,18 +47,34 @@ export const DEMO_SCENARIOS: DemoScenario[] = [
   },
   {
     id: "bbq",
-    title: "BBQ Night",
+    title: "BBQ Saturday",
     participants: [
-      { id: "p1", name: "Alex", emoji: "🔥", color: "from-orange-500/80 to-amber-600/80" },
-      { id: "p2", name: "Jamie", emoji: "🍖", color: "from-rose-500/80 to-pink-600/80" },
-      { id: "p3", name: "Sam", emoji: "🍺", color: "from-amber-400/80 to-yellow-600/80" },
-      { id: "p4", name: "Jordan", emoji: "🥗", color: "from-green-500/80 to-teal-600/80" },
+      { id: "p1", name: "Tom", emoji: "🔥", color: "from-orange-500/80 to-amber-600/80" },
+      { id: "p2", name: "Maria", emoji: "🍖", color: "from-rose-500/80 to-pink-600/80" },
+      { id: "p3", name: "Luca", emoji: "🍺", color: "from-amber-400/80 to-yellow-600/80" },
+      { id: "p4", name: "Sophie", emoji: "🥗", color: "from-green-500/80 to-teal-600/80" },
     ],
     expenses: [
       { id: "e1", description: "Meat & sausages", amount: 85, paidById: "p1" },
       { id: "e2", description: "Drinks", amount: 42, paidById: "p2" },
       { id: "e3", description: "Charcoal & supplies", amount: 28, paidById: "p3" },
       { id: "e4", description: "Salads & sides", amount: 35, paidById: "p4" },
+    ],
+  },
+  {
+    id: "festival",
+    title: "Festival Weekend",
+    participants: [
+      { id: "p1", name: "Tom", emoji: "🎪", color: "from-purple-500/80 to-fuchsia-600/80" },
+      { id: "p2", name: "Maria", emoji: "🎫", color: "from-pink-500/80 to-rose-600/80" },
+      { id: "p3", name: "Luca", emoji: "🍺", color: "from-amber-400/80 to-orange-600/80" },
+      { id: "p4", name: "Sophie", emoji: "⛺", color: "from-teal-500/80 to-cyan-600/80" },
+    ],
+    expenses: [
+      { id: "e1", description: "Festival passes", amount: 240, paidById: "p1" },
+      { id: "e2", description: "Camping spot", amount: 80, paidById: "p2" },
+      { id: "e3", description: "Drinks & snacks", amount: 56, paidById: "p3" },
+      { id: "e4", description: "Transport", amount: 45, paidById: "p4" },
     ],
   },
   {
@@ -139,6 +155,9 @@ export function scenarioToState(scenario: DemoScenario) {
     title: scenario.title,
   };
 }
+
+/** First 3 scenarios for "Try another scenario" cycling: Barcelona, BBQ, Festival */
+export const DEMO_SCENARIOS_CYCLE = DEMO_SCENARIOS.slice(0, 3);
 
 export function getDefaultScenario() {
   return scenarioToState(DEMO_SCENARIOS[0]);

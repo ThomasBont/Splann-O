@@ -1,0 +1,57 @@
+/**
+ * Interactive theme styles driven by CSS variables.
+ * Variables are set by EventThemeProvider (--theme-primary, --theme-secondary, etc.)
+ */
+
+.event-theme-root {
+  --theme-primary: 43 96% 56%;
+  --theme-secondary: 43 96% 48%;
+  --theme-surface: 43 20% 96%;
+  --theme-border: 43 30% 88%;
+  --theme-glow-opacity: 0.2;
+  --theme-bg-motif-opacity: 0.06;
+}
+
+/* Accent utilities for theme-aware elements */
+.event-theme-root .theme-accent-bg {
+  background-color: hsl(var(--theme-primary) / var(--theme-bg-motif-opacity));
+}
+
+.event-theme-root .theme-accent-border {
+  border-color: hsl(var(--theme-primary) / 0.3);
+}
+
+.event-theme-root .theme-accent-text {
+  color: hsl(var(--theme-primary));
+}
+
+/* Signature effect keyframes */
+@keyframes signature-shimmer {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.6; }
+}
+
+@keyframes signature-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.05); }
+}
+
+@keyframes signature-caustics {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes signature-map-motion {
+  0% { transform: translate(0, 0); }
+  100% { transform: translate(4px, 4px); }
+}
+
+/* Respect reduced motion for all theme animations */
+@media (prefers-reduced-motion: reduce) {
+  .event-theme-root .theme-signature-effect,
+  .event-theme-root [data-signature-effect] {
+    animation: none !important;
+    transition: none !important;
+  }
+}

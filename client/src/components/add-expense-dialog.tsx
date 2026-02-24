@@ -16,6 +16,7 @@ import {
 import { Loader2, Plus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { getCategoryDef, getPlaceholderKeyForCategory } from "@/config/expenseCategories";
+import { getExpensePlaceholderKey, getThemeConfig, type ThemeId } from "@/themes/themeRegistry";
 import type { ExpenseWithParticipant } from "@shared/schema";
 
 interface AddExpenseDialogProps {
@@ -30,11 +31,15 @@ interface AddExpenseDialogProps {
   defaultOptIn?: boolean;
   allowOptIn?: boolean;
   onAddCustomCategory?: (name: string) => void;
+  /** Event type for theme-aware placeholder (e.g. barbecue, city_trip) */
+  eventType?: string | null;
+  /** Event kind for theme resolution */
+  eventKind?: "party" | "trip";
 }
 
 const DEFAULT_CATEGORIES = ["Meat", "Bread", "Drinks", "Charcoal", "Transportation", "Other"];
 
-export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, currencySymbol, categories: categoriesProp, defaultItem: defaultItemProp, defaultCategory: defaultCategoryProp, defaultOptIn: defaultOptInProp, allowOptIn = false, onAddCustomCategory }: AddExpenseDialogProps) {
+export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, currencySymbol, categories: categoriesProp, defaultItem: defaultItemProp, defaultCategory: defaultCategoryProp, defaultOptIn: defaultOptInProp, allowOptIn = false, onAddCustomCategory, eventType, eventKind = "party" }: AddExpenseDialogProps) {
   const { t } = useLanguage();
   const { toast } = useToast();
   const participants = useParticipants(bbqId);
@@ -74,7 +79,8 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
     }
   }, [open, editingExpense, participants.data, categories, defaultItemProp, defaultCategoryProp, defaultOptInProp]);
 
-  const placeholderKey = getPlaceholderKeyForCategory(category);
+  const themeId = eventType && eventKind ? (getThemeConfig(eventKind, eventType).id as ThemeId) : null;
+  const placeholderKey = themeId != null ? getExpensePlaceholderKey(category, themeId) : getPlaceholderKeyForCategory(category);
   const itemPlaceholder = (t.placeholders as Record<string, string>)[placeholderKey] ?? "e.g. Miscellaneous";
 
   const handleSubmit = (e: React.FormEvent) => {

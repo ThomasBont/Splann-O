@@ -39,56 +39,64 @@ export interface EventActivityInput {
 
 /**
  * Generate chronological activity items from existing event data.
- * Order: event created first, then expenses (newest by id), then joins (by participant id).
+ * Uses creation order (event → joins by id → expenses by id) to assign timestamps
+ * spread relative to "now", so each activity shows a sensible relative time.
  */
 export function getEventActivity(input: EventActivityInput): ActivityItem[] {
   const { event, expenses, participants, creatorDisplayName } = input;
   const items: ActivityItem[] = [];
 
-  const eventDate = typeof event.date === "string" ? new Date(event.date) : event.date;
-
-  // Timestamp ordering: event (oldest) → joins → expenses (newest). Display is newest-first.
+  const now = Date.now();
   const MS_PER_DAY = 86_400_000;
-  const eventCreatedAt = new Date(eventDate.getTime() - 2 * MS_PER_DAY);
-  const joinBaseAt = new Date(eventDate.getTime() - 1 * MS_PER_DAY);
 
-  // 1. Event created
+  // 1. Event created (oldest)
   const creatorName = creatorDisplayName || event.creatorId || "Someone";
   items.push({
     id: `event-${event.id}`,
     type: "system",
     message: `${creatorName} created this event`,
-    timestamp: eventCreatedAt,
+    timestamp: new Date(0),
     icon: "⚙️",
   });
 
-  // 2. User joined — participants with userId (logged-in users)
+  // 2. User joined — participants with userId, ordered by id (lower id = joined earlier)
   participants
     .filter((p) => p.userId)
-    .forEach((p, idx) => {
+    .sort((a, b) => a.id - b.id)
+    .forEach((p) => {
       items.push({
         id: `join-${p.id}`,
         type: "join",
         message: `${p.name} joined the event`,
-        timestamp: new Date(joinBaseAt.getTime() - idx * 60_000),
+        timestamp: new Date(0),
         icon: "👋",
       });
     });
 
-  // 3. Expenses added — order by id desc (higher id = more recent)
-  const sortedExpenses = [...expenses].sort((a, b) => b.id - a.id);
-  const expenseBaseAt = new Date(eventDate.getTime());
-  sortedExpenses.forEach((exp, idx) => {
-    const offset = idx * 60_000;
+  // 3. Expenses added — order by id (higher id = more recent)
+  const sortedExpenses = [...expenses].sort((a, b) => a.id - b.id);
+  sortedExpenses.forEach((exp) => {
     items.push({
       id: `expense-${exp.id}`,
       type: "expense",
       message: `${exp.participantName ?? "Someone"} added an expense: ${exp.item} ${exp.amount}`,
-      timestamp: new Date(expenseBaseAt.getTime() + offset),
+      timestamp: new Date(0),
       icon: "💸",
     });
   });
 
+  // Assign timestamps spread from "oldest" to "newest" relative to now
+  // Oldest = 2 days ago, Newest = 30 seconds ago (so we never get future dates)
+  const total = items.length;
+  const oldestMs = now - 2 * MS_PER_DAY;
+  const newestMs = now - 30_000; // 30 seconds ago
+  items.forEach((item, idx) => {
+    const t = total <= 1 ? 0 : idx / (total - 1);
+    const ts = oldestMs + t * (newestMs - oldestMs);
+    item.timestamp = new Date(ts);
+  });
+
+  // Sort newest-first for display
   items.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
   return items;
 }

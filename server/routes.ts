@@ -2,6 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
 import { db } from "./db";
+import { auditLog } from "./lib/audit";
 import { users, expenses, notes } from "@shared/schema";
 import { api } from "@shared/routes";
 import { z } from "zod";
@@ -225,6 +226,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           status: "accepted",
         });
       }
+      auditLog("barbecue.create", { barbecueId: created.id, username: req.session?.username });
       res.status(201).json(created);
     } catch (err) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
@@ -322,6 +324,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         templateData: { ...currentTemplate, settleSnapshot },
       });
       if (!updated) return res.status(404).json({ message: "Event not found" });
+      auditLog("barbecue.settle_up", { barbecueId: id, username: req.session.username });
       res.json(updated);
     } catch (err) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });

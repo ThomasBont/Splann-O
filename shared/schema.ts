@@ -12,6 +12,10 @@ export const users = pgTable("users", {
   profileImageUrl: text("profile_image_url"),
   bio: text("bio"),
   preferredCurrencyCodes: text("preferred_currency_codes"),
+  /** Plan tier for feature gating. Default free. */
+  plan: text("plan").default("free"),
+  /** When pro plan expires (nullable for free). */
+  planExpiresAt: timestamp("plan_expires_at"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -55,6 +59,7 @@ export const barbecues = pgTable("barbecues", {
   status: text("status").notNull().default("active"),
   /** When creator triggered "Settle up" — used for "updated after" badge. */
   settledAt: timestamp("settled_at"),
+  updatedAt: timestamp("updated_at").defaultNow(),
 });
 
 export const eventNotifications = pgTable("event_notifications", {
@@ -82,6 +87,7 @@ export const expenses = pgTable("expenses", {
   category: text("category").notNull(),
   item: text("item").notNull(),
   amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
 export const expenseShares = pgTable("expense_shares", {

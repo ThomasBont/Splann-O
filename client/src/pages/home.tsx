@@ -38,8 +38,9 @@ import { QuickAddChips } from "@/components/event/QuickAddChips";
 import { EmptyState } from "@/components/event/EmptyState";
 import { InviteSheet } from "@/components/event/InviteSheet";
 import { InviteLink } from "@/components/events/invite-link";
-import { ShareSettlementActions } from "@/components/share/share-settlement-actions";
-import { ShareRecapActions } from "@/components/share/share-recap-actions";
+import { ShareRecapWithMenu } from "@/components/share/ShareRecapWithMenu";
+import { IndividualContributions } from "@/components/split/IndividualContributions";
+import { SettlementPlan } from "@/components/split/SettlementPlan";
 import { ConfettiCelebration } from "@/components/basic/ConfettiCelebration";
 import { generateSettleCardData, generateRecapCardData } from "@/utils/shareCard";
 import { WelcomeModal } from "@/components/welcome-modal";
@@ -48,7 +49,7 @@ import { SplannoLogo } from "@/components/splanno-logo";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import {
   Receipt, Trash2, Edit2,
-  Plus, ArrowRight, CheckCircle2,
+  Plus, CheckCircle2,
   CalendarDays, Loader2,
   UserCheck, UserX, LogOut, Crown, Clock, UserCircle,
   Lock, Globe, UserPlus, X, Eye, EyeOff, Compass,
@@ -84,6 +85,7 @@ import { EventThemeProvider } from "@/themes/ThemeProvider";
 import { SignatureEffect } from "@/themes/SignatureEffect";
 import { TRIP_THEME_KEYS, PARTY_THEME_KEYS } from "@/theme/eventThemes";
 import { normalizeEvent, getEventArea } from "@/utils/eventUtils";
+import { computeSplit, getFairShareForParticipant } from "@/lib/split/calc";
 import type { ExpenseWithParticipant, Barbecue, Participant, FriendInfo, PendingRequestWithBbq } from "@shared/schema";
 
 /** Fallback colors for expense chart. Extended for custom categories (hash-based). */
@@ -535,25 +537,10 @@ export default function Home() {
   const participantCount = participants.length;
   const allowOptIn = !!selectedBbq?.allowOptInExpenses;
   const shareSet = new Set(expenseSharesList.map(s => `${s.expenseId}:${s.participantId}`));
-  const getParticipantsInExpense = (expenseId: number) => {
-    const forExp = expenseSharesList.filter(s => s.expenseId === expenseId);
-    if (forExp.length === 0) {
-      if (allowOptIn) return [];
-      return participants.map((p: Participant) => p.id);
-    }
-    return forExp.map(s => s.participantId);
-  };
-  const getFairShareForParticipant = (participantId: number) => {
-    if (!allowOptIn || expenseSharesList.length === 0) return participantCount > 0 ? totalSpent / participantCount : 0;
-    let sum = 0;
-    for (const exp of expenses) {
-      const inIds = getParticipantsInExpense(exp.id);
-      if (inIds.includes(participantId)) sum += Number(exp.amount) / inIds.length;
-    }
-    return sum;
-  };
+  const _getFairShareForParticipant = (participantId: number) =>
+    getFairShareForParticipant(participantId, expenses, expenseSharesList, participants, allowOptIn);
   const myParticipant = username ? participants.find((p: Participant) => p.userId === username) : null;
-  const fairShare = myParticipant ? getFairShareForParticipant(myParticipant.id) : (participantCount > 0 ? totalSpent / participantCount : 0);
+  const fairShare = myParticipant ? _getFairShareForParticipant(myParticipant.id) : (participantCount > 0 ? totalSpent / participantCount : 0);
 
   const canLeave = (p: Participant) => {
     if (p.userId !== username) return false;
@@ -572,29 +559,12 @@ export default function Home() {
     name, value, translatedName: t.categories[name as keyof typeof t.categories] || name
   })).filter(d => d.value > 0);
 
-  const calculateSettlements = () => {
-    if (participantCount === 0) return { balances: [] as any[], settlements: [] as any[] };
-    const balances = participants.map((p: any) => {
-      const paid = expenses.filter((e: ExpenseWithParticipant) => e.participantId === p.id).reduce((s: number, e: ExpenseWithParticipant) => s + Number(e.amount), 0);
-      const pFairShare = getFairShareForParticipant(p.id);
-      return { ...p, paid, balance: paid - pFairShare };
-    });
-    const debtors = balances.filter((b: any) => b.balance < -0.01).sort((a: any, b: any) => a.balance - b.balance);
-    const creditors = balances.filter((b: any) => b.balance > 0.01).sort((a: any, b: any) => b.balance - a.balance);
-    const settlements: { from: string; to: string; amount: number }[] = [];
-    let i = 0, j = 0;
-    while (i < debtors.length && j < creditors.length) {
-      const debtor = debtors[i], creditor = creditors[j];
-      const amount = Math.min(Math.abs(debtor.balance), creditor.balance);
-      if (amount > 0.01) settlements.push({ from: debtor.name, to: creditor.name, amount });
-      debtor.balance += amount; creditor.balance -= amount;
-      if (Math.abs(debtor.balance) < 0.01) i++;
-      if (creditor.balance < 0.01) j++;
-    }
-    return { balances, settlements };
-  };
-
-  const { balances, settlements } = calculateSettlements();
+  const { balances, settlements } = computeSplit(
+    participants,
+    expenses,
+    expenseSharesList,
+    allowOptIn
+  );
 
   const handleJoin = (bbqId: number) => {
     if (!username) return;
@@ -1703,59 +1673,14 @@ export default function Home() {
 
               {/* Split Tab */}
               <EventTabsContent value="split" className="space-y-4">
-                {/* Individual Contributions */}
-                  <div className="rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-4 shadow-[var(--shadow-sm)]">
-                  <h3 className="text-sm font-semibold text-muted-foreground mb-4">{t.split.contributions}</h3>
-                  {balances.length === 0 ? (
-                    <p className="text-muted-foreground text-sm text-center py-4">{t.emptyState.title}</p>
-                  ) : (
-                    <div className="space-y-3">
-                      {balances.map((b: any) => {
-                        const isOver = b.balance > 0.01;
-                        const isUnder = b.balance < -0.01;
-                        return (
-                          <div key={b.id} className="flex items-center gap-3">
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center justify-between text-sm mb-1">
-                                <span className="font-medium">{b.name}</span>
-                                <span className="text-primary font-semibold">{formatMoney(b.paid)}</span>
-                              </div>
-                              <div className="h-1.5 bg-muted/40 dark:bg-muted/30 rounded-full overflow-hidden">
-                                <div
-                                  className="h-full rounded-full bg-primary transition-all"
-                                  style={{ width: totalSpent > 0 ? `${Math.min(100, (b.paid / totalSpent) * 100)}%` : '0%' }}
-                                />
-                              </div>
-                            </div>
-                            <div className={`text-xs font-semibold px-2 py-0.5 rounded flex-shrink-0 transition-shadow duration-300 ${
-                              isOver ? 'bg-green-500/15 text-green-600 dark:text-green-400' :
-                              isUnder ? 'bg-red-500/15 text-red-600 dark:text-red-400' :
-                              'bg-green-500/10 text-green-600 dark:text-green-400 drop-shadow-[0_0_6px_rgba(34,197,94,0.25)]'
-                            }`}>
-                              {isOver ? (
-                                <AnimatedBalance
-                                  value={b.balance}
-                                  format={(n) => `+${formatMoney(n)}`}
-                                  reducedMotion={!!shouldReduceMotion}
-                                  glowWhenZero={false}
-                                />
-                              ) : isUnder ? (
-                                <AnimatedBalance
-                                  value={b.balance}
-                                  format={formatMoney}
-                                  reducedMotion={!!shouldReduceMotion}
-                                  glowWhenZero={true}
-                                />
-                              ) : (
-                                "✓"
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
+                <IndividualContributions
+                  balances={balances}
+                  totalSpent={totalSpent}
+                  formatMoney={formatMoney}
+                  emptyLabel={t.emptyState.title}
+                  contributionsLabel={t.split.contributions}
+                  reducedMotion={!!shouldReduceMotion}
+                />
 
                 {/* Event Recap share (when there's expense data) */}
                 {totalSpent > 0 && participantCount > 0 && (() => {
@@ -1777,71 +1702,73 @@ export default function Home() {
                         : undefined,
                     }
                   );
+                  const shareLink = selectedBbq?.inviteToken
+                    ? `${typeof window !== "undefined" ? window.location.origin : ""}/join/${selectedBbq.inviteToken}`
+                    : null;
                   return (
-                    <div className="flex items-center justify-between gap-2 mb-2">
-                      <span className="text-xs text-muted-foreground">{t.split.shareSummary}</span>
-                      <ShareRecapActions
+                    <div className="mb-2">
+                      <ShareRecapWithMenu
                         data={recapData}
                         theme={eventTheme}
-                        shareImageLabel={t.split.shareImage}
-                        copyImageLabel={t.split.copyImage}
-                        downloadLabel={t.split.download}
-                        onCopySuccess={() => toast({ title: t.bbq.copySuccess })}
+                        shareLink={shareLink}
+                        shareSummaryLabel={t.split.shareSummary}
+                        labels={{
+                          share: t.split.share,
+                          shareWhatsApp: t.split.shareWhatsApp,
+                          shareMore: t.split.shareMore,
+                          downloadPng: t.split.downloadPng,
+                          copyImage: t.split.copyImage,
+                          copyImageUnsupported: t.split.copyImageUnsupported,
+                          copyShareLink: t.split.copyShareLink,
+                          copied: t.bbq.copySuccess,
+                          downloaded: t.split.toastDownloaded,
+                          shared: t.split.toastShared,
+                          error: t.split.toastError,
+                        }}
                       />
                     </div>
                   );
                 })()}
 
-                {/* Settlement Plan */}
-                  <div className="rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-4 shadow-[var(--shadow-sm)]">
-                  <h3 className="text-sm font-semibold text-muted-foreground mb-4">{t.split.settlement}</h3>
-                  {settlements.length === 0 ? (
-                    <div className="text-center py-4 text-muted-foreground">
-                      <CheckCircle2 className="w-8 h-8 mx-auto mb-2 text-green-400 opacity-70" />
-                      <p className="text-sm">{t.split.allSettled}</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {settlements.map((s, i) => {
-                        const { category, type } = normalizeEvent(selectedBbq ?? {});
-                        const eventTheme = getEventTheme(category, type);
-                        const subtitle = (t.eventTypes as Record<string, string>)[eventTheme.labelKey] ?? eventTheme.copy.tagline;
-                        const settleCardData = generateSettleCardData(
-                          {
-                            name: selectedBbq?.name ?? "",
-                            subtitle,
-                            currency: selectedBbq?.currency ?? "EUR",
-                          },
-                          s,
-                          subtitle
-                        );
-                        return (
-                          <div key={i} className="flex flex-col gap-2 border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]/50 rounded-[var(--radius-md)] px-3 py-2.5" data-testid={`settlement-${i}`}>
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 bg-red-500/10 rounded-lg flex items-center justify-center flex-shrink-0">
-                                <ArrowRight className="w-4 h-4 text-red-400" />
-                              </div>
-                              <div className="flex-1 text-sm">
-                                <span className="font-bold text-red-400">{s.from}</span>
-                                <span className="text-muted-foreground mx-2">{t.split.owes}</span>
-                                <span className="font-bold text-green-400">{s.to}</span>
-                              </div>
-                              <span className="font-bold text-primary flex-shrink-0">{formatMoney(s.amount)}</span>
-                            </div>
-                            <ShareSettlementActions
-                              data={settleCardData}
-                              theme={eventTheme}
-                              shareImageLabel={t.split.shareImage}
-                              copyImageLabel={t.split.copyImage}
-                              downloadLabel={t.split.download}
-                              onCopySuccess={() => toast({ title: t.bbq.copySuccess })}
-                            />
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
+                <SettlementPlan
+                  settlements={settlements}
+                  allSettledLabel={t.split.allSettled}
+                  owesLabel={t.split.owes}
+                  settlementLabel={t.split.settlement}
+                  formatMoney={formatMoney}
+                  getSettleCardData={(s) => {
+                    const { category, type } = normalizeEvent(selectedBbq ?? {});
+                    const eventTheme = getEventTheme(category, type);
+                    const subtitle = (t.eventTypes as Record<string, string>)[eventTheme.labelKey] ?? eventTheme.copy.tagline;
+                    return generateSettleCardData(
+                      { name: selectedBbq?.name ?? "", subtitle, currency: selectedBbq?.currency ?? "EUR" },
+                      s,
+                      subtitle
+                    );
+                  }}
+                  getEventTheme={() => {
+                    const { category, type } = normalizeEvent(selectedBbq ?? {});
+                    return getEventTheme(category, type);
+                  }}
+                  shareLink={
+                    selectedBbq?.inviteToken
+                      ? `${typeof window !== "undefined" ? window.location.origin : ""}/join/${selectedBbq.inviteToken}`
+                      : null
+                  }
+                  shareLabels={{
+                    share: t.split.share,
+                    shareWhatsApp: t.split.shareWhatsApp,
+                    shareMore: t.split.shareMore,
+                    downloadPng: t.split.downloadPng,
+                    copyImage: t.split.copyImage,
+                    copyImageUnsupported: t.split.copyImageUnsupported,
+                    copyShareLink: t.split.copyShareLink,
+                    copied: t.bbq.copySuccess,
+                    downloaded: t.split.toastDownloaded,
+                    shared: t.split.toastShared,
+                    error: t.split.toastError,
+                  }}
+                />
               </EventTabsContent>
 
               {/* Notes Tab */}

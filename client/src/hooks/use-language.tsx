@@ -193,6 +193,15 @@ interface Translations {
     copyImage: string;
     download: string;
     shareSummary: string;
+    share: string;
+    shareWhatsApp: string;
+    shareMore: string;
+    downloadPng: string;
+    copyImageUnsupported: string;
+    copyShareLink: string;
+    toastDownloaded: string;
+    toastShared: string;
+    toastError: string;
   };
   settleUp: {
     cta: string;
@@ -579,6 +588,9 @@ const translations: Record<Language, Translations> = {
       contributions: "Individual Contributions", settlement: "Settlement Plan",
       owes: "owes", allSettled: "All settled up!", allSettledStillFriends: "All settled. Friendship intact 🎉", overpaid: "Overpaid", underpaid: "Underpaid",
       shareImage: "Share image", copyImage: "Copy image", download: "Download", shareSummary: "Share summary",
+      share: "Share", shareWhatsApp: "WhatsApp", shareMore: "More…", downloadPng: "Download PNG",
+      copyImageUnsupported: "Not supported in this browser, use Download.", copyShareLink: "Copy share link",
+      toastDownloaded: "Downloaded!", toastShared: "Shared!", toastError: "Something went wrong",
     },
     settleUp: {
       cta: "Ready to settle?",
@@ -910,6 +922,9 @@ const translations: Record<Language, Translations> = {
       contributions: "Contribuciones Individuales", settlement: "Plan de Pagos",
       owes: "le debe a", allSettled: "¡Todo saldado!", allSettledStillFriends: "Todo saldado. Amistad preservada.", overpaid: "Pagó de más", underpaid: "Debe",
       shareImage: "Compartir imagen", copyImage: "Copiar imagen", download: "Descargar", shareSummary: "Compartir resumen",
+      share: "Compartir", shareWhatsApp: "WhatsApp", shareMore: "Más…", downloadPng: "Descargar PNG",
+      copyImageUnsupported: "No soportado en este navegador, usa Descargar.", copyShareLink: "Copiar link",
+      toastDownloaded: "¡Descargado!", toastShared: "¡Compartido!", toastError: "Algo salió mal",
     },
     settleUp: {
       cta: "¿Listo para saldar?",
@@ -1241,6 +1256,9 @@ const translations: Record<Language, Translations> = {
       contributions: "Contributi Individuali", settlement: "Piano di Rimborso",
       owes: "deve a", allSettled: "Tutto saldato!", allSettledStillFriends: "Tutto saldato. Amicizia preservata.", overpaid: "Eccedenza", underpaid: "Debito",
       shareImage: "Condividi immagine", copyImage: "Copia immagine", download: "Scarica", shareSummary: "Condividi riepilogo",
+      share: "Condividi", shareWhatsApp: "WhatsApp", shareMore: "Altro…", downloadPng: "Scarica PNG",
+      copyImageUnsupported: "Non supportato in questo browser, usa Scarica.", copyShareLink: "Copia link",
+      toastDownloaded: "Scaricato!", toastShared: "Condiviso!", toastError: "Qualcosa è andato storto",
     },
     settleUp: {
       cta: "Pronto a saldare?",
@@ -1572,6 +1590,9 @@ const translations: Record<Language, Translations> = {
       contributions: "Individuele Bijdragen", settlement: "Betaalplan",
       owes: "is verschuldigd aan", allSettled: "Alles verrekend!", allSettledStillFriends: "Alles verrekend. Vriendschap behouden.", overpaid: "Te veel betaald", underpaid: "Te weinig betaald",
       shareImage: "Deel afbeelding", copyImage: "Kopieer afbeelding", download: "Downloaden", shareSummary: "Deel samenvatting",
+      share: "Delen", shareWhatsApp: "WhatsApp", shareMore: "Meer…", downloadPng: "Download PNG",
+      copyImageUnsupported: "Niet ondersteund in deze browser, gebruik Download.", copyShareLink: "Kopieer link",
+      toastDownloaded: "Gedownload!", toastShared: "Gedeeld!", toastError: "Er is iets misgegaan",
     },
     settleUp: {
       cta: "Klaar om af te rekenen?",

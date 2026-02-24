@@ -32,7 +32,8 @@ export const session = pgTable("session", {
 
 export const eventTypeEnum = [
   "default", "barbecue", "birthday", "dinner_party", "house_party", "game_night", "movie_night", "pool_party", "after_party", "other_party",
-  "city_trip", "vacation", "road_trip", "backpacking", "ski_trip", "festival_trip", "bachelor_trip", "workation", "other_trip",
+  "city_trip", "road_trip", "beach_trip", "ski_trip", "festival_trip", "hiking_trip", "camping", "weekend_getaway", "business_trip", "other_trip",
+  /* legacy - kept for backward compat */ "vacation", "backpacking", "bachelor_trip", "workation",
   "cinema", "theme_park", "day_out",
 ] as const;
 export const areaEnum = ["parties", "trips"] as const;

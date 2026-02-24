@@ -6,6 +6,7 @@ import { LanguageProvider } from "@/hooks/use-language";
 import { ThemeProvider } from "@/hooks/use-theme";
 import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
+import ThemeGalleryPage from "@/pages/theme-gallery";
 import Basic from "@/pages/basic";
 import LoginPage from "@/pages/login";
 import AppRoute from "@/pages/app-route";
@@ -19,6 +20,7 @@ function Router() {
       <Route path="/login" component={LoginPage} />
       <Route path="/app" component={AppRoute} />
       <Route path="/reset-password" component={ResetPassword} />
+      <Route path="/theme-gallery" component={ThemeGalleryPage} />
       <Route component={NotFound} />
     </Switch>
   );

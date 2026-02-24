@@ -16,7 +16,7 @@ import { ProfileDialog } from "@/components/profile-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { EventTabs, EventTabsContent, EventTabsList, EventTabsTrigger } from "@/components/event/EventTabs";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from "@/components/ui/dialog";
@@ -27,13 +27,16 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { AddPersonDialog } from "@/components/add-person-dialog";
 import { AddExpenseDialog } from "@/components/add-expense-dialog";
-import { RecommendedExpenses } from "@/components/recommended-expenses";
+import { EventHeader } from "@/components/event/EventHeader";
+import { QuickAddChips } from "@/components/event/QuickAddChips";
+import { EmptyState } from "@/components/event/EmptyState";
+import { InviteSheet } from "@/components/event/InviteSheet";
 import { WelcomeModal } from "@/components/welcome-modal";
 import { DiscoverModal } from "@/components/discover-modal";
 import { SplannoLogo } from "@/components/splanno-logo";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import {
-  Users, Receipt, Wallet, Trash2, Edit2,
+  Receipt, Trash2, Edit2,
   Plus, ArrowRight, CheckCircle2,
   CalendarDays, Loader2,
   Beef, Wheat, Beer, Zap, Car, Package,
@@ -52,12 +55,16 @@ import {
   getPartyTemplate,
   isTripEventType,
   isPartyEventType,
-  TRIP_TYPE_KEYS,
   defaultBarbecueTemplateData,
   defaultBirthdayTemplateData,
   type BarbecueTemplateData,
   type BirthdayTemplateData,
+  getExpenseTemplates,
+  getExpenseTemplateHelper,
 } from "@/eventTemplates";
+import { getEventTheme } from "@/theme/useEventTheme";
+import { TRIP_THEME_KEYS, PARTY_THEME_KEYS } from "@/theme/eventThemes";
+import { normalizeEvent, getEventArea } from "@/utils/eventUtils";
 import type { ExpenseWithParticipant, Barbecue, Participant, FriendInfo, PendingRequestWithBbq } from "@shared/schema";
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -83,48 +90,28 @@ const CATEGORIES_BY_EVENT_TYPE: Record<string, string[]> = {
   default: PARTY_CATEGORIES,
   other_party: PARTY_CATEGORIES,
   city_trip: ["Transport", "Tickets", "Food", "Accommodation", "Other"],
-  vacation: ["Accommodation", "Food", "Tickets", "Transport", "Other"],
   road_trip: ["Transport", "Food", "Tickets", "Accommodation", "Other"],
-  backpacking: ["Accommodation", "Transport", "Food", "Other"],
+  hiking_trip: ["Transport", "Food", "Tickets", "Accommodation", "Other"],
+  beach_trip: ["Accommodation", "Food", "Tickets", "Transport", "Other"],
   ski_trip: ["Tickets", "Accommodation", "Drinks", "Other"],
   festival_trip: ["Tickets", "Accommodation", "Drinks", "Transport", "Other"],
-  bachelor_trip: ["Accommodation", "Tickets", "Drinks", "Other"],
-  workation: ["Accommodation", "Other", "Food", "Transport"],
+  camping: ["Accommodation", "Food", "Other", "Transport"],
+  weekend_getaway: ["Accommodation", "Food", "Transport", "Tickets", "Other"],
+  business_trip: ["Accommodation", "Food", "Transport", "Other"],
   cinema: ["Tickets", "Food", "Drinks", "Other"],
   theme_park: ["Tickets", "Food", "Drinks", "Transport", "Other"],
   day_out: ["Food", "Drinks", "Transport", "Tickets", "Other"],
   other_trip: ["Food", "Drinks", "Transport", "Tickets", "Accommodation", "Other"],
+  vacation: ["Accommodation", "Food", "Tickets", "Transport", "Other"],
+  backpacking: ["Accommodation", "Transport", "Food", "Other"],
+  bachelor_trip: ["Accommodation", "Tickets", "Drinks", "Other"],
+  workation: ["Accommodation", "Other", "Food", "Transport"],
 };
 
 function getCategoriesForEventType(eventType: string | undefined): string[] {
   if (!eventType) return ["Meat", "Bread", "Drinks", "Charcoal", "Transportation", "Other"];
   return CATEGORIES_BY_EVENT_TYPE[eventType] ?? ["Food", "Drinks", "Transport", "Tickets", "Other"];
 }
-
-const EVENT_TYPE_I18N_KEYS: Record<string, string> = {
-  default: "otherParty",
-  barbecue: "barbecue",
-  birthday: "birthday",
-  dinner_party: "dinnerNight",
-  house_party: "houseParty",
-  game_night: "gameNight",
-  movie_night: "movieNight",
-  pool_party: "poolParty",
-  after_party: "afterParty",
-  other_party: "otherParty",
-  city_trip: "cityTrip",
-  vacation: "vacation",
-  road_trip: "roadTrip",
-  backpacking: "backpacking",
-  ski_trip: "skiTrip",
-  festival_trip: "festivalTrip",
-  bachelor_trip: "bachelorTrip",
-  workation: "workation",
-  cinema: "cinema",
-  theme_park: "themePark",
-  day_out: "dayOut",
-  other_trip: "otherTrip",
-};
 
 // ─── Auth Dialog (exported for LoginShell / Login page) ───────────────────────
 export function AuthDialog({
@@ -417,25 +404,6 @@ export function AuthDialog({
   );
 }
 
-// ─── Stat Card ────────────────────────────────────────────────────────────────
-function StatCard({ label, value, icon, color }: { label: string; value: string | number; icon: any; color: string }) {
-  const colors: Record<string, string> = {
-    gold: 'from-primary/20 to-primary/5 border-primary/20 text-primary',
-    blue: 'from-blue-500/20 to-blue-500/5 border-blue-500/20 text-blue-400',
-    orange: 'from-accent/20 to-accent/5 border-accent/20 text-accent',
-    green: 'from-green-500/20 to-green-500/5 border-green-500/20 text-green-400',
-  };
-  return (
-    <div className={`bg-gradient-to-br ${colors[color] || colors.gold} border rounded-2xl p-4 sm:p-5`}>
-      <div className="flex items-center gap-2 mb-2 text-current opacity-70">
-        <span className="w-4 h-4">{icon}</span>
-        <span className="text-xs font-medium uppercase tracking-wide">{label}</span>
-      </div>
-      <div className="text-2xl font-bold font-display">{value}</div>
-    </div>
-  );
-}
-
 // ─── Main Page ────────────────────────────────────────────────────────────────
 export default function Home() {
   const { language, setLanguage, t } = useLanguage();
@@ -500,23 +468,12 @@ export default function Home() {
   }, [allPendingRequests.length]);
 
   const { data: barbecues = [], isLoading: isLoadingBbqs } = useBarbecues();
-  const PARTY_EVENT_TYPE_OPTIONS = [
-    { value: "barbecue", label: t.eventTypes.barbecue },
-    { value: "birthday", label: t.eventTypes.birthday },
-    { value: "dinner_party", label: t.eventTypes.dinnerNight },
-    { value: "house_party", label: t.eventTypes.houseParty },
-    { value: "game_night", label: t.eventTypes.gameNight },
-    { value: "movie_night", label: t.eventTypes.movieNight },
-    { value: "pool_party", label: t.eventTypes.poolParty },
-    { value: "after_party", label: t.eventTypes.afterParty },
-    { value: "other_party", label: t.eventTypes.otherParty },
-  ] as const;
-  const eventTypeOptions = newEventArea === "trips" ? TRIP_TYPE_KEYS : PARTY_EVENT_TYPE_OPTIONS.map(o => o.value);
+  const eventTypeOptions = newEventArea === "trips" ? TRIP_THEME_KEYS : PARTY_THEME_KEYS;
   const isValidEventType = (v: string) =>
     newEventArea === "trips"
-      ? (TRIP_TYPE_KEYS as readonly string[]).includes(v)
-      : PARTY_EVENT_TYPE_OPTIONS.some(o => o.value === v);
-  const barbecuesForArea = useMemo(() => barbecues.filter((b: Barbecue) => ((b as any).area ?? "parties") === area), [barbecues, area]);
+      ? (TRIP_THEME_KEYS as readonly string[]).includes(v)
+      : (PARTY_THEME_KEYS as readonly string[]).includes(v);
+  const barbecuesForArea = useMemo(() => barbecues.filter((b: Barbecue) => getEventArea(b) === area), [barbecues, area]);
   const createBbq = useCreateBarbecue();
   const deleteBbq = useDeleteBarbecue();
   const updateBbq = useUpdateBarbecue();
@@ -653,7 +610,7 @@ export default function Home() {
           queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] });
           queryClient.invalidateQueries({ queryKey: ["/api/barbecues/public"] });
           setSelectedBbqId(bbq.id);
-          setArea((bbq as Barbecue & { area?: string }).area === "trips" ? "trips" : "parties");
+          setArea(getEventArea(bbq));
           setDiscoverOpen(false);
         },
         onError: (err: any) => {
@@ -688,7 +645,7 @@ export default function Home() {
     }, {
       onSuccess: (data: Barbecue) => {
         setSelectedBbqId(data.id);
-        setArea((data as any).area === "trips" ? "trips" : "parties");
+        setArea(getEventArea(data));
         setNewBbqName(""); setNewBbqDate(new Date().toISOString().split('T')[0]); setNewBbqAllowOptIn(false);
         setNewEventArea("parties"); setNewEventType("barbecue");
         setIsNewBbqOpen(false);
@@ -752,14 +709,14 @@ export default function Home() {
         username={username}
         onSelectEvent={(bbq) => {
           setSelectedBbqId(bbq.id);
-          setArea((bbq as Barbecue & { area?: string }).area === "trips" ? "trips" : "parties");
+          setArea(getEventArea(bbq));
           setDiscoverOpen(false);
         }}
         onJoin={handleDiscoverJoin}
       />
 
       {/* Header */}
-      <header className="sticky top-0 z-50 bg-background/80 backdrop-blur-lg border-b border-white/5" data-testid="header">
+      <header className="sticky top-0 z-50 bg-[hsl(var(--surface-0))]/90 backdrop-blur-lg border-b border-[hsl(var(--border-subtle))]" data-testid="header">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
             <SplannoLogo variant="icon" size={40} className="flex-shrink-0" />
@@ -896,7 +853,7 @@ export default function Home() {
       </header>
 
       {/* Parties | Trips top-level nav */}
-      <div className="sticky top-[57px] z-40 bg-background/90 backdrop-blur-md border-b border-white/5" data-testid="section-area-tabs">
+      <div className="sticky top-[57px] z-40 bg-[hsl(var(--surface-0))]/90 backdrop-blur-md border-b border-[hsl(var(--border-subtle))]" data-testid="section-area-tabs">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 flex items-center justify-between gap-4">
           <div className="flex rounded-lg border border-white/10 overflow-hidden inline-flex">
             <button
@@ -933,7 +890,7 @@ export default function Home() {
 
       {/* Event strip (Parties & Trips) */}
       {(
-      <div className="sticky top-[114px] z-30 bg-background/90 backdrop-blur-md border-b border-white/5" data-testid="section-bbq-selector">
+      <div className="sticky top-[114px] z-30 bg-[hsl(var(--surface-0))]/90 backdrop-blur-md border-b border-[hsl(var(--border-subtle))]" data-testid="section-bbq-selector">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-2">
           <div className="overflow-x-auto -mx-1 px-1 pb-1">
             <div className="flex gap-2 items-center min-w-max">
@@ -1070,7 +1027,7 @@ export default function Home() {
             </h3>
             <div className="flex flex-wrap gap-3">
               {pendingRequests.map((p: Participant) => (
-                <div key={p.id} className="flex items-center gap-2 bg-secondary/40 border border-white/10 rounded-xl px-3 py-2" data-testid={`pending-request-${p.id}`}>
+                <div key={p.id} className="flex items-center gap-2 border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]/50 rounded-[var(--radius-md)] px-3 py-2" data-testid={`pending-request-${p.id}`}>
                   <UserCheck className="w-4 h-4 text-muted-foreground" />
                   <span className="font-medium text-sm">{p.name}</span>
                   <div className="flex gap-1 ml-1">
@@ -1093,91 +1050,6 @@ export default function Home() {
           </motion.div>
         )}
 
-        {/* Invite Panel (private BBQ creator only) */}
-        {isCreator && isPrivate && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
-            className="bg-blue-500/10 border border-blue-500/30 rounded-2xl p-4 sm:p-6"
-            data-testid="section-invite-panel"
-          >
-            <h3 className="text-base font-bold font-display text-blue-400 flex items-center gap-2 mb-4">
-              <UserPlus className="w-5 h-5" />
-              {t.bbq.inviteUser}
-            </h3>
-            <div className="flex gap-2 mb-4">
-              <Input
-                placeholder={t.bbq.inviteUsernamePlaceholder}
-                value={inviteUsername}
-                onChange={e => setInviteUsername(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && handleInvite()}
-                className="max-w-xs"
-                data-testid="input-invite-username"
-              />
-              <Button
-                onClick={handleInvite}
-                disabled={inviteParticipant.isPending || !inviteUsername.trim()}
-                className="bg-blue-500 hover:bg-blue-600 text-white font-semibold"
-                data-testid="button-send-invite"
-              >
-                {inviteParticipant.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : t.bbq.invite}
-              </Button>
-            </div>
-            {friends.length > 0 && (
-              <div>
-                <p className="text-xs text-muted-foreground mb-2 flex items-center gap-1.5">
-                  <Heart className="w-3 h-3" />
-                  {t.friends.inviteFromFriends}
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {friends.map((f: FriendInfo) => {
-                    const alreadyInvited = invitedParticipants.some((p: Participant) => p.userId === f.username) ||
-                      participants.some((p: Participant) => p.userId === f.username);
-                    return (
-                      <div key={f.friendshipId} className="flex items-center gap-2 bg-secondary/20 border border-white/5 rounded-lg px-2.5 py-1.5" data-testid={`friend-invite-${f.friendshipId}`}>
-                        <UserCircle className="w-3.5 h-3.5 text-muted-foreground" />
-                        <span className="text-sm font-medium">{f.displayName || f.username}</span>
-                        {alreadyInvited ? (
-                          <span className="text-[10px] text-muted-foreground">{t.bbq.invited}</span>
-                        ) : (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => inviteParticipant.mutate(f.username)}
-                            disabled={inviteParticipant.isPending}
-                            data-testid={`button-invite-friend-${f.friendshipId}`}
-                          >
-                            <UserPlus2 className="w-3.5 h-3.5" />
-                          </Button>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-            {invitedParticipants.length > 0 && (
-              <div>
-                <p className="text-xs text-muted-foreground mb-2">{t.bbq.pendingInvites}:</p>
-                <div className="flex flex-wrap gap-2">
-                  {invitedParticipants.map((p: Participant) => (
-                    <div key={p.id} className="flex items-center gap-2 bg-blue-500/10 border border-blue-500/20 rounded-lg px-2.5 py-1.5" data-testid={`invited-${p.id}`}>
-                      <span className="text-sm font-medium">{p.name}</span>
-                      <span className="text-xs text-blue-400">{t.bbq.invited}</span>
-                      <button
-                        onClick={() => rejectParticipant.mutate(p.id)}
-                        className="text-muted-foreground hover:text-destructive ml-0.5"
-                        title="Remove"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </motion.div>
-        )}
-
         {/* Main Content */}
         {selectedBbqId ? (() => {
           const eventTemplate = getEventTemplate(selectedBbq?.eventType);
@@ -1196,121 +1068,34 @@ export default function Home() {
               decorationClass={isPartyEventType(selectedBbq?.eventType) ? getPartyTemplate(selectedBbq?.eventType).decorationClass : undefined}
               backgroundStyle={isPartyEventType(selectedBbq?.eventType) ? getPartyTemplate(selectedBbq?.eventType).backgroundStyle : undefined}
             >
-              {hasHero && (
-                <div
-                  className="h-1.5 w-full rounded-t-lg mb-4 bg-accent"
-                  aria-hidden
-                />
-              )}
-              {/* Party hero: all party types use template from registry */}
-              {isPartyEventType(selectedBbq?.eventType) && (() => {
-                const party = getPartyTemplate(selectedBbq?.eventType);
-                const Icon = party.icon;
-                return (
-                  <div className="mb-4 rounded-2xl border border-accent/25 bg-accent/10 px-4 py-3 flex items-center gap-3">
-                    <motion.div
-                      className="w-9 h-9 rounded-lg bg-accent/25 flex items-center justify-center flex-shrink-0"
-                      initial={shouldReduceMotion ? false : { scale: 0.9, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      transition={{ duration: 0.3, ease: "easeOut" }}
-                    >
-                      <Icon className="w-5 h-5 text-accent-foreground" />
-                    </motion.div>
-                    <div className="min-w-0">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-accent-foreground">
-                        {party.label}
-                      </p>
-                      <p className="text-sm text-muted-foreground truncate">
-                        {party.hero.subtitle}
-                      </p>
-                    </div>
-                    {party.hero.emoji && (
-                      <span className="text-lg flex-shrink-0" aria-hidden>{party.hero.emoji}</span>
-                    )}
-                  </div>
-                );
-              })()}
+              {/* Row A: EventHeader */}
+              <EventHeader
+                category={normalizeEvent(selectedBbq ?? {}).category}
+                type={normalizeEvent(selectedBbq ?? {}).type}
+                title={selectedBbq?.name ?? ""}
+                dateStr={selectedBbq?.date ? new Date(selectedBbq.date).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : undefined}
+                currencySymbol={displayCurrencyInfo.symbol}
+                currencyOptions={CURRENCIES.map((c) => ({ value: c.code, label: `${c.symbol} ${getCurrencyLabel(c)}` }))}
+                displayCurrency={displayCurrency}
+                onCurrencyChange={(v) => setDisplayCurrency(v as CurrencyCode)}
+                onAddExpense={() => { setRecommendedExpenseTemplate(null); setEditingExpense(null); setIsAddExpenseOpen(true); }}
+                addExpenseLabel={t.addExpense}
+                isCreator={isCreator}
+                allowOptIn={!!selectedBbq?.allowOptInExpenses}
+                onOptInChange={(checked) => selectedBbqId && updateBbq.mutate({ id: selectedBbqId, allowOptInExpenses: checked })}
+                optInPending={updateBbq.isPending}
+                onDelete={selectedBbqId ? () => handleDeleteBbq(selectedBbqId) : undefined}
+              />
 
-              {isTripEventType(selectedBbq?.eventType) && (() => {
-                const trip = getTripTemplate(selectedBbq?.eventType);
-                const Icon = trip.icon;
-                return (
-                  <div className="mb-4 rounded-2xl border border-accent/25 bg-accent/10 px-4 py-3 flex items-center gap-3">
-                    <motion.div
-                      className="w-9 h-9 rounded-lg bg-accent/25 flex items-center justify-center flex-shrink-0"
-                      initial={shouldReduceMotion ? false : { scale: 0.9, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      transition={{ duration: 0.3, ease: "easeOut" }}
-                    >
-                      <Icon className="w-5 h-5 text-accent-foreground" />
-                    </motion.div>
-                    <div className="min-w-0">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-accent-foreground">
-                        {trip.label}
-                      </p>
-                      <p className="text-sm text-muted-foreground truncate">
-                        {trip.hero.subtitle}
-                      </p>
-                    </div>
-                    {trip.hero.emoji && (
-                      <span className="text-lg flex-shrink-0" aria-hidden>{trip.hero.emoji}</span>
-                    )}
-                  </div>
-                );
-              })()}
-
-              {/* Creator: Opt-in expenses toggle */}
-            {isCreator && selectedBbqId && (
-              <div className="flex items-center gap-3 p-3 rounded-xl bg-secondary/20 border border-white/5">
-                <input
-                  type="checkbox"
-                  id="bbq-opt-in-toggle"
-                  checked={!!selectedBbq?.allowOptInExpenses}
-                  onChange={e => updateBbq.mutate({ id: selectedBbqId, allowOptInExpenses: e.target.checked })}
-                  disabled={updateBbq.isPending}
-                  className="rounded border-white/20"
-                  data-testid="checkbox-bbq-allow-opt-in"
-                />
-                <label htmlFor="bbq-opt-in-toggle" className="text-xs cursor-pointer flex-1">
-                  {t.bbq.allowOptInExpenses}
-                </label>
-                {updateBbq.isPending && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
-              </div>
-            )}
-
-            {/* Currency selector (like Basic version) */}
-            <div className="flex items-center gap-2">
-              <label htmlFor="event-display-currency" className="text-xs text-muted-foreground whitespace-nowrap">
-                {t.bbq.currency}:
-              </label>
-              <select
-                id="event-display-currency"
-                value={displayCurrency}
-                onChange={(e) => setDisplayCurrency(e.target.value as CurrencyCode)}
-                className="h-8 rounded-md border border-input bg-background px-2 text-sm text-foreground"
-                data-testid="select-display-currency"
-              >
-                {CURRENCIES.map((c) => (
-                  <option key={c.code} value={c.code}>
-                    {c.symbol} {getCurrencyLabel(c)}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Stats Grid — hide Fair Share when opt-in expenses are allowed */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-              <StatCard label={t.totalSpent} value={formatMoney(totalSpent)} icon={<Wallet />} color="gold" />
-              <StatCard label={t.participants} value={participantCount} icon={<Users />} color="blue" />
-              <StatCard label={t.expenses} value={expenses.length} icon={<Receipt />} color="orange" />
-              {!allowOptIn && (
-                <StatCard label={t.fairShare} value={formatMoney(fairShare)} icon={<Wallet />} color="green" />
-              )}
-            </div>
+              {/* Inline stats row */}
+              <p className="mt-2 text-xs text-muted-foreground">
+                {formatMoney(totalSpent)} spent · {participantCount} {participantCount === 1 ? "person" : "people"} · {expenses.length} expense{expenses.length !== 1 ? "s" : ""}
+                {!allowOptIn && ` · ${formatMoney(fairShare)} ${t.fairShare.toLowerCase()}`}
+              </p>
 
             {/* Template-specific optional sections */}
             {eventTemplate.key === "barbecue" && (
-              <div className="mt-4 bg-card/80 border border-orange-500/25 rounded-2xl p-4 sm:p-5 space-y-3">
+              <div className="mt-4 rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-4 space-y-3 shadow-[var(--shadow-sm)]">
                 <div className="flex items-center justify-between gap-2">
                   <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
                     BBQ Roles
@@ -1321,7 +1106,7 @@ export default function Home() {
                 </div>
                 <ul className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-sm">
                   {bbqTemplateData.roles.map((role) => (
-                    <li key={role.id} className="rounded-xl bg-secondary/40 border border-white/10 px-3 py-2">
+                    <li key={role.id} className="rounded-[var(--radius-md)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]/50 px-3 py-2">
                       <p className="font-medium">{role.label}</p>
                       {role.description && (
                         <p className="text-xs text-muted-foreground">
@@ -1335,7 +1120,7 @@ export default function Home() {
             )}
 
             {eventTemplate.key === "birthday" && (
-              <div className="mt-4 bg-card/80 border border-pink-500/25 rounded-2xl p-4 sm:p-5 space-y-3">
+              <div className="mt-4 rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-4 space-y-3 shadow-[var(--shadow-sm)]">
                 <div className="flex items-center justify-between gap-2">
                   <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
                     Gift contributions
@@ -1380,25 +1165,55 @@ export default function Home() {
               </div>
             )}
 
-            {/* Participants — Add Person lives here */}
-            <div className="bg-card/80 border border-white/5 rounded-2xl p-4 sm:p-6">
-              <div className="flex items-center justify-between gap-3 mb-3">
-                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
-                  {t.participants}
-                </h3>
-                {canManage && (
-                  <Button
-                    size="sm"
-                    onClick={() => setIsAddPersonOpen(true)}
-                    className="bg-primary text-primary-foreground font-bold shrink-0"
-                    data-testid="button-add-person"
-                  >
-                    <Plus className="w-4 h-4 mr-1.5" />
-                    {t.addPerson}
-                  </Button>
-                )}
-              </div>
-              <div className="flex flex-wrap gap-2">
+            {/* Row C: Tabs */}
+            <div className="mt-4">
+            <EventTabs defaultValue="expenses">
+              <EventTabsList>
+                <EventTabsTrigger value="expenses" data-testid="tab-expenses">{t.tabs.expenses}</EventTabsTrigger>
+                <EventTabsTrigger value="people" data-testid="tab-people">{t.tabs.people}</EventTabsTrigger>
+                <EventTabsTrigger value="split" data-testid="tab-split">{t.tabs.split}</EventTabsTrigger>
+                <EventTabsTrigger value="notes" data-testid="tab-notes">{t.tabs.notes}</EventTabsTrigger>
+              </EventTabsList>
+
+              {/* People Tab */}
+              <EventTabsContent value="people" className="space-y-4">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">{t.participants}</h3>
+                  <div className="flex items-center gap-2">
+                    {canManage && (
+                      <Button size="sm" onClick={() => setIsAddPersonOpen(true)} className="btn-interact bg-primary text-primary-foreground font-medium shrink-0" data-testid="button-add-person">
+                        <Plus className="w-4 h-4 mr-1.5" />
+                        {t.addPerson}
+                      </Button>
+                    )}
+                    {isCreator && isPrivate && (
+                      <InviteSheet
+                        trigger={
+                          <Button size="sm" variant="outline" className="border-border shrink-0" data-testid="button-invite-sheet">
+                            <UserPlus className="w-4 h-4 mr-1.5" />
+                            {t.bbq.inviteUser}
+                          </Button>
+                        }
+                        inviteUsername={inviteUsername}
+                        onInviteUsernameChange={setInviteUsername}
+                        onInvite={handleInvite}
+                        invitePending={inviteParticipant.isPending}
+                        title={t.bbq.inviteUser}
+                        inviteLabel={t.bbq.invite}
+                        placeholder={t.bbq.inviteUsernamePlaceholder}
+                        inviteFromFriends={t.friends.inviteFromFriends}
+                        pendingInvites={t.bbq.pendingInvites}
+                        invited={t.bbq.invited}
+                        friends={friends}
+                        invitedParticipants={invitedParticipants}
+                        participantUserIds={new Set(participants.map((p: Participant) => p.userId).filter(Boolean) as string[])}
+                        onInviteFriend={(username) => inviteParticipant.mutate(username)}
+                        onRejectInvite={(id) => rejectParticipant.mutate(id)}
+                      />
+                    )}
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
                 {participants.map((p: Participant) => {
                     const paid = expenses
                       .filter((e: ExpenseWithParticipant) => e.participantId === p.id)
@@ -1408,7 +1223,7 @@ export default function Home() {
                     return (
                       <div
                         key={p.id}
-                        className="inline-flex items-center gap-2 bg-secondary/40 border border-white/10 rounded-xl px-3 py-1.5 text-sm"
+                        className="inline-flex items-center gap-2 border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]/50 rounded-[var(--radius-md)] px-2.5 py-1 text-sm"
                         data-testid={`chip-participant-${p.id}`}
                       >
                         {isEditing ? (
@@ -1491,61 +1306,57 @@ export default function Home() {
                       </div>
                     );
                   })}
-              </div>
-            </div>
-
-            {/* Tabs */}
-            <Tabs defaultValue="expenses">
-              <TabsList className="w-full bg-secondary/30 border border-white/5">
-                <TabsTrigger value="expenses" className="flex-1 data-testid" data-testid="tab-expenses">{t.tabs.expenses}</TabsTrigger>
-                <TabsTrigger value="split" className="flex-1" data-testid="tab-split">{t.tabs.split}</TabsTrigger>
-              </TabsList>
+                </div>
+              </EventTabsContent>
 
               {/* Expenses Tab */}
-              <TabsContent value="expenses" className="mt-4 space-y-4">
-                {/* Recommended expenses — trip events */}
-                {isTripEventType(selectedBbq?.eventType) && (isCreator || isAcceptedMember) && (
-                  <RecommendedExpenses
-                    presets={getTripTemplate(selectedBbq?.eventType).expenseTemplates}
-                    onAddPreset={(p) => {
-                      setRecommendedExpenseTemplate(p);
-                      setEditingExpense(null);
-                      setIsAddExpenseOpen(true);
-                    }}
-                    helper={getTripTemplate(selectedBbq?.eventType).helper}
-                  />
-                )}
-                {/* Recommended expenses — party events (Smart Party Expense Presets) */}
-                {isPartyEventType(selectedBbq?.eventType) && (isCreator || isAcceptedMember) && (
-                  <RecommendedExpenses
-                    presets={getPartyTemplate(selectedBbq?.eventType).recommendedExpenses}
-                    onAddPreset={(p) => {
-                      setRecommendedExpenseTemplate(p);
-                      setEditingExpense(null);
-                      setIsAddExpenseOpen(true);
-                    }}
-                    title="Recommended expenses"
-                  />
-                )}
-                {/* Add Expense button — visible for creator + accepted members */}
-                {(isCreator || isAcceptedMember) && (
-                  <div className="flex justify-end">
-                    <Button
-                      size="sm"
-                      onClick={() => { setRecommendedExpenseTemplate(null); setEditingExpense(null); setIsAddExpenseOpen(true); }}
-                      className="bg-accent text-accent-foreground font-bold"
-                      data-testid="button-add-expense-tab"
-                    >
-                      <Plus className="w-4 h-4 mr-1.5" /> {t.addExpense}
-                    </Button>
-                  </div>
-                )}
+              <EventTabsContent value="expenses" className="space-y-3">
+                {/* Quick add chips — up to 5 + More */}
+                {(isCreator || isAcceptedMember) && (isTripEventType(selectedBbq?.eventType) || isPartyEventType(selectedBbq?.eventType)) && (() => {
+                  const { category, type } = normalizeEvent(selectedBbq ?? {});
+                  return (
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-[11px] text-muted-foreground">Quick add:</span>
+                      <QuickAddChips
+                        theme={getEventTheme(category, type)}
+                        presets={getExpenseTemplates(category, type)}
+                        onAdd={(p) => {
+                          setRecommendedExpenseTemplate({ item: p.item, category: p.category });
+                          setEditingExpense(null);
+                          setIsAddExpenseOpen(true);
+                        }}
+                        allowOptIn={allowOptIn}
+                      />
+                    </div>
+                  );
+                })()}
                 {expenses.length === 0 ? (
-                  <div className="text-center py-12 text-muted-foreground">
-                    <Receipt className="w-10 h-10 mx-auto mb-3 opacity-30" />
-                    <p className="font-medium">{t.emptyState.title}</p>
-                    <p className="text-sm mt-1">{t.emptyState.subtitle}</p>
-                  </div>
+                  (() => {
+                    const { category: eventCategory, type: eventType } = normalizeEvent(selectedBbq ?? {});
+                    const theme = getEventTheme(eventCategory, eventType);
+                    return (
+                      <EmptyState
+                        icon={theme.icon}
+                        title={theme.copy.emptyExpensesTitle}
+                        description={theme.copy.emptyExpensesBody}
+                        iconClassName={theme.accent.bg}
+                        primaryAction={
+                          (isCreator || isAcceptedMember)
+                            ? {
+                                label: theme.copy.ctaAddFirstExpense,
+                                icon: <Plus className="w-4 h-4" />,
+                                onClick: () => {
+                                  setRecommendedExpenseTemplate(null);
+                                  setEditingExpense(null);
+                                  setIsAddExpenseOpen(true);
+                                },
+                                testId: "button-add-first-expense",
+                              }
+                            : undefined
+                        }
+                      />
+                    );
+                  })()
                 ) : (
                   <div className="space-y-2">
                     {expenses.map((exp: ExpenseWithParticipant) => {
@@ -1558,10 +1369,10 @@ export default function Home() {
                       return (
                         <div
                           key={exp.id}
-                          className="flex items-center gap-3 bg-secondary/20 border border-white/5 rounded-xl px-4 py-3 group"
+                          className="flex items-center gap-3 rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] px-3 py-2.5 group shadow-[var(--shadow-sm)]"
                           data-testid={`expense-item-${exp.id}`}
                         >
-                          <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: `${color}20` }}>
+                          <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-muted/40 dark:bg-muted/30">
                             <IconComp className="w-4 h-4" style={{ color }} />
                           </div>
                           <div className="flex-1 min-w-0">
@@ -1574,8 +1385,8 @@ export default function Home() {
                             <button
                               onClick={() => setExpenseShare.mutate({ expenseId: exp.id, in: !isInForExp })}
                               disabled={setExpenseShare.isPending}
-                              className={`flex-shrink-0 text-xs font-semibold px-2.5 py-1 rounded-lg border transition-colors ${
-                                isInForExp ? 'bg-green-500/20 text-green-400 border-green-500/30' : 'bg-secondary/40 text-muted-foreground border-white/10 hover:border-white/20'
+                              className={`flex-shrink-0 text-xs font-semibold px-2 py-0.5 rounded border transition-colors ${
+                                isInForExp ? 'bg-green-500/15 text-green-600 dark:text-green-400 border-green-500/25' : 'bg-muted/30 text-muted-foreground border-border/60 hover:border-border hover:bg-muted/50'
                               }`}
                               data-testid={`expense-share-toggle-${exp.id}`}
                               title={isInForExp ? t.bbq.imOut : t.bbq.imIn}
@@ -1606,7 +1417,7 @@ export default function Home() {
 
                 {/* Category Chart */}
                 {chartData.length > 0 && (
-                  <div className="bg-card/60 border border-white/5 rounded-2xl p-4">
+                  <div className="rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-4 shadow-[var(--shadow-sm)]">
                     <h3 className="text-sm font-semibold text-muted-foreground mb-4">{t.bbq.breakdown}</h3>
                     <div className="flex items-center gap-4 flex-wrap">
                       <ResponsiveContainer width="100%" height={160}>
@@ -1620,7 +1431,7 @@ export default function Home() {
                             const converted = convertCurrency(Number(value), currency, displayCurrency);
                             return [`${displayCurrencyInfo.symbol}${converted.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, ''];
                           }}
-                            contentStyle={{ background: 'hsl(var(--card))', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }} />
+                            contentStyle={{ background: 'hsl(var(--surface-1))', border: '1px solid hsl(var(--border-subtle))', borderRadius: 'var(--radius-lg)' }} />
                         </PieChart>
                       </ResponsiveContainer>
                       <div className="space-y-1.5 flex-1 min-w-[120px]">
@@ -1638,12 +1449,12 @@ export default function Home() {
                     </div>
                   </div>
                 )}
-              </TabsContent>
+              </EventTabsContent>
 
               {/* Split Tab */}
-              <TabsContent value="split" className="mt-4 space-y-4">
+              <EventTabsContent value="split" className="space-y-4">
                 {/* Individual Contributions */}
-                <div className="bg-card/60 border border-white/5 rounded-2xl p-4">
+                  <div className="rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-4 shadow-[var(--shadow-sm)]">
                   <h3 className="text-sm font-semibold text-muted-foreground mb-4">{t.split.contributions}</h3>
                   {balances.length === 0 ? (
                     <p className="text-muted-foreground text-sm text-center py-4">{t.emptyState.title}</p>
@@ -1659,17 +1470,17 @@ export default function Home() {
                                 <span className="font-medium">{b.name}</span>
                                 <span className="text-primary font-semibold">{formatMoney(b.paid)}</span>
                               </div>
-                              <div className="h-1.5 bg-secondary/40 rounded-full overflow-hidden">
+                              <div className="h-1.5 bg-muted/40 dark:bg-muted/30 rounded-full overflow-hidden">
                                 <div
                                   className="h-full rounded-full bg-primary transition-all"
                                   style={{ width: totalSpent > 0 ? `${Math.min(100, (b.paid / totalSpent) * 100)}%` : '0%' }}
                                 />
                               </div>
                             </div>
-                            <div className={`text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${
-                              isOver ? 'bg-green-500/20 text-green-400' :
-                              isUnder ? 'bg-red-500/20 text-red-400' :
-                              'bg-secondary/40 text-muted-foreground'
+                            <div className={`text-xs font-semibold px-2 py-0.5 rounded flex-shrink-0 ${
+                              isOver ? 'bg-green-500/15 text-green-600 dark:text-green-400' :
+                              isUnder ? 'bg-red-500/15 text-red-600 dark:text-red-400' :
+                              'bg-muted/30 text-muted-foreground'
                             }`}>
                               {isOver ? `+${formatMoney(b.balance)}` : isUnder ? formatMoney(b.balance) : '✓'}
                             </div>
@@ -1681,7 +1492,7 @@ export default function Home() {
                 </div>
 
                 {/* Settlement Plan */}
-                <div className="bg-card/60 border border-white/5 rounded-2xl p-4">
+                  <div className="rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-4 shadow-[var(--shadow-sm)]">
                   <h3 className="text-sm font-semibold text-muted-foreground mb-4">{t.split.settlement}</h3>
                   {settlements.length === 0 ? (
                     <div className="text-center py-4 text-muted-foreground">
@@ -1691,7 +1502,7 @@ export default function Home() {
                   ) : (
                     <div className="space-y-2">
                       {settlements.map((s, i) => (
-                        <div key={i} className="flex items-center gap-3 bg-secondary/20 rounded-xl px-4 py-3" data-testid={`settlement-${i}`}>
+                        <div key={i} className="flex items-center gap-3 border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]/50 rounded-[var(--radius-md)] px-3 py-2.5" data-testid={`settlement-${i}`}>
                           <div className="w-8 h-8 bg-red-500/10 rounded-lg flex items-center justify-center flex-shrink-0">
                             <ArrowRight className="w-4 h-4 text-red-400" />
                           </div>
@@ -1706,8 +1517,17 @@ export default function Home() {
                     </div>
                   )}
                 </div>
-              </TabsContent>
-            </Tabs>
+              </EventTabsContent>
+
+              {/* Notes Tab — placeholder */}
+              <EventTabsContent value="notes">
+                <div className="rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-6 text-center text-muted-foreground shadow-[var(--shadow-sm)]">
+                  <p className="text-sm">{t.tabs.notes} — coming soon.</p>
+                  <p className="text-xs mt-1">Add notes, reminders, or shared info for your event.</p>
+                </div>
+              </EventTabsContent>
+            </EventTabs>
+            </div>
             </EventTemplateWrapper>
           );
         })() : (
@@ -1750,7 +1570,7 @@ export default function Home() {
             <div className="space-y-2">
               <Label>Event type</Label>
               <Select
-                value={isValidEventType(newEventType) ? newEventType : eventTypeOptions[0]}
+                value={isValidEventType(newEventType) ? newEventType : (eventTypeOptions[0] ?? "barbecue")}
                 onValueChange={setNewEventType}
               >
                 <SelectTrigger data-testid="select-event-type">
@@ -1758,29 +1578,36 @@ export default function Home() {
                 </SelectTrigger>
                 <SelectContent>
                   {newEventArea === "trips"
-                    ? TRIP_TYPE_KEYS.map((key) => {
-                        const trip = getTripTemplate(key);
-                        const Icon = trip.icon;
+                    ? TRIP_THEME_KEYS.map((key) => {
+                        const theme = getEventTheme("trip", key);
+                        const label = (t.eventTypes as Record<string, string>)[theme.labelKey] ?? theme.copy.tagline;
                         return (
                           <SelectItem key={key} value={key}>
                             <span className="flex items-center gap-2">
-                              <Icon className="w-4 h-4 shrink-0 text-muted-foreground" />
-                              {trip.label}
+                              <span className="text-base leading-none" aria-hidden>{theme.icon}</span>
+                              {label}
                             </span>
                           </SelectItem>
                         );
                       })
-                    : PARTY_EVENT_TYPE_OPTIONS.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </SelectItem>
-                      ))}
+                    : PARTY_THEME_KEYS.map((key) => {
+                        const theme = getEventTheme("party", key);
+                        const label = (t.eventTypes as Record<string, string>)[theme.labelKey] ?? theme.copy.tagline;
+                        return (
+                          <SelectItem key={key} value={key}>
+                            <span className="flex items-center gap-2">
+                              <span className="text-base leading-none" aria-hidden>{theme.icon}</span>
+                              {label}
+                            </span>
+                          </SelectItem>
+                        );
+                      })}
                 </SelectContent>
               </Select>
-              {newEventArea === "trips" && isValidEventType(newEventType) && (
+              {isValidEventType(newEventType) && (
                 <div className="mt-2 rounded-lg border border-accent/20 bg-accent/5 px-3 py-2 flex items-center gap-2">
-                  <span className="text-lg" aria-hidden>{getTripTemplate(newEventType).hero.emoji}</span>
-                  <p className="text-xs text-muted-foreground">{getTripTemplate(newEventType).hero.subtitle}</p>
+                  <span className="text-lg" aria-hidden>{getEventTheme(newEventArea === "trips" ? "trip" : "party", newEventType).icon}</span>
+                  <p className="text-xs text-muted-foreground">{getEventTheme(newEventArea === "trips" ? "trip" : "party", newEventType).copy.tagline}</p>
                 </div>
               )}
             </div>

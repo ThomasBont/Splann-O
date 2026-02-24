@@ -13,31 +13,8 @@ import { useMemberships } from "@/hooks/use-participants";
 import { useLanguage } from "@/hooks/use-language";
 import { Loader2 } from "lucide-react";
 import type { Barbecue } from "@shared/schema";
-
-const EVENT_TYPE_I18N_KEYS: Record<string, string> = {
-  default: "otherParty",
-  barbecue: "barbecue",
-  birthday: "birthday",
-  dinner_party: "dinnerNight",
-  house_party: "houseParty",
-  game_night: "gameNight",
-  movie_night: "movieNight",
-  pool_party: "poolParty",
-  after_party: "afterParty",
-  other_party: "otherParty",
-  city_trip: "cityTrip",
-  vacation: "vacation",
-  road_trip: "roadTrip",
-  backpacking: "backpacking",
-  ski_trip: "skiTrip",
-  festival_trip: "festivalTrip",
-  bachelor_trip: "bachelorTrip",
-  workation: "workation",
-  cinema: "cinema",
-  theme_park: "themePark",
-  day_out: "dayOut",
-  other_trip: "otherTrip",
-};
+import { EVENT_TYPE_TO_LABEL_KEY } from "@/theme/eventThemes";
+import { normalizeEvent } from "@/utils/eventUtils";
 
 export interface DiscoverModalProps {
   open: boolean;
@@ -64,7 +41,7 @@ export function DiscoverModal({
   };
 
   const getEventTypeLabel = (eventType: string) => {
-    const key = EVENT_TYPE_I18N_KEYS[eventType] ?? "barbecue";
+    const key = EVENT_TYPE_TO_LABEL_KEY[eventType] ?? "barbecue";
     return (t.eventTypes as Record<string, string>)[key] ?? eventType;
   };
 
@@ -127,7 +104,7 @@ export function DiscoverModal({
                       <div className="min-w-0 flex-1">
                         <p className="font-medium truncate">{bbq.name}</p>
                         <p className="text-xs text-muted-foreground">
-                          {getEventTypeLabel(bbq.eventType ?? "barbecue")} ·{" "}
+                          {getEventTypeLabel(normalizeEvent(bbq).type)} ·{" "}
                           {formatDate(bbq.date)}
                         </p>
                         {bbq.creatorId && (

@@ -1,3 +1,11 @@
+/**
+ * Language strategy:
+ * - Production: English and Spanish only (keeps the UI simple).
+ * - Italian and Dutch are supported but hidden from the language switcher.
+ * - To enable all languages in development, set:
+ *   VITE_ENABLE_ALL_LANGUAGES=true
+ * This supports future expansion while limiting options in production.
+ */
 import { createContext, useContext, useState, ReactNode } from "react";
 
 export type Language = "en" | "es" | "it" | "nl";
@@ -27,10 +35,13 @@ export const LANGUAGES: { code: Language; label: string }[] = [
 ];
 
 /**
- * Languages currently selectable in the UI. Set to ["en","es"] during development.
- * To re-enable all: change to LANGUAGES.map(l => l.code) or ["en","es","it","nl"]
+ * Languages currently selectable in the UI.
+ * Default: en, es only. In dev, set VITE_ENABLE_ALL_LANGUAGES=true to allow all.
  */
-export const ENABLED_LANGUAGES: readonly Language[] = ["en", "es"];
+export const ENABLED_LANGUAGES: readonly Language[] =
+  import.meta.env.DEV && import.meta.env.VITE_ENABLE_ALL_LANGUAGES === "true"
+    ? (["en", "es", "it", "nl"] as const)
+    : (["en", "es"] as const);
 
 /** Languages shown in the language switcher. Other languages remain in translations but are hidden. */
 export const SELECTABLE_LANGUAGES = LANGUAGES.filter((l) =>
@@ -61,7 +72,9 @@ interface Translations {
   fairShare: string;
   tabs: {
     expenses: string;
+    people: string;
     split: string;
+    notes: string;
   };
   emptyState: {
     title: string;
@@ -265,17 +278,22 @@ interface Translations {
     afterParty: string;
     otherParty: string;
     cityTrip: string;
-    vacation: string;
     roadTrip: string;
-    backpacking: string;
+    beachTrip: string;
     skiTrip: string;
     festivalTrip: string;
+    hikingTrip: string;
+    camping: string;
+    weekendGetaway: string;
+    businessTrip: string;
+    otherTrip: string;
+    vacation: string;
+    backpacking: string;
     bachelorTrip: string;
     workation: string;
     cinema: string;
     themePark: string;
     dayOut: string;
-    otherTrip: string;
   };
   discover: {
     title: string;
@@ -297,7 +315,7 @@ const translations: Record<Language, Translations> = {
     participants: "Participants",
     expenses: "Expenses",
     fairShare: "Fair Share",
-    tabs: { expenses: "Expenses", split: "Split Check" },
+    tabs: { expenses: "Expenses", people: "People", split: "Split Check", notes: "Notes" },
     emptyState: {
       title: "Create an event",
       subtitle: "Add participants and log expenses to split costs.",
@@ -440,20 +458,25 @@ const translations: Record<Language, Translations> = {
       gameNight: "Game Night",
       movieNight: "Movie Night",
       poolParty: "Pool Party",
-      afterParty: "After Party",
+      afterParty: "Afterparty",
       otherParty: "Other",
       cityTrip: "City trip",
-      vacation: "Vacation",
       roadTrip: "Road trip",
-      backpacking: "Backpacking",
+      beachTrip: "Beach trip",
       skiTrip: "Ski trip",
       festivalTrip: "Festival trip",
+      hikingTrip: "Hiking trip",
+      camping: "Camping",
+      weekendGetaway: "Weekend Getaway",
+      businessTrip: "Business trip",
+      otherTrip: "Other",
+      vacation: "Vacation",
+      backpacking: "Backpacking",
       bachelorTrip: "Bachelor trip",
       workation: "Workation",
       cinema: "Cinema",
       themePark: "Theme park",
       dayOut: "Day out",
-      otherTrip: "Other",
     },
     discover: {
       title: "Discover",
@@ -473,7 +496,7 @@ const translations: Record<Language, Translations> = {
     participants: "Participantes",
     expenses: "Gastos",
     fairShare: "Cuota Justa",
-    tabs: { expenses: "Gastos", split: "Dividir Cuenta" },
+    tabs: { expenses: "Gastos", people: "Personas", split: "Dividir Cuenta", notes: "Notas" },
     emptyState: {
       title: "Crear un evento",
       subtitle: "Agregá participantes y cargá gastos para repartir costos.",
@@ -619,17 +642,22 @@ const translations: Record<Language, Translations> = {
       afterParty: "After party",
       otherParty: "Otro",
       cityTrip: "Viaje ciudad",
-      vacation: "Vacaciones",
       roadTrip: "Road trip",
-      backpacking: "Mochilero",
+      beachTrip: "Playa",
       skiTrip: "Esquí",
       festivalTrip: "Festival",
+      hikingTrip: "Senderismo",
+      camping: "Camping",
+      weekendGetaway: "Escapada de fin de semana",
+      businessTrip: "Viaje de trabajo",
+      otherTrip: "Otro",
+      vacation: "Vacaciones",
+      backpacking: "Mochilero",
       bachelorTrip: "Despedida",
       workation: "Workation",
       cinema: "Cine",
       themePark: "Parque de diversiones",
       dayOut: "Día afuera",
-      otherTrip: "Otro",
     },
     discover: {
       title: "Descubrir",
@@ -649,7 +677,7 @@ const translations: Record<Language, Translations> = {
     participants: "Partecipanti",
     expenses: "Spese",
     fairShare: "Quota Equa",
-    tabs: { expenses: "Spese", split: "Divisione" },
+    tabs: { expenses: "Spese", people: "Persone", split: "Divisione", notes: "Note" },
     emptyState: {
       title: "Crea un evento",
       subtitle: "Aggiungi partecipanti e registra le spese per dividere i costi.",
@@ -795,17 +823,22 @@ const translations: Record<Language, Translations> = {
       afterParty: "After party",
       otherParty: "Altro",
       cityTrip: "Viaggio città",
-      vacation: "Vacanza",
       roadTrip: "Road trip",
-      backpacking: "Zaino in spalla",
+      beachTrip: "Spiaggia",
       skiTrip: "Sci",
       festivalTrip: "Festival",
+      hikingTrip: "Escursione",
+      camping: "Campeggio",
+      weekendGetaway: "Weekend fuori",
+      businessTrip: "Viaggio di lavoro",
+      otherTrip: "Altro",
+      vacation: "Vacanza",
+      backpacking: "Zaino in spalla",
       bachelorTrip: "Addio al celibato",
       workation: "Workation",
       cinema: "Cinema",
       themePark: "Parco divertimenti",
       dayOut: "Gita",
-      otherTrip: "Altro",
     },
     discover: {
       title: "Scopri",
@@ -825,7 +858,7 @@ const translations: Record<Language, Translations> = {
     participants: "Deelnemers",
     expenses: "Uitgaven",
     fairShare: "Eerlijk Aandeel",
-    tabs: { expenses: "Uitgaven", split: "Verdeling" },
+    tabs: { expenses: "Uitgaven", people: "Mensen", split: "Verdeling", notes: "Notities" },
     emptyState: {
       title: "Maak een evenement",
       subtitle: "Voeg deelnemers toe en log uitgaven om kosten te verdelen.",
@@ -971,17 +1004,22 @@ const translations: Record<Language, Translations> = {
       afterParty: "Afterparty",
       otherParty: "Anders",
       cityTrip: "Stedentrip",
-      vacation: "Vakantie",
       roadTrip: "Roadtrip",
-      backpacking: "Backpacken",
+      beachTrip: "Strandvakantie",
       skiTrip: "Skivakantie",
       festivalTrip: "Festival",
+      hikingTrip: "Wandelen",
+      camping: "Kamperen",
+      weekendGetaway: "Weekendje weg",
+      businessTrip: "Zakelijk reizen",
+      otherTrip: "Anders",
+      vacation: "Vakantie",
+      backpacking: "Backpacken",
       bachelorTrip: "Vrijgezellenfeest",
       workation: "Workation",
       cinema: "Bioscoop",
       themePark: "Attractiepark",
       dayOut: "Dagje uit",
-      otherTrip: "Anders",
     },
     discover: {
       title: "Ontdekken",

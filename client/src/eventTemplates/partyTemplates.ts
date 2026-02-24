@@ -123,9 +123,9 @@ const BIRTHDAY: PartyTemplate = {
 
 const DINNER_PARTY: PartyTemplate = {
   key: "dinner_party",
-  label: "Dinner Night",
+  label: "Dinner Party",
   icon: UtensilsCrossed,
-  hero: { title: "Dinner Night", subtitle: "Good food, good company, fair splits.", emoji: "🍽️" },
+  hero: { title: "Dinner Party", subtitle: "Good food, good company, fair splits.", emoji: "🍽️" },
   tokens: {
     light: t("30 35% 98%", "30 25% 12%", "0 0% 100%", "30 25% 12%", "30 55% 48%", "0 0% 100%"),
     dark: t("30 25% 11%", "30 10% 92%", "30 20% 15%", "30 10% 92%", "30 60% 52%", "0 0% 100%"),
@@ -218,9 +218,9 @@ const POOL_PARTY: PartyTemplate = {
 
 const AFTER_PARTY: PartyTemplate = {
   key: "after_party",
-  label: "After Party",
+  label: "Afterparty",
   icon: Music2,
-  hero: { title: "After Party", subtitle: "Keep the vibe, split it right.", emoji: "🎵" },
+  hero: { title: "Afterparty", subtitle: "Keep the vibe, split it right.", emoji: "🎵" },
   tokens: {
     light: t("320 40% 97%", "320 25% 12%", "0 0% 100%", "320 25% 12%", "320 65% 55%", "0 0% 100%"),
     dark: t("320 30% 11%", "320 10% 92%", "320 22% 15%", "320 10% 92%", "320 70% 58%", "0 0% 100%"),

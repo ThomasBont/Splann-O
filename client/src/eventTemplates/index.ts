@@ -28,3 +28,8 @@ export {
   defaultBarbecueTemplateData,
   defaultBirthdayTemplateData,
 } from "./data";
+export {
+  getExpenseTemplates,
+  getExpenseTemplateHelper,
+  type ExpenseTemplateItem,
+} from "./expenseTemplates";

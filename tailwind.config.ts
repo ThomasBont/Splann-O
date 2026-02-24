@@ -6,9 +6,13 @@ export default {
   theme: {
     extend: {
       borderRadius: {
-        lg: ".5625rem", /* 9px */
-        md: ".375rem", /* 6px */
-        sm: ".1875rem", /* 3px */
+        lg: "var(--radius-lg)",
+        md: "var(--radius-md)",
+        sm: "var(--radius-sm)",
+      },
+      boxShadow: {
+        "token-sm": "var(--shadow-sm)",
+        "token-md": "var(--shadow-md)",
       },
       colors: {
         // Flat / base colors (regular buttons)
@@ -52,6 +56,12 @@ export default {
           border: "var(--destructive-border)",
         },
         ring: "hsl(var(--ring) / <alpha-value>)",
+        surface: {
+          0: "hsl(var(--surface-0) / <alpha-value>)",
+          1: "hsl(var(--surface-1) / <alpha-value>)",
+          2: "hsl(var(--surface-2) / <alpha-value>)",
+        },
+        "border-subtle": "hsl(var(--border-subtle) / <alpha-value>)",
         chart: {
           "1": "hsl(var(--chart-1) / <alpha-value>)",
           "2": "hsl(var(--chart-2) / <alpha-value>)",

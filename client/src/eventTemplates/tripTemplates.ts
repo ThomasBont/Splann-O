@@ -1,26 +1,27 @@
 import type { LucideIcon } from "lucide-react";
 import {
   MapPin,
-  Palette,
   Car,
-  Backpack,
   Mountain,
   Music2,
-  Crown,
   Briefcase,
   MoreHorizontal,
+  Waves,
+  Tent,
+  Sunrise,
 } from "lucide-react";
 import type { EventTemplateTokens } from "./types";
 
 export type TripTypeKey =
   | "city_trip"
-  | "vacation"
   | "road_trip"
-  | "backpacking"
+  | "beach_trip"
   | "ski_trip"
   | "festival_trip"
-  | "bachelor_trip"
-  | "workation"
+  | "hiking_trip"
+  | "camping"
+  | "weekend_getaway"
+  | "business_trip"
   | "other_trip";
 
 function t(
@@ -87,32 +88,14 @@ const CITY_TRIP: TripTemplate = {
   ],
 };
 
-const VACATION: TripTemplate = {
-  key: "vacation",
-  label: "Vacation",
-  description: "Relax and recharge",
-  icon: Palette,
-  themeTokens: {
-    light: t("35 55% 97%", "30 25% 15%", "0 0% 100%", "30 25% 15%", "35 75% 55%", "0 0% 100%"),
-    dark: t("35 30% 12%", "35 10% 92%", "35 22% 16%", "35 10% 92%", "35 75% 58%", "0 0% 100%"),
-  },
-  hero: { title: "Vacation", subtitle: "Sun, sand, and smooth splits.", emoji: "🏖️" },
-  expenseTemplates: [
-    { item: "Accommodation", category: "Accommodation" },
-    { item: "Groceries", category: "Food" },
-    { item: "Restaurants", category: "Food" },
-    { item: "Beach activities", category: "Tickets" },
-  ],
-};
-
 const ROAD_TRIP: TripTemplate = {
   key: "road_trip",
   label: "Road Trip",
   description: "Hit the open road",
   icon: Car,
   themeTokens: {
-    light: t("220 20% 95%", "220 25% 12%", "220 15% 98%", "220 25% 12%", "220 60% 42%", "0 0% 100%"),
-    dark: t("220 25% 10%", "220 10% 92%", "220 20% 14%", "220 10% 92%", "220 65% 48%", "0 0% 100%"),
+    light: t("30 40% 97%", "28 25% 12%", "0 0% 100%", "28 25% 12%", "25 75% 52%", "0 0% 100%"),
+    dark: t("28 25% 10%", "28 10% 92%", "28 20% 14%", "28 10% 92%", "25 80% 55%", "0 0% 100%"),
   },
   hero: { title: "Road Trip", subtitle: "Miles, memories, fair shares.", emoji: "🚗" },
   expenseTemplates: [
@@ -124,21 +107,21 @@ const ROAD_TRIP: TripTemplate = {
   helper: "Track fuel costs per fill-up for accurate splits.",
 };
 
-const BACKPACKING: TripTemplate = {
-  key: "backpacking",
-  label: "Backpacking",
-  description: "Adventure on a budget",
-  icon: Backpack,
+const BEACH_TRIP: TripTemplate = {
+  key: "beach_trip",
+  label: "Beach Trip",
+  description: "Sun, sand, and smooth splits",
+  icon: Waves,
   themeTokens: {
-    light: t("85 25% 96%", "85 20% 15%", "0 0% 100%", "85 20% 15%", "85 45% 42%", "0 0% 100%"),
-    dark: t("85 20% 11%", "85 10% 90%", "85 18% 15%", "85 10% 90%", "85 50% 45%", "0 0% 100%"),
+    light: t("195 40% 98%", "195 25% 15%", "0 0% 100%", "195 25% 15%", "190 75% 50%", "0 0% 100%"),
+    dark: t("195 30% 12%", "195 10% 92%", "195 22% 16%", "195 10% 92%", "190 75% 55%", "0 0% 100%"),
   },
-  hero: { title: "Backpacking", subtitle: "Light loads, fair shares.", emoji: "🎒" },
+  hero: { title: "Beach Trip", subtitle: "Sun, sand, and smooth splits.", emoji: "🏖️" },
   expenseTemplates: [
-    { item: "Hostels", category: "Accommodation" },
-    { item: "Local transport", category: "Transport" },
-    { item: "SIM / data", category: "Other" },
-    { item: "Group meals", category: "Food" },
+    { item: "Accommodation", category: "Accommodation" },
+    { item: "Groceries", category: "Food" },
+    { item: "Restaurants", category: "Food" },
+    { item: "Beach activities", category: "Tickets" },
   ],
 };
 
@@ -178,38 +161,74 @@ const FESTIVAL_TRIP: TripTemplate = {
   ],
 };
 
-const BACHELOR_TRIP: TripTemplate = {
-  key: "bachelor_trip",
-  label: "Bachelor Trip",
-  description: "One last celebration",
-  icon: Crown,
+const HIKING_TRIP: TripTemplate = {
+  key: "hiking_trip",
+  label: "Hiking Trip",
+  description: "Trail, summit, fair splits",
+  icon: Mountain,
   themeTokens: {
-    light: t("45 40% 98%", "280 20% 15%", "0 0% 100%", "280 20% 15%", "45 85% 55%", "280 20% 10%"),
-    dark: t("280 25% 11%", "45 10% 95%", "280 22% 15%", "45 10% 95%", "45 80% 58%", "280 20% 10%"),
+    light: t("142 35% 96%", "142 25% 12%", "0 0% 100%", "142 25% 12%", "142 55% 42%", "0 0% 100%"),
+    dark: t("142 25% 11%", "142 10% 90%", "142 22% 16%", "142 10% 90%", "142 60% 48%", "0 0% 100%"),
   },
-  hero: { title: "Bachelor Trip", subtitle: "Celebrate big, split fair.", emoji: "👑" },
+  hero: { title: "Hiking Trip", subtitle: "Trail, summit, fair splits.", emoji: "🥾" },
   expenseTemplates: [
-    { item: "Accommodation", category: "Accommodation" },
-    { item: "Activities", category: "Tickets" },
-    { item: "Drinks", category: "Drinks" },
-    { item: "Decorations / surprises", category: "Other" },
+    { item: "Trail pass", category: "Tickets" },
+    { item: "Food", category: "Food" },
+    { item: "Transport", category: "Transport" },
+    { item: "Gear", category: "Other" },
   ],
 };
 
-const WORKATION: TripTemplate = {
-  key: "workation",
-  label: "Workation",
-  description: "Work remotely, travel freely",
-  icon: Briefcase,
+const CAMPING: TripTemplate = {
+  key: "camping",
+  label: "Camping",
+  description: "Under the stars, fair shares",
+  icon: Tent,
   themeTokens: {
-    light: t("175 35% 98%", "175 25% 12%", "0 0% 100%", "175 25% 12%", "175 55% 45%", "0 0% 100%"),
-    dark: t("175 30% 11%", "175 10% 92%", "175 22% 15%", "175 10% 92%", "175 60% 50%", "0 0% 100%"),
+    light: t("85 30% 96%", "85 20% 15%", "0 0% 100%", "85 20% 15%", "85 50% 45%", "0 0% 100%"),
+    dark: t("85 20% 11%", "85 10% 90%", "85 18% 15%", "85 10% 90%", "90 55% 48%", "0 0% 100%"),
   },
-  hero: { title: "Workation", subtitle: "Productive and balanced.", emoji: "💼" },
+  hero: { title: "Camping", subtitle: "Under the stars, fair shares.", emoji: "⛺" },
+  expenseTemplates: [
+    { item: "Campsite", category: "Accommodation" },
+    { item: "Groceries", category: "Food" },
+    { item: "Equipment", category: "Other" },
+    { item: "Firewood", category: "Other" },
+  ],
+};
+
+const WEEKEND_GETAWAY: TripTemplate = {
+  key: "weekend_getaway",
+  label: "Weekend Getaway",
+  description: "Quick escape, easy split",
+  icon: Sunrise,
+  themeTokens: {
+    light: t("35 45% 98%", "35 25% 15%", "0 0% 100%", "35 25% 15%", "35 60% 55%", "0 0% 100%"),
+    dark: t("35 30% 12%", "35 10% 92%", "35 22% 16%", "35 10% 92%", "40 65% 58%", "0 0% 100%"),
+  },
+  hero: { title: "Weekend Getaway", subtitle: "Quick escape, easy split.", emoji: "🌅" },
   expenseTemplates: [
     { item: "Accommodation", category: "Accommodation" },
-    { item: "Coworking", category: "Other" },
-    { item: "Groceries", category: "Food" },
+    { item: "Food", category: "Food" },
+    { item: "Transport", category: "Transport" },
+    { item: "Activities", category: "Tickets" },
+  ],
+};
+
+const BUSINESS_TRIP: TripTemplate = {
+  key: "business_trip",
+  label: "Business Trip",
+  description: "Professional splits made simple",
+  icon: Briefcase,
+  themeTokens: {
+    light: t("220 25% 98%", "220 25% 12%", "0 0% 100%", "220 25% 12%", "220 65% 48%", "0 0% 100%"),
+    dark: t("220 25% 10%", "220 10% 92%", "220 20% 14%", "220 10% 92%", "220 70% 52%", "0 0% 100%"),
+  },
+  hero: { title: "Business Trip", subtitle: "Professional splits made simple.", emoji: "💼" },
+  expenseTemplates: [
+    { item: "Accommodation", category: "Accommodation" },
+    { item: "Flights", category: "Transport" },
+    { item: "Meals", category: "Food" },
     { item: "Transport", category: "Transport" },
   ],
 };
@@ -232,37 +251,50 @@ const OTHER_TRIP: TripTemplate = {
   ],
 };
 
+/** Legacy event types -> fallback template. */
+const LEGACY_TRIP_MAP: Record<string, TripTypeKey> = {
+  vacation: "beach_trip",
+  backpacking: "camping",
+  bachelor_trip: "other_trip",
+  workation: "business_trip",
+};
+
 export const tripTemplates: Record<TripTypeKey, TripTemplate> = {
   city_trip: CITY_TRIP,
-  vacation: VACATION,
   road_trip: ROAD_TRIP,
-  backpacking: BACKPACKING,
+  beach_trip: BEACH_TRIP,
   ski_trip: SKI_TRIP,
   festival_trip: FESTIVAL_TRIP,
-  bachelor_trip: BACHELOR_TRIP,
-  workation: WORKATION,
+  hiking_trip: HIKING_TRIP,
+  camping: CAMPING,
+  weekend_getaway: WEEKEND_GETAWAY,
+  business_trip: BUSINESS_TRIP,
   other_trip: OTHER_TRIP,
 };
 
 export const TRIP_TYPE_KEYS: TripTypeKey[] = [
   "city_trip",
-  "vacation",
   "road_trip",
-  "backpacking",
+  "beach_trip",
   "ski_trip",
   "festival_trip",
-  "bachelor_trip",
-  "workation",
+  "hiking_trip",
+  "camping",
+  "weekend_getaway",
+  "business_trip",
   "other_trip",
 ];
 
 const TRIP_KEYS_SET = new Set<string>(TRIP_TYPE_KEYS);
 
 export function isTripEventType(eventType: string | null | undefined): boolean {
-  return !!eventType && TRIP_KEYS_SET.has(eventType);
+  if (!eventType) return false;
+  if (TRIP_KEYS_SET.has(eventType)) return true;
+  return eventType in LEGACY_TRIP_MAP;
 }
 
 export function getTripTemplate(key: string | null | undefined): TripTemplate {
-  if (!key || !TRIP_KEYS_SET.has(key)) return OTHER_TRIP;
-  return tripTemplates[key as TripTypeKey] ?? OTHER_TRIP;
+  if (!key) return OTHER_TRIP;
+  const resolved = (LEGACY_TRIP_MAP[key] ?? (TRIP_KEYS_SET.has(key) ? key : "other_trip")) as TripTypeKey;
+  return tripTemplates[resolved] ?? OTHER_TRIP;
 }

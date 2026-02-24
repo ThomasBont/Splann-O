@@ -140,12 +140,17 @@ export function useAuth() {
     },
   });
 
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+  };
+
   return {
     user: user ?? null,
     isLoading,
     login,
     register,
     logout,
+    refresh,
     forgotPassword,
     resetPassword,
     updateProfile,

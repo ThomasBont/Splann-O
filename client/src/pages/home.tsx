@@ -29,6 +29,14 @@ import {
 } from "@/components/ui/accordion";
 import { Switch } from "@/components/ui/switch";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { AddPersonDialog } from "@/components/add-person-dialog";
 import { AddExpenseDialog } from "@/components/add-expense-dialog";
 import { CurrencyPicker } from "@/components/currency-picker";
@@ -51,7 +59,7 @@ import {
   Receipt, Trash2, Edit2,
   Plus, CheckCircle2,
   CalendarDays, Loader2,
-  UserCheck, UserX, LogOut, Crown, Clock, UserCircle,
+  UserCheck, UserX, LogOut, Crown, Clock, UserCircle, ChevronDown,
   Lock, Globe, UserPlus, X, Eye, EyeOff, Compass,
   Bell, UserPlus2, Search, Heart, Sun, Moon, MessageCircle,
 } from "lucide-react";
@@ -856,34 +864,62 @@ export default function Home() {
                   </PopoverContent>
                 </Popover>
 
-                {/* Profile / Friends Button */}
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  className="relative"
-                  onClick={() => { setViewedProfileUsername(null); setIsProfileOpen(true); }}
-                  data-testid="button-profile"
-                >
-                  <UserCircle className="w-4 h-4" />
-                  {friendRequests.length > 0 && (
-                    <span className="absolute -top-0.5 -right-0.5 bg-primary text-primary-foreground text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center" data-testid="badge-friend-requests">
-                      {friendRequests.length}
-                    </span>
-                  )}
-                </Button>
-
-                <span className="hidden sm:flex items-center gap-1.5 text-xs text-muted-foreground px-2 py-1.5 rounded-lg bg-white/5">
-                  <span className="font-medium max-w-[80px] truncate" data-testid="text-username">{user.username}</span>
-                </span>
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  onClick={() => logout.mutate()}
-                  title={t.auth.logout}
-                  data-testid="button-logout"
-                >
-                  <LogOut className="w-4 h-4" />
-                </Button>
+                {/* Profile dropdown: Profile/Friends + Logout */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="sm:hidden relative"
+                      data-testid="button-profile-dropdown-mobile"
+                    >
+                      <UserCircle className="w-4 h-4" />
+                      {friendRequests.length > 0 && (
+                        <span className="absolute -top-0.5 -right-0.5 bg-primary text-primary-foreground text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center" data-testid="badge-friend-requests">
+                          {friendRequests.length}
+                        </span>
+                      )}
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground px-2 py-1.5 rounded-lg bg-white/5 hover:bg-white/10"
+                      data-testid="button-profile-dropdown"
+                    >
+                      <span className="font-medium max-w-[100px] truncate" data-testid="text-username">{user.username}</span>
+                      <ChevronDown className="w-3.5 h-3.5 shrink-0" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                      {t.auth.loggedInAs}
+                    </DropdownMenuLabel>
+                    <DropdownMenuLabel className="font-medium truncate" data-testid="dropdown-username">
+                      {user.username}
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onClick={() => { setViewedProfileUsername(null); setIsProfileOpen(true); }}
+                      data-testid="dropdown-item-profile"
+                    >
+                      <UserCircle className="w-4 h-4 mr-2" />
+                      {t.auth.profile}
+                      {friendRequests.length > 0 && (
+                        <span className="ml-auto bg-primary text-primary-foreground text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+                          {friendRequests.length}
+                        </span>
+                      )}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => logout.mutate()}
+                      data-testid="dropdown-item-logout"
+                    >
+                      <LogOut className="w-4 h-4 mr-2" />
+                      {t.auth.logout}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             ) : !showAuthDialog ? (
               <Button

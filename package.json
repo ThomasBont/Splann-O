@@ -9,6 +9,7 @@
     "start": "NODE_ENV=production node dist/index.cjs",
     "check": "tsc",
     "db:push": "drizzle-kit push",
+    "db:migrate:plan": "psql $DATABASE_URL -f migrations/0005_phase3_plan_tiers.sql",
     "split:verify": "npx tsx client/src/lib/split/calc.verify.ts"
   },
   "dependencies": {

@@ -13,7 +13,7 @@ export const users = pgTable("users", {
   bio: text("bio"),
   preferredCurrencyCodes: text("preferred_currency_codes"),
   /** Plan tier for feature gating. Default free. */
-  plan: text("plan").default("free"),
+  plan: text("plan").notNull().default("free"),
   /** When pro plan expires (nullable for free). */
   planExpiresAt: timestamp("plan_expires_at"),
   createdAt: timestamp("created_at").defaultNow(),

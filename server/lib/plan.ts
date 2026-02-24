@@ -24,13 +24,26 @@ export interface PlanLimits {
   watermarkExports: boolean;
 }
 
-const FREE_MAX_EVENTS = parseInt(process.env.FREE_MAX_EVENTS ?? "3", 10);
-const FREE_MAX_PARTICIPANTS = parseInt(process.env.FREE_MAX_PARTICIPANTS ?? "10", 10);
+/** Parse env var as int; return fallback on NaN/invalid/non-positive. */
+function envInt(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return fallback;
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.floor(n);
+}
+
+const FREE_MAX_EVENTS = envInt("FREE_MAX_EVENTS", 3);
+const FREE_MAX_PARTICIPANTS = envInt("FREE_MAX_PARTICIPANTS", 10);
+
+const PRO_MAX_EVENTS = 1_000_000;
+const PRO_MAX_PARTICIPANTS = 1_000_000;
 
 /** Get effective plan from user. Pro expires when planExpiresAt is past. */
 export function getEffectivePlan(user: UserWithPlan | null | undefined): Plan {
   if (!user) return "free";
-  const plan: Plan = (user.plan as Plan) ?? "free";
+  const rawPlan = (user.plan ?? "free").toString().toLowerCase();
+  const plan: Plan = rawPlan === "pro" ? "pro" : "free";
   if (plan === "pro" && user.planExpiresAt && new Date() > user.planExpiresAt) {
     return "free";
   }
@@ -61,8 +74,8 @@ export function getLimits(user: UserWithPlan | null | undefined): PlanLimits {
   const plan = getEffectivePlan(user ?? undefined);
   if (plan === "pro") {
     return {
-      maxEvents: Number.MAX_SAFE_INTEGER,
-      maxParticipantsPerEvent: Number.MAX_SAFE_INTEGER,
+      maxEvents: PRO_MAX_EVENTS,
+      maxParticipantsPerEvent: PRO_MAX_PARTICIPANTS,
       exportImages: true,
       watermarkExports: false,
     };

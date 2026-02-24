@@ -51,6 +51,20 @@ export const barbecues = pgTable("barbecues", {
   templateData: json("template_data").$type<unknown | null>().default(null),
   /** Stable invite token for /join/:token links. Generated on create. */
   inviteToken: text("invite_token").unique(),
+  /** Event lifecycle: draft | active | settling | settled. Default active. */
+  status: text("status").notNull().default("active"),
+  /** When creator triggered "Settle up" — used for "updated after" badge. */
+  settledAt: timestamp("settled_at"),
+});
+
+export const eventNotifications = pgTable("event_notifications", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  barbecueId: integer("barbecue_id").references(() => barbecues.id, { onDelete: "cascade" }).notNull(),
+  type: text("type").notNull(),
+  payload: json("payload").$type<{ creatorName?: string; amountOwed?: number; eventName?: string; currency?: string } | null>().default(null),
+  createdAt: timestamp("created_at").defaultNow(),
+  readAt: timestamp("read_at"),
 });
 
 export const participants = pgTable("participants", {

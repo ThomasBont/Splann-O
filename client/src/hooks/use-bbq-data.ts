@@ -59,11 +59,12 @@ export function useCreateBarbecue() {
 export function useUpdateBarbecue() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, allowOptInExpenses, templateData }: { id: number; allowOptInExpenses?: boolean; templateData?: unknown }) => {
+    mutationFn: async ({ id, allowOptInExpenses, templateData, status }: { id: number; allowOptInExpenses?: boolean; templateData?: unknown; status?: "draft" | "active" | "settling" | "settled" }) => {
       const url = buildUrl(api.barbecues.update.path, { id });
       const body: Record<string, unknown> = {};
       if (allowOptInExpenses !== undefined) body.allowOptInExpenses = allowOptInExpenses;
       if (templateData !== undefined) body.templateData = templateData;
+      if (status !== undefined) body.status = status;
       const res = await fetch(url, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -71,6 +72,57 @@ export function useUpdateBarbecue() {
         body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error("Failed to update barbecue");
+      return res.json() as Promise<Barbecue>;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/barbecues'] });
+    },
+  });
+}
+
+export type EventNotification = {
+  id: number;
+  barbecueId: number;
+  type: string;
+  payload: { creatorName?: string; amountOwed?: number; eventName?: string; currency?: string } | null;
+  createdAt: string | null;
+  readAt: string | null;
+};
+
+export function useEventNotifications(enabled = true) {
+  return useQuery({
+    queryKey: ["/api/notifications/events"],
+    queryFn: async () => {
+      const res = await fetch("/api/notifications/events", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch notifications");
+      return res.json() as Promise<EventNotification[]>;
+    },
+    enabled,
+  });
+}
+
+export function useMarkEventNotificationRead() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const res = await fetch(`/api/notifications/events/${id}/read`, { method: "PATCH", credentials: "include" });
+      if (!res.ok) throw new Error("Failed to mark read");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications/events"] });
+    },
+  });
+}
+
+export function useSettleUp() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const res = await fetch(`/api/barbecues/${id}/settle-up`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to settle up");
       return res.json() as Promise<Barbecue>;
     },
     onSuccess: () => {
@@ -88,8 +140,7 @@ export function useEnsureInviteToken() {
         credentials: "include",
       });
       if (!res.ok) throw new Error("Failed to ensure invite token");
-      const bbq = (await res.json()) as Barbecue;
-      return bbq;
+      return (await res.json()) as Barbecue;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/barbecues'] });

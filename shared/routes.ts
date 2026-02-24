@@ -44,7 +44,7 @@ export const api = {
     update: {
       method: 'PATCH' as const,
       path: '/api/barbecues/:id' as const,
-      input: z.object({ allowOptInExpenses: z.boolean().optional(), templateData: z.unknown().optional() }),
+      input: z.object({ allowOptInExpenses: z.boolean().optional(), templateData: z.unknown().optional(), status: z.enum(["draft", "active", "settling", "settled"]).optional() }),
       responses: {
         200: z.custom<Barbecue>(),
         403: errorSchemas.validation,

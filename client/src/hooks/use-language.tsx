@@ -155,6 +155,27 @@ interface Translations {
     copyImage: string;
     download: string;
   };
+  settleUp: {
+    cta: string;
+    ctaShort: string;
+    modalTitle: string;
+    modalBody1: string;
+    modalBody2: string;
+    modalBody3: string;
+    cancel: string;
+    sendSummary: string;
+    toastSuccess: string;
+    statusSettling: string;
+    statusSettled: string;
+    statusActive: string;
+    statusDraft: string;
+    participantBanner: string;
+    tapToSettle: string;
+    updatedAfterSummary: string;
+    markAsSettled: string;
+    markAsSettledButton: string;
+    everyonePaid: string;
+  };
   bbq: {
     allBarbecues: string;
     newBarbecue: string;
@@ -293,6 +314,53 @@ interface Translations {
     fullDesc: string;
     tryBasic: string;
     logInFull: string;
+    heroTitle: string;
+    heroSubtitle: string;
+    ctaStartFree: string;
+    ctaTryDemo: string;
+    socialProofTagline: string;
+    eventsSplit: string;
+    sharedCosts: string;
+    countries: string;
+    useCasesTitle: string;
+    useCaseTrips: string;
+    useCaseTripsDesc: string;
+    useCaseParties: string;
+    useCasePartiesDesc: string;
+    useCaseFestivals: string;
+    useCaseFestivalsDesc: string;
+    useCaseRoommates: string;
+    useCaseRoommatesDesc: string;
+    featuresTitle: string;
+    featureSmartSplit: string;
+    featureSmartSplitDesc: string;
+    featureOptIn: string;
+    featureOptInDesc: string;
+    featureThemes: string;
+    featureThemesDesc: string;
+    featureMultiCurrency: string;
+    featureMultiCurrencyDesc: string;
+    viralTitle: string;
+    viralCopy: string;
+    viralMicroCopy: string;
+    viralCta: string;
+    trustNoAds: string;
+    trustNoTracking: string;
+    trustFairSplits: string;
+    faqFreeQ: string;
+    faqFreeA: string;
+    faqAccountsQ: string;
+    faqAccountsA: string;
+    faqCurrenciesQ: string;
+    faqCurrenciesA: string;
+    footerTagline: string;
+    footerProduct: string;
+    footerFeatures: string;
+    footerAbout: string;
+    footerLogin: string;
+    footerTryDemo: string;
+    footerDescription: string;
+    shareHook: string;
   };
   welcome: {
     title: string;
@@ -303,6 +371,26 @@ interface Translations {
     backToLanding: string;
     pageTitle: string;
     adPlaceholder: string;
+    demoBadge: string;
+    whosIn: string;
+    whoPaidWhat: string;
+    whoOwesWho: string;
+    tryAnotherScenario: string;
+    shareThisSplit: string;
+    allSettledStillFriends: string;
+    readyToUseCta: string;
+    continueWithout: string;
+    unlockFull: string;
+    availableInFull: string;
+    scenarioBarcelona: string;
+    scenarioBBQ: string;
+    scenarioSki: string;
+    scenarioBirthday: string;
+    scenarioRoadtrip: string;
+    lockedTrips: string;
+    lockedFriends: string;
+    lockedThemes: string;
+    lockedHistory: string;
   };
   nav: {
     parties: string;
@@ -428,6 +516,27 @@ const translations: Record<Language, Translations> = {
       owes: "owes", allSettled: "All settled up!", overpaid: "Overpaid", underpaid: "Underpaid",
       shareImage: "Share image", copyImage: "Copy image", download: "Download",
     },
+    settleUp: {
+      cta: "Ready to settle?",
+      ctaShort: "Settle up",
+      modalTitle: "Ready to settle up?",
+      modalBody1: "Freeze totals",
+      modalBody2: "Notify everyone",
+      modalBody3: "Let people pay you back",
+      cancel: "Cancel",
+      sendSummary: "Send summary",
+      toastSuccess: "Summary sent. Time to settle",
+      statusSettling: "Settling up",
+      statusSettled: "All settled",
+      statusActive: "Active",
+      statusDraft: "Draft",
+      participantBanner: "finalized the trip",
+      tapToSettle: "You owe",
+      updatedAfterSummary: "Updated after summary sent",
+      markAsSettled: "Everyone paid? Mark event as settled",
+      markAsSettledButton: "Mark as settled",
+      everyonePaid: "Everyone paid?",
+    },
     bbq: {
       allBarbecues: "Barbecues", newBarbecue: "New Barbecue", bbqName: "Event name",
       date: "Date", currency: "Currency", create: "Create", delete: "Delete",
@@ -524,6 +633,53 @@ const translations: Record<Language, Translations> = {
       fullDesc: "Parties, trips, events. Save and share with friends.",
       tryBasic: "Try without account",
       logInFull: "Log in for full features",
+      heroTitle: "Split costs. Stay friends.",
+      heroSubtitle: "The easiest way to split trips, parties, and shared moments.",
+      ctaStartFree: "Start free",
+      ctaTryDemo: "Try demo",
+      socialProofTagline: "Loved by friends worldwide",
+      eventsSplit: "1,200+",
+      sharedCosts: "€85k+",
+      countries: "40+",
+      useCasesTitle: "Built for how you split",
+      useCaseTrips: "Trips",
+      useCaseTripsDesc: "Split hotels, food, and transport without the awkward math.",
+      useCaseParties: "Parties",
+      useCasePartiesDesc: "Birthday, BBQ, or dinner party — track who paid for what, fair and simple.",
+      useCaseFestivals: "Festivals",
+      useCaseFestivalsDesc: "Shared tents, tickets, and drinks. One link, everyone's in.",
+      useCaseRoommates: "Roommates",
+      useCaseRoommatesDesc: "Rent, utilities, groceries. No more IOU spreadsheets.",
+      featuresTitle: "Smart splitting, simple setup",
+      featureSmartSplit: "Smart splitting",
+      featureSmartSplitDesc: "Automatic settlement plans. See who owes whom in one tap.",
+      featureOptIn: "Opt-in expenses",
+      featureOptInDesc: "Split only what you share. Skip the steak if you're vegetarian.",
+      featureThemes: "Event themes",
+      featureThemesDesc: "Trips, parties, festivals — templates that fit the occasion.",
+      featureMultiCurrency: "Multi-currency",
+      featureMultiCurrencyDesc: "EUR, USD, GBP and more. Approximate conversions built in.",
+      viralTitle: "Built for groups, not spreadsheets",
+      viralCopy: "Inviting friends creates instant value. One link, everyone's in.",
+      viralMicroCopy: "Send one link. Everyone's in.",
+      viralCta: "Create your first event",
+      trustNoAds: "No ads",
+      trustNoTracking: "No tracking",
+      trustFairSplits: "Just fair splits",
+      faqFreeQ: "Is it free?",
+      faqFreeA: "Yes. Splanno is free to use. Create events, add expenses, and split costs with friends — no hidden fees.",
+      faqAccountsQ: "Do friends need accounts?",
+      faqAccountsA: "For the demo, no. For the full app, friends can join with a quick sign-up to save their events and split history.",
+      faqCurrenciesQ: "Can I use multiple currencies?",
+      faqCurrenciesA: "Yes. Each event has a base currency, and we support EUR, USD, GBP, ARS, MXN with approximate conversion rates.",
+      footerTagline: "Split costs, stay friends.",
+      footerProduct: "Product",
+      footerFeatures: "Features",
+      footerAbout: "About",
+      footerLogin: "Log in",
+      footerTryDemo: "Try demo",
+      footerDescription: "The easiest way to split trips, parties, and shared moments.",
+      shareHook: "See how Splanno looks with friends",
     },
     welcome: {
       title: "Welcome, {name}!",
@@ -534,6 +690,26 @@ const translations: Record<Language, Translations> = {
       backToLanding: "Back",
       pageTitle: "Basic split",
       adPlaceholder: "Advertisement",
+      demoBadge: "Demo mode — nothing is saved",
+      whosIn: "Who's in?",
+      whoPaidWhat: "Who paid what?",
+      whoOwesWho: "Who owes who?",
+      tryAnotherScenario: "Try another scenario",
+      shareThisSplit: "Share this split",
+      allSettledStillFriends: "All settled. Still friends",
+      readyToUseCta: "Ready to use this with real friends?",
+      continueWithout: "Continue without account",
+      unlockFull: "Unlock full version",
+      availableInFull: "Available in the full version",
+      scenarioBarcelona: "Weekend Barcelona",
+      scenarioBBQ: "BBQ Night",
+      scenarioSki: "Ski Trip",
+      scenarioBirthday: "Birthday Party",
+      scenarioRoadtrip: "Roadtrip Europe",
+      lockedTrips: "Trips",
+      lockedFriends: "Friends",
+      lockedThemes: "Smart themes",
+      lockedHistory: "History",
     },
     nav: {
       parties: "Parties",
@@ -646,6 +822,27 @@ const translations: Record<Language, Translations> = {
       owes: "le debe a", allSettled: "¡Todo saldado!", overpaid: "Pagó de más", underpaid: "Debe",
       shareImage: "Compartir imagen", copyImage: "Copiar imagen", download: "Descargar",
     },
+    settleUp: {
+      cta: "¿Listo para saldar?",
+      ctaShort: "Saldar",
+      modalTitle: "¿Listo para saldar?",
+      modalBody1: "Congelar totales",
+      modalBody2: "Avisar a todos",
+      modalBody3: "Dejar que te paguen",
+      cancel: "Cancelar",
+      sendSummary: "Enviar resumen",
+      toastSuccess: "Resumen enviado. Hora de saldar",
+      statusSettling: "Saldando",
+      statusSettled: "Todo saldado",
+      statusActive: "Activo",
+      statusDraft: "Borrador",
+      participantBanner: "finalizó el viaje",
+      tapToSettle: "Debes",
+      updatedAfterSummary: "Actualizado después del resumen",
+      markAsSettled: "¿Todos pagaron? Marcar como saldado",
+      markAsSettledButton: "Marcar como saldado",
+      everyonePaid: "¿Todos pagaron?",
+    },
     bbq: {
       allBarbecues: "Asados", newBarbecue: "Nuevo Asado", bbqName: "Nombre del evento",
       date: "Fecha", currency: "Moneda", create: "Crear", delete: "Eliminar",
@@ -742,6 +939,53 @@ const translations: Record<Language, Translations> = {
       fullDesc: "Fiestas, viajes, eventos. Guardá y compartí con amigos.",
       tryBasic: "Probar sin cuenta",
       logInFull: "Entrar para todas las funciones",
+      heroTitle: "Cuentas claras. Amistad intacta.",
+      heroSubtitle: "La forma más fácil de dividir viajes, fiestas y momentos compartidos.",
+      ctaStartFree: "Empezar gratis",
+      ctaTryDemo: "Probar demo",
+      socialProofTagline: "Querido por amigos en todo el mundo",
+      eventsSplit: "1.200+",
+      sharedCosts: "€85k+",
+      countries: "40+",
+      useCasesTitle: "Hecho para cómo dividís",
+      useCaseTrips: "Viajes",
+      useCaseTripsDesc: "Dividí hoteles, comida y transporte sin la matemática incómoda.",
+      useCaseParties: "Fiestas",
+      useCasePartiesDesc: "Cumpleaños, asado o cena — registrá quién pagó qué, justo y simple.",
+      useCaseFestivals: "Festivales",
+      useCaseFestivalsDesc: "Carpas, entradas y tragos compartidos. Un link, todos adentro.",
+      useCaseRoommates: "Compañeros de piso",
+      useCaseRoommatesDesc: "Alquiler, servicios, compras. Sin más hojas de cálculo de deudas.",
+      featuresTitle: "División inteligente, configuración simple",
+      featureSmartSplit: "División inteligente",
+      featureSmartSplitDesc: "Planes de pago automáticos. Ver quién le debe a quién en un toque.",
+      featureOptIn: "Gastos optativos",
+      featureOptInDesc: "Dividí solo lo que compartís. Saltá el bife si sos vegetariano.",
+      featureThemes: "Temas de eventos",
+      featureThemesDesc: "Viajes, fiestas, festivales — plantillas que se ajustan a la ocasión.",
+      featureMultiCurrency: "Multi-moneda",
+      featureMultiCurrencyDesc: "EUR, USD, GBP y más. Conversiones aproximadas incluidas.",
+      viralTitle: "Hecho para grupos, no hojas de cálculo",
+      viralCopy: "Invitando amigos se crea valor instantáneo. Un link, todos adentro.",
+      viralMicroCopy: "Enviá un link. Todos adentro.",
+      viralCta: "Crear tu primer evento",
+      trustNoAds: "Sin anuncios",
+      trustNoTracking: "Sin rastreo",
+      trustFairSplits: "Solo divisiones justas",
+      faqFreeQ: "¿Es gratis?",
+      faqFreeA: "Sí. Splanno es gratis. Creá eventos, agregá gastos y dividí con amigos — sin costos ocultos.",
+      faqAccountsQ: "¿Los amigos necesitan cuentas?",
+      faqAccountsA: "Para el demo, no. Para la app completa, pueden registrarse rápido para guardar eventos e historial.",
+      faqCurrenciesQ: "¿Puedo usar varias monedas?",
+      faqCurrenciesA: "Sí. Cada evento tiene una moneda base. Soportamos EUR, USD, GBP, ARS, MXN con tasas aproximadas.",
+      footerTagline: "Cuentas claras, amistad intacta.",
+      footerProduct: "Producto",
+      footerFeatures: "Funciones",
+      footerAbout: "Acerca",
+      footerLogin: "Entrar",
+      footerTryDemo: "Probar demo",
+      footerDescription: "La forma más fácil de dividir viajes, fiestas y momentos compartidos.",
+      shareHook: "Mirá cómo Splanno se ve con amigos",
     },
     welcome: {
       title: "¡Bienvenido, {name}!",
@@ -752,6 +996,26 @@ const translations: Record<Language, Translations> = {
       backToLanding: "Volver",
       pageTitle: "Reparto básico",
       adPlaceholder: "Publicidad",
+      demoBadge: "Modo demo — no se guarda nada",
+      whosIn: "¿Quiénes están?",
+      whoPaidWhat: "¿Quién pagó qué?",
+      whoOwesWho: "¿Quién le debe a quién?",
+      tryAnotherScenario: "Probar otro escenario",
+      shareThisSplit: "Compartir este reparto",
+      allSettledStillFriends: "Todo saldado. Siguen amigos",
+      readyToUseCta: "¿Listo para usarlo con amigos de verdad?",
+      continueWithout: "Seguir sin cuenta",
+      unlockFull: "Desbloquear versión completa",
+      availableInFull: "Disponible en la versión completa",
+      scenarioBarcelona: "Finde Barcelona",
+      scenarioBBQ: "Noche de BBQ",
+      scenarioSki: "Viaje de esquí",
+      scenarioBirthday: "Fiesta de cumpleaños",
+      scenarioRoadtrip: "Roadtrip Europa",
+      lockedTrips: "Viajes",
+      lockedFriends: "Amigos",
+      lockedThemes: "Temas inteligentes",
+      lockedHistory: "Historial",
     },
     nav: {
       parties: "Fiestas",
@@ -864,6 +1128,27 @@ const translations: Record<Language, Translations> = {
       owes: "deve a", allSettled: "Tutto saldato!", overpaid: "Eccedenza", underpaid: "Debito",
       shareImage: "Condividi immagine", copyImage: "Copia immagine", download: "Scarica",
     },
+    settleUp: {
+      cta: "Pronto a saldare?",
+      ctaShort: "Saldare",
+      modalTitle: "Pronto a saldare?",
+      modalBody1: "Congela i totali",
+      modalBody2: "Notifica tutti",
+      modalBody3: "Lascia che ti ripaghino",
+      cancel: "Annulla",
+      sendSummary: "Invia riepilogo",
+      toastSuccess: "Riepilogo inviato. È ora di saldare",
+      statusSettling: "In saldo",
+      statusSettled: "Tutto saldato",
+      statusActive: "Attivo",
+      statusDraft: "Bozza",
+      participantBanner: "ha finalizzato il viaggio",
+      tapToSettle: "Devi",
+      updatedAfterSummary: "Aggiornato dopo l'invio del riepilogo",
+      markAsSettled: "Tutti hanno pagato? Segna come saldato",
+      markAsSettledButton: "Segna come saldato",
+      everyonePaid: "Tutti hanno pagato?",
+    },
     bbq: {
       allBarbecues: "Barbecue", newBarbecue: "Nuovo BBQ", bbqName: "Nome evento",
       date: "Data", currency: "Valuta", create: "Crea", delete: "Elimina",
@@ -960,6 +1245,53 @@ const translations: Record<Language, Translations> = {
       fullDesc: "Feste, viaggi, eventi. Salva e condividi con amici.",
       tryBasic: "Prova senza account",
       logInFull: "Accedi per tutte le funzioni",
+      heroTitle: "Split costs. Stay friends.",
+      heroSubtitle: "Il modo più semplice per dividere viaggi, feste e momenti condivisi.",
+      ctaStartFree: "Inizia gratis",
+      ctaTryDemo: "Prova demo",
+      socialProofTagline: "Amato da amici in tutto il mondo",
+      eventsSplit: "1.200+",
+      sharedCosts: "€85k+",
+      countries: "40+",
+      useCasesTitle: "Fatto per come dividi",
+      useCaseTrips: "Viaggi",
+      useCaseTripsDesc: "Dividi hotel, cibo e trasporti senza la matematica imbarazzante.",
+      useCaseParties: "Feste",
+      useCasePartiesDesc: "Compleanno, BBQ o cena — traccia chi ha pagato cosa, giusto e semplice.",
+      useCaseFestivals: "Festival",
+      useCaseFestivalsDesc: "Tende, biglietti e drink condivisi. Un link, tutti dentro.",
+      useCaseRoommates: "Coinquilini",
+      useCaseRoommatesDesc: "Affitto, bollette, spesa. Basta con i fogli di calcolo IO.",
+      featuresTitle: "Split intelligente, setup semplice",
+      featureSmartSplit: "Split intelligente",
+      featureSmartSplitDesc: "Piani di saldo automatici. Vedi chi deve a chi in un tap.",
+      featureOptIn: "Spese opt-in",
+      featureOptInDesc: "Dividi solo ciò che condividi. Salta la bistecca se sei vegetariano.",
+      featureThemes: "Temi eventi",
+      featureThemesDesc: "Viaggi, feste, festival — template adatti all'occasione.",
+      featureMultiCurrency: "Multi-valuta",
+      featureMultiCurrencyDesc: "EUR, USD, GBP e altri. Conversioni approssimative integrate.",
+      viralTitle: "Fatto per gruppi, non fogli di calcolo",
+      viralCopy: "Invitare amici crea valore istantaneo. Un link, tutti dentro.",
+      viralMicroCopy: "Invia un link. Tutti dentro.",
+      viralCta: "Crea il tuo primo evento",
+      trustNoAds: "Nessuna pubblicità",
+      trustNoTracking: "Nessun tracking",
+      trustFairSplits: "Solo split equi",
+      faqFreeQ: "È gratis?",
+      faqFreeA: "Sì. Splanno è gratuito. Crea eventi, aggiungi spese e dividi con amici — niente costi nascosti.",
+      faqAccountsQ: "Gli amici devono registrarsi?",
+      faqAccountsA: "Per il demo, no. Per l'app completa possono registrarsi rapidamente per salvare eventi e cronologia.",
+      faqCurrenciesQ: "Posso usare più valute?",
+      faqCurrenciesA: "Sì. Ogni evento ha una valuta base. Supportiamo EUR, USD, GBP, ARS, MXN con tassi approssimativi.",
+      footerTagline: "Split costs, stay friends.",
+      footerProduct: "Prodotto",
+      footerFeatures: "Funzionalità",
+      footerAbout: "Chi siamo",
+      footerLogin: "Accedi",
+      footerTryDemo: "Prova demo",
+      footerDescription: "Il modo più semplice per dividere viaggi, feste e momenti condivisi.",
+      shareHook: "Scopri come Splanno funziona con gli amici",
     },
     welcome: {
       title: "Benvenuto, {name}!",
@@ -970,6 +1302,26 @@ const translations: Record<Language, Translations> = {
       backToLanding: "Indietro",
       pageTitle: "Split base",
       adPlaceholder: "Pubblicità",
+      demoBadge: "Modalità demo — nulla viene salvato",
+      whosIn: "Chi c'è?",
+      whoPaidWhat: "Chi ha pagato cosa?",
+      whoOwesWho: "Chi deve a chi?",
+      tryAnotherScenario: "Prova un altro scenario",
+      shareThisSplit: "Condividi questo split",
+      allSettledStillFriends: "Tutto saldato. Ancora amici",
+      readyToUseCta: "Pronto ad usarlo con amici veri?",
+      continueWithout: "Continua senza account",
+      unlockFull: "Sblocca versione completa",
+      availableInFull: "Disponibile nella versione completa",
+      scenarioBarcelona: "Weekend Barcellona",
+      scenarioBBQ: "Serata BBQ",
+      scenarioSki: "Gita sci",
+      scenarioBirthday: "Festa di compleanno",
+      scenarioRoadtrip: "Roadtrip Europa",
+      lockedTrips: "Viaggi",
+      lockedFriends: "Amici",
+      lockedThemes: "Temi smart",
+      lockedHistory: "Cronologia",
     },
     nav: {
       parties: "Feste",
@@ -1082,6 +1434,27 @@ const translations: Record<Language, Translations> = {
       owes: "is verschuldigd aan", allSettled: "Alles verrekend!", overpaid: "Te veel betaald", underpaid: "Te weinig betaald",
       shareImage: "Deel afbeelding", copyImage: "Kopieer afbeelding", download: "Downloaden",
     },
+    settleUp: {
+      cta: "Klaar om af te rekenen?",
+      ctaShort: "Afrekenen",
+      modalTitle: "Klaar om af te rekenen?",
+      modalBody1: "Totalen vastzetten",
+      modalBody2: "Iedereen informeren",
+      modalBody3: "Laat mensen je terugbetalen",
+      cancel: "Annuleren",
+      sendSummary: "Samenvatting versturen",
+      toastSuccess: "Samenvatting verstuurd. Tijd om af te rekenen",
+      statusSettling: "Aan het afrekenen",
+      statusSettled: "Alles verrekend",
+      statusActive: "Actief",
+      statusDraft: "Concept",
+      participantBanner: "heeft de trip afgerond",
+      tapToSettle: "Te betalen",
+      updatedAfterSummary: "Bijgewerkt na verzending samenvatting",
+      markAsSettled: "Heeft iedereen betaald? Markeer als verrekend",
+      markAsSettledButton: "Markeer als verrekend",
+      everyonePaid: "Heeft iedereen betaald?",
+    },
     bbq: {
       allBarbecues: "Barbecues", newBarbecue: "Nieuwe BBQ", bbqName: "Naam van het evenement",
       date: "Datum", currency: "Valuta", create: "Aanmaken", delete: "Verwijderen",
@@ -1178,6 +1551,53 @@ const translations: Record<Language, Translations> = {
       fullDesc: "Feesten, trips, evenementen. Bewaar en deel met vrienden.",
       tryBasic: "Probeer zonder account",
       logInFull: "Log in voor alle functies",
+      heroTitle: "Deel de rekening. Blijf vrienden.",
+      heroSubtitle: "De makkelijkste manier om trips, feesten en gedeelde momenten te verdelen.",
+      ctaStartFree: "Start gratis",
+      ctaTryDemo: "Probeer demo",
+      socialProofTagline: "Geliefd door vrienden wereldwijd",
+      eventsSplit: "1.200+",
+      sharedCosts: "€85k+",
+      countries: "40+",
+      useCasesTitle: "Gebouwd voor hoe jij deelt",
+      useCaseTrips: "Trips",
+      useCaseTripsDesc: "Deel hotels, eten en vervoer zonder de ongemakkelijke wiskunde.",
+      useCaseParties: "Feesten",
+      useCasePartiesDesc: "Verjaardag, BBQ of etentje — volg wie wat betaalde, eerlijk en simpel.",
+      useCaseFestivals: "Festivals",
+      useCaseFestivalsDesc: "Gedeelde tenten, tickets en drankjes. Eén link, iedereen doet mee.",
+      useCaseRoommates: "Huisgenoten",
+      useCaseRoommatesDesc: "Huur, nuts, boodschappen. Geen IOU-spreadsheets meer.",
+      featuresTitle: "Slim verdelen, simpele setup",
+      featureSmartSplit: "Slim verdelen",
+      featureSmartSplitDesc: "Automatische afrekenplannen. Zie wie wie verschuldigd is in één tik.",
+      featureOptIn: "Opt-in uitgaven",
+      featureOptInDesc: "Deel alleen wat jij deelt. Sla het vlees over als je vegetariër bent.",
+      featureThemes: "Eventthema's",
+      featureThemesDesc: "Trips, feesten, festivals — sjablonen die bij de gelegenheid passen.",
+      featureMultiCurrency: "Multi-valuta",
+      featureMultiCurrencyDesc: "EUR, USD, GBP en meer. Geschatte conversies ingebouwd.",
+      viralTitle: "Gebouwd voor groepen, niet spreadsheets",
+      viralCopy: "Vrienden uitnodigen creëert directe waarde. Eén link, iedereen doet mee.",
+      viralMicroCopy: "Stuur één link. Iedereen doet mee.",
+      viralCta: "Maak je eerste evenement",
+      trustNoAds: "Geen advertenties",
+      trustNoTracking: "Geen tracking",
+      trustFairSplits: "Gewoon eerlijke verdeling",
+      faqFreeQ: "Is het gratis?",
+      faqFreeA: "Ja. Splanno is gratis. Maak evenementen, voeg uitgaven toe en deel met vrienden — geen verborgen kosten.",
+      faqAccountsQ: "Moeten vrienden accounts aanmaken?",
+      faqAccountsA: "Voor de demo niet. Voor de volledige app kunnen ze zich snel registreren om evenementen en geschiedenis op te slaan.",
+      faqCurrenciesQ: "Kan ik meerdere valuta's gebruiken?",
+      faqCurrenciesA: "Ja. Elk evenement heeft een basisvaluta. We ondersteunen EUR, USD, GBP, ARS, MXN met geschatte koersen.",
+      footerTagline: "Deel de rekening, blijf vrienden.",
+      footerProduct: "Product",
+      footerFeatures: "Functies",
+      footerAbout: "Over",
+      footerLogin: "Log in",
+      footerTryDemo: "Probeer demo",
+      footerDescription: "De makkelijkste manier om trips, feesten en gedeelde momenten te verdelen.",
+      shareHook: "Bekijk hoe Splanno eruitziet met vrienden",
     },
     welcome: {
       title: "Welkom, {name}!",
@@ -1188,6 +1608,26 @@ const translations: Record<Language, Translations> = {
       backToLanding: "Terug",
       pageTitle: "Eenvoudige verdeling",
       adPlaceholder: "Advertentie",
+      demoBadge: "Demomodus — er wordt niets opgeslagen",
+      whosIn: "Wie doen mee?",
+      whoPaidWhat: "Wie betaalde wat?",
+      whoOwesWho: "Wie is wie verschuldigd?",
+      tryAnotherScenario: "Probeer een ander scenario",
+      shareThisSplit: "Deel deze verdeling",
+      allSettledStillFriends: "Alles verrekend. Nog steeds vrienden",
+      readyToUseCta: "Klaar om dit te gebruiken met echte vrienden?",
+      continueWithout: "Doorgaan zonder account",
+      unlockFull: "Volledige versie ontgrendelen",
+      availableInFull: "Beschikbaar in de volledige versie",
+      scenarioBarcelona: "Weekend Barcelona",
+      scenarioBBQ: "BBQ-avond",
+      scenarioSki: "Skivakantie",
+      scenarioBirthday: "Verjaardagsfeest",
+      scenarioRoadtrip: "Roadtrip Europa",
+      lockedTrips: "Trips",
+      lockedFriends: "Vrienden",
+      lockedThemes: "Slimme thema's",
+      lockedHistory: "Geschiedenis",
     },
     nav: {
       parties: "Feesten",

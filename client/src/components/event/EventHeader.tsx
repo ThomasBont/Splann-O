@@ -11,7 +11,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Plus, MoreHorizontal, Link2 } from "lucide-react";
+import { Plus, MoreHorizontal, Link2, Sparkles } from "lucide-react";
 
 export interface EventHeaderProps {
   category: EventCategory;
@@ -35,6 +35,26 @@ export interface EventHeaderProps {
   /** Optional: invite link for "Copy invite link" in dropdown */
   inviteLinkUrl?: string;
   onCopyInviteLink?: () => void;
+  /** Event status for pill + Settle up CTA */
+  eventStatus?: "draft" | "active" | "settling" | "settled";
+  onSettleUp?: () => void;
+  settleUpPending?: boolean;
+}
+
+function StatusPill({ status }: { status: "draft" | "active" | "settling" | "settled" }) {
+  const { t } = useLanguage();
+  const config = {
+    draft: { label: t.settleUp?.statusDraft ?? "Draft", class: "bg-muted text-muted-foreground" },
+    active: { label: t.settleUp?.statusActive ?? "Active", class: "bg-blue-500/15 text-blue-600 dark:text-blue-400" },
+    settling: { label: t.settleUp?.statusSettling ?? "Settling up", class: "bg-amber-500/15 text-amber-600 dark:text-amber-400" },
+    settled: { label: t.settleUp?.statusSettled ?? "All settled", class: "bg-green-500/15 text-green-600 dark:text-green-400" },
+  };
+  const c = config[status] ?? config.active;
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold ${c.class}`}>
+      {c.label}
+    </span>
+  );
 }
 
 /**
@@ -59,6 +79,9 @@ export function EventHeader({
   onDelete,
   inviteLinkUrl,
   onCopyInviteLink,
+  eventStatus = "active",
+  onSettleUp,
+  settleUpPending,
 }: EventHeaderProps) {
   const { t } = useLanguage();
   const theme = getEventTheme(category, type);
@@ -86,18 +109,33 @@ export function EventHeader({
               >
                 {theme.icon}
               </div>
-              <div className="min-w-0">
-                <h1 className="text-base sm:text-lg font-semibold text-foreground truncate">
-                  {title}
-                </h1>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h1 className="text-base sm:text-lg font-semibold text-foreground truncate">
+                    {title}
+                  </h1>
+                  <StatusPill status={eventStatus} />
+                </div>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {subtitleParts.join(" · ")}
                 </p>
               </div>
             </div>
           </div>
-          {/* Right: currency + Add Expense + overflow */}
-          <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Right: currency + Settle up + Add Expense + overflow */}
+          <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+            {isCreator && onSettleUp && eventStatus !== "settling" && eventStatus !== "settled" && (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={onSettleUp}
+                disabled={settleUpPending}
+                className="h-8 text-xs font-medium"
+              >
+                <Sparkles className="w-3.5 h-3.5 mr-1.5" />
+                {t.settleUp?.ctaShort ?? "Settle up"}
+              </Button>
+            )}
             <select
               value={displayCurrency}
               onChange={(e) => onCurrencyChange(e.target.value)}

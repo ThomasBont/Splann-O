@@ -7,6 +7,7 @@ import {
   expenseShares,
   passwordResetTokens,
   friendships,
+  eventNotifications,
   type User,
   type Barbecue,
   type Participant,
@@ -21,7 +22,7 @@ import {
   type FriendInfo,
   type PendingRequestWithBbq,
 } from "@shared/schema";
-import { eq, and, or, ne, inArray } from "drizzle-orm";
+import { eq, and, or, ne, inArray, desc } from "drizzle-orm";
 import crypto from "crypto";
 
 export interface IStorage {
@@ -42,7 +43,10 @@ export interface IStorage {
   getBarbecueByInviteToken(token: string): Promise<Barbecue | undefined>;
   createBarbecue(b: InsertBarbecue): Promise<Barbecue>;
   ensureBarbecueInviteToken(id: number): Promise<Barbecue | undefined>;
-  updateBarbecue(id: number, updates: { allowOptInExpenses?: boolean }): Promise<Barbecue | undefined>;
+  updateBarbecue(id: number, updates: { allowOptInExpenses?: boolean; templateData?: unknown; status?: string; settledAt?: Date | null }): Promise<Barbecue | undefined>;
+  createEventNotification(userId: string, barbecueId: number, type: string, payload?: { creatorName?: string; amountOwed?: number; eventName?: string; currency?: string }): Promise<unknown>;
+  getEventNotificationsForUser(userId: string): Promise<{ id: number; barbecueId: number; type: string; payload: unknown; createdAt: Date | null }[]>;
+  markEventNotificationRead(id: number): Promise<void>;
   deleteBarbecue(id: number): Promise<void>;
 
   getParticipants(bbqId: number): Promise<Participant[]>;
@@ -200,13 +204,34 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async updateBarbecue(id: number, updates: { allowOptInExpenses?: boolean; templateData?: unknown }): Promise<Barbecue | undefined> {
+  async updateBarbecue(id: number, updates: { allowOptInExpenses?: boolean; templateData?: unknown; status?: string; settledAt?: Date | null }): Promise<Barbecue | undefined> {
     const set: Record<string, unknown> = {};
     if (updates.allowOptInExpenses !== undefined) set.allowOptInExpenses = updates.allowOptInExpenses;
     if (updates.templateData !== undefined) set.templateData = updates.templateData;
+    if (updates.status !== undefined) set.status = updates.status;
+    if (updates.settledAt !== undefined) set.settledAt = updates.settledAt;
     if (Object.keys(set).length === 0) return this.getBarbecue(id);
     const [b] = await db.update(barbecues).set(set as any).where(eq(barbecues.id, id)).returning();
     return b;
+  }
+
+  async createEventNotification(
+    userId: string,
+    barbecueId: number,
+    type: string,
+    payload?: { creatorName?: string; amountOwed?: number; eventName?: string; currency?: string }
+  ): Promise<unknown> {
+    const [row] = await db.insert(eventNotifications).values({ userId, barbecueId, type, payload: payload ?? null }).returning();
+    return row;
+  }
+
+  async getEventNotificationsForUser(userId: string) {
+    const rows = await db.select().from(eventNotifications).where(eq(eventNotifications.userId, userId)).orderBy(desc(eventNotifications.createdAt));
+    return rows.map((r) => ({ id: r.id, barbecueId: r.barbecueId, type: r.type, payload: r.payload, createdAt: r.createdAt, readAt: r.readAt }));
+  }
+
+  async markEventNotificationRead(id: number): Promise<void> {
+    await db.update(eventNotifications).set({ readAt: new Date() }).where(eq(eventNotifications.id, id));
   }
 
   async deleteBarbecue(id: number): Promise<void> {

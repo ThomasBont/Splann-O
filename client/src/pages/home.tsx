@@ -9,7 +9,7 @@ import {
   useAcceptInvite, useDeclineInvite,
 } from "@/hooks/use-participants";
 import { useExpenses, useDeleteExpense, useExpenseShares, useSetExpenseShare } from "@/hooks/use-expenses";
-import { useBarbecues, useCreateBarbecue, useDeleteBarbecue, useUpdateBarbecue, useEnsureInviteToken } from "@/hooks/use-bbq-data";
+import { useBarbecues, useCreateBarbecue, useDeleteBarbecue, useUpdateBarbecue, useEnsureInviteToken, useSettleUp, useEventNotifications, useMarkEventNotificationRead, type EventNotification } from "@/hooks/use-bbq-data";
 import { useQueryClient } from "@tanstack/react-query";
 import { useFriends, useFriendRequests, useAllPendingRequests, useAcceptFriendRequest, useRemoveFriend } from "@/hooks/use-friends";
 import { UserProfileModal } from "@/components/user-profile-modal";
@@ -25,6 +25,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { AddPersonDialog } from "@/components/add-person-dialog";
 import { AddExpenseDialog } from "@/components/add-expense-dialog";
 import { EventHeader } from "@/components/event/EventHeader";
+import { SettleUpModal } from "@/components/event/SettleUpModal";
 import { QuickAddChips } from "@/components/event/QuickAddChips";
 import { EmptyState } from "@/components/event/EmptyState";
 import { InviteSheet } from "@/components/event/InviteSheet";
@@ -403,10 +404,14 @@ export default function Home() {
   const [editingParticipantId, setEditingParticipantId] = useState<number | null>(null);
   const [editingParticipantName, setEditingParticipantName] = useState("");
   const [inviteUsername, setInviteUsername] = useState("");
+  const [settleUpModalOpen, setSettleUpModalOpen] = useState(false);
+  const [activeEventTab, setActiveEventTab] = useState<string>("expenses");
 
   const { data: friends = [] } = useFriends();
   const { data: friendRequests = [] } = useFriendRequests();
   const { data: allPendingRequests = [] } = useAllPendingRequests();
+  const { data: eventNotifications = [] } = useEventNotifications(!!user);
+  const markEventNotifRead = useMarkEventNotificationRead();
   const acceptFriendReq = useAcceptFriendRequest();
   const removeFriendMut = useRemoveFriend();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
@@ -451,6 +456,7 @@ export default function Home() {
   const deleteBbq = useDeleteBarbecue();
   const updateBbq = useUpdateBarbecue();
   const ensureInviteToken = useEnsureInviteToken();
+  const settleUp = useSettleUp();
 
   const selectedBbq = barbecuesForArea.find((b: Barbecue) => b.id === selectedBbqId) ?? (barbecues.find((b: Barbecue) => b.id === selectedBbqId) || null);
   const customCategories = useMemo(
@@ -669,6 +675,24 @@ export default function Home() {
   const canManage = isCreator;
   const isAcceptedMember = !isCreator && !!myParticipant;
 
+  const eventStatus = (selectedBbq?.status as "draft" | "active" | "settling" | "settled") ?? "active";
+  const handleSettleUp = () => {
+    if (!selectedBbqId) return;
+    settleUp.mutate(selectedBbqId, {
+      onSuccess: () => {
+        setSettleUpModalOpen(false);
+        toast({ title: `${t.settleUp.toastSuccess} 💸`, variant: "success" });
+      },
+      onError: (err) => toast({ title: (err as Error).message, variant: "destructive" }),
+    });
+  };
+
+  const settleSnapshot = (selectedBbq?.templateData as { settleSnapshot?: { total: number; expenseCount: number } })?.settleSnapshot;
+  const showUpdatedAfterBadge = !!settleSnapshot && (
+    totalSpent !== settleSnapshot.total || expenses.length !== settleSnapshot.expenseCount
+  );
+  const allBalancesZero = balances.every((b: { balance: number }) => Math.abs(b.balance) < 0.01);
+
   // Always render shell so /app never shows a blank page; show login dialog when not authenticated (or still loading auth)
   return (
     <div className="min-h-screen pb-20">
@@ -763,16 +787,54 @@ export default function Home() {
                       data-testid="button-notifications"
                     >
                       <Bell className="w-4 h-4" />
-                      {allPendingRequests.length > 0 && (
+                      {(allPendingRequests.length > 0 || eventNotifications.filter((n: EventNotification) => !n.readAt).length > 0) && (
                         <span className="absolute -top-0.5 -right-0.5 bg-destructive text-destructive-foreground text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center" data-testid="badge-notifications">
-                          {allPendingRequests.length}
+                          {allPendingRequests.length + eventNotifications.filter((n: EventNotification) => !n.readAt).length}
                         </span>
                       )}
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent align="end" className="w-72 p-3 space-y-2">
+                  <PopoverContent align="end" className="w-72 p-3 space-y-4">
+                    {/* Settle-up notifications */}
+                    {eventNotifications.length > 0 && (
+                      <>
+                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{t.settleUp.statusSettling}</p>
+                        {eventNotifications.slice(0, 5).map((n: EventNotification) => {
+                          const p = n.payload as { creatorName?: string; amountOwed?: number; eventName?: string; currency?: string } | null;
+                          const isRead = !!n.readAt;
+                          return (
+                            <button
+                              key={n.id}
+                              type="button"
+                              onClick={() => {
+                                markEventNotifRead.mutate(n.id);
+                                const bbq = barbecues.find((b: Barbecue) => b.id === n.barbecueId);
+                                if (bbq) setArea(getEventArea(bbq));
+                                setSelectedBbqId(n.barbecueId);
+                                setNotifOpen(false);
+                                setActiveEventTab("split");
+                              }}
+                              className={`w-full text-left bg-secondary/20 border border-white/5 rounded-xl px-2.5 py-2 transition-colors hover:bg-secondary/30 ${isRead ? "opacity-70" : ""}`}
+                              data-testid={`notif-settle-${n.id}`}
+                            >
+                              <p className="text-sm font-medium truncate">
+                                {(p?.creatorName ?? "Someone")} {t.settleUp.participantBanner} 💸
+                              </p>
+                              <p className="text-[11px] text-muted-foreground">
+                                {t.settleUp.tapToSettle} {(CURRENCIES.find(c => c.code === (p?.currency ?? "EUR")) || CURRENCIES[0]).symbol}{(p?.amountOwed ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                              </p>
+                            </button>
+                          );
+                        })}
+                        {eventNotifications.length > 5 && (
+                          <p className="text-[11px] text-muted-foreground">+{eventNotifications.length - 5} more</p>
+                        )}
+                      </>
+                    )}
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{t.user.pendingRequests}</p>
-                    {allPendingRequests.length === 0 ? (
+                    {allPendingRequests.length === 0 && eventNotifications.length === 0 ? (
+                      <p className="text-xs text-muted-foreground text-center py-2">{t.friends.noRequests}</p>
+                    ) : allPendingRequests.length === 0 ? (
                       <p className="text-xs text-muted-foreground text-center py-2">{t.friends.noRequests}</p>
                     ) : (
                       allPendingRequests.map((req: PendingRequestWithBbq) => (
@@ -1099,13 +1161,66 @@ export default function Home() {
                         }
                       : undefined
                 }
+                eventStatus={eventStatus}
+                onSettleUp={isCreator ? () => setSettleUpModalOpen(true) : undefined}
+                settleUpPending={settleUp.isPending}
               />
 
+              {/* Participant settling banner: show when status=settling and current user owes */}
+              {eventStatus === "settling" && !isCreator && myParticipant && (() => {
+                const myBalance = balances.find((b: { id: number }) => b.id === myParticipant.id) as { balance: number } | undefined;
+                const amountOwed = myBalance && myBalance.balance < -0.01 ? Math.abs(myBalance.balance) : 0;
+                if (amountOwed < 0.01) return null;
+                const creatorName = selectedBbq?.creatorId || "Someone";
+                return (
+                  <button
+                    type="button"
+                    onClick={() => setActiveEventTab("split")}
+                    className="mt-4 w-full text-left rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 flex items-center gap-3 hover:bg-amber-500/15 transition-colors"
+                    data-testid="banner-settle-up"
+                  >
+                    <span className="text-lg">💸</span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-foreground">
+                        {creatorName} {t.settleUp.participantBanner} 💸
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {t.settleUp.tapToSettle} {formatMoney(amountOwed)}. Tap to settle up.
+                      </p>
+                    </div>
+                  </button>
+                );
+              })()}
+
               {/* Inline stats row */}
-              <p className="mt-2 text-xs text-muted-foreground">
-                {formatMoney(totalSpent)} spent · {participantCount} {participantCount === 1 ? "person" : "people"} · {expenses.length} expense{expenses.length !== 1 ? "s" : ""}
-                {!allowOptIn && ` · ${formatMoney(fairShare)} ${t.fairShare.toLowerCase()}`}
-              </p>
+              <div className="mt-2 flex items-center gap-2 flex-wrap">
+                <p className="text-xs text-muted-foreground">
+                  {formatMoney(totalSpent)} spent · {participantCount} {participantCount === 1 ? "person" : "people"} · {expenses.length} expense{expenses.length !== 1 ? "s" : ""}
+                  {!allowOptIn && ` · ${formatMoney(fairShare)} ${t.fairShare.toLowerCase()}`}
+                </p>
+                {showUpdatedAfterBadge && (
+                  <span className="text-[10px] px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-600 dark:text-amber-400 font-medium" data-testid="badge-updated-after">
+                    {t.settleUp.updatedAfterSummary}
+                  </span>
+                )}
+              </div>
+
+              {/* Creator: Mark as settled when all balances zero */}
+              {isCreator && eventStatus === "settling" && allBalancesZero && (
+                <div className="mt-4 rounded-xl border border-green-500/30 bg-green-500/10 px-4 py-3 flex items-center justify-between gap-3">
+                  <p className="text-sm font-medium text-foreground">{t.settleUp.everyonePaid}</p>
+                  <Button
+                    size="sm"
+                    onClick={() => selectedBbqId && updateBbq.mutate({ id: selectedBbqId, status: "settled" })}
+                    disabled={updateBbq.isPending}
+                    className="bg-green-600 hover:bg-green-700 text-white"
+                    data-testid="button-mark-settled"
+                  >
+                    <CheckCircle2 className="w-4 h-4 mr-1.5" />
+                    {t.settleUp.markAsSettledButton}
+                  </Button>
+                </div>
+              )}
 
             {/* Template-specific optional sections */}
             {eventTemplate.key === "barbecue" && (
@@ -1181,7 +1296,7 @@ export default function Home() {
 
             {/* Row C: Tabs */}
             <div className="mt-4">
-            <EventTabs defaultValue="expenses">
+            <EventTabs value={activeEventTab} onValueChange={setActiveEventTab}>
               <EventTabsList>
                 <EventTabsTrigger value="expenses" data-testid="tab-expenses">{t.tabs.expenses}</EventTabsTrigger>
                 <EventTabsTrigger value="people" data-testid="tab-people">{t.tabs.people}</EventTabsTrigger>
@@ -1886,6 +2001,20 @@ export default function Home() {
             )}
           </div>
       </Modal>
+
+      {/* Settle Up Modal */}
+      <SettleUpModal
+        open={settleUpModalOpen}
+        onOpenChange={setSettleUpModalOpen}
+        onConfirm={handleSettleUp}
+        pending={settleUp.isPending}
+        title={t.settleUp.modalTitle}
+        body1={t.settleUp.modalBody1}
+        body2={t.settleUp.modalBody2}
+        body3={t.settleUp.modalBody3}
+        cancel={t.settleUp.cancel}
+        sendSummary={t.settleUp.sendSummary}
+      />
 
       {/* Add Person Dialog */}
       <AddPersonDialog

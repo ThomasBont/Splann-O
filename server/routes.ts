@@ -272,7 +272,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const bbq = await storage.getBarbecue(id);
       if (!bbq) return res.status(404).json({ message: "BBQ not found" });
       if (bbq.creatorId !== req.session.username) return res.status(403).json({ message: "Only the creator can update this BBQ" });
-      const schema = z.object({ allowOptInExpenses: z.boolean().optional(), templateData: z.unknown().optional() });
+      const schema = z.object({ allowOptInExpenses: z.boolean().optional(), templateData: z.unknown().optional(), status: z.enum(["draft", "active", "settling", "settled"]).optional() });
       const body = schema.parse(req.body);
       const updated = await storage.updateBarbecue(id, body);
       if (!updated) return res.status(404).json({ message: "BBQ not found" });
@@ -281,6 +281,64 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       throw err;
     }
+  });
+
+  /** Settle up: creator triggers settling, notifies participants. */
+  app.post("/api/barbecues/:id/settle-up", requireAuth, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const bbq = await storage.getBarbecue(id);
+      if (!bbq) return res.status(404).json({ message: "Event not found" });
+      if (bbq.creatorId !== req.session.username) return res.status(403).json({ message: "Only the creator can settle up" });
+      const participantsList = await storage.getParticipants(id);
+      const expensesList = await storage.getExpenses(id);
+      const total = expensesList.reduce((s, e) => s + parseFloat(String(e.amount || 0)), 0);
+      const n = participantsList.length;
+      const fairShare = n > 0 ? total / n : 0;
+      const paidBy: Record<number, number> = {};
+      participantsList.forEach((p) => (paidBy[p.id] = 0));
+      expensesList.forEach((e) => {
+        if (paidBy[e.participantId] !== undefined) paidBy[e.participantId] += parseFloat(String(e.amount || 0));
+      });
+      const creatorName = bbq.creatorId || "Someone";
+      for (const p of participantsList) {
+        if (!p.userId || p.userId === bbq.creatorId) continue;
+        const balance = (paidBy[p.id] ?? 0) - fairShare;
+        if (balance < -0.01) {
+          await storage.createEventNotification(p.userId, id, "event_settled_started", {
+            creatorName,
+            amountOwed: Math.abs(balance),
+            eventName: bbq.name,
+            currency: bbq.currency ?? "EUR",
+          });
+        }
+      }
+      const now = new Date();
+      const settleSnapshot = { total, expenseCount: expensesList.length, at: now.toISOString() };
+      const currentTemplate = (bbq.templateData as Record<string, unknown>) || {};
+      const updated = await storage.updateBarbecue(id, {
+        status: "settling",
+        settledAt: now,
+        templateData: { ...currentTemplate, settleSnapshot },
+      });
+      if (!updated) return res.status(404).json({ message: "Event not found" });
+      res.json(updated);
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      throw err;
+    }
+  });
+
+  app.get("/api/notifications/events", requireAuth, async (req, res) => {
+    const userId = req.session.username;
+    if (!userId) return res.json([]);
+    const items = await storage.getEventNotificationsForUser(userId);
+    res.json(items);
+  });
+
+  app.patch("/api/notifications/events/:id/read", requireAuth, async (req, res) => {
+    await storage.markEventNotificationRead(Number(req.params.id));
+    res.status(204).send();
   });
 
   // Participants

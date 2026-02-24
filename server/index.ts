@@ -54,6 +54,11 @@ if (frontendOrigin) {
   app.use(cors({ origin: frontendOrigin.split(",").map((o) => o.trim()), credentials: true }));
 }
 
+if (process.env.NODE_ENV === "production" && !process.env.SESSION_SECRET) {
+  console.error("FATAL: SESSION_SECRET must be set in production");
+  process.exit(1);
+}
+
 const PgStore = ConnectPgSimple(session);
 app.use(
   session({

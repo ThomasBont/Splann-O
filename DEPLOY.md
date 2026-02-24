@@ -18,6 +18,7 @@ Auth endpoints are rate-limited to reduce brute-force risk:
 
 | Endpoint | Limit |
 |----------|-------|
+| `POST /api/auth/register` | 10 requests / minute |
 | `POST /api/auth/login` | 10 requests / minute |
 | `POST /api/auth/forgot-password` | 5 requests / minute |
 | `POST /api/auth/reset-password` | 5 requests / minute |
@@ -86,6 +87,7 @@ If you prefer `psql` directly:
 psql "$DATABASE_URL" -f migrations/0000_app_meta.sql
 psql "$DATABASE_URL" -f migrations/0005_phase3_plan_tiers.sql
 psql "$DATABASE_URL" -f migrations/0006_phaseD_indexes.sql
+psql "$DATABASE_URL" -f migrations/0007_phase1_invited_user_id.sql
 # ... etc, in order
 ```
 

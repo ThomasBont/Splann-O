@@ -42,8 +42,9 @@ export interface IStorage {
   getPasswordResetToken(token: string): Promise<PasswordResetToken | undefined>;
   markTokenUsed(id: number): Promise<void>;
 
-  getBarbecues(currentUsername?: string): Promise<Barbecue[]>;
+  getBarbecues(currentUsername?: string, currentUserId?: number): Promise<Barbecue[]>;
   getBarbecue(id: number): Promise<Barbecue | undefined>;
+  hasAccessToBarbecue(bbq: Barbecue, currentUsername?: string, currentUserId?: number): Promise<boolean>;
   countBarbecuesByCreator(username: string): Promise<number>;
   getBarbecueByInviteToken(token: string): Promise<Barbecue | undefined>;
   createBarbecue(b: InsertBarbecue): Promise<Barbecue>;
@@ -62,7 +63,7 @@ export interface IStorage {
   getParticipant(id: number): Promise<Participant | undefined>;
   createParticipant(p: InsertParticipant): Promise<Participant>;
   joinBarbecue(bbqId: number, name: string, userId: string): Promise<Participant>;
-  inviteParticipant(bbqId: number, name: string, userId: string): Promise<Participant>;
+  inviteParticipant(bbqId: number, username: string, invitedUserId?: number | null): Promise<Participant>;
   acceptParticipant(id: number): Promise<Participant | undefined>;
   updateParticipantName(id: number, name: string): Promise<Participant | undefined>;
   deleteParticipant(id: number): Promise<void>;
@@ -184,16 +185,20 @@ export class DatabaseStorage implements IStorage {
     await db.update(passwordResetTokens).set({ usedAt: new Date() }).where(eq(passwordResetTokens.id, id));
   }
 
-  async getBarbecues(currentUsername?: string): Promise<Barbecue[]> {
+  async getBarbecues(currentUsername?: string, currentUserId?: number): Promise<Barbecue[]> {
     const all = await db.select().from(barbecues);
     if (!currentUsername) return all.filter(b => b.isPublic);
 
-    const userParticipations = await db.select({ bbqId: participants.barbecueId })
-      .from(participants)
-      .where(eq(participants.userId, currentUsername));
-    const participatingIds = new Set(userParticipations.map(p => p.bbqId));
+    const participatingByUsername = await db.select({ bbqId: participants.barbecueId }).from(participants).where(eq(participants.userId, currentUsername));
+    const participatingIds = new Set(participatingByUsername.map(p => p.bbqId));
+
+    if (currentUserId) {
+      const invitedByUserId = await db.select({ bbqId: participants.barbecueId }).from(participants).where(eq(participants.invitedUserId, currentUserId));
+      invitedByUserId.forEach(p => participatingIds.add(p.bbqId));
+    }
 
     return all.filter(b => {
+      if (b.isPublic) return true;
       if (b.creatorId === currentUsername) return true;
       if (participatingIds.has(b.id)) return true;
       return false;
@@ -203,6 +208,19 @@ export class DatabaseStorage implements IStorage {
   async getBarbecue(id: number): Promise<Barbecue | undefined> {
     const [b] = await db.select().from(barbecues).where(eq(barbecues.id, id));
     return b;
+  }
+
+  async hasAccessToBarbecue(bbq: Barbecue, currentUsername?: string, currentUserId?: number): Promise<boolean> {
+    if (bbq.isPublic) return true;
+    if (!currentUsername) return false;
+    if (bbq.creatorId === currentUsername) return true;
+    const byUsername = await db.select({ id: participants.id }).from(participants).where(and(eq(participants.barbecueId, bbq.id), eq(participants.userId, currentUsername)));
+    if (byUsername.length > 0) return true;
+    if (currentUserId) {
+      const byInvited = await db.select({ id: participants.id }).from(participants).where(and(eq(participants.barbecueId, bbq.id), eq(participants.invitedUserId, currentUserId)));
+      if (byInvited.length > 0) return true;
+    }
+    return false;
   }
 
   async countBarbecuesByCreator(username: string): Promise<number> {
@@ -311,8 +329,11 @@ export class DatabaseStorage implements IStorage {
     return p;
   }
 
-  async inviteParticipant(bbqId: number, name: string, userId: string): Promise<Participant> {
-    const [p] = await db.insert(participants).values({ barbecueId: bbqId, name, userId, status: "invited" }).returning();
+  async inviteParticipant(bbqId: number, username: string, invitedUserId?: number | null): Promise<Participant> {
+    const [p] = await db
+      .insert(participants)
+      .values({ barbecueId: bbqId, name: username, userId: username, invitedUserId: invitedUserId ?? null, status: "invited" })
+      .returning();
     return p;
   }
 

@@ -77,6 +77,8 @@ export const participants = pgTable("participants", {
   barbecueId: integer("barbecue_id").references(() => barbecues.id, { onDelete: 'cascade' }).notNull(),
   name: text("name").notNull(),
   userId: text("user_id"),
+  /** FK to users.id when status='invited' — links invite to target user. */
+  invitedUserId: integer("invited_user_id").references(() => users.id, { onDelete: "set null" }),
   status: text("status").notNull().default("accepted"),
 });
 

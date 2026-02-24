@@ -22,6 +22,14 @@ function requireAuth(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
+/** Returns barbecue if user has access; null otherwise (caller should 404). */
+async function getBarbecueIfAccessible(req: Request, bbqId: number) {
+  const bbq = await storage.getBarbecue(bbqId);
+  if (!bbq) return null;
+  const hasAccess = await storage.hasAccessToBarbecue(bbq, req.session?.username, req.session?.userId);
+  return hasAccess ? bbq : null;
+}
+
 function requireAdmin(req: Request, res: Response, next: NextFunction) {
   const admins = (process.env.ADMIN_USERNAMES ?? "")
     .split(",")
@@ -122,7 +130,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.post("/api/auth/register", async (req, res) => {
+  app.post("/api/auth/register", loginLimiter, async (req, res) => {
     try {
       const schema = z.object({
         username: z.string().min(2).max(30).regex(/^[a-zA-Z0-9_\-]+$/, "Username can only contain letters, numbers, _ and -"),
@@ -308,7 +316,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Barbecues
   app.get(api.barbecues.list.path, async (req, res) => {
     const currentUsername = req.session.username || (req.query.userId as string | undefined);
-    const items = await storage.getBarbecues(currentUsername);
+    const currentUserId = req.session.userId;
+    const items = await storage.getBarbecues(currentUsername, currentUserId);
     res.json(items);
   });
 
@@ -347,7 +356,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   app.get(api.barbecues.get.path, async (req, res) => {
-    const bbq = await storage.getBarbecue(Number(req.params.id));
+    const bbq = await getBarbecueIfAccessible(req, Number(req.params.id));
     if (!bbq) return res.status(404).json({ message: "BBQ not found" });
     res.json(bbq);
   });
@@ -467,24 +476,30 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // Participants
   app.get(api.participants.list.path, async (req, res) => {
-    const items = await storage.getParticipants(Number(req.params.bbqId));
+    const bbq = await getBarbecueIfAccessible(req, Number(req.params.bbqId));
+    if (!bbq) return res.status(404).json({ message: "Event not found" });
+    const items = await storage.getParticipants(bbq.id);
     res.json(items);
   });
 
   app.get(api.participants.pending.path, async (req, res) => {
-    const items = await storage.getPendingRequests(Number(req.params.bbqId));
+    const bbq = await getBarbecueIfAccessible(req, Number(req.params.bbqId));
+    if (!bbq) return res.status(404).json({ message: "Event not found" });
+    const items = await storage.getPendingRequests(bbq.id);
     res.json(items);
   });
 
   app.get("/api/barbecues/:bbqId/invited", async (req, res) => {
-    const items = await storage.getInvitedParticipants(Number(req.params.bbqId));
+    const bbq = await getBarbecueIfAccessible(req, Number(req.params.bbqId));
+    if (!bbq) return res.status(404).json({ message: "Event not found" });
+    const items = await storage.getInvitedParticipants(bbq.id);
     res.json(items);
   });
 
   app.post(api.participants.create.path, async (req, res) => {
     try {
       const bbqId = Number(req.params.bbqId);
-      const bbq = await storage.getBarbecue(bbqId);
+      const bbq = await getBarbecueIfAccessible(req, bbqId);
       if (!bbq) return res.status(404).json({ message: "Event not found" });
       const creatorUser = bbq.creatorId ? await storage.getUserByUsername(bbq.creatorId) : undefined;
       const limits = getLimits(creatorUser ?? undefined);
@@ -509,7 +524,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const input = api.participants.join.input.parse(req.body);
       const bbqId = Number(req.params.bbqId);
-      const bbq = await storage.getBarbecue(bbqId);
+      const bbq = await getBarbecueIfAccessible(req, bbqId);
       if (!bbq) return res.status(404).json({ message: "Event not found" });
       const creatorUser = bbq.creatorId ? await storage.getUserByUsername(bbq.creatorId) : undefined;
       const limits = getLimits(creatorUser ?? undefined);
@@ -532,24 +547,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.post("/api/barbecues/:bbqId/invite", async (req, res) => {
+  app.post("/api/barbecues/:bbqId/invite", requireAuth, async (req, res) => {
     try {
       const schema = z.object({ username: z.string().min(1) });
       const { username } = schema.parse(req.body);
       const bbqId = Number(req.params.bbqId);
       const bbq = await storage.getBarbecue(bbqId);
       if (!bbq) return res.status(404).json({ message: "Event not found" });
+      if (bbq.creatorId !== req.session.username) return res.status(403).json({ message: "Only the creator can invite" });
       const creatorUser = bbq.creatorId ? await storage.getUserByUsername(bbq.creatorId) : undefined;
       const limits = getLimits(creatorUser ?? undefined);
       const participantCount = await storage.countParticipants(bbqId);
       if (participantCount >= limits.maxParticipantsPerEvent) {
         return upgradeRequired(res, "more_participants", { current: participantCount, max: limits.maxParticipantsPerEvent });
       }
+      const targetUser = await storage.getUserByUsername(username);
+      if (!targetUser) return res.status(404).json({ message: "User not found" });
       const existing = await storage.getMemberships(username);
       const alreadyIn = existing.find(m => m.bbqId === bbqId);
       if (alreadyIn) return res.status(409).json({ message: "already_member" });
 
-      const created = await storage.inviteParticipant(bbqId, username, username);
+      const created = await storage.inviteParticipant(bbqId, username, targetUser.id);
       res.status(201).json(created);
     } catch (err) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
@@ -596,12 +614,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // Expenses
   app.get(api.expenses.list.path, async (req, res) => {
-    const items = await storage.getExpenses(Number(req.params.bbqId));
+    const bbq = await getBarbecueIfAccessible(req, Number(req.params.bbqId));
+    if (!bbq) return res.status(404).json({ message: "Event not found" });
+    const items = await storage.getExpenses(bbq.id);
     res.json(items);
   });
 
   app.post(api.expenses.create.path, async (req, res) => {
     try {
+      const bbqId = Number(req.params.bbqId);
+      const bbq = await getBarbecueIfAccessible(req, bbqId);
+      if (!bbq) return res.status(404).json({ message: "Event not found" });
       const bodySchema = api.expenses.create.input.extend({
         amount: z.coerce.number(),
         participantId: z.coerce.number(),
@@ -609,7 +632,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const input = bodySchema.parse(req.body);
       const { optInByDefault, ...expenseData } = input;
       const created = await storage.createExpense(
-        { ...expenseData, barbecueId: Number(req.params.bbqId) },
+        { ...expenseData, barbecueId: bbqId },
         { optInByDefault }
       );
       res.status(201).json(created);
@@ -641,13 +664,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   app.get("/api/barbecues/:bbqId/expense-shares", async (req, res) => {
-    const shares = await storage.getExpenseShares(Number(req.params.bbqId));
+    const bbq = await getBarbecueIfAccessible(req, Number(req.params.bbqId));
+    if (!bbq) return res.status(404).json({ message: "Event not found" });
+    const shares = await storage.getExpenseShares(bbq.id);
     res.json(shares);
   });
 
   // Notes (event-agnostic: eventId = barbecue id for parties/trips)
   app.get(api.notes.list.path, async (req, res) => {
     const eventId = Number(req.params.eventId);
+    const bbq = await getBarbecueIfAccessible(req, eventId);
+    if (!bbq) return res.status(404).json({ message: "Event not found" });
     const items = await storage.getNotes(eventId);
     res.json(items);
   });
@@ -655,6 +682,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post(api.notes.create.path, async (req, res) => {
     try {
       const eventId = Number(req.params.eventId);
+      const bbq = await getBarbecueIfAccessible(req, eventId);
+      if (!bbq) return res.status(404).json({ message: "Event not found" });
       const input = api.notes.create.input.parse(req.body);
       const participant = await storage.getParticipant(input.participantId);
       if (!participant || participant.barbecueId !== eventId) {

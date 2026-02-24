@@ -559,11 +559,9 @@ export default function Home() {
     name, value, translatedName: t.categories[name as keyof typeof t.categories] || name
   })).filter(d => d.value > 0);
 
-  const { balances, settlements } = computeSplit(
-    participants,
-    expenses,
-    expenseSharesList,
-    allowOptIn
+  const { balances, settlements } = useMemo(
+    () => computeSplit(participants, expenses, expenseSharesList, allowOptIn),
+    [participants, expenses, expenseSharesList, allowOptIn]
   );
 
   const handleJoin = (bbqId: number) => {

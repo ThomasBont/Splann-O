@@ -3,13 +3,15 @@ import rateLimit from "express-rate-limit";
 const standardHeaders = true;
 const legacyHeaders = false;
 
+const RATE_LIMIT_MESSAGE = { message: "Too many requests. Please try again later." };
+
 /** Login: 10 requests per minute per IP */
 export const loginLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 10,
   standardHeaders,
   legacyHeaders,
-  message: { message: "Too many login attempts. Try again later." },
+  message: RATE_LIMIT_MESSAGE,
 });
 
 /** Forgot & reset password: 5 requests per minute per IP */
@@ -18,5 +20,5 @@ export const passwordResetLimiter = rateLimit({
   max: 5,
   standardHeaders,
   legacyHeaders,
-  message: { message: "Too many requests. Try again later." },
+  message: RATE_LIMIT_MESSAGE,
 });

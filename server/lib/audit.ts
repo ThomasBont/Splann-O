@@ -1,6 +1,8 @@
 /**
  * Audit logging for critical actions.
  * Structured for future swap to a log provider (e.g. Datadog, Axiom).
+ *
+ * Lightweight format for security events: [AUDIT] action=<action> user=<id|unknown> ip=<ip>
  */
 
 export type AuditAction =
@@ -14,7 +16,12 @@ export type AuditAction =
   | "participant.remove"
   | "participant.accept"
   | "participant.reject"
-  | "password_reset.used";
+  | "password_reset.used"
+  | "login.success"
+  | "login.failure"
+  | "password_reset.request"
+  | "event.lock"
+  | "plan.change";
 
 export interface AuditPayload {
   userId?: number;
@@ -23,6 +30,16 @@ export interface AuditPayload {
   participantId?: number;
   expenseId?: number;
   [key: string]: unknown;
+}
+
+/** Lightweight security audit: [AUDIT] action= user= ip= — no passwords/tokens. */
+export function auditSecurity(
+  action: string,
+  opts: { user?: string | number; ip?: string } = {}
+): void {
+  const user = opts.user ?? "unknown";
+  const ip = opts.ip ?? "unknown";
+  console.log(`[AUDIT] action=${action} user=${user} ip=${ip}`);
 }
 
 /** Log structured audit event. Console for now; can be swapped to external provider. */

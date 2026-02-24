@@ -50,6 +50,7 @@ export interface IStorage {
   ensureBarbecueInviteToken(id: number): Promise<Barbecue | undefined>;
   updateBarbecue(id: number, updates: { allowOptInExpenses?: boolean; templateData?: unknown; status?: string; settledAt?: Date | null }): Promise<Barbecue | undefined>;
   createEventNotification(userId: string, barbecueId: number, type: string, payload?: { creatorName?: string; amountOwed?: number; eventName?: string; currency?: string }): Promise<unknown>;
+  createEventNotificationsBatch(items: { userId: string; barbecueId: number; type: string; payload?: { creatorName?: string; amountOwed?: number; eventName?: string; currency?: string } }[]): Promise<void>;
   getEventNotificationsForUser(userId: string): Promise<{ id: number; barbecueId: number; type: string; payload: unknown; createdAt: Date | null }[]>;
   markEventNotificationRead(id: number): Promise<void>;
   deleteBarbecue(id: number): Promise<void>;
@@ -247,6 +248,15 @@ export class DatabaseStorage implements IStorage {
   ): Promise<unknown> {
     const [row] = await db.insert(eventNotifications).values({ userId, barbecueId, type, payload: payload ?? null }).returning();
     return row;
+  }
+
+  async createEventNotificationsBatch(
+    items: { userId: string; barbecueId: number; type: string; payload?: { creatorName?: string; amountOwed?: number; eventName?: string; currency?: string } }[]
+  ): Promise<void> {
+    if (items.length === 0) return;
+    await db.insert(eventNotifications).values(
+      items.map((it) => ({ userId: it.userId, barbecueId: it.barbecueId, type: it.type, payload: it.payload ?? null }))
+    );
   }
 
   async getEventNotificationsForUser(userId: string) {

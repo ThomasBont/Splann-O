@@ -3,7 +3,7 @@ import type { Server } from "http";
 import { storage } from "./storage";
 import { db, pool } from "./db";
 import { parseDbUrl } from "./lib/db-utils";
-import { auditLog } from "./lib/audit";
+import { auditLog, auditSecurity } from "./lib/audit";
 import { users, expenses, notes } from "@shared/schema";
 import { api } from "@shared/routes";
 import { z } from "zod";
@@ -65,6 +65,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   app.get("/api/health", async (_req, res) => {
+    res.setHeader("Cache-Control", "private, max-age=30");
     const timestamp = new Date().toISOString();
     const commit =
       process.env.RENDER_GIT_COMMIT ?? process.env.VERCEL_GIT_COMMIT_SHA ?? null;
@@ -136,16 +137,24 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   app.post("/api/auth/login", loginLimiter, async (req, res) => {
+    const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown";
     try {
       const schema = z.object({ username: z.string(), password: z.string() });
       const { username, password } = schema.parse(req.body);
 
       const user = await storage.getUserByUsername(username);
-      if (!user) return res.status(401).json({ message: "invalid_credentials" });
+      if (!user) {
+        auditSecurity("login.failure", { user: "unknown", ip });
+        return res.status(401).json({ message: "invalid_credentials" });
+      }
 
       const valid = await bcrypt.compare(password, user.passwordHash);
-      if (!valid) return res.status(401).json({ message: "invalid_credentials" });
+      if (!valid) {
+        auditSecurity("login.failure", { user: user.id, ip });
+        return res.status(401).json({ message: "invalid_credentials" });
+      }
 
+      auditSecurity("login.success", { user: user.id, ip });
       req.session.userId = user.id;
       req.session.username = user.username;
       req.session.save((err) => {
@@ -200,9 +209,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   app.post("/api/auth/forgot-password", passwordResetLimiter, async (req, res) => {
+    const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown";
     try {
       const { email } = z.object({ email: z.string().email() }).parse(req.body);
       const user = await storage.getUserByEmail(email);
+      auditSecurity("password_reset.request", { user: user?.id ?? "unknown", ip });
 
       let emailSent = false;
       if (user) {
@@ -264,6 +275,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const planExpiresAt = body.planExpiresAt ? new Date(body.planExpiresAt) : null;
       const updated = await storage.updateUserPlan(id, body.plan, planExpiresAt);
       if (!updated) return res.status(404).json({ message: "User not found" });
+      const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown";
+      auditSecurity("plan.change", { user: req.session.userId, ip });
       res.json({ id: updated.id, plan: updated.plan, planExpiresAt: updated.planExpiresAt?.toISOString() ?? null });
     } catch (err) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
@@ -383,18 +396,25 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         if (paidBy[e.participantId] !== undefined) paidBy[e.participantId] += parseFloat(String(e.amount || 0));
       });
       const creatorName = bbq.creatorId || "Someone";
+      const notifications: { userId: string; barbecueId: number; type: string; payload: { creatorName: string; amountOwed: number; eventName: string; currency: string } }[] = [];
       for (const p of participantsList) {
         if (!p.userId || p.userId === bbq.creatorId) continue;
         const balance = (paidBy[p.id] ?? 0) - fairShare;
         if (balance < -0.01) {
-          await storage.createEventNotification(p.userId, id, "event_settled_started", {
-            creatorName,
-            amountOwed: Math.abs(balance),
-            eventName: bbq.name,
-            currency: bbq.currency ?? "EUR",
+          notifications.push({
+            userId: p.userId,
+            barbecueId: id,
+            type: "event_settled_started",
+            payload: {
+              creatorName,
+              amountOwed: Math.abs(balance),
+              eventName: bbq.name,
+              currency: bbq.currency ?? "EUR",
+            },
           });
         }
       }
+      await storage.createEventNotificationsBatch(notifications);
       const now = new Date();
       const settleSnapshot = { total, expenseCount: expensesList.length, at: now.toISOString() };
       const currentTemplate = (bbq.templateData as Record<string, unknown>) || {};
@@ -404,6 +424,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         templateData: { ...currentTemplate, settleSnapshot },
       });
       if (!updated) return res.status(404).json({ message: "Event not found" });
+      const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown";
+      auditSecurity("event.lock", { user: req.session.userId, ip });
       auditLog("barbecue.settle_up", { barbecueId: id, username: req.session.username });
       res.json(updated);
     } catch (err) {

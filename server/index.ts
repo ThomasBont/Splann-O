@@ -1,5 +1,8 @@
 import dotenv from "dotenv";
-dotenv.config();
+// Only load .env in dev; production uses Render env vars (never override with committed .env)
+if (process.env.NODE_ENV !== "production") {
+  dotenv.config();
+}
 
 import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";

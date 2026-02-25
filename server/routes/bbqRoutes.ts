@@ -2,7 +2,7 @@ import { Router, type Request } from "express";
 import { z } from "zod";
 import { eq, and } from "drizzle-orm";
 import { api } from "@shared/routes";
-import { users, expenses, notes } from "@shared/schema";
+import { users, expenses, notes, stripeEvents } from "@shared/schema";
 import { bbqRepo } from "../repositories/bbqRepo";
 import { participantRepo } from "../repositories/participantRepo";
 import { expenseRepo } from "../repositories/expenseRepo";
@@ -15,6 +15,7 @@ import { db } from "../db";
 import { getLimits } from "../lib/plan";
 import { auditLog, auditSecurity } from "../lib/audit";
 import { badRequest, conflict, forbidden, gone, notFound, unauthorized, upgradeRequired } from "../lib/errors";
+import { createStripeCheckoutSession, verifyStripeWebhookSignature } from "../lib/stripe";
 
 const router = Router();
 
@@ -191,6 +192,32 @@ router.post("/events/:id/activate-listing", requireAuth, asyncHandler(async (req
   });
 }));
 
+router.post("/events/:id/checkout-public-listing", requireAuth, asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  const bbq = await bbqRepo.getById(id);
+  if (!bbq) notFound("Event not found");
+  if (bbq.creatorId !== req.session!.username) forbidden("Only the creator can activate listing");
+
+  const appUrl = (process.env.APP_URL ?? "").replace(/\/$/, "");
+  const priceId = process.env.STRIPE_PRICE_PUBLIC_LISTING?.trim();
+  if (!appUrl) badRequest("APP_URL is not configured");
+  if (!priceId) badRequest("STRIPE_PRICE_PUBLIC_LISTING is not configured");
+
+  const session = await createStripeCheckoutSession({
+    priceId,
+    successUrl: `${appUrl}/app?listing=success&eventId=${id}&session_id={CHECKOUT_SESSION_ID}`,
+    cancelUrl: `${appUrl}/app?listing=cancel&eventId=${id}`,
+    metadata: {
+      eventId: String(id),
+      userId: String(req.session!.userId),
+      intendedAction: "activate_public_listing",
+    },
+  });
+
+  if (!session.url) badRequest("Stripe checkout session did not return a URL");
+  res.json({ url: session.url });
+}));
+
 router.post("/events/:id/deactivate-listing", requireAuth, asyncHandler(async (req, res) => {
   const id = Number(req.params.id);
   const bbq = await bbqRepo.getById(id);
@@ -204,6 +231,42 @@ router.post("/events/:id/deactivate-listing", requireAuth, asyncHandler(async (r
   });
   if (!updated) notFound("Event not found");
   res.json(updated);
+}));
+
+router.post("/stripe/webhook", asyncHandler(async (req, res) => {
+  const rawBody = (req as Request & { rawBody?: unknown }).rawBody;
+  if (!Buffer.isBuffer(rawBody)) badRequest("Missing raw webhook body");
+  const event = verifyStripeWebhookSignature(rawBody, req.headers["stripe-signature"] as string | undefined) as {
+    id?: string;
+    type?: string;
+    data?: { object?: Record<string, unknown> };
+  };
+  const eventId = String(event.id ?? "").trim();
+  const eventType = String(event.type ?? "").trim();
+  if (!eventId || !eventType) badRequest("Invalid Stripe event payload");
+
+  const existingProcessed = await db.select().from(stripeEvents).where(eq(stripeEvents.id, eventId));
+  if (existingProcessed.length > 0) {
+    res.json({ received: true, duplicate: true });
+    return;
+  }
+
+  if (eventType === "checkout.session.completed") {
+    const object = (event.data?.object ?? {}) as {
+      metadata?: Record<string, string | undefined>;
+      payment_status?: string;
+    };
+    const metadata = object.metadata ?? {};
+    if (metadata.intendedAction === "activate_public_listing" && metadata.eventId) {
+      const eventIdNum = Number(metadata.eventId);
+      if (Number.isFinite(eventIdNum)) {
+        await bbqService.activateListingBySystem(eventIdNum);
+      }
+    }
+  }
+
+  await db.insert(stripeEvents).values({ id: eventId }).onConflictDoNothing({ target: stripeEvents.id });
+  res.json({ received: true });
 }));
 
 /** Settle up: creator triggers settling, notifies participants. */

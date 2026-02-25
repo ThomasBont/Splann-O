@@ -209,6 +209,20 @@ export function useDeactivateListing() {
   });
 }
 
+export function useCheckoutPublicListing() {
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const res = await fetch(`/api/events/${id}/checkout-public-listing`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((body as { message?: string }).message || "Failed to start checkout");
+      return body as { url: string };
+    },
+  });
+}
+
 export type EventNotification = {
   id: number;
   barbecueId: number;

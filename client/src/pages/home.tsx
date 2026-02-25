@@ -10,7 +10,7 @@ import {
   useAcceptInvite, useDeclineInvite,
 } from "@/hooks/use-participants";
 import { useExpenses, useDeleteExpense, useExpenseShares, useSetExpenseShare } from "@/hooks/use-expenses";
-import { useBarbecues, useCreateBarbecue, useDeleteBarbecue, useUpdateBarbecue, useEnsureInviteToken, useSettleUp, useEventNotifications, useMarkEventNotificationRead, useActivateListing, useDeactivateListing, type EventNotification } from "@/hooks/use-bbq-data";
+import { useBarbecues, useCreateBarbecue, useDeleteBarbecue, useUpdateBarbecue, useEnsureInviteToken, useSettleUp, useEventNotifications, useMarkEventNotificationRead, useCheckoutPublicListing, useDeactivateListing, type EventNotification } from "@/hooks/use-bbq-data";
 import { useQueryClient } from "@tanstack/react-query";
 import { useFriends, useFriendRequests, useAllPendingRequests, useAcceptFriendRequest, useRemoveFriend } from "@/hooks/use-friends";
 import { UserProfileModal } from "@/components/user-profile-modal";
@@ -489,6 +489,25 @@ export default function Home() {
     prevPendingCountRef.current = allPendingRequests.length;
   }, [allPendingRequests.length]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    const listing = url.searchParams.get("listing");
+    if (!listing) return;
+
+    if (listing === "success") {
+      toast({ title: "Listing payment successful", variant: "success" });
+      queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/explore/events"] });
+    } else if (listing === "cancel") {
+      toast({ title: "Payment cancelled", variant: "warning" });
+    }
+
+    url.searchParams.delete("listing");
+    url.searchParams.delete("session_id");
+    window.history.replaceState({}, "", url.toString());
+  }, [queryClient, toast]);
+
   const { data: barbecues = [], isLoading: isLoadingBbqs } = useBarbecues();
   const eventTypeOptions = newEventArea === "trips" ? TRIP_THEME_KEYS : PARTY_THEME_KEYS;
   const isValidEventType = (v: string) =>
@@ -501,7 +520,7 @@ export default function Home() {
   const updateBbq = useUpdateBarbecue();
   const ensureInviteToken = useEnsureInviteToken();
   const settleUp = useSettleUp();
-  const activateListing = useActivateListing();
+  const checkoutPublicListing = useCheckoutPublicListing();
   const deactivateListing = useDeactivateListing();
 
   const selectedBbq = barbecuesForArea.find((b: Barbecue) => b.id === selectedBbqId) ?? (barbecues.find((b: Barbecue) => b.id === selectedBbqId) || null);
@@ -1372,13 +1391,15 @@ export default function Home() {
                       <Button
                         size="sm"
                         variant="secondary"
-                        onClick={() => activateListing.mutate(selectedBbq.id, {
-                          onSuccess: () => toast({ title: "Listing activated (dev)", variant: "success" }),
+                        onClick={() => checkoutPublicListing.mutate(selectedBbq.id, {
+                          onSuccess: ({ url }) => {
+                            window.location.href = url;
+                          },
                           onError: (err) => toast({ title: (err as Error).message, variant: "destructive" }),
                         })}
-                        disabled={activateListing.isPending}
+                        disabled={checkoutPublicListing.isPending}
                       >
-                        Activate listing (dev)
+                        Activate listing
                       </Button>
                     </div>
                   ) : (

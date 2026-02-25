@@ -44,6 +44,11 @@ export const appMeta = pgTable("app_meta", {
   updatedAt: timestamp("updated_at", { withTimezone: true }),
 });
 
+export const stripeEvents = pgTable("stripe_events", {
+  id: text("id").primaryKey(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export const passwordResetTokens = pgTable("password_reset_tokens", {
   id: serial("id").primaryKey(),
   token: text("token").notNull().unique(),
@@ -182,6 +187,7 @@ export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
 
 export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
+export type StripeEvent = typeof stripeEvents.$inferSelect;
 
 export type Barbecue = typeof barbecues.$inferSelect;
 export type InsertBarbecue = z.infer<typeof insertBarbecueSchema>;

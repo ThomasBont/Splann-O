@@ -318,6 +318,18 @@ export async function activateListing(id: number, sessionUsername?: string): Pro
   return withSlug ?? updated;
 }
 
+export async function activateListingBySystem(id: number, expiresAt?: Date | null): Promise<Barbecue | undefined> {
+  const event = await bbqRepo.getById(id);
+  if (!event) return undefined;
+  const nextExpiry = expiresAt ?? new Date(Date.now() + DEFAULT_LISTING_DURATION_DAYS * 24 * 60 * 60 * 1000);
+  const updated = await bbqRepo.update(id, {
+    publicListingStatus: "active",
+    publicListingExpiresAt: nextExpiry,
+  });
+  if (!updated) return undefined;
+  return (await ensurePublicSlug(updated)) ?? updated;
+}
+
 export async function deactivateListing(id: number, sessionUsername?: string): Promise<Barbecue | undefined> {
   const event = await bbqRepo.getById(id);
   if (!event) return undefined;

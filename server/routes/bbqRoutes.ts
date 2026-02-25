@@ -164,6 +164,9 @@ router.patch(p(api.barbecues.update.path), requireAuth, asyncHandler(async (req,
 }));
 
 router.post("/events/:id/activate-listing", requireAuth, asyncHandler(async (req, res) => {
+  if (process.env.NODE_ENV !== "development") {
+    notFound("Not found");
+  }
   const id = Number(req.params.id);
   const bbq = await bbqRepo.getById(id);
   if (!bbq) notFound("Event not found");
@@ -210,6 +213,7 @@ router.post("/events/:id/checkout-public-listing", requireAuth, asyncHandler(asy
     metadata: {
       eventId: String(id),
       userId: String(req.session!.userId),
+      action: "activate_public_listing",
       intendedAction: "activate_public_listing",
     },
   });
@@ -257,7 +261,8 @@ router.post("/stripe/webhook", asyncHandler(async (req, res) => {
       payment_status?: string;
     };
     const metadata = object.metadata ?? {};
-    if (metadata.intendedAction === "activate_public_listing" && metadata.eventId) {
+    const action = metadata.action ?? metadata.intendedAction;
+    if (action === "activate_public_listing" && metadata.eventId) {
       const eventIdNum = Number(metadata.eventId);
       if (Number.isFinite(eventIdNum)) {
         await bbqService.activateListingBySystem(eventIdNum);

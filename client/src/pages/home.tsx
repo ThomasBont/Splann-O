@@ -553,14 +553,55 @@ export default function Home() {
     if (typeof window === "undefined") return;
     const url = new URL(window.location.href);
     const listing = url.searchParams.get("listing");
+    const eventIdParam = Number(url.searchParams.get("eventId"));
     if (!listing) return;
 
     if (listing === "success") {
-      toast({ title: "Listing payment successful", variant: "success" });
+      toast({ title: "Listing activated", variant: "success" });
       queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] });
       queryClient.invalidateQueries({ queryKey: ["/api/explore/events"] });
+      try {
+        const rawIntent = sessionStorage.getItem("splanno_publish_after_listing");
+        if (rawIntent) {
+          const intent = JSON.parse(rawIntent) as { eventId?: number; publicMode?: "marketing" | "joinable" };
+          if (Number.isFinite(eventIdParam) && intent.eventId === eventIdParam) {
+            void fetch(`/api/barbecues/${eventIdParam}`, {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ visibility: "public", publicMode: intent.publicMode ?? "marketing" }),
+            })
+              .then(async (res) => {
+                const body = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error((body as { message?: string }).message || "Failed to publish event");
+                queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] });
+                queryClient.invalidateQueries({ queryKey: ["/api/explore/events"] });
+                setSelectedBbqId(eventIdParam);
+                setEventVisibilityTab("public");
+                toast({ title: "Event published", variant: "success" });
+              })
+              .catch((err) => {
+                toast({ title: (err as Error).message || "Failed to publish event", variant: "destructive" });
+              });
+            sessionStorage.removeItem("splanno_publish_after_listing");
+          }
+        }
+      } catch {
+        // ignore malformed intent
+      }
     } else if (listing === "cancel") {
       toast({ title: "Payment cancelled", variant: "warning" });
+      try {
+        const rawIntent = sessionStorage.getItem("splanno_publish_after_listing");
+        if (rawIntent) {
+          const intent = JSON.parse(rawIntent) as { eventId?: number };
+          if (Number.isFinite(eventIdParam) && intent.eventId === eventIdParam) {
+            sessionStorage.removeItem("splanno_publish_after_listing");
+          }
+        }
+      } catch {
+        // ignore
+      }
     }
 
     url.searchParams.delete("listing");
@@ -815,19 +856,16 @@ export default function Home() {
             actionLabel: "Activate & publish",
             onAction: async () => {
               try {
-                const activateRes = await fetch(`/api/events/${data.id}/activate-listing`, {
-                  method: "POST",
-                  credentials: "include",
-                });
-                const activateBody = await activateRes.json().catch(() => ({}));
-                if (!activateRes.ok) throw new Error((activateBody as { message?: string }).message || "Failed to activate listing");
-                await updateBbq.mutateAsync({
-                  id: data.id,
-                  visibility: "public",
-                  publicMode: requestedPublicModeOnCreate,
-                });
-                setEventVisibilityTab("public");
-                toast({ title: "Listing activated and published", variant: "success" });
+                try {
+                  sessionStorage.setItem("splanno_publish_after_listing", JSON.stringify({
+                    eventId: data.id,
+                    publicMode: requestedPublicModeOnCreate,
+                  }));
+                } catch {
+                  // ignore
+                }
+                const { url } = await checkoutPublicListing.mutateAsync(data.id);
+                window.location.href = url;
               } catch (err) {
                 toast({ title: (err as Error).message || "Failed to publish", variant: "destructive" });
               }

@@ -7,6 +7,33 @@ import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Input } from "@/components/ui/input";
 
+const EMOJI_KEYWORDS: Partial<Record<ReactionEmoji, string[]>> = {
+  "👍": ["thumbs up", "like", "yes", "approve", "good"],
+  "❤️": ["heart", "love", "favorite", "fav"],
+  "🔥": ["fire", "lit", "hot", "amazing"],
+  "😂": ["laugh", "lol", "funny", "crying"],
+  "💸": ["money", "cash", "expensive", "spent", "payment"],
+  "👏": ["clap", "applause", "nice"],
+  "😮": ["wow", "surprised", "shock"],
+  "😍": ["love eyes", "adore", "heart eyes"],
+  "🤝": ["deal", "agree", "handshake", "thanks"],
+  "✅": ["check", "done", "approved", "ok"],
+  "🎉": ["party", "celebrate", "celebration"],
+  "🙌": ["hands up", "yay", "praise"],
+  "🥳": ["party face", "celebrate", "birthday"],
+  "🍻": ["cheers", "beer", "drinks", "toast"],
+  "🥩": ["meat", "steak", "bbq", "barbecue"],
+  "🍷": ["wine", "drinks"],
+  "🌭": ["hotdog", "bbq", "food"],
+  "😋": ["yummy", "tasty", "delicious", "food"],
+  "🤯": ["mind blown", "crazy", "wow"],
+  "👀": ["eyes", "looking", "watching"],
+  "🙏": ["please", "thanks", "pray", "gratitude"],
+  "💯": ["100", "perfect", "great"],
+  "😅": ["awkward", "oops", "sweat smile"],
+  "🤩": ["starstruck", "awesome", "amazing"],
+};
+
 interface ExpenseReactionBarProps {
   expenseId: number | string;
   reactions: ReactionCounts;
@@ -51,9 +78,13 @@ export function ExpenseReactionBar({
   );
 
   const filteredPickerEmojis = useMemo(() => {
-    const q = emojiSearch.trim();
+    const q = emojiSearch.trim().toLowerCase();
     if (!q) return REACTION_EMOJIS;
-    return REACTION_EMOJIS.filter((emoji) => emoji.includes(q));
+    return REACTION_EMOJIS.filter((emoji) => {
+      if (emoji.includes(q)) return true;
+      const keywords = EMOJI_KEYWORDS[emoji] ?? [];
+      return keywords.some((kw) => kw.includes(q));
+    });
   }, [emojiSearch]);
 
   return (
@@ -154,11 +185,15 @@ export function ExpenseReactionBar({
                     myReaction === emoji ? "border-primary bg-primary/10" : "border-border/60 bg-background/40"
                   )}
                   aria-label={`React with ${emoji}`}
+                  title={(EMOJI_KEYWORDS[emoji] ?? []).slice(0, 2).join(" · ")}
                 >
                   {emoji}
                 </button>
               ))}
             </div>
+            {filteredPickerEmojis.length === 0 && (
+              <p className="text-xs text-muted-foreground px-1 pb-1">No emoji found</p>
+            )}
           </div>
         </PopoverContent>
       </Popover>

@@ -4,7 +4,7 @@ import { parseDbUrl } from "../lib/db-utils";
 
 const router = Router();
 
-router.get("/api/health", async (_req, res) => {
+router.get("/health", async (_req, res) => {
   res.setHeader("Cache-Control", "private, max-age=30");
   const timestamp = new Date().toISOString();
   const commit = process.env.RENDER_GIT_COMMIT ?? process.env.VERCEL_GIT_COMMIT_SHA ?? null;

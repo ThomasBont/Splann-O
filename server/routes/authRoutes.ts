@@ -24,7 +24,7 @@ function asyncHandler(fn: (req: Request, res: any, next: any) => Promise<void>) 
 }
 
 router.get(
-  "/api/auth/me",
+  "/auth/me",
   asyncHandler(async (req, res) => {
     const user = await authService.me(req.session?.userId);
     res.json(user);
@@ -32,7 +32,7 @@ router.get(
 );
 
 router.get(
-  "/api/me/plan",
+  "/me/plan",
   requireAuth,
   asyncHandler(async (req, res) => {
     const info = await userService.getPlanInfo(req.session!.userId!);
@@ -41,7 +41,7 @@ router.get(
 );
 
 router.post(
-  "/api/auth/register",
+  "/auth/register",
   loginLimiter,
   asyncHandler(async (req, res) => {
     const schema = z.object({
@@ -66,7 +66,7 @@ router.post(
 );
 
 router.post(
-  "/api/auth/login",
+  "/auth/login",
   loginLimiter,
   asyncHandler(async (req, res) => {
     const schema = z.object({ username: z.string(), password: z.string() });
@@ -86,12 +86,12 @@ router.post(
   })
 );
 
-router.post("/api/auth/logout", (req, res) => {
+router.post("/auth/logout", (req, res) => {
   req.session?.destroy(() => res.json({ ok: true }));
 });
 
 router.post(
-  "/api/auth/forgot-password",
+  "/auth/forgot-password",
   passwordResetLimiter,
   asyncHandler(async (req, res) => {
     const { email } = z.object({ email: z.string().email() }).parse(req.body);
@@ -105,7 +105,7 @@ router.post(
 );
 
 router.post(
-  "/api/auth/reset-password",
+  "/auth/reset-password",
   passwordResetLimiter,
   asyncHandler(async (req, res) => {
     const { token, password } = z.object({ token: z.string(), password: z.string().min(8) }).parse(req.body);
@@ -115,7 +115,7 @@ router.post(
 );
 
 router.patch(
-  "/api/users/me",
+  "/users/me",
   requireAuth,
   asyncHandler(async (req, res) => {
     const schema = z.object({
@@ -132,7 +132,7 @@ router.patch(
 );
 
 router.delete(
-  "/api/users/me",
+  "/users/me",
   requireAuth,
   asyncHandler(async (req, res) => {
     await userService.deleteAccount(req.session!.userId!);
@@ -141,7 +141,7 @@ router.delete(
 );
 
 router.patch(
-  "/api/admin/users/:id/plan",
+  "/admin/users/:id/plan",
   requireAuth,
   asyncHandler(async (req, res) => {
     requireAdmin(req);

@@ -43,22 +43,31 @@ export function createApp() {
     })
   );
 
+  const isProd = process.env.NODE_ENV === "production";
   const frontendOrigin = process.env.FRONTEND_ORIGIN;
   if (frontendOrigin) {
     app.use(cors({ origin: frontendOrigin.split(",").map((o) => o.trim()), credentials: true }));
+  } else if (!isProd) {
+    app.use(cors({ origin: true, credentials: true }));
+  }
+
+  const sessionSecret = process.env.SESSION_SECRET;
+  if (isProd && (!sessionSecret || !sessionSecret.trim())) {
+    throw new Error("SESSION_SECRET must be set in production");
   }
 
   const PgStore = ConnectPgSimple(session);
   app.use(
     session({
       store: new PgStore({ pool, createTableIfMissing: true }),
-      secret: process.env.SESSION_SECRET || "fallback-secret-change-me",
+      secret: sessionSecret || "fallback-secret-change-me",
       resave: false,
       saveUninitialized: false,
+      name: "splanno.sid",
       cookie: {
         maxAge: 7 * 24 * 60 * 60 * 1000,
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production" && process.env.COOKIE_SECURE !== "0",
+        secure: isProd && process.env.COOKIE_SECURE !== "0",
         sameSite: "lax",
       },
     })
@@ -66,9 +75,9 @@ export function createApp() {
 
   app.use(requestContext);
 
-  app.use(authRoutes);
-  app.use(bbqRoutes);
-  app.use(healthRoutes);
+  app.use("/api", authRoutes);
+  app.use("/api", bbqRoutes);
+  app.use("/api", healthRoutes);
 
   app.use(errorHandler);
 

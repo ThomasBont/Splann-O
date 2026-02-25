@@ -16,6 +16,23 @@ if (!databaseUrl) {
 export const pool = new Pool({
   connectionString: databaseUrl,
   ssl: { rejectUnauthorized: false },
+  max: 20,
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 10_000,
 });
+
+if (process.env.DB_DEBUG === "1") {
+  try {
+    const url = new URL(databaseUrl);
+    console.log("[db] connection:", {
+      host: url.hostname,
+      port: url.port || "5432",
+      user: decodeURIComponent(url.username),
+      dbname: url.pathname.slice(1) || "(default)",
+    });
+  } catch {
+    console.log("[db] DB_DEBUG: could not parse DATABASE_URL");
+  }
+}
 
 export const db = drizzle(pool, { schema });

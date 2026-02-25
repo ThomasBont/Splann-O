@@ -17,6 +17,9 @@ import { badRequest, conflict, forbidden, notFound, unauthorized, upgradeRequire
 
 const router = Router();
 
+/** Strip /api prefix for router mounted at /api */
+const p = (path: string) => (path.startsWith("/api") ? path.slice(4) : path);
+
 function asyncHandler(fn: (req: Request, res: any, next: any) => Promise<void>) {
   return (req: Request, res: any, next: any) => fn(req, res, next).catch(next);
 }
@@ -28,33 +31,33 @@ async function getBarbecueOr404(req: Request, bbqId: number, message = "Event no
 }
 
 // Barbecues
-router.get(api.barbecues.list.path, asyncHandler(async (req, res) => {
+router.get(p(api.barbecues.list.path), asyncHandler(async (req, res) => {
   const currentUsername = (req.session?.username as string) || (req.query.userId as string | undefined);
   const currentUserId = req.session?.userId;
   const items = await bbqService.listBarbecues(currentUsername, currentUserId);
   res.json(items);
 }));
 
-router.get(api.barbecues.listPublic.path, asyncHandler(async (_req, res) => {
+router.get(p(api.barbecues.listPublic.path), asyncHandler(async (_req, res) => {
   const items = await bbqService.listPublicBarbecues();
   res.json(items);
 }));
 
-router.post(api.barbecues.create.path, asyncHandler(async (req, res) => {
+router.post(p(api.barbecues.create.path), asyncHandler(async (req, res) => {
   const bodySchema = api.barbecues.create.input.extend({ date: z.coerce.date() });
   const input = bodySchema.parse(req.body);
   const created = await bbqService.createBarbecue(input, req.session?.username);
   res.status(201).json(created);
 }));
 
-router.get(api.barbecues.get.path, asyncHandler(async (req, res) => {
+router.get(p(api.barbecues.get.path), asyncHandler(async (req, res) => {
   const bbq = await bbqService.getBarbecueIfAccessible(Number(req.params.id), req.session?.userId, req.session?.username);
   if (!bbq) notFound("BBQ not found");
   res.json(bbq);
 }));
 
 /** Resolve invite token to event info (public, for /join/:token page). */
-router.get("/api/join/:token", asyncHandler(async (req, res) => {
+router.get("/join/:token", asyncHandler(async (req, res) => {
   const token = Array.isArray(req.params.token) ? req.params.token[0] : req.params.token;
   const bbq = await bbqRepo.getByInviteToken(token);
   if (!bbq) notFound("Invite not found");
@@ -67,7 +70,7 @@ router.get("/api/join/:token", asyncHandler(async (req, res) => {
 }));
 
 /** Ensure event has invite token (backfill for legacy events). Creator only. */
-router.post("/api/barbecues/:id/ensure-invite-token", requireAuth, asyncHandler(async (req, res) => {
+router.post("/barbecues/:id/ensure-invite-token", requireAuth, asyncHandler(async (req, res) => {
   const id = Number(req.params.id);
   const bbq = await bbqRepo.getById(id);
   if (!bbq) notFound("Event not found");
@@ -77,12 +80,12 @@ router.post("/api/barbecues/:id/ensure-invite-token", requireAuth, asyncHandler(
   res.json(updated);
 }));
 
-router.delete(api.barbecues.delete.path, asyncHandler(async (req, res) => {
+router.delete(p(api.barbecues.delete.path), asyncHandler(async (req, res) => {
   await bbqRepo.delete(Number(req.params.id));
   res.status(204).send();
 }));
 
-router.patch(api.barbecues.update.path, requireAuth, asyncHandler(async (req, res) => {
+router.patch(p(api.barbecues.update.path), requireAuth, asyncHandler(async (req, res) => {
   const id = Number(req.params.id);
   const bbq = await bbqRepo.getById(id);
   if (!bbq) notFound("BBQ not found");
@@ -99,7 +102,7 @@ router.patch(api.barbecues.update.path, requireAuth, asyncHandler(async (req, re
 }));
 
 /** Settle up: creator triggers settling, notifies participants. */
-router.post("/api/barbecues/:id/settle-up", requireAuth, asyncHandler(async (req, res) => {
+router.post("/barbecues/:id/settle-up", requireAuth, asyncHandler(async (req, res) => {
   const id = Number(req.params.id);
   const bbq = await bbqRepo.getById(id);
   if (!bbq) notFound("Event not found");
@@ -150,38 +153,38 @@ router.post("/api/barbecues/:id/settle-up", requireAuth, asyncHandler(async (req
 }));
 
 // Notifications
-router.get("/api/notifications/events", requireAuth, asyncHandler(async (req, res) => {
+router.get("/notifications/events", requireAuth, asyncHandler(async (req, res) => {
   const username = req.session!.username;
   if (!username) return res.json([]);
   const items = await bbqRepo.getEventNotificationsForUser(username);
   res.json(items);
 }));
 
-router.patch("/api/notifications/events/:id/read", requireAuth, asyncHandler(async (req, res) => {
+router.patch("/notifications/events/:id/read", requireAuth, asyncHandler(async (req, res) => {
   await bbqRepo.markEventNotificationRead(Number(req.params.id));
   res.status(204).send();
 }));
 
 // Participants
-router.get(api.participants.list.path, asyncHandler(async (req, res) => {
+router.get(p(api.participants.list.path), asyncHandler(async (req, res) => {
   const bbq = await getBarbecueOr404(req, Number(req.params.bbqId));
   const items = await participantRepo.listByBbq(bbq.id, "accepted");
   res.json(items);
 }));
 
-router.get(api.participants.pending.path, asyncHandler(async (req, res) => {
+router.get(p(api.participants.pending.path), asyncHandler(async (req, res) => {
   const bbq = await getBarbecueOr404(req, Number(req.params.bbqId));
   const items = await participantRepo.listByBbq(bbq.id, "pending");
   res.json(items);
 }));
 
-router.get("/api/barbecues/:bbqId/invited", asyncHandler(async (req, res) => {
+router.get("/barbecues/:bbqId/invited", asyncHandler(async (req, res) => {
   const bbq = await getBarbecueOr404(req, Number(req.params.bbqId));
   const items = await participantRepo.listByBbq(bbq.id, "invited");
   res.json(items);
 }));
 
-router.post(api.participants.create.path, asyncHandler(async (req, res) => {
+router.post(p(api.participants.create.path), asyncHandler(async (req, res) => {
   const bbqId = Number(req.params.bbqId);
   const bbq = await getBarbecueOr404(req, bbqId);
   const creatorUser = bbq.creatorId ? await userRepo.findByUsername(bbq.creatorId) : undefined;
@@ -199,7 +202,7 @@ router.post(api.participants.create.path, asyncHandler(async (req, res) => {
   res.status(201).json(created);
 }));
 
-router.post(api.participants.join.path, asyncHandler(async (req, res) => {
+router.post(p(api.participants.join.path), asyncHandler(async (req, res) => {
   const input = api.participants.join.input.parse(req.body);
   const bbqId = Number(req.params.bbqId);
   const bbq = await getBarbecueOr404(req, bbqId);
@@ -218,7 +221,7 @@ router.post(api.participants.join.path, asyncHandler(async (req, res) => {
   res.status(201).json(created);
 }));
 
-router.post("/api/barbecues/:bbqId/invite", requireAuth, asyncHandler(async (req, res) => {
+router.post("/barbecues/:bbqId/invite", requireAuth, asyncHandler(async (req, res) => {
   const schema = z.object({ username: z.string().min(1) });
   const { username } = schema.parse(req.body);
   const bbqId = Number(req.params.bbqId);
@@ -228,13 +231,13 @@ router.post("/api/barbecues/:bbqId/invite", requireAuth, asyncHandler(async (req
   res.status(201).json(created);
 }));
 
-router.patch(api.participants.accept.path, asyncHandler(async (req, res) => {
+router.patch(p(api.participants.accept.path), asyncHandler(async (req, res) => {
   const updated = await participantRepo.accept(Number(req.params.id));
   if (!updated) notFound("Participant not found");
   res.json(updated);
 }));
 
-router.patch(api.participants.update.path, asyncHandler(async (req, res) => {
+router.patch(p(api.participants.update.path), asyncHandler(async (req, res) => {
   const username = req.session?.username;
   if (!username) unauthorized("Not authenticated");
   const id = Number(req.params.id);
@@ -247,13 +250,13 @@ router.patch(api.participants.update.path, asyncHandler(async (req, res) => {
   res.json(updated);
 }));
 
-router.delete(api.participants.delete.path, asyncHandler(async (req, res) => {
+router.delete(p(api.participants.delete.path), asyncHandler(async (req, res) => {
   await participantRepo.delete(Number(req.params.id));
   res.status(204).send();
 }));
 
 // Memberships
-router.get(api.memberships.list.path, asyncHandler(async (req, res) => {
+router.get(p(api.memberships.list.path), asyncHandler(async (req, res) => {
   const userId = (req.query.userId as string | undefined) || req.session?.username;
   if (!userId) return res.json([]);
   const memberships = await participantRepo.getMemberships(userId);
@@ -261,13 +264,13 @@ router.get(api.memberships.list.path, asyncHandler(async (req, res) => {
 }));
 
 // Expenses
-router.get(api.expenses.list.path, asyncHandler(async (req, res) => {
+router.get(p(api.expenses.list.path), asyncHandler(async (req, res) => {
   const bbq = await getBarbecueOr404(req, Number(req.params.bbqId));
   const items = await expenseRepo.listByBbq(bbq.id);
   res.json(items);
 }));
 
-router.post(api.expenses.create.path, asyncHandler(async (req, res) => {
+router.post(p(api.expenses.create.path), asyncHandler(async (req, res) => {
   const bbqId = Number(req.params.bbqId);
   const bbq = await getBarbecueOr404(req, bbqId);
   const bodySchema = api.expenses.create.input.extend({
@@ -280,7 +283,7 @@ router.post(api.expenses.create.path, asyncHandler(async (req, res) => {
   res.status(201).json(created);
 }));
 
-router.put(api.expenses.update.path, asyncHandler(async (req, res) => {
+router.put(p(api.expenses.update.path), asyncHandler(async (req, res) => {
   const bodySchema = api.expenses.update.input.extend({
     amount: z.coerce.number().optional(),
     participantId: z.coerce.number().optional(),
@@ -291,26 +294,26 @@ router.put(api.expenses.update.path, asyncHandler(async (req, res) => {
   res.json(updated);
 }));
 
-router.delete(api.expenses.delete.path, asyncHandler(async (req, res) => {
+router.delete(p(api.expenses.delete.path), asyncHandler(async (req, res) => {
   await expenseRepo.delete(Number(req.params.id));
   res.status(204).send();
 }));
 
-router.get("/api/barbecues/:bbqId/expense-shares", asyncHandler(async (req, res) => {
+router.get("/barbecues/:bbqId/expense-shares", asyncHandler(async (req, res) => {
   const bbq = await getBarbecueOr404(req, Number(req.params.bbqId));
   const shares = await expenseRepo.getExpenseShares(bbq.id);
   res.json(shares);
 }));
 
 // Notes (event-agnostic: eventId = barbecue id for parties/trips)
-router.get(api.notes.list.path, asyncHandler(async (req, res) => {
+router.get(p(api.notes.list.path), asyncHandler(async (req, res) => {
   const eventId = Number(req.params.eventId);
   const bbq = await getBarbecueOr404(req, eventId);
   const items = await expenseRepo.getNotes(bbq.id);
   res.json(items);
 }));
 
-router.post(api.notes.create.path, asyncHandler(async (req, res) => {
+router.post(p(api.notes.create.path), asyncHandler(async (req, res) => {
   const eventId = Number(req.params.eventId);
   const bbq = await getBarbecueOr404(req, eventId);
   const input = api.notes.create.input.parse(req.body);
@@ -328,7 +331,7 @@ router.post(api.notes.create.path, asyncHandler(async (req, res) => {
   res.status(201).json(created);
 }));
 
-router.patch(api.notes.update.path, asyncHandler(async (req, res) => {
+router.patch(p(api.notes.update.path), asyncHandler(async (req, res) => {
   const noteId = Number(req.params.noteId);
   const input = api.notes.update.input.parse(req.body);
   const existing = await db.select().from(notes).where(eq(notes.id, noteId));
@@ -343,7 +346,7 @@ router.patch(api.notes.update.path, asyncHandler(async (req, res) => {
   res.json(updated);
 }));
 
-router.delete(api.notes.delete.path, asyncHandler(async (req, res) => {
+router.delete(p(api.notes.delete.path), asyncHandler(async (req, res) => {
   const noteId = Number(req.params.noteId);
   const existing = await db.select().from(notes).where(eq(notes.id, noteId));
   if (!existing[0]) notFound("Note not found");
@@ -356,7 +359,7 @@ router.delete(api.notes.delete.path, asyncHandler(async (req, res) => {
   res.status(204).send();
 }));
 
-router.patch("/api/barbecues/:bbqId/expenses/:expenseId/share", requireAuth, asyncHandler(async (req, res) => {
+router.patch("/barbecues/:bbqId/expenses/:expenseId/share", requireAuth, asyncHandler(async (req, res) => {
   const bbqId = Number(req.params.bbqId);
   const expenseId = Number(req.params.expenseId);
   const bbq = await bbqRepo.getById(bbqId);
@@ -374,22 +377,22 @@ router.patch("/api/barbecues/:bbqId/expenses/:expenseId/share", requireAuth, asy
 }));
 
 // Friends
-router.get("/api/friends", requireAuth, asyncHandler(async (req, res) => {
+router.get("/friends", requireAuth, asyncHandler(async (req, res) => {
   const friends = await participantRepo.getFriends(req.session!.userId!);
   res.json(friends);
 }));
 
-router.get("/api/friends/requests", requireAuth, asyncHandler(async (req, res) => {
+router.get("/friends/requests", requireAuth, asyncHandler(async (req, res) => {
   const requests = await participantRepo.getFriendRequests(req.session!.userId!);
   res.json(requests);
 }));
 
-router.get("/api/friends/sent", requireAuth, asyncHandler(async (req, res) => {
+router.get("/friends/sent", requireAuth, asyncHandler(async (req, res) => {
   const sent = await participantRepo.getSentFriendRequests(req.session!.userId!);
   res.json(sent);
 }));
 
-router.post("/api/friends/request", requireAuth, asyncHandler(async (req, res) => {
+router.post("/friends/request", requireAuth, asyncHandler(async (req, res) => {
   const { username } = z.object({ username: z.string() }).parse(req.body);
   const target = await userRepo.findByUsername(username);
   if (!target) notFound("user_not_found");
@@ -403,18 +406,18 @@ router.post("/api/friends/request", requireAuth, asyncHandler(async (req, res) =
   res.status(201).json({ ok: true });
 }));
 
-router.patch("/api/friends/:id/accept", requireAuth, asyncHandler(async (req, res) => {
+router.patch("/friends/:id/accept", requireAuth, asyncHandler(async (req, res) => {
   await participantRepo.acceptFriendRequest(Number(req.params.id));
   res.json({ ok: true });
 }));
 
-router.delete("/api/friends/:id", requireAuth, asyncHandler(async (req, res) => {
+router.delete("/friends/:id", requireAuth, asyncHandler(async (req, res) => {
   await participantRepo.removeFriend(Number(req.params.id));
   res.status(204).send();
 }));
 
 // All pending requests across creator's BBQs
-router.get("/api/pending-requests/all", requireAuth, asyncHandler(async (req, res) => {
+router.get("/pending-requests/all", requireAuth, asyncHandler(async (req, res) => {
   const username = req.session!.username;
   if (!username) return res.json([]);
   const all = await participantRepo.getAllPendingRequestsForCreator(username);
@@ -422,7 +425,7 @@ router.get("/api/pending-requests/all", requireAuth, asyncHandler(async (req, re
 }));
 
 // Search users (for adding friends) - must be before /:username
-router.get("/api/users/search", requireAuth, asyncHandler(async (req, res) => {
+router.get("/users/search", requireAuth, asyncHandler(async (req, res) => {
   const query = ((req.query.q as string) || "").toLowerCase().trim();
   if (!query || query.length < 2) return res.json([]);
   const allUsers = await db.select({ id: users.id, username: users.username, displayName: users.displayName }).from(users);
@@ -437,7 +440,7 @@ router.get("/api/users/search", requireAuth, asyncHandler(async (req, res) => {
 }));
 
 // Public profile by username (for viewing other users)
-router.get("/api/users/:username", requireAuth, asyncHandler(async (req, res) => {
+router.get("/users/:username", requireAuth, asyncHandler(async (req, res) => {
   const username = Array.isArray(req.params.username) ? req.params.username[0] : req.params.username;
   if (!username) badRequest("Username required");
   const profile = await userRepo.getPublicProfileWithStats(username);

@@ -20,9 +20,26 @@ import { createServer } from "http";
 import { createApp } from "./app";
 import { serveStatic } from "./static";
 import { log } from "./lib/logger";
+import { pool } from "./db";
 
 const app = createApp();
 const httpServer = createServer(app);
+
+function gracefulShutdown(signal: string) {
+  log("info", `${signal} received, closing server and pool`);
+  httpServer.close(() => {
+    pool.end().then(
+      () => process.exit(0),
+      (err) => {
+        console.error("Pool close error:", err);
+        process.exit(1);
+      }
+    );
+  });
+}
+
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
 (async () => {
   if (process.env.NODE_ENV === "production") {

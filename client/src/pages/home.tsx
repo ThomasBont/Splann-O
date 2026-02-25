@@ -416,7 +416,7 @@ export default function Home() {
   const [eventVisibilityTab, setEventVisibilityTab] = useState<"private" | "public">("private");
   const [selectedBbqId, setSelectedBbqId] = useState<number | null>(null);
   const reactionScopeId = selectedBbqId != null ? `ev-${selectedBbqId}` : "ev-none";
-  const { addReaction, getReactions } = useExpenseReactions(reactionScopeId);
+  const { addReaction, getReactions, getReactionUsers, getUserReaction } = useExpenseReactions(reactionScopeId);
   const [isNewBbqOpen, setIsNewBbqOpen] = useState(false);
   const [newBbqName, setNewBbqName] = useState("");
   const [newBbqDate, setNewBbqDate] = useState(new Date().toISOString().split('T')[0]);
@@ -468,12 +468,34 @@ export default function Home() {
   const [showSettledConfetti, setShowSettledConfetti] = useState(false);
   const settledCelebrationShownRef = useRef<number | null>(null);
   const [editTripLocationOpen, setEditTripLocationOpen] = useState(false);
+  const [expensesCollapsed, setExpensesCollapsed] = useState(false);
+  const [breakdownCollapsed, setBreakdownCollapsed] = useState(false);
   const [allEventsSelectorOpen, setAllEventsSelectorOpen] = useState(false);
   const [allEventsSearch, setAllEventsSearch] = useState("");
   const [pinnedEventIds, setPinnedEventIds] = useState<number[]>([]);
   const [recentEventIds, setRecentEventIds] = useState<number[]>([]);
   const pinnedEventsStorageKey = useMemo(() => `splanno_pinned_events_${user?.id ?? user?.username ?? "anon"}`, [user?.id, user?.username]);
   const recentEventsStorageKey = useMemo(() => `splanno_recent_events_${user?.id ?? user?.username ?? "anon"}`, [user?.id, user?.username]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      setExpensesCollapsed(localStorage.getItem("splanno-ui-expenses-collapsed") === "1");
+      setBreakdownCollapsed(localStorage.getItem("splanno-ui-breakdown-collapsed") === "1");
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem("splanno-ui-expenses-collapsed", expensesCollapsed ? "1" : "0");
+      localStorage.setItem("splanno-ui-breakdown-collapsed", breakdownCollapsed ? "1" : "0");
+    } catch {
+      // ignore
+    }
+  }, [expensesCollapsed, breakdownCollapsed]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -597,19 +619,9 @@ export default function Home() {
     );
   }, [allEventsForArea, allEventsSearch]);
   const pinnedBarbecuesForArea = useMemo(() => {
-    const pinned = listBarbecuesForArea.filter((b: Barbecue) => pinnedEventIds.includes(b.id));
-    if (pinned.length > 0) return pinned;
-    return [...listBarbecuesForArea]
-      .sort((a: Barbecue, b: Barbecue) => {
-        const aIdx = recentEventIds.indexOf(a.id);
-        const bIdx = recentEventIds.indexOf(b.id);
-        const aRank = aIdx === -1 ? Number.MAX_SAFE_INTEGER : aIdx;
-        const bRank = bIdx === -1 ? Number.MAX_SAFE_INTEGER : bIdx;
-        if (aRank !== bRank) return aRank - bRank;
-        return getEventSortTime(b) - getEventSortTime(a);
-      })
-      .slice(0, 6);
-  }, [listBarbecuesForArea, pinnedEventIds, recentEventIds]);
+    return listBarbecuesForArea.filter((b: Barbecue) => pinnedEventIds.includes(b.id));
+  }, [listBarbecuesForArea, pinnedEventIds]);
+  const hasPinnedEvents = pinnedEventIds.length > 0;
   const createBbq = useCreateBarbecue();
   const deleteBbq = useDeleteBarbecue();
   const updateBbq = useUpdateBarbecue();
@@ -1315,8 +1327,8 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Event strip (Parties & Trips) */}
-      {(
+      {/* Event strip (Pinned only) */}
+      {hasPinnedEvents && (
       <div className="sticky top-[114px] z-30 bg-[hsl(var(--surface-0))]/90 backdrop-blur-md border-b border-[hsl(var(--border-subtle))]" data-testid="section-bbq-selector">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-2">
           <p className="px-1 pb-1 text-[11px] text-muted-foreground hidden sm:block">
@@ -1333,16 +1345,13 @@ export default function Home() {
               ) : (
                 pinnedBarbecuesForArea.map((bbq: Barbecue) => {
                   const isSelected = bbq.id === selectedBbqId;
-                  const cur = getCurrency(bbq.currency) ?? getCurrency("EUR")!;
                   const isBbqCreator = !!(username && bbq.creatorId === username);
                   const membership = getMembershipStatus(bbq.id);
                   const memberStatus = membership?.status || null;
                   const participantId = membership?.participantId;
                   const isPublicCard = (bbq.visibility as string | undefined) === "public";
-                  const listingActiveCard = bbq.publicListingStatus === "active" && !!bbq.publicListingExpiresAt && new Date(bbq.publicListingExpiresAt).getTime() > Date.now();
                   const pendingPublishCard = !isPublicCard && (bbq.visibility === "private") && (bbq.publicMode || bbq.publicListingStatus) && bbq.publicListingStatus !== "active";
                   const isPinned = pinnedEventIds.includes(bbq.id);
-                  const modeLabel = bbq.publicMode === "joinable" ? "Joinable" : "Marketing";
 
                   return (
                     <div key={bbq.id} className="flex items-center gap-1.5 flex-shrink-0">
@@ -1357,48 +1366,16 @@ export default function Home() {
                         }`}
                         data-testid={`button-bbq-${bbq.id}`}
                       >
-                        {!isPublicCard && (
-                          <>
-                            <Lock className="w-3 h-3 flex-shrink-0 opacity-70" />
-                            <span className="text-[10px] opacity-80 hidden sm:inline">Split with friends</span>
-                          </>
-                        )}
-                        {isPublicCard && (
-                          <>
-                            <Globe className="w-3 h-3 flex-shrink-0 opacity-70" />
-                            <span className={`text-[10px] hidden sm:inline px-1.5 py-0.5 rounded-full border ${listingActiveCard ? "border-emerald-400/40 text-emerald-300" : "border-amber-400/40 text-amber-300"}`}>
-                              {listingActiveCard ? "Active" : (bbq.publicListingStatus ?? "Inactive")}
-                            </span>
-                          </>
-                        )}
-                        {isBbqCreator && <Crown className="w-3 h-3 flex-shrink-0 opacity-80" />}
-                        <span className="max-w-[120px] truncate">{bbq.name}</span>
                         {isPublicCard ? (
-                          <span className="text-[10px] opacity-70 hidden md:inline max-w-[120px] truncate">
-                            {bbq.organizationName || "Business listing"}
-                          </span>
+                          <Globe className="w-3 h-3 flex-shrink-0 opacity-70" />
                         ) : (
-                          <span className="text-[10px] opacity-60 hidden md:inline">{pendingPublishCard ? "Ready to publish" : "Friends"}</span>
+                          <Lock className="w-3 h-3 flex-shrink-0 opacity-70" />
                         )}
+                        <span className="max-w-[160px] truncate">{bbq.name}</span>
                         {pendingPublishCard && (
                           <span className="text-[10px] hidden sm:inline px-1.5 py-0.5 rounded-full border bg-amber-200 text-amber-950 border-amber-500/80 dark:bg-amber-500/20 dark:text-amber-200 dark:border-amber-400/40">
                             Pending publish
                           </span>
-                        )}
-                        {isPublicCard && (
-                          <span className="text-[10px] opacity-70 hidden lg:inline">{modeLabel}</span>
-                        )}
-                        {isPublicCard && bbq.publicListingExpiresAt && (
-                          <span className="text-[10px] opacity-60 hidden xl:inline">
-                            exp {new Date(bbq.publicListingExpiresAt).toLocaleDateString()}
-                          </span>
-                        )}
-                        <span className="text-[10px] opacity-60 hidden sm:inline">{cur.symbol}</span>
-                        {memberStatus === 'pending' && (
-                          <span className="w-1.5 h-1.5 bg-yellow-400 rounded-full flex-shrink-0" title={t.user.pending} />
-                        )}
-                        {memberStatus === 'invited' && (
-                          <span className="w-1.5 h-1.5 bg-blue-400 rounded-full flex-shrink-0" title={t.bbq.invited} />
                         )}
                       </button>
 
@@ -1693,7 +1670,11 @@ export default function Home() {
                           onSuccess: ({ url }) => {
                             window.location.href = url;
                           },
-                          onError: (err) => toast({ title: (err as Error).message, variant: "destructive" }),
+                          onError: (err) => {
+                            const msg = (err as Error).message || "";
+                            if (/APP_URL/i.test(msg)) return;
+                            toast({ title: msg, variant: "destructive" });
+                          },
                         })}
                         disabled={checkoutPublicListing.isPending}
                       >
@@ -2068,46 +2049,63 @@ export default function Home() {
                     </div>
                   );
                 })()}
-                {expenses.length === 0 ? (
-                  (() => {
-                    const { category: eventCategory, type: eventType } = normalizeEvent(selectedBbq ?? {});
-                    const theme = getEventTheme(eventCategory, eventType);
-                    return (
-                      <EmptyState
-                        icon={theme.icon}
-                        title={theme.copy.emptyExpensesTitle}
-                        description={theme.copy.emptyExpensesBody}
-                        iconClassName={theme.accent.bg}
-                        primaryAction={
-                          (isCreator || isAcceptedMember)
-                            ? {
-                                label: theme.copy.ctaAddFirstExpense,
-                                icon: <Plus className="w-4 h-4" />,
-                                onClick: () => {
-                                  setRecommendedExpenseTemplate(null);
-                                  setEditingExpense(null);
-                                  setIsAddExpenseOpen(true);
-                                },
-                                testId: "button-add-first-expense",
+                <div className="rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-3 shadow-[var(--shadow-sm)]">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold text-muted-foreground">Expenses</h3>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground"
+                      onClick={() => setExpensesCollapsed((v) => !v)}
+                      data-testid="button-toggle-expenses-list"
+                    >
+                      <ChevronDown className={`w-4 h-4 transition-transform ${expensesCollapsed ? "" : "rotate-180"}`} />
+                    </Button>
+                  </div>
+                  {!expensesCollapsed && (
+                    <div className="mt-3">
+                      {expenses.length === 0 ? (
+                        (() => {
+                          const { category: eventCategory, type: eventType } = normalizeEvent(selectedBbq ?? {});
+                          const theme = getEventTheme(eventCategory, eventType);
+                          return (
+                            <EmptyState
+                              icon={theme.icon}
+                              title={theme.copy.emptyExpensesTitle}
+                              description={theme.copy.emptyExpensesBody}
+                              iconClassName={theme.accent.bg}
+                              primaryAction={
+                                (isCreator || isAcceptedMember)
+                                  ? {
+                                      label: theme.copy.ctaAddFirstExpense,
+                                      icon: <Plus className="w-4 h-4" />,
+                                      onClick: () => {
+                                        setRecommendedExpenseTemplate(null);
+                                        setEditingExpense(null);
+                                        setIsAddExpenseOpen(true);
+                                      },
+                                      testId: "button-add-first-expense",
+                                    }
+                                  : undefined
                               }
-                            : undefined
-                        }
-                      />
-                    );
-                  })()
-                ) : (
-                  <div className="space-y-2">
-                    {expenses.map((exp: ExpenseWithParticipant) => {
+                            />
+                          );
+                        })()
+                      ) : (
+                        <div className="space-y-2">
+                          {expenses.map((exp: ExpenseWithParticipant) => {
                       const IconComp = getCategoryDef(exp.category).icon;
                       const color = getCategoryColor(exp.category);
                       const everyoneInByDefault = expenseSharesList.length === 0;
                       const isInForExp = myParticipant
                         ? (everyoneInByDefault ? true : shareSet.has(`${exp.id}:${myParticipant.id}`))
                         : false;
-                      return (
+                            const reactionUserKey = username ?? `guest-${user?.id ?? "anon"}`;
+                            return (
                         <div
                           key={exp.id}
-                          className="flex flex-col rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] px-3 py-2.5 group shadow-[var(--shadow-sm)]"
+                          className="flex flex-col rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-0))]/70 px-3 py-2.5 group shadow-[var(--shadow-sm)]"
                           data-testid={`expense-item-${exp.id}`}
                         >
                           <div className="flex items-center gap-3">
@@ -2165,19 +2163,37 @@ export default function Home() {
                           <ExpenseReactionBar
                             expenseId={exp.id}
                             reactions={getReactions(exp.id)}
-                            onReact={(emoji) => addReaction(exp.id, emoji)}
+                            reactionUsers={getReactionUsers(exp.id)}
+                            myReaction={getUserReaction(exp.id, reactionUserKey)}
+                            onReact={(emoji) => addReaction(exp.id, emoji, reactionUserKey)}
                             reducedMotion={!!shouldReduceMotion}
                           />
                         </div>
-                      );
-                    })}
-                  </div>
-                )}
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
 
                 {/* Category Chart */}
                 {chartData.length > 0 && (
                   <div className="rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-4 shadow-[var(--shadow-sm)]">
-                    <h3 className="text-sm font-semibold text-muted-foreground mb-4">{t.bbq.breakdown}</h3>
+                    <div className="flex items-center justify-between gap-2 mb-4">
+                      <h3 className="text-sm font-semibold text-muted-foreground">{t.bbq.breakdown}</h3>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-muted-foreground"
+                        onClick={() => setBreakdownCollapsed((v) => !v)}
+                        data-testid="button-toggle-breakdown"
+                      >
+                        <ChevronDown className={`w-4 h-4 transition-transform ${breakdownCollapsed ? "" : "rotate-180"}`} />
+                      </Button>
+                    </div>
+                    {!breakdownCollapsed && (
                     <div className="flex items-center gap-4 flex-wrap">
                       <ResponsiveContainer width="100%" height={160}>
                         <PieChart>
@@ -2206,6 +2222,7 @@ export default function Home() {
                         })}
                       </div>
                     </div>
+                    )}
                   </div>
                 )}
 

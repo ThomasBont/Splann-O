@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/tooltip";
 import type { ExpenseTemplateItem } from "@/eventTemplates";
 
-const VISIBLE_COUNT = 5;
+const VISIBLE_COUNT = 4;
 
 export interface QuickAddPreset {
   item: string;
@@ -38,7 +38,7 @@ export interface QuickAddChipsProps {
 }
 
 /**
- * Premium quick-add chip row: up to 5 chips + More dropdown.
+ * Premium quick-add chip row: up to 4 chips + More dropdown.
  */
 export function QuickAddChips({
   presets,

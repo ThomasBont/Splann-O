@@ -65,7 +65,7 @@ import {
   CalendarDays, Loader2,
   UserCheck, UserX, LogOut, Crown, Clock, UserCircle, ChevronDown,
   Lock, Globe, UserPlus, X, Eye, EyeOff, Compass,
-  Bell, UserPlus2, Search, Heart, Sun, Moon, MessageCircle,
+  Bell, UserPlus2, Search, Heart, Sun, Moon, MessageCircle, Star,
 } from "lucide-react";
 import { useTheme } from "@/hooks/use-theme";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
@@ -468,6 +468,42 @@ export default function Home() {
   const [showSettledConfetti, setShowSettledConfetti] = useState(false);
   const settledCelebrationShownRef = useRef<number | null>(null);
   const [editTripLocationOpen, setEditTripLocationOpen] = useState(false);
+  const [allEventsSelectorOpen, setAllEventsSelectorOpen] = useState(false);
+  const [allEventsSearch, setAllEventsSearch] = useState("");
+  const [pinnedEventIds, setPinnedEventIds] = useState<number[]>([]);
+  const [recentEventIds, setRecentEventIds] = useState<number[]>([]);
+  const pinnedEventsStorageKey = useMemo(() => `splanno_pinned_events_${user?.id ?? user?.username ?? "anon"}`, [user?.id, user?.username]);
+  const recentEventsStorageKey = useMemo(() => `splanno_recent_events_${user?.id ?? user?.username ?? "anon"}`, [user?.id, user?.username]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const parsed = JSON.parse(localStorage.getItem(pinnedEventsStorageKey) ?? "[]");
+      setPinnedEventIds(Array.isArray(parsed) ? parsed.filter((v): v is number => Number.isInteger(v)) : []);
+    } catch {
+      setPinnedEventIds([]);
+    }
+  }, [pinnedEventsStorageKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const parsed = JSON.parse(localStorage.getItem(recentEventsStorageKey) ?? "[]");
+      setRecentEventIds(Array.isArray(parsed) ? parsed.filter((v): v is number => Number.isInteger(v)) : []);
+    } catch {
+      setRecentEventIds([]);
+    }
+  }, [recentEventsStorageKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(pinnedEventsStorageKey, JSON.stringify(pinnedEventIds.slice(0, 24)));
+  }, [pinnedEventIds, pinnedEventsStorageKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(recentEventsStorageKey, JSON.stringify(recentEventIds.slice(0, 20)));
+  }, [recentEventIds, recentEventsStorageKey]);
 
   useEffect(() => {
     if (user) {
@@ -540,6 +576,40 @@ export default function Home() {
     [barbecuesForArea]
   );
   const listBarbecuesForArea = eventVisibilityTab === "private" ? privateBarbecuesForArea : publicBarbecuesForArea;
+  const allEventsForArea = useMemo(
+    () => [...barbecuesForArea].sort((a: Barbecue, b: Barbecue) => {
+      const aRecentIdx = recentEventIds.indexOf(a.id);
+      const bRecentIdx = recentEventIds.indexOf(b.id);
+      const aRecentRank = aRecentIdx === -1 ? Number.MAX_SAFE_INTEGER : aRecentIdx;
+      const bRecentRank = bRecentIdx === -1 ? Number.MAX_SAFE_INTEGER : bRecentIdx;
+      if (aRecentRank !== bRecentRank) return aRecentRank - bRecentRank;
+      return getEventSortTime(b) - getEventSortTime(a);
+    }),
+    [barbecuesForArea, recentEventIds]
+  );
+  const allEventsFilteredForArea = useMemo(() => {
+    const q = allEventsSearch.trim().toLowerCase();
+    if (!q) return allEventsForArea;
+    return allEventsForArea.filter((b: Barbecue) =>
+      [b.name, b.city, b.countryName, b.organizationName]
+        .filter(Boolean)
+        .some((v) => String(v).toLowerCase().includes(q))
+    );
+  }, [allEventsForArea, allEventsSearch]);
+  const pinnedBarbecuesForArea = useMemo(() => {
+    const pinned = listBarbecuesForArea.filter((b: Barbecue) => pinnedEventIds.includes(b.id));
+    if (pinned.length > 0) return pinned;
+    return [...listBarbecuesForArea]
+      .sort((a: Barbecue, b: Barbecue) => {
+        const aIdx = recentEventIds.indexOf(a.id);
+        const bIdx = recentEventIds.indexOf(b.id);
+        const aRank = aIdx === -1 ? Number.MAX_SAFE_INTEGER : aIdx;
+        const bRank = bIdx === -1 ? Number.MAX_SAFE_INTEGER : bIdx;
+        if (aRank !== bRank) return aRank - bRank;
+        return getEventSortTime(b) - getEventSortTime(a);
+      })
+      .slice(0, 6);
+  }, [listBarbecuesForArea, pinnedEventIds, recentEventIds]);
   const createBbq = useCreateBarbecue();
   const deleteBbq = useDeleteBarbecue();
   const updateBbq = useUpdateBarbecue();
@@ -549,6 +619,7 @@ export default function Home() {
   const deactivateListing = useDeactivateListing();
 
   const selectedBbq = barbecuesForArea.find((b: Barbecue) => b.id === selectedBbqId) ?? (barbecues.find((b: Barbecue) => b.id === selectedBbqId) || null);
+  const selectedEventLabel = selectedBbq?.name ?? "All events";
   const customCategories = useMemo(
     () => (getTemplateData(selectedBbq, defaultBarbecueTemplateData) as BarbecueTemplateData).customCategories ?? [],
     [selectedBbq],
@@ -762,6 +833,21 @@ export default function Home() {
   const handleDeleteBbq = (id: number) => {
     deleteBbq.mutate(id);
     if (selectedBbqId === id) setSelectedBbqId(null);
+  };
+
+  const markEventRecent = (eventId: number) => {
+    setRecentEventIds((prev) => [eventId, ...prev.filter((id) => id !== eventId)].slice(0, 20));
+  };
+
+  const handleSelectEvent = (eventId: number | null) => {
+    setSelectedBbqId(eventId);
+    if (eventId != null) markEventRecent(eventId);
+  };
+
+  const togglePinnedEvent = (eventId: number) => {
+    setPinnedEventIds((prev) => (
+      prev.includes(eventId) ? prev.filter((id) => id !== eventId) : [...prev, eventId].slice(-20)
+    ));
   };
 
   const handleInvite = () => {
@@ -1083,7 +1169,7 @@ export default function Home() {
         </div>
       )}
 
-      {/* Compact top controls: area, visibility, explore */}
+      {/* Compact top controls: area, visibility, all-events selector, actions */}
       <div className="sticky top-[57px] z-40 bg-[hsl(var(--surface-0))]/90 backdrop-blur-md border-b border-[hsl(var(--border-subtle))]" data-testid="section-area-tabs">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-2">
           <div className="flex items-center justify-between gap-3">
@@ -1127,23 +1213,105 @@ export default function Home() {
                   Public ({publicBarbecuesForArea.length})
                 </button>
               </div>
+
+              <Popover open={allEventsSelectorOpen} onOpenChange={setAllEventsSelectorOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 min-w-[180px] max-w-[280px] justify-between border-white/10 text-muted-foreground hover:text-foreground hover:bg-white/5 flex-shrink-0"
+                    data-testid="button-all-events-selector"
+                  >
+                    <span className="truncate text-left">{selectedBbq ? selectedEventLabel : "All events"}</span>
+                    <ChevronDown className="w-3.5 h-3.5 ml-2 shrink-0 opacity-70" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="start" className="w-[320px] p-2">
+                  <div className="space-y-2">
+                    <p className="px-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wide">All events</p>
+                    <Input
+                      value={allEventsSearch}
+                      onChange={(e) => setAllEventsSearch(e.target.value)}
+                      placeholder="Search events, city, country..."
+                      className="h-8"
+                    />
+                    <div className="max-h-72 overflow-y-auto space-y-1">
+                      {allEventsFilteredForArea.length === 0 ? (
+                        <p className="px-2 py-2 text-xs text-muted-foreground">No events found</p>
+                      ) : (
+                        allEventsFilteredForArea.map((bbq: Barbecue) => {
+                          const isSelected = bbq.id === selectedBbqId;
+                          const isPinned = pinnedEventIds.includes(bbq.id);
+                          const isPublicItem = (bbq.visibility as string | undefined) === "public";
+                          return (
+                            <button
+                              key={`all-events-${bbq.id}`}
+                              type="button"
+                              onClick={() => {
+                                handleSelectEvent(bbq.id);
+                                setAllEventsSelectorOpen(false);
+                              }}
+                              className={`w-full text-left rounded-md border px-2 py-2 transition-colors ${isSelected ? "border-primary bg-primary/10" : "border-transparent hover:border-border hover:bg-muted/40"}`}
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-medium truncate">{bbq.name}</p>
+                                  <p className="text-[11px] text-muted-foreground truncate">
+                                    {bbq.city && bbq.countryName ? `${bbq.city}, ${bbq.countryName}` : (bbq.countryName || bbq.city || (isPublicItem ? "Public event" : "Private event"))}
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${isPublicItem ? "border-sky-400/30 text-sky-300" : "border-amber-400/30 text-amber-300"}`}>
+                                    {isPublicItem ? "Public" : "Private"}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    aria-label={isPinned ? "Unpin event" : "Pin event"}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      togglePinnedEvent(bbq.id);
+                                    }}
+                                    className={`p-1 rounded hover:bg-muted ${isPinned ? "text-yellow-400" : "text-muted-foreground"}`}
+                                  >
+                                    <Star className={`w-3.5 h-3.5 ${isPinned ? "fill-current" : ""}`} />
+                                  </button>
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                </PopoverContent>
+              </Popover>
             </div>
 
-            <Link href="/explore">
-              <Button
-                variant="outline"
-                size="sm"
-                className="border-white/10 text-muted-foreground hover:text-foreground hover:bg-white/5 flex-shrink-0"
-                data-testid="button-explore-route"
-              >
-                <Compass className="w-4 h-4 mr-1.5" />
-                Explore
-              </Button>
-            </Link>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <Link href="/explore">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-white/10 text-muted-foreground hover:text-foreground hover:bg-white/5"
+                  data-testid="button-explore-route"
+                >
+                  <Compass className="w-4 h-4 mr-1.5" />
+                  Explore
+                </Button>
+              </Link>
+              {user && (
+                <Button
+                  size="sm"
+                  onClick={() => { setNewEventArea(area); setNewEventType(area === "trips" ? "city_trip" : "barbecue"); setIsNewBbqOpen(true); }}
+                  className="font-semibold"
+                  data-testid="button-new-bbq"
+                >
+                  <Plus className="w-4 h-4 mr-1.5" />
+                  {t.events.newEvent}
+                </Button>
+              )}
+            </div>
           </div>
-          <p className="mt-1 px-1 text-[11px] text-muted-foreground hidden sm:block">
-            Public events stay private until published.
-          </p>
         </div>
       </div>
 
@@ -1151,16 +1319,19 @@ export default function Home() {
       {(
       <div className="sticky top-[114px] z-30 bg-[hsl(var(--surface-0))]/90 backdrop-blur-md border-b border-[hsl(var(--border-subtle))]" data-testid="section-bbq-selector">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-2">
+          <p className="px-1 pb-1 text-[11px] text-muted-foreground hidden sm:block">
+            Pinned events
+          </p>
           <div className="overflow-x-auto -mx-1 px-1 pb-1">
             <div className="flex gap-2 items-center min-w-max">
               {isLoadingBbqs ? (
                 <Loader2 className="w-4 h-4 animate-spin text-muted-foreground mx-2" />
-              ) : listBarbecuesForArea.length === 0 ? (
+              ) : pinnedBarbecuesForArea.length === 0 ? (
                 <span className="text-xs text-muted-foreground px-2 py-1.5 italic">
-                  {eventVisibilityTab === "private" ? "No private events yet" : "No public events yet"}
+                  {eventVisibilityTab === "private" ? "No pinned private events yet" : "No pinned public events yet"}
                 </span>
               ) : (
-                listBarbecuesForArea.map((bbq: Barbecue) => {
+                pinnedBarbecuesForArea.map((bbq: Barbecue) => {
                   const isSelected = bbq.id === selectedBbqId;
                   const cur = getCurrency(bbq.currency) ?? getCurrency("EUR")!;
                   const isBbqCreator = !!(username && bbq.creatorId === username);
@@ -1170,12 +1341,13 @@ export default function Home() {
                   const isPublicCard = (bbq.visibility as string | undefined) === "public";
                   const listingActiveCard = bbq.publicListingStatus === "active" && !!bbq.publicListingExpiresAt && new Date(bbq.publicListingExpiresAt).getTime() > Date.now();
                   const pendingPublishCard = !isPublicCard && (bbq.visibility === "private") && (bbq.publicMode || bbq.publicListingStatus) && bbq.publicListingStatus !== "active";
+                  const isPinned = pinnedEventIds.includes(bbq.id);
                   const modeLabel = bbq.publicMode === "joinable" ? "Joinable" : "Marketing";
 
                   return (
                     <div key={bbq.id} className="flex items-center gap-1.5 flex-shrink-0">
                       <button
-                        onClick={() => setSelectedBbqId(isSelected ? null : bbq.id)}
+                        onClick={() => handleSelectEvent(isSelected ? null : bbq.id)}
                         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all border ${
                           isSelected
                             ? 'bg-primary text-primary-foreground border-primary/60 shadow-sm shadow-primary/20'
@@ -1209,7 +1381,7 @@ export default function Home() {
                           <span className="text-[10px] opacity-60 hidden md:inline">{pendingPublishCard ? "Ready to publish" : "Friends"}</span>
                         )}
                         {pendingPublishCard && (
-                          <span className="text-[10px] hidden sm:inline px-1.5 py-0.5 rounded-full border border-amber-400/30 text-amber-300">
+                          <span className="text-[10px] hidden sm:inline px-1.5 py-0.5 rounded-full border bg-amber-200 text-amber-950 border-amber-500/80 dark:bg-amber-500/20 dark:text-amber-200 dark:border-amber-400/40">
                             Pending publish
                           </span>
                         )}
@@ -1277,7 +1449,15 @@ export default function Home() {
                         ><X className="w-3 h-3" /></button>
                       )}
 
-                      {/* Creator: delete button */}
+                      {/* Creator: pin + delete buttons */}
+                      {isBbqCreator && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); togglePinnedEvent(bbq.id); }}
+                          className={`transition-colors p-0.5 ${isPinned ? "text-yellow-400 hover:text-yellow-300" : "text-muted-foreground/50 hover:text-yellow-400"}`}
+                          data-testid={`button-pin-bbq-${bbq.id}`}
+                          title={isPinned ? "Unpin event" : "Pin event"}
+                        ><Star className={`w-3 h-3 ${isPinned ? "fill-current" : ""}`} /></button>
+                      )}
                       {isBbqCreator && (
                         <button
                           onClick={(e) => { e.stopPropagation(); handleDeleteBbq(bbq.id); }}
@@ -1292,19 +1472,7 @@ export default function Home() {
               )}
 
               {/* Separator */}
-              {listBarbecuesForArea.length > 0 && <div className="w-px h-5 bg-white/10 flex-shrink-0 mx-1" />}
-
-              {/* New event button */}
-              {user && (
-                <button
-                  onClick={() => { setNewEventArea(area); setNewEventType(area === "trips" ? "city_trip" : "barbecue"); setIsNewBbqOpen(true); }}
-                  className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold text-muted-foreground hover:text-primary hover:bg-primary/10 border border-dashed border-white/10 hover:border-primary/30 transition-all flex-shrink-0"
-                  data-testid="button-new-bbq"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  {t.events.newEvent}
-                </button>
-              )}
+              {pinnedBarbecuesForArea.length > 0 && <div className="w-px h-5 bg-white/10 flex-shrink-0 mx-1" />}
             </div>
           </div>
         </div>

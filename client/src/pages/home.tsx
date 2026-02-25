@@ -413,6 +413,7 @@ export default function Home() {
   const shouldReduceMotion = useReducedMotion();
 
   const [area, setArea] = useState<"parties" | "trips">("parties");
+  const [eventVisibilityTab, setEventVisibilityTab] = useState<"private" | "public">("private");
   const [selectedBbqId, setSelectedBbqId] = useState<number | null>(null);
   const reactionScopeId = selectedBbqId != null ? `ev-${selectedBbqId}` : "ev-none";
   const { addReaction, getReactions } = useExpenseReactions(reactionScopeId);
@@ -421,6 +422,7 @@ export default function Home() {
   const [newBbqDate, setNewBbqDate] = useState(new Date().toISOString().split('T')[0]);
   const [newBbqCurrency, setNewBbqCurrency] = useState<CurrencyCode>("EUR");
   const [newBbqIsPublic, setNewBbqIsPublic] = useState(true);
+  const [newBbqPublicMode, setNewBbqPublicMode] = useState<"marketing" | "joinable">("marketing");
   const [newBbqAllowOptIn, setNewBbqAllowOptIn] = useState(false);
   const [newEventArea, setNewEventArea] = useState<"parties" | "trips">("parties");
   const [newEventType, setNewEventType] = useState<string>("barbecue");
@@ -515,6 +517,29 @@ export default function Home() {
       ? (TRIP_THEME_KEYS as readonly string[]).includes(v)
       : (PARTY_THEME_KEYS as readonly string[]).includes(v);
   const barbecuesForArea = useMemo(() => barbecues.filter((b: Barbecue) => getEventArea(b) === area), [barbecues, area]);
+  const getEventSortTime = (b: Barbecue) => {
+    const raw = (b.updatedAt as unknown) ?? (b.date as unknown);
+    const t = raw ? new Date(raw as string | number | Date).getTime() : 0;
+    return Number.isFinite(t) ? t : 0;
+  };
+  const privateBarbecuesForArea = useMemo(
+    () => barbecuesForArea
+      .filter((b: Barbecue) => (b.visibility as string | undefined) !== "public")
+      .sort((a: Barbecue, b: Barbecue) => getEventSortTime(b) - getEventSortTime(a)),
+    [barbecuesForArea]
+  );
+  const publicBarbecuesForArea = useMemo(
+    () => barbecuesForArea
+      .filter((b: Barbecue) => (b.visibility as string | undefined) === "public")
+      .sort((a: Barbecue, b: Barbecue) => {
+        const aActive = a.publicListingStatus === "active" && !!a.publicListingExpiresAt && new Date(a.publicListingExpiresAt).getTime() > Date.now();
+        const bActive = b.publicListingStatus === "active" && !!b.publicListingExpiresAt && new Date(b.publicListingExpiresAt).getTime() > Date.now();
+        if (aActive !== bActive) return aActive ? -1 : 1;
+        return getEventSortTime(b) - getEventSortTime(a);
+      }),
+    [barbecuesForArea]
+  );
+  const listBarbecuesForArea = eventVisibilityTab === "private" ? privateBarbecuesForArea : publicBarbecuesForArea;
   const createBbq = useCreateBarbecue();
   const deleteBbq = useDeleteBarbecue();
   const updateBbq = useUpdateBarbecue();
@@ -653,6 +678,8 @@ export default function Home() {
 
   const handleCreateBbq = () => {
     if (!newBbqName.trim()) return;
+    const requestedPublicOnCreate = newBbqIsPublic;
+    const requestedPublicModeOnCreate = newBbqPublicMode;
     // Template-specific default data at creation time
     let templateData: unknown | null = null;
     if (newEventType === "barbecue") {
@@ -664,7 +691,9 @@ export default function Home() {
       name: newBbqName.trim(),
       date: new Date(newBbqDate).toISOString(),
       creatorId: username || undefined,
-      isPublic: newBbqIsPublic,
+      isPublic: false,
+      visibility: "private",
+      publicMode: requestedPublicModeOnCreate,
       allowOptInExpenses: newBbqAllowOptIn,
       area: newEventArea,
       eventType: newEventType,
@@ -690,10 +719,38 @@ export default function Home() {
       onSuccess: (data: Barbecue) => {
         setSelectedBbqId(data.id);
         setArea(getEventArea(data));
+        setEventVisibilityTab("private");
         setNewBbqName(""); setNewBbqDate(new Date().toISOString().split('T')[0]); setNewBbqAllowOptIn(false);
-        setNewEventArea("parties"); setNewEventType("barbecue"); setNewEventLocation(null);
+        setNewEventArea("parties"); setNewEventType("barbecue"); setNewEventLocation(null); setNewBbqPublicMode("marketing");
         setNewBbqCurrency(((user?.defaultCurrencyCode as CurrencyCode | undefined) ?? "EUR"));
         setIsNewBbqOpen(false);
+        if (requestedPublicOnCreate) {
+          toast({
+            title: "Event created as Private",
+            message: "Activate listing to publish.",
+            variant: "warning",
+            actionLabel: "Activate & publish",
+            onAction: async () => {
+              try {
+                const activateRes = await fetch(`/api/events/${data.id}/activate-listing`, {
+                  method: "POST",
+                  credentials: "include",
+                });
+                const activateBody = await activateRes.json().catch(() => ({}));
+                if (!activateRes.ok) throw new Error((activateBody as { message?: string }).message || "Failed to activate listing");
+                await updateBbq.mutateAsync({
+                  id: data.id,
+                  visibility: "public",
+                  publicMode: requestedPublicModeOnCreate,
+                });
+                setEventVisibilityTab("public");
+                toast({ title: "Listing activated and published", variant: "success" });
+              } catch (err) {
+                toast({ title: (err as Error).message || "Failed to publish", variant: "destructive" });
+              }
+            },
+          });
+        }
       },
       onError: (err: unknown) => {
         if (err instanceof UpgradeRequiredError) { showUpgrade(err.payload); return; }
@@ -724,12 +781,20 @@ export default function Home() {
 
   const canManage = isCreator;
   const isAcceptedMember = !isCreator && !!myParticipant;
+  const verifyBannerFlag = import.meta.env.VITE_SHOW_VERIFY_BANNER;
+  const showVerifyBanner = verifyBannerFlag != null ? verifyBannerFlag !== "false" : !import.meta.env.DEV;
 
   const eventStatus = (selectedBbq?.status as "draft" | "active" | "settling" | "settled") ?? "active";
   const publicListingActive = !!(
     selectedBbq?.publicListingStatus === "active" &&
     selectedBbq?.publicListingExpiresAt &&
     new Date(selectedBbq.publicListingExpiresAt).getTime() > Date.now()
+  );
+  const selectedBbqPendingPublish = !!(
+    selectedBbq &&
+    selectedBbq.visibility !== "public" &&
+    (selectedBbq.publicMode || selectedBbq.publicListingStatus) &&
+    selectedBbq.publicListingStatus !== "active"
   );
   const handleSettleUp = () => {
     if (!selectedBbqId) return;
@@ -997,7 +1062,7 @@ export default function Home() {
       </header>
 
       {/* Email verification banner */}
-      {user && !user.emailVerifiedAt && (
+      {showVerifyBanner && user && !user.emailVerifiedAt && (
         <div
           className="flex items-center justify-between gap-3 px-3 sm:px-6 lg:px-8 py-2 bg-amber-500/15 border-b border-amber-500/30 text-amber-700 dark:text-amber-300"
           data-testid="banner-verify-email"
@@ -1018,40 +1083,67 @@ export default function Home() {
         </div>
       )}
 
-      {/* Parties | Trips top-level nav */}
+      {/* Compact top controls: area, visibility, explore */}
       <div className="sticky top-[57px] z-40 bg-[hsl(var(--surface-0))]/90 backdrop-blur-md border-b border-[hsl(var(--border-subtle))]" data-testid="section-area-tabs">
-        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 flex items-center justify-between gap-4">
-          <div className="flex rounded-lg border border-white/10 overflow-hidden inline-flex">
-            <button
-              onClick={() => setArea("parties")}
-              className={`px-4 py-2.5 text-sm font-semibold transition-colors ${
-                area === "parties" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
-              }`}
-              data-testid="tab-parties"
-            >
-              {t.nav.parties}
-            </button>
-            <button
-              onClick={() => setArea("trips")}
-              className={`px-4 py-2.5 text-sm font-semibold transition-colors ${
-                area === "trips" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
-              }`}
-              data-testid="tab-trips"
-            >
-              {t.nav.trips}
-            </button>
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-2">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 min-w-0 overflow-x-auto">
+              <div className="flex rounded-lg border border-white/10 overflow-hidden inline-flex flex-shrink-0">
+                <button
+                  onClick={() => setArea("parties")}
+                  className={`px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    area === "parties" ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+                  }`}
+                  data-testid="tab-parties"
+                >
+                  {t.nav.parties}
+                </button>
+                <button
+                  onClick={() => setArea("trips")}
+                  className={`px-3 py-1.5 text-xs font-semibold transition-colors ${
+                    area === "trips" ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-white/5 hover:text-foreground"
+                  }`}
+                  data-testid="tab-trips"
+                >
+                  {t.nav.trips}
+                </button>
+              </div>
+
+              <div className="inline-flex rounded-lg border border-white/10 overflow-hidden flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setEventVisibilityTab("private")}
+                  className={`px-3 py-1.5 text-xs font-semibold transition-colors ${eventVisibilityTab === "private" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-white/5"}`}
+                  data-testid="tab-events-private"
+                >
+                  Private ({privateBarbecuesForArea.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEventVisibilityTab("public")}
+                  className={`px-3 py-1.5 text-xs font-semibold transition-colors ${eventVisibilityTab === "public" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-white/5"}`}
+                  data-testid="tab-events-public"
+                >
+                  Public ({publicBarbecuesForArea.length})
+                </button>
+              </div>
+            </div>
+
+            <Link href="/explore">
+              <Button
+                variant="outline"
+                size="sm"
+                className="border-white/10 text-muted-foreground hover:text-foreground hover:bg-white/5 flex-shrink-0"
+                data-testid="button-explore-route"
+              >
+                <Compass className="w-4 h-4 mr-1.5" />
+                Explore
+              </Button>
+            </Link>
           </div>
-          <Link href="/explore">
-            <Button
-              variant="outline"
-              size="sm"
-              className="border-white/10 text-muted-foreground hover:text-foreground hover:bg-white/5"
-              data-testid="button-explore-route"
-            >
-              <Compass className="w-4 h-4 mr-1.5" />
-              Explore
-            </Button>
-          </Link>
+          <p className="mt-1 px-1 text-[11px] text-muted-foreground hidden sm:block">
+            Public events stay private until published.
+          </p>
         </div>
       </div>
 
@@ -1063,16 +1155,22 @@ export default function Home() {
             <div className="flex gap-2 items-center min-w-max">
               {isLoadingBbqs ? (
                 <Loader2 className="w-4 h-4 animate-spin text-muted-foreground mx-2" />
-              ) : barbecuesForArea.length === 0 ? (
-                <span className="text-xs text-muted-foreground px-2 py-1.5 italic">{t.bbq.noBbqs}</span>
+              ) : listBarbecuesForArea.length === 0 ? (
+                <span className="text-xs text-muted-foreground px-2 py-1.5 italic">
+                  {eventVisibilityTab === "private" ? "No private events yet" : "No public events yet"}
+                </span>
               ) : (
-                barbecuesForArea.map((bbq: Barbecue) => {
+                listBarbecuesForArea.map((bbq: Barbecue) => {
                   const isSelected = bbq.id === selectedBbqId;
                   const cur = getCurrency(bbq.currency) ?? getCurrency("EUR")!;
                   const isBbqCreator = !!(username && bbq.creatorId === username);
                   const membership = getMembershipStatus(bbq.id);
                   const memberStatus = membership?.status || null;
                   const participantId = membership?.participantId;
+                  const isPublicCard = (bbq.visibility as string | undefined) === "public";
+                  const listingActiveCard = bbq.publicListingStatus === "active" && !!bbq.publicListingExpiresAt && new Date(bbq.publicListingExpiresAt).getTime() > Date.now();
+                  const pendingPublishCard = !isPublicCard && (bbq.visibility === "private") && (bbq.publicMode || bbq.publicListingStatus) && bbq.publicListingStatus !== "active";
+                  const modeLabel = bbq.publicMode === "joinable" ? "Joinable" : "Marketing";
 
                   return (
                     <div key={bbq.id} className="flex items-center gap-1.5 flex-shrink-0">
@@ -1081,18 +1179,48 @@ export default function Home() {
                         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all border ${
                           isSelected
                             ? 'bg-primary text-primary-foreground border-primary/60 shadow-sm shadow-primary/20'
-                            : 'bg-secondary/30 border-white/5 text-muted-foreground hover:border-white/20 hover:text-foreground hover:bg-secondary/50'
+                            : isPublicCard
+                              ? 'bg-sky-500/5 border-sky-500/20 text-muted-foreground hover:border-sky-400/40 hover:text-foreground hover:bg-sky-500/10'
+                              : 'bg-amber-500/5 border-amber-500/15 text-muted-foreground hover:border-amber-400/30 hover:text-foreground hover:bg-amber-500/10'
                         }`}
                         data-testid={`button-bbq-${bbq.id}`}
                       >
-                        {!bbq.isPublic && (
+                        {!isPublicCard && (
                           <>
                             <Lock className="w-3 h-3 flex-shrink-0 opacity-70" />
-                            <span className="text-[10px] opacity-80 hidden sm:inline">{t.bbq.privateEvent}</span>
+                            <span className="text-[10px] opacity-80 hidden sm:inline">Split with friends</span>
+                          </>
+                        )}
+                        {isPublicCard && (
+                          <>
+                            <Globe className="w-3 h-3 flex-shrink-0 opacity-70" />
+                            <span className={`text-[10px] hidden sm:inline px-1.5 py-0.5 rounded-full border ${listingActiveCard ? "border-emerald-400/40 text-emerald-300" : "border-amber-400/40 text-amber-300"}`}>
+                              {listingActiveCard ? "Active" : (bbq.publicListingStatus ?? "Inactive")}
+                            </span>
                           </>
                         )}
                         {isBbqCreator && <Crown className="w-3 h-3 flex-shrink-0 opacity-80" />}
                         <span className="max-w-[120px] truncate">{bbq.name}</span>
+                        {isPublicCard ? (
+                          <span className="text-[10px] opacity-70 hidden md:inline max-w-[120px] truncate">
+                            {bbq.organizationName || "Business listing"}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] opacity-60 hidden md:inline">{pendingPublishCard ? "Ready to publish" : "Friends"}</span>
+                        )}
+                        {pendingPublishCard && (
+                          <span className="text-[10px] hidden sm:inline px-1.5 py-0.5 rounded-full border border-amber-400/30 text-amber-300">
+                            Pending publish
+                          </span>
+                        )}
+                        {isPublicCard && (
+                          <span className="text-[10px] opacity-70 hidden lg:inline">{modeLabel}</span>
+                        )}
+                        {isPublicCard && bbq.publicListingExpiresAt && (
+                          <span className="text-[10px] opacity-60 hidden xl:inline">
+                            exp {new Date(bbq.publicListingExpiresAt).toLocaleDateString()}
+                          </span>
+                        )}
                         <span className="text-[10px] opacity-60 hidden sm:inline">{cur.symbol}</span>
                         {memberStatus === 'pending' && (
                           <span className="w-1.5 h-1.5 bg-yellow-400 rounded-full flex-shrink-0" title={t.user.pending} />
@@ -1164,7 +1292,7 @@ export default function Home() {
               )}
 
               {/* Separator */}
-              {barbecuesForArea.length > 0 && <div className="w-px h-5 bg-white/10 flex-shrink-0 mx-1" />}
+              {listBarbecuesForArea.length > 0 && <div className="w-px h-5 bg-white/10 flex-shrink-0 mx-1" />}
 
               {/* New event button */}
               {user && (
@@ -1384,9 +1512,11 @@ export default function Home() {
 
                   {!publicListingActive ? (
                     <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 space-y-2">
-                      <p className="text-sm font-medium">Public listing is not active</p>
+                      <p className="text-sm font-medium">{selectedBbqPendingPublish ? "This event is private until listing is activated." : "Public listing is not active"}</p>
                       <p className="text-xs text-muted-foreground">
-                        Activate the listing before making this event visible on Explore.
+                        {selectedBbqPendingPublish
+                          ? "Activate the listing to publish this event on Explore. You can change the mode later."
+                          : "Activate the listing before making this event visible on Explore."}
                       </p>
                       <Button
                         size="sm"
@@ -1399,7 +1529,7 @@ export default function Home() {
                         })}
                         disabled={checkoutPublicListing.isPending}
                       >
-                        Activate listing
+                        {selectedBbqPendingPublish ? "Activate listing & publish" : "Activate listing"}
                       </Button>
                     </div>
                   ) : (
@@ -2278,6 +2408,36 @@ export default function Home() {
                 </button>
               </div>
               <p className="text-xs text-muted-foreground">{newBbqIsPublic ? t.bbq.publicDesc : t.bbq.privateDesc}</p>
+              {newBbqIsPublic && (
+                <div className="space-y-2 rounded-lg border border-border/60 bg-muted/10 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Public mode</p>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() => setNewBbqPublicMode("marketing")}
+                      className={`rounded-lg border p-3 text-left transition-colors ${newBbqPublicMode === "marketing" ? "border-primary bg-primary/5" : "border-border hover:bg-muted/20"}`}
+                    >
+                      <p className="text-sm font-semibold">Marketing</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Visible on Explore. People can view details, but can only join with an invite link.
+                      </p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNewBbqPublicMode("joinable")}
+                      className={`rounded-lg border p-3 text-left transition-colors ${newBbqPublicMode === "joinable" ? "border-primary bg-primary/5" : "border-border hover:bg-muted/20"}`}
+                    >
+                      <p className="text-sm font-semibold">Joinable</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Visible on Explore. People can request to join. More exposure, less control.
+                      </p>
+                    </button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    You can change this later in Event Settings. If listing is inactive, the event will be created as Private and you can activate/publish afterward.
+                  </p>
+                </div>
+              )}
             </div>
           </ModalSection>
 

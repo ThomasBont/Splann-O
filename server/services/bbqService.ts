@@ -99,10 +99,11 @@ export async function createBarbecue(
   sessionUsername?: string
 ): Promise<Barbecue> {
   const creatorId = input.creatorId?.trim() || sessionUsername;
+  const requestedVisibility = input.visibility ?? (input.isPublic ? "public" : "private");
   let creatorUser: Awaited<ReturnType<typeof userRepo.findByUsername>> | undefined;
   if (creatorId) {
     creatorUser = await userRepo.findByUsername(creatorId);
-    if (process.env.NODE_ENV !== "development") {
+    if (requestedVisibility === "public" && process.env.NODE_ENV !== "development") {
       const limits = getLimits(creatorUser ?? undefined);
       const count = await bbqRepo.countOwnedByCreator(creatorId);
       if (count >= limits.maxEvents) upgradeRequired("more_events", { current: count, max: limits.maxEvents });
@@ -110,7 +111,6 @@ export async function createBarbecue(
   }
 
   const currencySource = input.currencySource ?? "auto";
-  const requestedVisibility = input.visibility ?? (input.isPublic ? "public" : "private");
   let currency = input.currency?.trim()?.toUpperCase();
 
   if (currencySource !== "manual" || !currency) {

@@ -30,6 +30,8 @@ export async function updateProfile(
     profileImageUrl?: string | null;
     bio?: string | null;
     preferredCurrencyCodes?: string[] | null;
+    defaultCurrencyCode?: string;
+    favoriteCurrencyCodes?: string[];
   }
 ) {
   const mapped: Record<string, unknown> = {};
@@ -39,6 +41,8 @@ export async function updateProfile(
   if (updates.bio !== undefined) mapped.bio = updates.bio;
   if (updates.preferredCurrencyCodes !== undefined)
     mapped.preferredCurrencyCodes = updates.preferredCurrencyCodes === null ? null : JSON.stringify(updates.preferredCurrencyCodes);
+  if (updates.defaultCurrencyCode !== undefined) mapped.defaultCurrencyCode = updates.defaultCurrencyCode;
+  if (updates.favoriteCurrencyCodes !== undefined) mapped.favoriteCurrencyCodes = updates.favoriteCurrencyCodes;
   const user = await userRepo.updateProfile(userId, mapped as Parameters<typeof userRepo.updateProfile>[1]);
   if (!user) throw notFound("User not found");
   return serializeUser(user);

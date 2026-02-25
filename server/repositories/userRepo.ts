@@ -30,7 +30,15 @@ export const userRepo = {
 
   async updateProfile(
     userId: number,
-    updates: { displayName?: string; avatarUrl?: string | null; profileImageUrl?: string | null; bio?: string | null; preferredCurrencyCodes?: string | null; defaultCurrencyCode?: string | null }
+    updates: {
+      displayName?: string;
+      avatarUrl?: string | null;
+      profileImageUrl?: string | null;
+      bio?: string | null;
+      preferredCurrencyCodes?: string | null;
+      defaultCurrencyCode?: string | null;
+      favoriteCurrencyCodes?: string[] | null;
+    }
   ): Promise<User | undefined> {
     const set: Record<string, unknown> = {};
     if (updates.displayName !== undefined) set.displayName = updates.displayName;
@@ -40,6 +48,7 @@ export const userRepo = {
     if (updates.preferredCurrencyCodes !== undefined)
       set.preferredCurrencyCodes = updates.preferredCurrencyCodes == null ? null : JSON.stringify(updates.preferredCurrencyCodes);
     if (updates.defaultCurrencyCode !== undefined) set.defaultCurrencyCode = updates.defaultCurrencyCode;
+    if (updates.favoriteCurrencyCodes !== undefined) set.favoriteCurrencyCodes = updates.favoriteCurrencyCodes ?? [];
     if (Object.keys(set).length === 0) return this.findById(userId);
     const [u] = await db.update(users).set(set as Record<string, unknown>).where(eq(users.id, userId)).returning();
     return u;

@@ -10,10 +10,11 @@ import { userRepo } from "../repositories/userRepo";
 import * as bbqService from "../services/bbqService";
 import { inviteByUsername } from "../services/inviteService";
 import { requireAuth } from "../middleware/requireAuth";
+import { publicRateLimit } from "../middleware/publicRateLimit";
 import { db } from "../db";
 import { getLimits } from "../lib/plan";
 import { auditLog, auditSecurity } from "../lib/audit";
-import { badRequest, conflict, forbidden, notFound, unauthorized, upgradeRequired } from "../lib/errors";
+import { badRequest, conflict, forbidden, gone, notFound, unauthorized, upgradeRequired } from "../lib/errors";
 
 const router = Router();
 
@@ -22,6 +23,15 @@ const p = (path: string) => (path.startsWith("/api") ? path.slice(4) : path);
 
 function asyncHandler(fn: (req: Request, res: any, next: any) => Promise<void>) {
   return (req: Request, res: any, next: any) => fn(req, res, next).catch(next);
+}
+
+function isAdmin(req: Request): boolean {
+  const admins = (process.env.ADMIN_USERNAMES ?? "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+  const username = (req.session?.username as string | undefined)?.toLowerCase();
+  return !!username && admins.includes(username);
 }
 
 async function getBarbecueOr404(req: Request, bbqId: number, message = "Event not found") {
@@ -45,6 +55,9 @@ router.get(p(api.barbecues.listPublic.path), asyncHandler(async (_req, res) => {
 
 const countryCodeSchema = z.string().length(2, "countryCode must be ISO-3166-1 alpha-2 (2 chars)").transform((s) => s.toUpperCase());
 const currencyCodeSchema = z.string().length(3, "currency must be ISO-4217 (3 chars)").transform((s) => s.toUpperCase());
+const visibilitySchema = z.enum(["private", "public"]);
+const publicModeSchema = z.enum(["marketing", "joinable"]);
+const listingStatusSchema = z.enum(["inactive", "active", "expired"]);
 
 router.post(p(api.barbecues.create.path), asyncHandler(async (req, res) => {
   const bodySchema = api.barbecues.create.input.extend({
@@ -52,6 +65,13 @@ router.post(p(api.barbecues.create.path), asyncHandler(async (req, res) => {
     countryCode: countryCodeSchema.optional().nullable(),
     currency: currencyCodeSchema.optional(),
     currencySource: z.enum(["auto", "manual"]).optional(),
+    visibility: visibilitySchema.optional(),
+    publicMode: publicModeSchema.optional(),
+    publicListingStatus: listingStatusSchema.optional(),
+    publicListingExpiresAt: z.coerce.date().nullable().optional(),
+    organizationName: z.string().max(160).nullable().optional(),
+    publicDescription: z.string().max(5000).nullable().optional(),
+    bannerImageUrl: z.string().url().nullable().optional(),
   });
   const parsed = bodySchema.parse(req.body);
   const input = {
@@ -60,6 +80,21 @@ router.post(p(api.barbecues.create.path), asyncHandler(async (req, res) => {
   };
   const created = await bbqService.createBarbecue(input, req.session?.username);
   res.status(201).json(created);
+}));
+
+router.get("/explore/events", publicRateLimit(60, 60_000), asyncHandler(async (_req, res) => {
+  const items = await bbqService.listExploreEvents();
+  res.json(items);
+}));
+
+router.get("/public/events/:slug", publicRateLimit(60, 60_000), asyncHandler(async (req, res) => {
+  const slug = String(req.params.slug || "").trim();
+  if (!slug) badRequest("Invalid slug");
+  const result = await bbqService.getPublicEventBySlugForPublicView(slug);
+  if (result.status === "expired") gone("Public event listing expired");
+  if (result.status === "unavailable") notFound("Public event not found");
+  if (result.status === "not_found") notFound("Public event not found");
+  res.json(result.event);
 }));
 
 router.get(p(api.barbecues.get.path), asyncHandler(async (req, res) => {
@@ -113,10 +148,61 @@ router.patch(p(api.barbecues.update.path), requireAuth, asyncHandler(async (req,
     placeId: z.string().nullable().optional(),
     currency: z.string().length(3).transform((s) => s.toUpperCase()).optional(),
     currencySource: z.enum(["auto", "manual"]).optional(),
+    visibility: visibilitySchema.optional(),
+    publicMode: publicModeSchema.optional(),
+    publicListingStatus: listingStatusSchema.optional(),
+    publicListingExpiresAt: z.coerce.date().nullable().optional(),
+    organizationName: z.string().max(160).nullable().optional(),
+    publicDescription: z.string().max(5000).nullable().optional(),
+    bannerImageUrl: z.string().url().nullable().optional(),
   });
   const body = schema.parse(req.body);
   const updated = await bbqService.updateBarbecue(id, body, req.session!.username);
   if (!updated) notFound("BBQ not found");
+  res.json(updated);
+}));
+
+router.post("/events/:id/activate-listing", requireAuth, asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  const bbq = await bbqRepo.getById(id);
+  if (!bbq) notFound("Event not found");
+  const username = req.session!.username;
+  const ownerOrAdmin = bbq.creatorId === username || isAdmin(req);
+  if (!ownerOrAdmin) forbidden("Only the creator can activate listing");
+
+  let updated: Awaited<ReturnType<typeof bbqService.activateListing>> | undefined;
+  if (bbq.creatorId === username) {
+    updated = await bbqService.activateListing(id, username);
+  } else {
+    const base = await bbqRepo.update(id, {
+      publicListingStatus: "active",
+      publicListingExpiresAt: new Date(Date.now() + Number(process.env.PUBLIC_LISTING_DAYS ?? 30) * 24 * 60 * 60 * 1000),
+    });
+    updated = base ? await bbqService.ensurePublicSlug(base) ?? base : undefined;
+  }
+  if (!updated) notFound("Event not found");
+  res.json({
+    id: updated.id,
+    visibility: updated.visibility,
+    publicMode: updated.publicMode,
+    publicListingStatus: updated.publicListingStatus,
+    publicListingExpiresAt: updated.publicListingExpiresAt,
+    publicSlug: updated.publicSlug,
+  });
+}));
+
+router.post("/events/:id/deactivate-listing", requireAuth, asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  const bbq = await bbqRepo.getById(id);
+  if (!bbq) notFound("Event not found");
+  const username = req.session!.username;
+  const ownerOrAdmin = bbq.creatorId === username || isAdmin(req);
+  if (!ownerOrAdmin) forbidden("Only the creator can deactivate listing");
+  const updated = await bbqRepo.update(id, {
+    publicListingStatus: "inactive",
+    visibility: "private",
+  });
+  if (!updated) notFound("Event not found");
   res.json(updated);
 }));
 

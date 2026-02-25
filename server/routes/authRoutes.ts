@@ -9,6 +9,7 @@ import { auditSecurity } from "../lib/audit";
 import { badRequest, forbidden, notFound } from "../lib/errors";
 
 const router = Router();
+const currencyCodeSchema = z.string().regex(/^[A-Z]{3}$/, "Currency code must be 3 uppercase letters");
 
 /** Build proxy-safe origin: x-forwarded-proto/host → req.protocol/host → localhost:(PORT|5001) */
 function getRequestOrigin(req: Request): string {
@@ -166,6 +167,12 @@ router.patch(
       profileImageUrl: z.union([z.string().url(), z.literal("")]).nullable().optional(),
       bio: z.string().max(500).nullable().optional(),
       preferredCurrencyCodes: z.array(z.string()).nullable().optional(),
+      defaultCurrencyCode: currencyCodeSchema.optional(),
+      favoriteCurrencyCodes: z
+        .array(currencyCodeSchema)
+        .max(10, "Favorite currencies max 10")
+        .refine((codes) => new Set(codes).size === codes.length, "Favorite currencies must be unique")
+        .optional(),
     });
     const body = schema.parse(req.body);
     const user = await userService.updateProfile(req.session!.userId!, body);

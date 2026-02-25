@@ -55,6 +55,13 @@ export const api = {
         placeId: z.string().nullable().optional(),
         currency: z.string().length(3).optional(),
         currencySource: z.enum(["auto", "manual"]).optional(),
+        visibility: z.enum(["private", "public"]).optional(),
+        publicMode: z.enum(["marketing", "joinable"]).optional(),
+        publicListingStatus: z.enum(["inactive", "active", "expired"]).optional(),
+        publicListingExpiresAt: z.union([z.string(), z.date(), z.null()]).optional(),
+        organizationName: z.string().max(160).nullable().optional(),
+        publicDescription: z.string().max(5000).nullable().optional(),
+        bannerImageUrl: z.string().url().nullable().optional(),
       }),
       responses: {
         200: z.custom<Barbecue>(),

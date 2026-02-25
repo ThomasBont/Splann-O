@@ -9,6 +9,8 @@ export type AuthUser = {
   profileImageUrl?: string;
   bio?: string;
   preferredCurrencyCodes?: string[];
+  defaultCurrencyCode?: string;
+  favoriteCurrencyCodes?: string[];
   emailVerifiedAt?: string;
 };
 
@@ -112,7 +114,15 @@ export function useAuth() {
   });
 
   const updateProfile = useMutation({
-    mutationFn: async (updates: { displayName?: string; avatarUrl?: string | null; profileImageUrl?: string | null; bio?: string | null; preferredCurrencyCodes?: string[] | null }) => {
+    mutationFn: async (updates: {
+      displayName?: string;
+      avatarUrl?: string | null;
+      profileImageUrl?: string | null;
+      bio?: string | null;
+      preferredCurrencyCodes?: string[] | null;
+      defaultCurrencyCode?: string;
+      favoriteCurrencyCodes?: string[];
+    }) => {
       const res = await fetch('/api/users/me', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -123,7 +133,8 @@ export function useAuth() {
       if (!res.ok) throw new Error(data.message || 'update_failed');
       return data as AuthUser;
     },
-    onSuccess: () => {
+    onSuccess: (nextUser) => {
+      queryClient.setQueryData(['/api/auth/me'], nextUser);
       queryClient.invalidateQueries({ queryKey: ['/api/auth/me'] });
     },
   });

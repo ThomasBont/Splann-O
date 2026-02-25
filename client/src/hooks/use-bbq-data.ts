@@ -3,6 +3,24 @@ import { api, buildUrl } from "@shared/routes";
 import type { Barbecue } from "@shared/schema";
 import { UpgradeRequiredError } from "@/lib/upgrade";
 
+export type ExploreEvent = {
+  id: number;
+  title: string;
+  date: string | null;
+  city: string | null;
+  countryName: string | null;
+  currencyCode: string;
+  organizationName: string | null;
+  publicDescription: string | null;
+  publicSlug: string;
+  publicMode: "marketing" | "joinable";
+};
+
+export type PublicEventDetail = ExploreEvent & {
+  locationName: string | null;
+  bannerImageUrl: string | null;
+};
+
 export function useBarbecues() {
   return useQuery({
     queryKey: ['/api/barbecues'],
@@ -43,6 +61,13 @@ export function useCreateBarbecue() {
       countryCode?: string | null;
       countryName?: string | null;
       placeId?: string | null;
+      visibility?: "private" | "public";
+      publicMode?: "marketing" | "joinable";
+      publicListingStatus?: "inactive" | "active" | "expired";
+      publicListingExpiresAt?: string | null;
+      organizationName?: string | null;
+      publicDescription?: string | null;
+      bannerImageUrl?: string | null;
     }) => {
       const res = await fetch(api.barbecues.create.path, {
         method: "POST",
@@ -80,6 +105,13 @@ export function useUpdateBarbecue() {
       placeId?: string | null;
       currency?: string;
       currencySource?: "auto" | "manual";
+      visibility?: "private" | "public";
+      publicMode?: "marketing" | "joinable";
+      publicListingStatus?: "inactive" | "active" | "expired";
+      publicListingExpiresAt?: string | null;
+      organizationName?: string | null;
+      publicDescription?: string | null;
+      bannerImageUrl?: string | null;
     }) => {
       const { id, ...rest } = updates;
       const url = buildUrl(api.barbecues.update.path, { id });
@@ -94,17 +126,85 @@ export function useUpdateBarbecue() {
       if (rest.placeId !== undefined) body.placeId = rest.placeId;
       if (rest.currency !== undefined) body.currency = rest.currency;
       if (rest.currencySource !== undefined) body.currencySource = rest.currencySource;
+      if (rest.visibility !== undefined) body.visibility = rest.visibility;
+      if (rest.publicMode !== undefined) body.publicMode = rest.publicMode;
+      if (rest.publicListingStatus !== undefined) body.publicListingStatus = rest.publicListingStatus;
+      if (rest.publicListingExpiresAt !== undefined) body.publicListingExpiresAt = rest.publicListingExpiresAt;
+      if (rest.organizationName !== undefined) body.organizationName = rest.organizationName;
+      if (rest.publicDescription !== undefined) body.publicDescription = rest.publicDescription;
+      if (rest.bannerImageUrl !== undefined) body.bannerImageUrl = rest.bannerImageUrl;
       const res = await fetch(url, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify(body),
       });
-      if (!res.ok) throw new Error("Failed to update barbecue");
-      return res.json() as Promise<Barbecue>;
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((payload as { message?: string }).message || "Failed to update barbecue");
+      return payload as Barbecue;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/barbecues'] });
+    },
+  });
+}
+
+export function useExploreEvents() {
+  return useQuery({
+    queryKey: ["/api/explore/events"],
+    queryFn: async () => {
+      const res = await fetch("/api/explore/events", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch explore events");
+      return res.json() as Promise<ExploreEvent[]>;
+    },
+  });
+}
+
+export function usePublicEvent(slug: string | null) {
+  return useQuery({
+    queryKey: ["/api/public/events", slug],
+    enabled: !!slug,
+    queryFn: async () => {
+      const res = await fetch(`/api/public/events/${encodeURIComponent(slug!)}`, { credentials: "include" });
+      if (!res.ok) {
+        if (res.status === 410) throw new Error("gone");
+        if (res.status === 404) throw new Error("not_found");
+        if (res.status === 429) throw new Error("rate_limited");
+        throw new Error("fetch_failed");
+      }
+      return res.json() as Promise<PublicEventDetail>;
+    },
+  });
+}
+
+export function useActivateListing() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const res = await fetch(`/api/events/${id}/activate-listing`, { method: "POST", credentials: "include" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((body as { message?: string }).message || "Failed to activate listing");
+      return body as Partial<Barbecue>;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/explore/events"] });
+    },
+  });
+}
+
+export function useDeactivateListing() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const res = await fetch(`/api/events/${id}/deactivate-listing`, { method: "POST", credentials: "include" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((body as { message?: string }).message || "Failed to deactivate listing");
+      return body as Barbecue;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/explore/events"] });
     },
   });
 }

@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import { db } from "../db";
 import { barbecues, participants, eventNotifications } from "@shared/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { desc } from "drizzle-orm";
 import type { Barbecue, InsertBarbecue } from "@shared/schema";
 
@@ -28,6 +28,18 @@ export const bbqRepo = {
 
   async listPublic(): Promise<Barbecue[]> {
     return db.select().from(barbecues).then((rows) => rows.filter((b) => b.isPublic));
+  },
+
+  async listExploreCandidates(): Promise<Barbecue[]> {
+    return db
+      .select()
+      .from(barbecues)
+      .where(eq(barbecues.visibility, "public"));
+  },
+
+  async getByPublicSlug(slug: string): Promise<Barbecue | undefined> {
+    const [b] = await db.select().from(barbecues).where(eq(barbecues.publicSlug, slug));
+    return b;
   },
 
   async getById(id: number): Promise<Barbecue | undefined> {
@@ -87,6 +99,14 @@ export const bbqRepo = {
       placeId?: string | null;
       currency?: string;
       currencySource?: "auto" | "manual";
+      visibility?: "private" | "public";
+      publicMode?: "marketing" | "joinable";
+      publicListingStatus?: "inactive" | "active" | "expired";
+      publicListingExpiresAt?: Date | null;
+      publicSlug?: string | null;
+      organizationName?: string | null;
+      publicDescription?: string | null;
+      bannerImageUrl?: string | null;
       updatedAt?: Date;
     }
   ): Promise<Barbecue | undefined> {
@@ -102,6 +122,17 @@ export const bbqRepo = {
     if (updates.placeId !== undefined) set.placeId = updates.placeId;
     if (updates.currency !== undefined) set.currency = updates.currency;
     if (updates.currencySource !== undefined) set.currencySource = updates.currencySource;
+    if (updates.visibility !== undefined) {
+      set.visibility = updates.visibility;
+      set.isPublic = updates.visibility === "public";
+    }
+    if (updates.publicMode !== undefined) set.publicMode = updates.publicMode;
+    if (updates.publicListingStatus !== undefined) set.publicListingStatus = updates.publicListingStatus;
+    if (updates.publicListingExpiresAt !== undefined) set.publicListingExpiresAt = updates.publicListingExpiresAt;
+    if (updates.publicSlug !== undefined) set.publicSlug = updates.publicSlug;
+    if (updates.organizationName !== undefined) set.organizationName = updates.organizationName;
+    if (updates.publicDescription !== undefined) set.publicDescription = updates.publicDescription;
+    if (updates.bannerImageUrl !== undefined) set.bannerImageUrl = updates.bannerImageUrl;
     if (Object.keys(set).length > 0) set.updatedAt = updates.updatedAt ?? new Date();
     if (Object.keys(set).length === 0) return this.getById(id);
     const [b] = await db.update(barbecues).set(set as Record<string, unknown>).where(eq(barbecues.id, id)).returning();
@@ -140,5 +171,12 @@ export const bbqRepo = {
 
   async markEventNotificationRead(id: number): Promise<void> {
     await db.update(eventNotifications).set({ readAt: new Date() }).where(eq(eventNotifications.id, id));
+  },
+
+  async incrementPublicViewCount(id: number): Promise<void> {
+    await db
+      .update(barbecues)
+      .set({ publicViewCount: sql`${barbecues.publicViewCount} + 1` })
+      .where(eq(barbecues.id, id));
   },
 };

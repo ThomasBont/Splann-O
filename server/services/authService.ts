@@ -21,6 +21,8 @@ export function serializeUser(user: {
   profileImageUrl?: string | null;
   bio?: string | null;
   preferredCurrencyCodes?: string | null;
+  defaultCurrencyCode?: string | null;
+  favoriteCurrencyCodes?: string[] | null;
   emailVerifiedAt?: Date | null;
 }) {
   let preferredCurrencyCodes: string[] | undefined;
@@ -40,6 +42,8 @@ export function serializeUser(user: {
     profileImageUrl: user.profileImageUrl ?? undefined,
     bio: user.bio ?? undefined,
     preferredCurrencyCodes: preferredCurrencyCodes ?? undefined,
+    defaultCurrencyCode: user.defaultCurrencyCode ?? "EUR",
+    favoriteCurrencyCodes: Array.isArray(user.favoriteCurrencyCodes) ? user.favoriteCurrencyCodes : [],
     emailVerifiedAt: user.emailVerifiedAt ? user.emailVerifiedAt.toISOString() : undefined,
   };
 }

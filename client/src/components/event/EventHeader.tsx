@@ -28,6 +28,9 @@ export interface EventHeaderProps {
   onCurrencyChange: (value: string) => void;
   /** Profile favorites for currency picker (optional) */
   profileFavorites?: string[];
+  suggestedCurrencyCode?: string | null;
+  suggestedCurrencyNote?: string | null;
+  recentCurrencyStorageKey?: string;
   onAddExpense: () => void;
   addExpenseLabel?: string;
   /** Creator-only: opt-in toggle + delete */
@@ -77,6 +80,9 @@ export function EventHeader({
   displayCurrency,
   onCurrencyChange,
   profileFavorites,
+  suggestedCurrencyCode,
+  suggestedCurrencyNote,
+  recentCurrencyStorageKey,
   onAddExpense,
   addExpenseLabel = "Add Expense",
   isCreator,
@@ -149,6 +155,9 @@ export function EventHeader({
               value={displayCurrency}
               onChange={onCurrencyChange}
               profileFavorites={profileFavorites}
+              suggestedCode={suggestedCurrencyCode}
+              suggestedNote={suggestedCurrencyNote}
+              recentStorageUserKey={recentCurrencyStorageKey}
               compact
               triggerClassName="h-8 text-xs"
               data-testid="select-display-currency"

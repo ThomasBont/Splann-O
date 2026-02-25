@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from "react";
+import { Link } from "wouter";
 import { useLanguage, getCurrency, SELECTABLE_LANGUAGES, type CurrencyCode, convertCurrency } from "@/hooks/use-language";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -9,7 +10,7 @@ import {
   useAcceptInvite, useDeclineInvite,
 } from "@/hooks/use-participants";
 import { useExpenses, useDeleteExpense, useExpenseShares, useSetExpenseShare } from "@/hooks/use-expenses";
-import { useBarbecues, useCreateBarbecue, useDeleteBarbecue, useUpdateBarbecue, useEnsureInviteToken, useSettleUp, useEventNotifications, useMarkEventNotificationRead, type EventNotification } from "@/hooks/use-bbq-data";
+import { useBarbecues, useCreateBarbecue, useDeleteBarbecue, useUpdateBarbecue, useEnsureInviteToken, useSettleUp, useEventNotifications, useMarkEventNotificationRead, useActivateListing, useDeactivateListing, type EventNotification } from "@/hooks/use-bbq-data";
 import { useQueryClient } from "@tanstack/react-query";
 import { useFriends, useFriendRequests, useAllPendingRequests, useAcceptFriendRequest, useRemoveFriend } from "@/hooks/use-friends";
 import { UserProfileModal } from "@/components/user-profile-modal";
@@ -431,6 +432,12 @@ export default function Home() {
     }
   }, [newEventLocation?.countryCode]);
 
+  useEffect(() => {
+    if (newEventLocation) return;
+    const userDefault = (user?.defaultCurrencyCode as CurrencyCode | undefined) ?? "EUR";
+    setNewBbqCurrency((current) => (current === "EUR" ? userDefault : current));
+  }, [user?.defaultCurrencyCode, newEventLocation]);
+
   const [isAddPersonOpen, setIsAddPersonOpen] = useState(false);
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
   const [recommendedExpenseTemplate, setRecommendedExpenseTemplate] = useState<{ item: string; category: string; optInDefault?: boolean } | null>(null);
@@ -494,6 +501,8 @@ export default function Home() {
   const updateBbq = useUpdateBarbecue();
   const ensureInviteToken = useEnsureInviteToken();
   const settleUp = useSettleUp();
+  const activateListing = useActivateListing();
+  const deactivateListing = useDeactivateListing();
 
   const selectedBbq = barbecuesForArea.find((b: Barbecue) => b.id === selectedBbqId) ?? (barbecues.find((b: Barbecue) => b.id === selectedBbqId) || null);
   const customCategories = useMemo(
@@ -632,7 +641,7 @@ export default function Home() {
     } else if (newEventType === "birthday") {
       templateData = defaultBirthdayTemplateData;
     }
-    const payload: Parameters<typeof createBbq.mutate>[0] = {
+    const payload: Parameters<typeof createBbq.mutate>[0] & { currencySource?: "auto" | "manual" } = {
       name: newBbqName.trim(),
       date: new Date(newBbqDate).toISOString(),
       creatorId: username || undefined,
@@ -664,6 +673,7 @@ export default function Home() {
         setArea(getEventArea(data));
         setNewBbqName(""); setNewBbqDate(new Date().toISOString().split('T')[0]); setNewBbqAllowOptIn(false);
         setNewEventArea("parties"); setNewEventType("barbecue"); setNewEventLocation(null);
+        setNewBbqCurrency(((user?.defaultCurrencyCode as CurrencyCode | undefined) ?? "EUR"));
         setIsNewBbqOpen(false);
       },
       onError: (err: unknown) => {
@@ -697,6 +707,11 @@ export default function Home() {
   const isAcceptedMember = !isCreator && !!myParticipant;
 
   const eventStatus = (selectedBbq?.status as "draft" | "active" | "settling" | "settled") ?? "active";
+  const publicListingActive = !!(
+    selectedBbq?.publicListingStatus === "active" &&
+    selectedBbq?.publicListingExpiresAt &&
+    new Date(selectedBbq.publicListingExpiresAt).getTime() > Date.now()
+  );
   const handleSettleUp = () => {
     if (!selectedBbqId) return;
     settleUp.mutate(selectedBbqId, {
@@ -1007,16 +1022,17 @@ export default function Home() {
               {t.nav.trips}
             </button>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setDiscoverOpen(true)}
-            className="border-white/10 text-muted-foreground hover:text-foreground hover:bg-white/5"
-            data-testid="button-discover"
-          >
-            <Compass className="w-4 h-4 mr-1.5" />
-            {t.discover.title}
-          </Button>
+          <Link href="/explore">
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-white/10 text-muted-foreground hover:text-foreground hover:bg-white/5"
+              data-testid="button-explore-route"
+            >
+              <Compass className="w-4 h-4 mr-1.5" />
+              Explore
+            </Button>
+          </Link>
         </div>
       </div>
 
@@ -1230,7 +1246,10 @@ export default function Home() {
                     updateBbq.mutate({ id: selectedBbqId, currency: v, currencySource: "manual" });
                   }
                 }}
-                profileFavorites={user?.preferredCurrencyCodes}
+                profileFavorites={user?.favoriteCurrencyCodes ?? []}
+                suggestedCurrencyCode={selectedBbq?.countryCode ? currencyForCountry(selectedBbq.countryCode) : null}
+                suggestedCurrencyNote={selectedBbq?.countryName ? `Auto from ${selectedBbq.countryName}` : "Auto from location"}
+                recentCurrencyStorageKey={user ? `user-${user.id}` : undefined}
                 onAddExpense={() => { setRecommendedExpenseTemplate(null); setEditingExpense(null); setIsAddExpenseOpen(true); }}
                 addExpenseLabel={t.addExpense}
                 isCreator={isCreator}
@@ -1267,6 +1286,124 @@ export default function Home() {
                 settleUpPending={settleUp.isPending}
                 />
               </div>
+
+              {isCreator && selectedBbq && (
+                <div className="mt-4 rounded-xl border border-border/60 bg-card p-4 space-y-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h2 className="text-sm font-semibold">Event Settings</h2>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        You can change this later in Event Settings.
+                      </p>
+                    </div>
+                    {selectedBbq.publicSlug && (
+                      <button
+                        type="button"
+                        className="text-xs text-primary hover:underline"
+                        onClick={() => window.open(`/events/${selectedBbq.publicSlug}`, "_blank")}
+                      >
+                        Open public page
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">Visibility</p>
+                    <div className="flex rounded-lg border border-border overflow-hidden">
+                      <button
+                        type="button"
+                        className={`flex-1 py-2 text-sm font-medium ${selectedBbq.visibility !== "public" ? "bg-primary text-primary-foreground" : "hover:bg-muted/40"}`}
+                        onClick={() => updateBbq.mutate({ id: selectedBbq.id, visibility: "private" })}
+                        disabled={updateBbq.isPending}
+                      >
+                        Private
+                      </button>
+                      <button
+                        type="button"
+                        className={`flex-1 py-2 text-sm font-medium ${selectedBbq.visibility === "public" ? "bg-primary text-primary-foreground" : "hover:bg-muted/40"} ${!publicListingActive ? "opacity-60 cursor-not-allowed" : ""}`}
+                        onClick={() => {
+                          if (!publicListingActive) return;
+                          updateBbq.mutate({ id: selectedBbq.id, visibility: "public" }, {
+                            onError: (err) => toast({ title: (err as Error).message, variant: "destructive" }),
+                          });
+                        }}
+                        disabled={updateBbq.isPending || !publicListingActive}
+                      >
+                        Public
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">Public mode</p>
+                    <div className="grid gap-2 md:grid-cols-2">
+                      <button
+                        type="button"
+                        className={`rounded-lg border p-3 text-left ${selectedBbq.publicMode !== "joinable" ? "border-primary bg-primary/5" : "border-border"}`}
+                        onClick={() => updateBbq.mutate({ id: selectedBbq.id, publicMode: "marketing" })}
+                        disabled={updateBbq.isPending}
+                      >
+                        <p className="text-sm font-semibold">Marketing</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Visible on Explore. People can view details, but can only join with an invite link.
+                        </p>
+                      </button>
+                      <button
+                        type="button"
+                        className={`rounded-lg border p-3 text-left ${selectedBbq.publicMode === "joinable" ? "border-primary bg-primary/5" : "border-border"}`}
+                        onClick={() => updateBbq.mutate({ id: selectedBbq.id, publicMode: "joinable" })}
+                        disabled={updateBbq.isPending}
+                      >
+                        <p className="text-sm font-semibold">Joinable</p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Visible on Explore. People can request to join. More exposure, less control.
+                        </p>
+                      </button>
+                    </div>
+                    <p className="text-xs text-muted-foreground">You can change this later in Event Settings.</p>
+                  </div>
+
+                  {!publicListingActive ? (
+                    <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 space-y-2">
+                      <p className="text-sm font-medium">Public listing is not active</p>
+                      <p className="text-xs text-muted-foreground">
+                        Activate the listing before making this event visible on Explore.
+                      </p>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => activateListing.mutate(selectedBbq.id, {
+                          onSuccess: () => toast({ title: "Listing activated (dev)", variant: "success" }),
+                          onError: (err) => toast({ title: (err as Error).message, variant: "destructive" }),
+                        })}
+                        disabled={activateListing.isPending}
+                      >
+                        Activate listing (dev)
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium">Listing active</p>
+                        <p className="text-xs text-muted-foreground">
+                          Listing active until {selectedBbq.publicListingExpiresAt ? new Date(selectedBbq.publicListingExpiresAt).toLocaleDateString() : "—"}
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => deactivateListing.mutate(selectedBbq.id, {
+                          onSuccess: () => toast({ title: "Listing deactivated", variant: "success" }),
+                          onError: (err) => toast({ title: (err as Error).message, variant: "destructive" }),
+                        })}
+                        disabled={deactivateListing.isPending}
+                      >
+                        Deactivate listing
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Participant settling banner: show when status=settling and current user owes */}
               {eventStatus === "settling" && !isCreator && myParticipant && (() => {
@@ -2135,13 +2272,17 @@ export default function Home() {
                   {newEventLocation && (
                     <p className="text-xs text-muted-foreground">
                       {newBbqCurrency === (currencyForCountry(newEventLocation.countryCode) ?? "EUR")
-                        ? `Auto from ${newEventLocation.countryName}. Change to override.`
-                        : "Manual override."}
+                        ? `Auto from ${newEventLocation.countryName} (${currencyForCountry(newEventLocation.countryCode)}). Change to override.`
+                        : "Manual override"}
                     </p>
                   )}
                   <CurrencyPicker
                     value={newBbqCurrency}
                     onChange={(v) => setNewBbqCurrency(v as CurrencyCode)}
+                    profileFavorites={user?.favoriteCurrencyCodes ?? []}
+                    suggestedCode={newEventLocation ? currencyForCountry(newEventLocation.countryCode) : null}
+                    suggestedNote={newEventLocation?.countryName ? `Auto from ${newEventLocation.countryName}` : null}
+                    recentStorageUserKey={user ? `user-${user.id}` : undefined}
                     data-testid="select-bbq-currency"
                   />
                 </div>

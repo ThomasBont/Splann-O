@@ -86,6 +86,18 @@ export const barbecues = pgTable("barbecues", {
   placeId: text("place_id"),
   /** "auto" = derived from location; "manual" = user override */
   currencySource: text("currency_source").notNull().default("auto"),
+  /** Private/public visibility for platform listing. */
+  visibility: text("visibility").notNull().default("private"),
+  /** Public page mode. */
+  publicMode: text("public_mode").notNull().default("marketing"),
+  /** Listing gate status (phase 1 stub activation). */
+  publicListingStatus: text("public_listing_status").notNull().default("inactive"),
+  publicListingExpiresAt: timestamp("public_listing_expires_at"),
+  publicSlug: text("public_slug").unique(),
+  organizationName: text("organization_name"),
+  publicDescription: text("public_description"),
+  bannerImageUrl: text("banner_image_url"),
+  publicViewCount: integer("public_view_count").notNull().default(0),
   /** Stable invite token for /join/:token links. Generated on create. */
   inviteToken: text("invite_token").unique(),
   /** Event lifecycle: draft | active | settling | settled. Default active. */

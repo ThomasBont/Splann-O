@@ -39,6 +39,10 @@ export function notFound(message = "Not found"): never {
   throw new AppError("NOT_FOUND", message, 404);
 }
 
+export function gone(message = "Gone"): never {
+  throw new AppError("GONE", message, 410);
+}
+
 export function conflict(message: string): never {
   throw new AppError("CONFLICT", message, 409);
 }

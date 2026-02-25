@@ -17,6 +17,9 @@ import UpgradePage from "@/pages/upgrade";
 import CheckEmailPage from "@/pages/check-email";
 import VerifiedPage from "@/pages/verified";
 import VerifyErrorPage from "@/pages/verify-error";
+import SettingsPage from "@/pages/settings";
+import ExplorePage from "@/pages/explore";
+import PublicEventPage from "@/pages/public-event";
 
 function Router() {
   return (
@@ -26,6 +29,9 @@ function Router() {
       <Route path="/basic" component={Basic} />
       <Route path="/login" component={LoginPage} />
       <Route path="/app" component={AppRoute} />
+      <Route path="/settings" component={SettingsPage} />
+      <Route path="/explore" component={ExplorePage} />
+      <Route path="/events/:slug" component={PublicEventPage} />
       <Route path="/reset-password" component={ResetPassword} />
       <Route path="/check-email" component={CheckEmailPage} />
       <Route path="/verified" component={VerifiedPage} />

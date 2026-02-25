@@ -102,9 +102,11 @@ export async function createBarbecue(
   let creatorUser: Awaited<ReturnType<typeof userRepo.findByUsername>> | undefined;
   if (creatorId) {
     creatorUser = await userRepo.findByUsername(creatorId);
-    const limits = getLimits(creatorUser ?? undefined);
-    const count = await bbqRepo.countOwnedByCreator(creatorId);
-    if (count >= limits.maxEvents) upgradeRequired("more_events", { current: count, max: limits.maxEvents });
+    if (process.env.NODE_ENV !== "development") {
+      const limits = getLimits(creatorUser ?? undefined);
+      const count = await bbqRepo.countOwnedByCreator(creatorId);
+      if (count >= limits.maxEvents) upgradeRequired("more_events", { current: count, max: limits.maxEvents });
+    }
   }
 
   const currencySource = input.currencySource ?? "auto";

@@ -47,6 +47,7 @@ export function LocationCombobox({
     () => searchLocations(search),
     [search]
   );
+  const showMinCharsMessage = search.trim().length > 0 && search.trim().length < 2;
 
   const handleSelect = (loc: LocationOption) => {
     onChange(loc);
@@ -101,7 +102,9 @@ export function LocationCombobox({
             className="h-9"
           />
           <CommandList className="max-h-[280px]">
-            <CommandEmpty>No locations found.</CommandEmpty>
+            <CommandEmpty>
+              {showMinCharsMessage ? "Type at least 2 characters" : "No locations found"}
+            </CommandEmpty>
             {value && (
               <CommandGroup>
                 <CommandItem

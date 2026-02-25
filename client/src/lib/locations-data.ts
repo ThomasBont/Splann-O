@@ -28,7 +28,13 @@ const LOCATIONS: LocationOption[] = [
   { city: "Amsterdam", countryCode: "NL", countryName: "Netherlands", locationName: "Amsterdam, Netherlands" },
   { city: "Paris", countryCode: "FR", countryName: "France", locationName: "Paris, France" },
   { city: "Barcelona", countryCode: "ES", countryName: "Spain", locationName: "Barcelona, Spain" },
+  { city: "Bilbao", countryCode: "ES", countryName: "Spain", locationName: "Bilbao, Spain" },
+  { city: "Granada", countryCode: "ES", countryName: "Spain", locationName: "Granada, Spain" },
   { city: "Madrid", countryCode: "ES", countryName: "Spain", locationName: "Madrid, Spain" },
+  { city: "Málaga", countryCode: "ES", countryName: "Spain", locationName: "Málaga, Spain" },
+  { city: "Sevilla", countryCode: "ES", countryName: "Spain", locationName: "Sevilla, Spain" },
+  { city: "Valencia", countryCode: "ES", countryName: "Spain", locationName: "Valencia, Spain" },
+  { city: "Alicante", countryCode: "ES", countryName: "Spain", locationName: "Alicante, Spain" },
   { city: "Rome", countryCode: "IT", countryName: "Italy", locationName: "Rome, Italy" },
   { city: "Milan", countryCode: "IT", countryName: "Italy", locationName: "Milan, Italy" },
   { city: "Berlin", countryCode: "DE", countryName: "Germany", locationName: "Berlin, Germany" },
@@ -66,13 +72,49 @@ const LOCATIONS: LocationOption[] = [
   { city: "Bali", countryCode: "ID", countryName: "Indonesia", locationName: "Bali, Indonesia" },
 ];
 
+function normalize(s: string) {
+  return s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
 export function searchLocations(query: string): LocationOption[] {
-  if (!query.trim()) return LOCATIONS.slice(0, 12);
-  const q = query.toLowerCase().trim();
-  return LOCATIONS.filter(
-    (loc) =>
-      loc.city.toLowerCase().includes(q) ||
-      loc.countryName.toLowerCase().includes(q) ||
-      loc.locationName.toLowerCase().includes(q)
-  ).slice(0, 15);
+  const q = normalize(query);
+  if (!q) return LOCATIONS.slice(0, 12);
+  if (q.length < 2) return [];
+
+  const ranked = LOCATIONS.map((loc) => {
+    const city = normalize(loc.city);
+    const countryName = normalize(loc.countryName);
+    const countryCode = normalize(loc.countryCode);
+    const locationName = normalize(loc.locationName);
+
+    let rank = Number.POSITIVE_INFINITY;
+
+    if (city === q) {
+      rank = 0;
+    } else if (city.startsWith(q)) {
+      rank = 1;
+    } else if (city.includes(q)) {
+      rank = 2;
+    } else if (
+      countryName.includes(q) ||
+      countryCode.includes(q)
+    ) {
+      rank = 3;
+    } else if (locationName.includes(q)) {
+      rank = 4;
+    }
+
+    return { loc, rank };
+  })
+    .filter((item) => Number.isFinite(item.rank))
+    .sort((a, b) => {
+      if (a.rank !== b.rank) return a.rank - b.rank;
+      return a.loc.locationName.localeCompare(b.loc.locationName);
+    });
+
+  return ranked.slice(0, 15).map((item) => item.loc);
 }

@@ -31,13 +31,18 @@ export function useCreateBarbecue() {
     mutationFn: async (data: {
       name: string;
       date: string;
-      currency: string;
+      currency?: string;
       creatorId?: string;
       isPublic?: boolean;
       allowOptInExpenses?: boolean;
       area?: string;
       eventType?: string;
       templateData?: unknown;
+      locationName?: string | null;
+      city?: string | null;
+      countryCode?: string | null;
+      countryName?: string | null;
+      placeId?: string | null;
     }) => {
       const res = await fetch(api.barbecues.create.path, {
         method: "POST",
@@ -63,12 +68,32 @@ export function useCreateBarbecue() {
 export function useUpdateBarbecue() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, allowOptInExpenses, templateData, status }: { id: number; allowOptInExpenses?: boolean; templateData?: unknown; status?: "draft" | "active" | "settling" | "settled" }) => {
+    mutationFn: async (updates: {
+      id: number;
+      allowOptInExpenses?: boolean;
+      templateData?: unknown;
+      status?: "draft" | "active" | "settling" | "settled";
+      locationName?: string | null;
+      city?: string | null;
+      countryCode?: string | null;
+      countryName?: string | null;
+      placeId?: string | null;
+      currency?: string;
+      currencySource?: "auto" | "manual";
+    }) => {
+      const { id, ...rest } = updates;
       const url = buildUrl(api.barbecues.update.path, { id });
       const body: Record<string, unknown> = {};
-      if (allowOptInExpenses !== undefined) body.allowOptInExpenses = allowOptInExpenses;
-      if (templateData !== undefined) body.templateData = templateData;
-      if (status !== undefined) body.status = status;
+      if (rest.allowOptInExpenses !== undefined) body.allowOptInExpenses = rest.allowOptInExpenses;
+      if (rest.templateData !== undefined) body.templateData = rest.templateData;
+      if (rest.status !== undefined) body.status = rest.status;
+      if (rest.locationName !== undefined) body.locationName = rest.locationName;
+      if (rest.city !== undefined) body.city = rest.city;
+      if (rest.countryCode !== undefined) body.countryCode = rest.countryCode;
+      if (rest.countryName !== undefined) body.countryName = rest.countryName;
+      if (rest.placeId !== undefined) body.placeId = rest.placeId;
+      if (rest.currency !== undefined) body.currency = rest.currency;
+      if (rest.currencySource !== undefined) body.currencySource = rest.currencySource;
       const res = await fetch(url, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },

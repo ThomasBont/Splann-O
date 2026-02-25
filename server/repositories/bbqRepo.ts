@@ -75,13 +75,34 @@ export const bbqRepo = {
 
   async update(
     id: number,
-    updates: { allowOptInExpenses?: boolean; templateData?: unknown; status?: string; settledAt?: Date | null }
+    updates: {
+      allowOptInExpenses?: boolean;
+      templateData?: unknown;
+      status?: string;
+      settledAt?: Date | null;
+      locationName?: string | null;
+      city?: string | null;
+      countryCode?: string | null;
+      countryName?: string | null;
+      placeId?: string | null;
+      currency?: string;
+      currencySource?: "auto" | "manual";
+      updatedAt?: Date;
+    }
   ): Promise<Barbecue | undefined> {
     const set: Record<string, unknown> = {};
     if (updates.allowOptInExpenses !== undefined) set.allowOptInExpenses = updates.allowOptInExpenses;
     if (updates.templateData !== undefined) set.templateData = updates.templateData;
     if (updates.status !== undefined) set.status = updates.status;
     if (updates.settledAt !== undefined) set.settledAt = updates.settledAt;
+    if (updates.locationName !== undefined) set.locationName = updates.locationName;
+    if (updates.city !== undefined) set.city = updates.city;
+    if (updates.countryCode !== undefined) set.countryCode = updates.countryCode;
+    if (updates.countryName !== undefined) set.countryName = updates.countryName;
+    if (updates.placeId !== undefined) set.placeId = updates.placeId;
+    if (updates.currency !== undefined) set.currency = updates.currency;
+    if (updates.currencySource !== undefined) set.currencySource = updates.currencySource;
+    if (Object.keys(set).length > 0) set.updatedAt = updates.updatedAt ?? new Date();
     if (Object.keys(set).length === 0) return this.getById(id);
     const [b] = await db.update(barbecues).set(set as Record<string, unknown>).where(eq(barbecues.id, id)).returning();
     return b;

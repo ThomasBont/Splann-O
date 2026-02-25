@@ -43,9 +43,21 @@ router.get(p(api.barbecues.listPublic.path), asyncHandler(async (_req, res) => {
   res.json(items);
 }));
 
+const countryCodeSchema = z.string().length(2, "countryCode must be ISO-3166-1 alpha-2 (2 chars)").transform((s) => s.toUpperCase());
+const currencyCodeSchema = z.string().length(3, "currency must be ISO-4217 (3 chars)").transform((s) => s.toUpperCase());
+
 router.post(p(api.barbecues.create.path), asyncHandler(async (req, res) => {
-  const bodySchema = api.barbecues.create.input.extend({ date: z.coerce.date() });
-  const input = bodySchema.parse(req.body);
+  const bodySchema = api.barbecues.create.input.extend({
+    date: z.coerce.date(),
+    countryCode: countryCodeSchema.optional().nullable(),
+    currency: currencyCodeSchema.optional(),
+    currencySource: z.enum(["auto", "manual"]).optional(),
+  });
+  const parsed = bodySchema.parse(req.body);
+  const input = {
+    ...parsed,
+    currencySource: (parsed.currencySource as "auto" | "manual" | undefined) ?? "auto",
+  };
   const created = await bbqService.createBarbecue(input, req.session?.username);
   res.status(201).json(created);
 }));
@@ -94,9 +106,16 @@ router.patch(p(api.barbecues.update.path), requireAuth, asyncHandler(async (req,
     allowOptInExpenses: z.boolean().optional(),
     templateData: z.unknown().optional(),
     status: z.enum(["draft", "active", "settling", "settled"]).optional(),
+    locationName: z.string().nullable().optional(),
+    city: z.string().nullable().optional(),
+    countryCode: z.string().length(2).transform((s) => s.toUpperCase()).nullable().optional(),
+    countryName: z.string().nullable().optional(),
+    placeId: z.string().nullable().optional(),
+    currency: z.string().length(3).transform((s) => s.toUpperCase()).optional(),
+    currencySource: z.enum(["auto", "manual"]).optional(),
   });
   const body = schema.parse(req.body);
-  const updated = await bbqRepo.update(id, body);
+  const updated = await bbqService.updateBarbecue(id, body, req.session!.username);
   if (!updated) notFound("BBQ not found");
   res.json(updated);
 }));

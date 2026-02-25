@@ -12,7 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { CurrencyPicker } from "@/components/currency-picker";
-import { Plus, MoreHorizontal, Link2, Sparkles } from "lucide-react";
+import { Plus, MoreHorizontal, Link2, Sparkles, MapPin } from "lucide-react";
 
 export interface EventHeaderProps {
   category: EventCategory;
@@ -37,6 +37,8 @@ export interface EventHeaderProps {
   /** Optional: invite link for "Copy invite link" in dropdown */
   inviteLinkUrl?: string;
   onCopyInviteLink?: () => void;
+  /** Optional: edit trip location (trips only) */
+  onEditLocation?: () => void;
   /** Event status for pill + Settle up CTA */
   eventStatus?: "draft" | "active" | "settling" | "settled";
   onSettleUp?: () => void;
@@ -81,6 +83,7 @@ export function EventHeader({
   onDelete,
   inviteLinkUrl,
   onCopyInviteLink,
+  onEditLocation,
   eventStatus = "active",
   onSettleUp,
   settleUpPending,
@@ -163,6 +166,12 @@ export function EventHeader({
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-56">
+                  {onEditLocation && (
+                    <DropdownMenuItem onClick={onEditLocation}>
+                      <MapPin className="w-4 h-4 mr-2" />
+                      Edit location
+                    </DropdownMenuItem>
+                  )}
                   {inviteLinkUrl && onCopyInviteLink && import.meta.env.VITE_ENABLE_SHARING !== "false" && (
                     <DropdownMenuItem onClick={onCopyInviteLink}>
                       <Link2 className="w-4 h-4 mr-2" />

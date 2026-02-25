@@ -40,7 +40,10 @@ import {
 import { AddPersonDialog } from "@/components/add-person-dialog";
 import { AddExpenseDialog } from "@/components/add-expense-dialog";
 import { CurrencyPicker } from "@/components/currency-picker";
+import { LocationCombobox } from "@/components/location-combobox";
+import { type LocationOption, currencyForCountry } from "@/lib/locations-data";
 import { EventHeader } from "@/components/event/EventHeader";
+import { EditTripLocationModal } from "@/components/event/EditTripLocationModal";
 import { SettleUpModal } from "@/components/event/SettleUpModal";
 import { QuickAddChips } from "@/components/event/QuickAddChips";
 import { EmptyState } from "@/components/event/EmptyState";
@@ -429,6 +432,7 @@ export default function Home() {
   const [newBbqAllowOptIn, setNewBbqAllowOptIn] = useState(false);
   const [newEventArea, setNewEventArea] = useState<"parties" | "trips">("parties");
   const [newEventType, setNewEventType] = useState<string>("barbecue");
+  const [newEventLocation, setNewEventLocation] = useState<LocationOption | null>(null);
 
   const [isAddPersonOpen, setIsAddPersonOpen] = useState(false);
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
@@ -457,6 +461,7 @@ export default function Home() {
   const queryClient = useQueryClient();
   const [showSettledConfetti, setShowSettledConfetti] = useState(false);
   const settledCelebrationShownRef = useRef<number | null>(null);
+  const [editTripLocationOpen, setEditTripLocationOpen] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -543,11 +548,16 @@ export default function Home() {
   };
 
   const formatMoney = (amount: number) => {
+    if (!Number.isFinite(amount)) return `${displayCurrencyInfo.symbol}—`;
     const converted = convertCurrency(amount, currency, displayCurrency);
-    return `${displayCurrencyInfo.symbol}${converted.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const num = Number.isFinite(converted) ? converted : 0;
+    return `${displayCurrencyInfo.symbol}${num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
-  const totalSpent = expenses.reduce((sum: number, exp: ExpenseWithParticipant) => sum + Number(exp.amount), 0);
+  const totalSpent = expenses.reduce(
+    (sum: number, exp: ExpenseWithParticipant) => sum + (Number.isFinite(Number(exp.amount)) ? Number(exp.amount) : 0),
+    0
+  );
   const participantCount = participants.length;
   const allowOptIn = !!selectedBbq?.allowOptInExpenses;
   const shareSet = new Set(expenseSharesList.map(s => `${s.expenseId}:${s.participantId}`));
@@ -625,22 +635,31 @@ export default function Home() {
     } else if (newEventType === "birthday") {
       templateData = defaultBirthdayTemplateData;
     }
-    createBbq.mutate({
+    const payload: Parameters<typeof createBbq.mutate>[0] = {
       name: newBbqName.trim(),
       date: new Date(newBbqDate).toISOString(),
-      currency: newBbqCurrency,
       creatorId: username || undefined,
       isPublic: newBbqIsPublic,
       allowOptInExpenses: newBbqAllowOptIn,
       area: newEventArea,
       eventType: newEventType,
       templateData,
-    }, {
+    };
+    if (newEventArea === "trips" && newEventLocation) {
+      payload.locationName = newEventLocation.locationName;
+      payload.city = newEventLocation.city;
+      payload.countryCode = newEventLocation.countryCode;
+      payload.countryName = newEventLocation.countryName;
+      // Backend sets currency from country
+    } else {
+      payload.currency = newBbqCurrency; // parties or trips without location
+    }
+    createBbq.mutate(payload, {
       onSuccess: (data: Barbecue) => {
         setSelectedBbqId(data.id);
         setArea(getEventArea(data));
         setNewBbqName(""); setNewBbqDate(new Date().toISOString().split('T')[0]); setNewBbqAllowOptIn(false);
-        setNewEventArea("parties"); setNewEventType("barbecue");
+        setNewEventArea("parties"); setNewEventType("barbecue"); setNewEventLocation(null);
         setIsNewBbqOpen(false);
       },
       onError: (err: unknown) => {
@@ -1173,7 +1192,12 @@ export default function Home() {
                 dateStr={selectedBbq?.date ? new Date(selectedBbq.date).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : undefined}
                 currencySymbol={displayCurrencyInfo.symbol}
                 displayCurrency={displayCurrency}
-                onCurrencyChange={(v) => setDisplayCurrency(v as CurrencyCode)}
+                onCurrencyChange={(v) => {
+                  setDisplayCurrency(v as CurrencyCode);
+                  if (isCreator && area === "trips" && selectedBbqId && selectedBbq?.creatorId === username) {
+                    updateBbq.mutate({ id: selectedBbqId, currency: v, currencySource: "manual" });
+                  }
+                }}
                 profileFavorites={user?.preferredCurrencyCodes}
                 onAddExpense={() => { setRecommendedExpenseTemplate(null); setEditingExpense(null); setIsAddExpenseOpen(true); }}
                 addExpenseLabel={t.addExpense}
@@ -1187,6 +1211,7 @@ export default function Home() {
                     ? `${typeof window !== "undefined" ? window.location.origin : ""}/join/${selectedBbq.inviteToken}`
                     : undefined
                 }
+                onEditLocation={area === "trips" && isCreator ? () => setEditTripLocationOpen(true) : undefined}
                 onCopyInviteLink={
                   selectedBbq?.inviteToken
                     ? async () => {
@@ -1250,14 +1275,18 @@ export default function Home() {
                 )}
               </div>
 
-              {/* Currency conversion bar: Total + Fair Share in 5 currencies */}
-              {totalSpent > 0 && (
+              {/* Currency conversion bar: Total + Fair Share in 5 currencies — hidden for trips (single base currency in header) */}
+              {totalSpent > 0 && area !== "trips" && (
                 <div className="mt-2 -mx-1 overflow-x-auto overflow-y-hidden" data-testid="currency-conversion-bar">
                   <div className="flex gap-2 min-w-max px-1 py-1 pb-1">
                     {CONVERSION_CURRENCIES.map((code) => {
                       const info = getCurrency(code) ?? getCurrency("EUR")!;
-                      const totalConverted = convertCurrency(totalSpent, currency, code);
-                      const fairConverted = convertCurrency(fairShare, currency, code);
+                      const totalConverted = Number.isFinite(convertCurrency(totalSpent, currency, code))
+                        ? convertCurrency(totalSpent, currency, code)
+                        : 0;
+                      const fairConverted = Number.isFinite(convertCurrency(fairShare, currency, code))
+                        ? convertCurrency(fairShare, currency, code)
+                        : 0;
                       const isEventCurrency = code === currency;
                       return (
                         <div
@@ -1919,8 +1948,8 @@ export default function Home() {
       {/* Create event dialog — premium section-based layout */}
       <Modal
         open={isNewBbqOpen}
-        onClose={() => { setIsNewBbqOpen(false); setNewEventArea(area); setNewEventType(area === "trips" ? "city_trip" : "barbecue"); }}
-        onOpenChange={(open) => { setIsNewBbqOpen(open); if (!open) { setNewEventArea(area); setNewEventType(area === "trips" ? "city_trip" : "barbecue"); } }}
+        onClose={() => { setIsNewBbqOpen(false); setNewEventArea(area); setNewEventType(area === "trips" ? "city_trip" : "barbecue"); setNewEventLocation(null); }}
+        onOpenChange={(open) => { setIsNewBbqOpen(open); if (!open) { setNewEventArea(area); setNewEventType(area === "trips" ? "city_trip" : "barbecue"); setNewEventLocation(null); } }}
         title={t.events.newEvent}
         subtitle={t.subtitle}
         size="2xl"
@@ -2014,6 +2043,18 @@ export default function Home() {
                   </div>
                 )}
               </div>
+              {newEventArea === "trips" && (
+                <div className="space-y-2">
+                  <Label className="text-muted-foreground">Location</Label>
+                  <LocationCombobox
+                    value={newEventLocation}
+                    onChange={setNewEventLocation}
+                    placeholder="Search city or country…"
+                    data-testid="input-trip-location"
+                  />
+                  <p className="text-xs text-muted-foreground">Currency will be set automatically from the country.</p>
+                </div>
+              )}
               <div className="space-y-2">
                 <Label className="text-muted-foreground">{t.bbq.bbqName}</Label>
                 <Input
@@ -2086,7 +2127,7 @@ export default function Home() {
             </div>
           </ModalSection>
 
-          {/* Section 4 — Advanced (collapsible) */}
+          {/* Section 4 — Advanced (collapsible): Currency for parties, or override for trips without location */}
           <Accordion type="single" collapsible className="rounded-xl border border-border/60 overflow-hidden">
             <AccordionItem value="advanced" className="border-0">
               <AccordionTrigger className="px-4 py-3 hover:no-underline hover:bg-muted/30 [&[data-state=open]>svg]:rotate-180">
@@ -2095,17 +2136,60 @@ export default function Home() {
               <AccordionContent className="px-4 pb-4 pt-0">
                 <div className="space-y-2">
                   <Label className="text-muted-foreground">{t.bbq.currency}</Label>
-                  <CurrencyPicker
-                    value={newBbqCurrency}
-                    onChange={(v) => setNewBbqCurrency(v as CurrencyCode)}
-                    data-testid="select-bbq-currency"
-                  />
+                  {newEventArea === "trips" && newEventLocation ? (
+                    <p className="text-sm text-muted-foreground py-2">
+                      Auto: {getCurrency(currencyForCountry(newEventLocation.countryCode))?.symbol ?? "€"}{" "}
+                      {currencyForCountry(newEventLocation.countryCode)} ({newEventLocation.countryName})
+                    </p>
+                  ) : (
+                    <CurrencyPicker
+                      value={newBbqCurrency}
+                      onChange={(v) => setNewBbqCurrency(v as CurrencyCode)}
+                      data-testid="select-bbq-currency"
+                    />
+                  )}
                 </div>
               </AccordionContent>
             </AccordionItem>
           </Accordion>
         </div>
       </Modal>
+
+      {/* Edit Trip Location Modal */}
+      {area === "trips" && selectedBbq && (
+        <EditTripLocationModal
+          open={editTripLocationOpen}
+          onOpenChange={setEditTripLocationOpen}
+          currentLocation={
+            selectedBbq.locationName && selectedBbq.city && selectedBbq.countryCode
+              ? {
+                  locationName: selectedBbq.locationName,
+                  city: selectedBbq.city,
+                  countryCode: selectedBbq.countryCode,
+                  countryName: selectedBbq.countryName ?? "",
+                }
+              : null
+          }
+          currentCurrency={(selectedBbq.currency as string) || "EUR"}
+          currencySource={(selectedBbq.currencySource as "auto" | "manual") || "auto"}
+          onSave={(opts) => {
+            if (!selectedBbqId) return;
+            const payload: Parameters<typeof updateBbq.mutate>[0] = {
+              id: selectedBbqId,
+              locationName: opts.locationName,
+              city: opts.city,
+              countryCode: opts.countryCode,
+              countryName: opts.countryName,
+            };
+            if (opts.switchCurrency && opts.newCurrency) {
+              payload.currency = opts.newCurrency;
+              payload.currencySource = "auto";
+            }
+            updateBbq.mutate(payload);
+          }}
+          pending={updateBbq.isPending}
+        />
+      )}
 
       {/* Settle Up Modal */}
       <SettleUpModal

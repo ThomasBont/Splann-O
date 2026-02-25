@@ -44,7 +44,18 @@ export const api = {
     update: {
       method: 'PATCH' as const,
       path: '/api/barbecues/:id' as const,
-      input: z.object({ allowOptInExpenses: z.boolean().optional(), templateData: z.unknown().optional(), status: z.enum(["draft", "active", "settling", "settled"]).optional() }),
+      input: z.object({
+        allowOptInExpenses: z.boolean().optional(),
+        templateData: z.unknown().optional(),
+        status: z.enum(["draft", "active", "settling", "settled"]).optional(),
+        locationName: z.string().nullable().optional(),
+        city: z.string().nullable().optional(),
+        countryCode: z.string().length(2).nullable().optional(),
+        countryName: z.string().nullable().optional(),
+        placeId: z.string().nullable().optional(),
+        currency: z.string().length(3).optional(),
+        currencySource: z.enum(["auto", "manual"]).optional(),
+      }),
       responses: {
         200: z.custom<Barbecue>(),
         403: errorSchemas.validation,

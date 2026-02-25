@@ -12,6 +12,8 @@ export const users = pgTable("users", {
   profileImageUrl: text("profile_image_url"),
   bio: text("bio"),
   preferredCurrencyCodes: text("preferred_currency_codes"),
+  /** User default currency (ISO-4217) for auto-currency fallback */
+  defaultCurrencyCode: text("default_currency_code"),
   /** Plan tier for feature gating. Default free. */
   plan: text("plan").notNull().default("free"),
   /** When pro plan expires (nullable for free). */
@@ -53,6 +55,14 @@ export const barbecues = pgTable("barbecues", {
   area: text("area").notNull().default("parties"),
   eventType: text("event_type").notNull().default("default"),
   templateData: json("template_data").$type<unknown | null>().default(null),
+  /** Trip location: display string e.g. "Amsterdam, Netherlands" */
+  locationName: text("location_name"),
+  city: text("city"),
+  countryCode: text("country_code"),
+  countryName: text("country_name"),
+  placeId: text("place_id"),
+  /** "auto" = derived from location; "manual" = user override */
+  currencySource: text("currency_source").notNull().default("auto"),
   /** Stable invite token for /join/:token links. Generated on create. */
   inviteToken: text("invite_token").unique(),
   /** Event lifecycle: draft | active | settling | settled. Default active. */

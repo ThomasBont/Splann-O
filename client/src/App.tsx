@@ -14,6 +14,9 @@ import AppRoute from "@/pages/app-route";
 import ResetPassword from "@/pages/reset-password";
 import JoinPage from "@/pages/join";
 import UpgradePage from "@/pages/upgrade";
+import CheckEmailPage from "@/pages/check-email";
+import VerifiedPage from "@/pages/verified";
+import VerifyErrorPage from "@/pages/verify-error";
 
 function Router() {
   return (
@@ -24,6 +27,9 @@ function Router() {
       <Route path="/login" component={LoginPage} />
       <Route path="/app" component={AppRoute} />
       <Route path="/reset-password" component={ResetPassword} />
+      <Route path="/check-email" component={CheckEmailPage} />
+      <Route path="/verified" component={VerifiedPage} />
+      <Route path="/verify-error" component={VerifyErrorPage} />
       <Route path="/theme-gallery" component={ThemeGalleryPage} />
       <Route path="/upgrade" component={UpgradePage} />
       <Route component={NotFound} />

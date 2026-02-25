@@ -10,6 +10,18 @@ import { badRequest, forbidden, notFound } from "../lib/errors";
 
 const router = Router();
 
+/** Build proxy-safe origin: x-forwarded-proto/host → req.protocol/host → localhost:(PORT|5001) */
+function getRequestOrigin(req: Request): string {
+  const proto = (req.headers["x-forwarded-proto"] as string) || req.protocol || "http";
+  const host = (req.headers["x-forwarded-host"] as string) || req.headers.host || `localhost:${process.env.PORT || 5001}`;
+  return `${proto}://${host}`.replace(/\/$/, "");
+}
+
+function getAppBase(req: Request): string {
+  const base = process.env.APP_URL ?? getRequestOrigin(req);
+  return base.replace(/\/$/, "");
+}
+
 function requireAdmin(req: Request): void {
   const admins = (process.env.ADMIN_USERNAMES ?? "")
     .split(",")
@@ -51,7 +63,9 @@ router.post(
       password: z.string().min(8),
     });
     const input = schema.parse(req.body);
-    const { user, emailSent } = await authService.register(input);
+    const base = getAppBase(req);
+    const verifyUrlBuilder = (token: string) => `${base}/api/auth/verify-email?token=${encodeURIComponent(token)}`;
+    const { user, emailSent } = await authService.register(input, verifyUrlBuilder);
     req.session!.userId = user.id;
     req.session!.username = user.username;
     req.session!.save((err: Error) => {
@@ -95,12 +109,15 @@ router.post(
   passwordResetLimiter,
   asyncHandler(async (req, res) => {
     const { email } = z.object({ email: z.string().email() }).parse(req.body);
-    const proto = req.headers["x-forwarded-proto"] || req.protocol || "https";
-    const host = req.headers["x-forwarded-host"] || req.headers.host || "localhost:5000";
+    const base = getAppBase(req);
     const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || req.socket.remoteAddress || "unknown";
-    const resetUrlBuilder = (token: string) => `${proto}://${host}/reset-password?token=${token}`;
-    const { emailSent } = await authService.requestPasswordReset(email, ip, resetUrlBuilder);
-    res.json({ ok: true, emailSent });
+    const resetUrlBuilder = (token: string) => `${base}/reset-password?token=${token}`;
+    const { resetUrl } = await authService.requestPasswordReset(email, ip, resetUrlBuilder);
+    if (process.env.NODE_ENV === "development" && resetUrl) {
+      const sep = "─────────────────────────────────────────────────────────────";
+      console.log(["", sep, "  FORGOT PASSWORD — reset link (dev)", sep, `  RESET URL: ${resetUrl}`, `  COPY: ${resetUrl}`, sep, ""].join("\n"));
+    }
+    res.json({ ok: true });
   })
 );
 
@@ -111,6 +128,31 @@ router.post(
     const { token, password } = z.object({ token: z.string(), password: z.string().min(8) }).parse(req.body);
     await authService.resetPassword(token, password);
     res.json({ ok: true });
+  })
+);
+
+router.post(
+  "/auth/resend-verification",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const base = getAppBase(req);
+    const verifyUrlBuilder = (token: string) => `${base}/api/auth/verify-email?token=${encodeURIComponent(token)}`;
+    const result = await authService.resendVerification(req.session!.userId!, verifyUrlBuilder);
+    res.json(result);
+  })
+);
+
+router.get(
+  "/auth/verify-email",
+  asyncHandler(async (req, res) => {
+    const token = (req.query.token as string)?.trim() || "";
+    const userId = await authService.verifyEmailToken(token);
+    const base = getAppBase(req);
+    if (userId) {
+      res.redirect(`${base}/verified`);
+    } else {
+      res.redirect(`${base}/verify-error`);
+    }
   })
 );
 

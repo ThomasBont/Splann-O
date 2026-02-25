@@ -9,6 +9,7 @@ export type AuthUser = {
   profileImageUrl?: string;
   bio?: string;
   preferredCurrencyCodes?: string[];
+  emailVerifiedAt?: string;
 };
 
 export function useAuth() {
@@ -127,6 +128,21 @@ export function useAuth() {
     },
   });
 
+  const resendVerification = useMutation({
+    mutationFn: async () => {
+      const res = await fetch('/api/auth/resend-verification', {
+        method: 'POST',
+        credentials: 'include',
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'resend_failed');
+      return data as { sent: boolean };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/auth/me'] });
+    },
+  });
+
   const deleteAccount = useMutation({
     mutationFn: async () => {
       const res = await fetch('/api/users/me', { method: 'DELETE', credentials: 'include' });
@@ -153,6 +169,7 @@ export function useAuth() {
     refresh,
     forgotPassword,
     resetPassword,
+    resendVerification,
     updateProfile,
     deleteAccount,
   };

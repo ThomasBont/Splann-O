@@ -44,16 +44,17 @@ export async function createBarbecue(
   }
 
   const currencySource = input.currencySource ?? "auto";
-  const isTrip = input.area === "trips";
-  let currency = input.currency?.trim();
+  let currency = input.currency?.trim()?.toUpperCase();
 
-  if (isTrip && currencySource === "auto" && !currency && input.countryCode) {
+  if (currencySource !== "manual" || !currency) {
     currency = resolveTripCurrency({
       countryCode: input.countryCode,
       userDefaultCurrency: creatorUser?.defaultCurrencyCode,
     });
   }
-  if (!currency?.trim()) currency = creatorUser?.defaultCurrencyCode ?? "EUR";
+  if (!currency?.trim()) {
+    currency = creatorUser?.defaultCurrencyCode ?? "EUR";
+  }
 
   const created = await bbqRepo.create({
     ...input,
@@ -95,7 +96,6 @@ export async function updateBarbecue(
   if (!bbq) return undefined;
   if (bbq.creatorId !== sessionUsername) return undefined;
 
-  const isTrip = bbq.area === "trips";
   const set: Parameters<typeof bbqRepo.update>[1] = {
     allowOptInExpenses: updates.allowOptInExpenses,
     templateData: updates.templateData,
@@ -113,7 +113,7 @@ export async function updateBarbecue(
     set.currencySource = updates.currencySource ?? "manual";
   } else if (updates.currencySource !== undefined) {
     set.currencySource = updates.currencySource;
-  } else if (isTrip && updates.countryCode !== undefined && bbq.currencySource === "auto") {
+  } else if (updates.countryCode !== undefined && bbq.currencySource === "auto") {
     const creatorUser = sessionUsername ? await userRepo.findByUsername(sessionUsername) : undefined;
     set.currency = resolveTripCurrency({
       countryCode: updates.countryCode,

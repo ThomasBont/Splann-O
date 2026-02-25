@@ -1,7 +1,7 @@
 /**
  * DB layer: pg Pool + Drizzle. Used by session store and repositories.
  */
-
+import "dotenv/config";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import * as schema from "@shared/schema";

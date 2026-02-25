@@ -20,6 +20,8 @@ export interface EventHeaderProps {
   title: string;
   /** Formatted date string, optional */
   dateStr?: string;
+  /** Location display e.g. "Amsterdam, Netherlands" */
+  locationDisplay?: string | null;
   /** Currency symbol for display (e.g. in stats) */
   currencySymbol: string;
   displayCurrency: string;
@@ -70,6 +72,7 @@ export function EventHeader({
   type,
   title,
   dateStr,
+  locationDisplay,
   currencySymbol,
   displayCurrency,
   onCurrencyChange,
@@ -94,6 +97,7 @@ export function EventHeader({
 
   const subtitleParts = [eventTypeLabel];
   if (dateStr) subtitleParts.push(dateStr);
+  if (locationDisplay) subtitleParts.push(locationDisplay);
 
   return (
     <div className="relative overflow-hidden rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] shadow-[var(--shadow-sm)]">

@@ -1,6 +1,7 @@
 import { pgTable, text, serial, numeric, integer, timestamp, boolean, unique, json } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+import { sql } from "drizzle-orm";
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -11,14 +12,36 @@ export const users = pgTable("users", {
   avatarUrl: text("avatar_url"),
   profileImageUrl: text("profile_image_url"),
   bio: text("bio"),
+
+  // (Optional) If this is meant to be a list, consider making it .array()
   preferredCurrencyCodes: text("preferred_currency_codes"),
+
   /** User default currency (ISO-4217) for auto-currency fallback */
-  defaultCurrencyCode: text("default_currency_code"),
+  defaultCurrencyCode: text("default_currency_code").notNull().default("EUR"),
+
+  /** User pinned/favorite currencies for quick switching */
+  favoriteCurrencyCodes: text("favorite_currency_codes")
+    .array()
+    .notNull()
+    .default(sql`'{}'::text[]`),
+
   /** Plan tier for feature gating. Default free. */
   plan: text("plan").notNull().default("free"),
   /** When pro plan expires (nullable for free). */
   planExpiresAt: timestamp("plan_expires_at"),
+  /** When email was verified (null = not verified). */
+  emailVerifiedAt: timestamp("email_verified_at"),
+  /** Hashed email verification token. */
+  emailVerifyToken: text("email_verify_token"),
+  /** Token expiry. */
+  emailVerifyTokenExpiresAt: timestamp("email_verify_token_expires_at"),
   createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const appMeta = pgTable("app_meta", {
+  id: integer("id").primaryKey(),
+  schemaVersion: integer("schema_version").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }),
 });
 
 export const passwordResetTokens = pgTable("password_reset_tokens", {

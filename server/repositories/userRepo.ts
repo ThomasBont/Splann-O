@@ -75,6 +75,35 @@ export const userRepo = {
     await db.update(passwordResetTokens).set({ usedAt: new Date() }).where(eq(passwordResetTokens.id, id));
   },
 
+  async setEmailVerifyToken(userId: number, hashedToken: string, expiresAt: Date): Promise<void> {
+    await db
+      .update(users)
+      .set({
+        emailVerifyToken: hashedToken,
+        emailVerifyTokenExpiresAt: expiresAt,
+      })
+      .where(eq(users.id, userId));
+  },
+
+  async findByEmailVerifyToken(hashedToken: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.emailVerifyToken, hashedToken));
+    if (!user || !user.emailVerifyTokenExpiresAt || new Date() > user.emailVerifyTokenExpiresAt) return undefined;
+    return user;
+  },
+
+  async verifyEmailAndClearToken(userId: number): Promise<User | undefined> {
+    const [u] = await db
+      .update(users)
+      .set({
+        emailVerifiedAt: new Date(),
+        emailVerifyToken: null,
+        emailVerifyTokenExpiresAt: null,
+      })
+      .where(eq(users.id, userId))
+      .returning();
+    return u;
+  },
+
   async getPublicProfileWithStats(username: string): Promise<
     | { user: Pick<User, "id" | "username" | "displayName" | "profileImageUrl" | "avatarUrl" | "bio">; stats: { eventsCount: number; friendsCount: number; totalSpent: number } }
     | undefined

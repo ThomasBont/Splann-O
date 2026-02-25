@@ -305,6 +305,7 @@ interface Translations {
     checkEmail: string;
     checkEmailDesc: string;
     emailNotSentHint: string;
+    forgotPasswordSuccessGeneric: string;
     welcomeEmailNotSent: string;
     newPassword: string;
     resetPasswordBtn: string;
@@ -664,6 +665,7 @@ const translations: Record<Language, Translations> = {
       checkEmail: "Check your email",
       checkEmailDesc: "We've sent a password reset link to your email address.",
       emailNotSentHint: "We couldn't send the email right now. Check your address or try again later.",
+      forgotPasswordSuccessGeneric: "If an account exists for that email, you'll receive a reset link shortly.",
       welcomeEmailNotSent: "We couldn't send the welcome email. Your account was created — you can log in.",
       newPassword: "New password",
       resetPasswordBtn: "Reset password",
@@ -998,6 +1000,7 @@ const translations: Record<Language, Translations> = {
       checkEmail: "Revisá tu email",
       checkEmailDesc: "Te enviamos un enlace para restablecer tu contraseña.",
       emailNotSentHint: "No pudimos enviar el correo. Revisá la dirección o intentá más tarde.",
+      forgotPasswordSuccessGeneric: "Si existe una cuenta con ese email, recibirás un enlace para restablecer la contraseña.",
       welcomeEmailNotSent: "No pudimos enviar el correo de bienvenida. Tu cuenta fue creada — podés iniciar sesión.",
       newPassword: "Nueva contraseña",
       resetPasswordBtn: "Restablecer contraseña",
@@ -1332,6 +1335,7 @@ const translations: Record<Language, Translations> = {
       checkEmail: "Controlla la tua email",
       checkEmailDesc: "Abbiamo inviato un link per reimpostare la password.",
       emailNotSentHint: "Non siamo riusciti a inviare l'email. Controlla l'indirizzo o riprova più tardi.",
+      forgotPasswordSuccessGeneric: "Se esiste un account con questa email, riceverai un link per reimpostare la password.",
       welcomeEmailNotSent: "Non siamo riusciti a inviare l'email di benvenuto. L'account è stato creato — puoi accedere.",
       newPassword: "Nuova password",
       resetPasswordBtn: "Reimposta password",
@@ -1666,6 +1670,7 @@ const translations: Record<Language, Translations> = {
       checkEmail: "Controleer je e-mail",
       checkEmailDesc: "We hebben een herstelkoppeling naar je e-mailadres gestuurd.",
       emailNotSentHint: "We konden de e-mail nu niet versturen. Controleer je adres of probeer het later opnieuw.",
+      forgotPasswordSuccessGeneric: "Als er een account bestaat voor dat e-mailadres, ontvang je binnenkort een herstellink.",
       welcomeEmailNotSent: "We konden de welkomstmail niet versturen. Je account is aangemaakt — je kunt inloggen.",
       newPassword: "Nieuw wachtwoord",
       resetPasswordBtn: "Wachtwoord herstellen",

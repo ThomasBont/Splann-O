@@ -23,7 +23,13 @@ export function currencyForCountry(countryCode: string | null | undefined): stri
   return MAP[countryCode.toUpperCase()];
 }
 
-/** Resolve trip currency: country → user default → EUR */
+/** Alias for task spec: getDefaultCurrencyForCountry returns string | null */
+export function getDefaultCurrencyForCountry(countryCode: string): string | null {
+  const c = currencyForCountry(countryCode);
+  return c ?? null;
+}
+
+/** Resolve event currency: country → user default → EUR */
 export function resolveTripCurrency(opts: {
   countryCode?: string | null;
   userDefaultCurrency?: string | null;

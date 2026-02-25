@@ -101,9 +101,6 @@ import { normalizeEvent, getEventArea } from "@/utils/eventUtils";
 import { computeSplit, getFairShareForParticipant } from "@/lib/split/calc";
 import type { ExpenseWithParticipant, Barbecue, Participant, FriendInfo, PendingRequestWithBbq } from "@shared/schema";
 
-/** Currencies shown in the conversion bar (Total + Fair Share). */
-const CONVERSION_CURRENCIES: CurrencyCode[] = ["EUR", "USD", "GBP", "CHF", "MXN"];
-
 /** Fallback colors for expense chart. Extended for custom categories (hash-based). */
 const CATEGORY_COLORS: Record<string, string> = {
   Meat: '#e05c2a', Bread: '#f0c040', Drinks: '#3b82f6',
@@ -135,9 +132,7 @@ export function AuthDialog({
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
   const [showPw, setShowPw] = useState(false);
-  const [forgotEmailSent, setForgotEmailSent] = useState<boolean | null>(null);
-
-  const switchTab = (next: typeof tab) => { setTab(next); setError(""); if (next === "forgot") setForgotEmailSent(null); };
+  const switchTab = (next: typeof tab) => { setTab(next); setError(""); };
 
   const handleLogin = async () => {
     setError("");
@@ -172,8 +167,7 @@ export function AuthDialog({
     setError("");
     if (!email) return;
     try {
-      const result = await forgotPassword.mutateAsync({ email }) as { emailSent?: boolean };
-      setForgotEmailSent(result?.emailSent !== false);
+      await forgotPassword.mutateAsync({ email });
       switchTab("sent");
     } catch (e: any) {
       setError(e.message);
@@ -389,16 +383,13 @@ export function AuthDialog({
           </div>
         )}
 
-        {/* Sent confirmation */}
+        {/* Sent confirmation: always generic success (anti-enumeration) */}
         {tab === "sent" && (
           <div className="text-center py-4 space-y-3">
             <div className="w-12 h-12 rounded-full bg-green-500/10 flex items-center justify-center mx-auto">
               <CheckCircle2 className="w-6 h-6 text-green-400" />
             </div>
-            <p className="text-sm text-muted-foreground">{t.auth.checkEmailDesc}</p>
-            {forgotEmailSent === false && (
-              <p className="text-sm text-amber-500" data-testid="text-email-not-sent-hint">{t.auth.emailNotSentHint}</p>
-            )}
+            <p className="text-sm text-muted-foreground">{t.auth.forgotPasswordSuccessGeneric}</p>
             <button onClick={() => switchTab("login")} className="text-xs text-primary hover:underline font-semibold" data-testid="link-back-to-login-sent">
               {t.auth.backToLogin}
             </button>
@@ -414,7 +405,7 @@ export function AuthDialog({
 export default function Home() {
   const { language, setLanguage, t } = useLanguage();
   const { theme, setPreference } = useTheme();
-  const { user, isLoading: isAuthLoading, logout } = useAuth();
+  const { user, isLoading: isAuthLoading, logout, resendVerification } = useAuth();
   const username = user?.username ?? null;
   const { toast } = useToast();
   const { showUpgrade } = useUpgrade();
@@ -433,6 +424,12 @@ export default function Home() {
   const [newEventArea, setNewEventArea] = useState<"parties" | "trips">("parties");
   const [newEventType, setNewEventType] = useState<string>("barbecue");
   const [newEventLocation, setNewEventLocation] = useState<LocationOption | null>(null);
+
+  useEffect(() => {
+    if (newEventLocation) {
+      setNewBbqCurrency((currencyForCountry(newEventLocation.countryCode) ?? "EUR") as CurrencyCode);
+    }
+  }, [newEventLocation?.countryCode]);
 
   const [isAddPersonOpen, setIsAddPersonOpen] = useState(false);
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
@@ -645,14 +642,21 @@ export default function Home() {
       eventType: newEventType,
       templateData,
     };
-    if (newEventArea === "trips" && newEventLocation) {
+    if (newEventLocation) {
       payload.locationName = newEventLocation.locationName;
       payload.city = newEventLocation.city;
       payload.countryCode = newEventLocation.countryCode;
       payload.countryName = newEventLocation.countryName;
-      // Backend sets currency from country
+      const autoCurrency = currencyForCountry(newEventLocation.countryCode);
+      if (newBbqCurrency !== autoCurrency) {
+        payload.currency = newBbqCurrency;
+        payload.currencySource = "manual";
+      } else {
+        payload.currencySource = "auto";
+      }
     } else {
-      payload.currency = newBbqCurrency; // parties or trips without location
+      payload.currency = newBbqCurrency;
+      payload.currencySource = "manual";
     }
     createBbq.mutate(payload, {
       onSuccess: (data: Barbecue) => {
@@ -958,6 +962,28 @@ export default function Home() {
         </div>
       </header>
 
+      {/* Email verification banner */}
+      {user && !user.emailVerifiedAt && (
+        <div
+          className="flex items-center justify-between gap-3 px-3 sm:px-6 lg:px-8 py-2 bg-amber-500/15 border-b border-amber-500/30 text-amber-700 dark:text-amber-300"
+          data-testid="banner-verify-email"
+        >
+          <p className="text-sm font-medium">Verify your email to unlock all features.</p>
+          <Button
+            size="sm"
+            variant="outline"
+            className="border-amber-500/50 text-amber-700 dark:text-amber-300 hover:bg-amber-500/20"
+            onClick={() => resendVerification.mutate(undefined, {
+              onSuccess: (data) => toast({ title: data?.sent ? "Verification email sent" : "Check your profile", variant: "default" }),
+              onError: () => toast({ title: "Could not send. Try again later.", variant: "destructive" }),
+            })}
+            disabled={resendVerification.isPending}
+          >
+            {resendVerification.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : "Resend"}
+          </Button>
+        </div>
+      )}
+
       {/* Parties | Trips top-level nav */}
       <div className="sticky top-[57px] z-40 bg-[hsl(var(--surface-0))]/90 backdrop-blur-md border-b border-[hsl(var(--border-subtle))]" data-testid="section-area-tabs">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 flex items-center justify-between gap-4">
@@ -1190,11 +1216,17 @@ export default function Home() {
                 type={normalizeEvent(selectedBbq ?? {}).type}
                 title={selectedBbq?.name ?? ""}
                 dateStr={selectedBbq?.date ? new Date(selectedBbq.date).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : undefined}
+                locationDisplay={
+                  selectedBbq?.locationName ??
+                  (selectedBbq?.city && selectedBbq?.countryName
+                    ? `${selectedBbq.city}, ${selectedBbq.countryName}`
+                    : selectedBbq?.countryName ?? null)
+                }
                 currencySymbol={displayCurrencyInfo.symbol}
                 displayCurrency={displayCurrency}
                 onCurrencyChange={(v) => {
                   setDisplayCurrency(v as CurrencyCode);
-                  if (isCreator && area === "trips" && selectedBbqId && selectedBbq?.creatorId === username) {
+                  if (isCreator && selectedBbqId && selectedBbq?.creatorId === username) {
                     updateBbq.mutate({ id: selectedBbqId, currency: v, currencySource: "manual" });
                   }
                 }}
@@ -1211,7 +1243,7 @@ export default function Home() {
                     ? `${typeof window !== "undefined" ? window.location.origin : ""}/join/${selectedBbq.inviteToken}`
                     : undefined
                 }
-                onEditLocation={area === "trips" && isCreator ? () => setEditTripLocationOpen(true) : undefined}
+                onEditLocation={(area === "trips" || (selectedBbq?.city || selectedBbq?.countryCode)) && isCreator ? () => setEditTripLocationOpen(true) : undefined}
                 onCopyInviteLink={
                   selectedBbq?.inviteToken
                     ? async () => {
@@ -1274,45 +1306,6 @@ export default function Home() {
                   </span>
                 )}
               </div>
-
-              {/* Currency conversion bar: Total + Fair Share in 5 currencies — hidden for trips (single base currency in header) */}
-              {totalSpent > 0 && area !== "trips" && (
-                <div className="mt-2 -mx-1 overflow-x-auto overflow-y-hidden" data-testid="currency-conversion-bar">
-                  <div className="flex gap-2 min-w-max px-1 py-1 pb-1">
-                    {CONVERSION_CURRENCIES.map((code) => {
-                      const info = getCurrency(code) ?? getCurrency("EUR")!;
-                      const totalConverted = Number.isFinite(convertCurrency(totalSpent, currency, code))
-                        ? convertCurrency(totalSpent, currency, code)
-                        : 0;
-                      const fairConverted = Number.isFinite(convertCurrency(fairShare, currency, code))
-                        ? convertCurrency(fairShare, currency, code)
-                        : 0;
-                      const isEventCurrency = code === currency;
-                      return (
-                        <div
-                          key={code}
-                          className={`flex-shrink-0 rounded-lg border px-2.5 py-1.5 text-xs ${
-                            isEventCurrency
-                              ? "border-primary/30 bg-primary/5"
-                              : "border-border bg-muted/20"
-                          }`}
-                          data-testid={`currency-pill-${code}`}
-                        >
-                          <span className={`font-semibold ${isEventCurrency ? "text-primary" : "text-muted-foreground"}`}>
-                            {info.symbol} {code}
-                          </span>
-                          <div className="mt-0.5">
-                            <span className="text-foreground">{info.symbol}{totalConverted.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
-                            {!allowOptIn && (
-                              <span className="text-muted-foreground ml-1">/ {info.symbol}{fairConverted.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
 
               {/* Completion banner when event is settled */}
               {eventStatus === "settled" && (
@@ -2043,18 +2036,21 @@ export default function Home() {
                   </div>
                 )}
               </div>
-              {newEventArea === "trips" && (
-                <div className="space-y-2">
-                  <Label className="text-muted-foreground">Location</Label>
-                  <LocationCombobox
-                    value={newEventLocation}
-                    onChange={setNewEventLocation}
-                    placeholder="Search city or country…"
-                    data-testid="input-trip-location"
-                  />
+              <div className="space-y-2">
+                <Label className="text-muted-foreground">Location</Label>
+                <LocationCombobox
+                  value={newEventLocation}
+                  onChange={setNewEventLocation}
+                  placeholder={newEventArea === "trips" ? "Search city or country…" : "Optional — e.g. Amsterdam"}
+                  data-testid="input-event-location"
+                />
+                {newEventArea === "trips" && (
                   <p className="text-xs text-muted-foreground">Currency will be set automatically from the country.</p>
-                </div>
-              )}
+                )}
+                {newEventArea === "parties" && newEventLocation && (
+                  <p className="text-xs text-muted-foreground">Currency set from country. Override in Advanced below.</p>
+                )}
+              </div>
               <div className="space-y-2">
                 <Label className="text-muted-foreground">{t.bbq.bbqName}</Label>
                 <Input
@@ -2136,18 +2132,18 @@ export default function Home() {
               <AccordionContent className="px-4 pb-4 pt-0">
                 <div className="space-y-2">
                   <Label className="text-muted-foreground">{t.bbq.currency}</Label>
-                  {newEventArea === "trips" && newEventLocation ? (
-                    <p className="text-sm text-muted-foreground py-2">
-                      Auto: {getCurrency(currencyForCountry(newEventLocation.countryCode))?.symbol ?? "€"}{" "}
-                      {currencyForCountry(newEventLocation.countryCode)} ({newEventLocation.countryName})
+                  {newEventLocation && (
+                    <p className="text-xs text-muted-foreground">
+                      {newBbqCurrency === (currencyForCountry(newEventLocation.countryCode) ?? "EUR")
+                        ? `Auto from ${newEventLocation.countryName}. Change to override.`
+                        : "Manual override."}
                     </p>
-                  ) : (
-                    <CurrencyPicker
-                      value={newBbqCurrency}
-                      onChange={(v) => setNewBbqCurrency(v as CurrencyCode)}
-                      data-testid="select-bbq-currency"
-                    />
                   )}
+                  <CurrencyPicker
+                    value={newBbqCurrency}
+                    onChange={(v) => setNewBbqCurrency(v as CurrencyCode)}
+                    data-testid="select-bbq-currency"
+                  />
                 </div>
               </AccordionContent>
             </AccordionItem>
@@ -2155,17 +2151,17 @@ export default function Home() {
         </div>
       </Modal>
 
-      {/* Edit Trip Location Modal */}
-      {area === "trips" && selectedBbq && (
+      {/* Edit Location Modal (trips + parties with location) */}
+      {selectedBbq && (area === "trips" || selectedBbq.city || selectedBbq.countryCode) && (
         <EditTripLocationModal
           open={editTripLocationOpen}
           onOpenChange={setEditTripLocationOpen}
           currentLocation={
-            selectedBbq.locationName && selectedBbq.city && selectedBbq.countryCode
+            selectedBbq.city || selectedBbq.countryCode
               ? {
-                  locationName: selectedBbq.locationName,
-                  city: selectedBbq.city,
-                  countryCode: selectedBbq.countryCode,
+                  locationName: selectedBbq.locationName ?? (selectedBbq.city && selectedBbq.countryName ? `${selectedBbq.city}, ${selectedBbq.countryName}` : selectedBbq.countryName ?? selectedBbq.city ?? ""),
+                  city: selectedBbq.city ?? "",
+                  countryCode: selectedBbq.countryCode ?? "",
                   countryName: selectedBbq.countryName ?? "",
                 }
               : null

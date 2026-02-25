@@ -3,8 +3,14 @@ import crypto from "crypto";
 import { userRepo } from "../repositories/userRepo";
 import { badRequest, unauthorized } from "../lib/errors";
 import { auditSecurity } from "../lib/audit";
-import { sendPasswordResetEmail, sendWelcomeEmail } from "../email";
+import { sendPasswordResetEmail, sendWelcomeEmail, sendEmailVerificationEmail } from "../email";
 import type { User } from "@shared/schema";
+
+const EMAIL_VERIFY_EXPIRY_HOURS = 24;
+
+function hashToken(token: string): string {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
 
 export function serializeUser(user: {
   id: number;
@@ -15,6 +21,7 @@ export function serializeUser(user: {
   profileImageUrl?: string | null;
   bio?: string | null;
   preferredCurrencyCodes?: string | null;
+  emailVerifiedAt?: Date | null;
 }) {
   let preferredCurrencyCodes: string[] | undefined;
   if (user.preferredCurrencyCodes) {
@@ -33,6 +40,7 @@ export function serializeUser(user: {
     profileImageUrl: user.profileImageUrl ?? undefined,
     bio: user.bio ?? undefined,
     preferredCurrencyCodes: preferredCurrencyCodes ?? undefined,
+    emailVerifiedAt: user.emailVerifiedAt ? user.emailVerifiedAt.toISOString() : undefined,
   };
 }
 
@@ -43,12 +51,15 @@ export async function me(userId: number | undefined): Promise<ReturnType<typeof 
   return serializeUser(user);
 }
 
-export async function register(input: {
-  username: string;
-  email: string;
-  displayName?: string;
-  password: string;
-}): Promise<{ user: ReturnType<typeof serializeUser>; emailSent: boolean }> {
+export async function register(
+  input: {
+    username: string;
+    email: string;
+    displayName?: string;
+    password: string;
+  },
+  verifyUrlBuilder: (token: string) => string
+): Promise<{ user: ReturnType<typeof serializeUser>; emailSent: boolean }> {
   const existingUsername = await userRepo.findByUsername(input.username);
   if (existingUsername) throw badRequest("username_taken");
   const existingEmail = await userRepo.findByEmail(input.email);
@@ -62,8 +73,15 @@ export async function register(input: {
     passwordHash,
   });
 
+  const token = crypto.randomBytes(32).toString("hex");
+  const hashedToken = hashToken(token);
+  const expiresAt = new Date(Date.now() + EMAIL_VERIFY_EXPIRY_HOURS * 60 * 60 * 1000);
+  await userRepo.setEmailVerifyToken(user.id, hashedToken, expiresAt);
+  const verifyUrl = verifyUrlBuilder(token);
+  const verifyResult = await sendEmailVerificationEmail(user.email, user.displayName || user.username, verifyUrl);
+
   const welcomeResult = await sendWelcomeEmail(user.email, user.displayName || user.username);
-  return { user: serializeUser(user), emailSent: welcomeResult.sent };
+  return { user: serializeUser(user), emailSent: verifyResult.sent || welcomeResult.sent };
 }
 
 export async function login(username: string, password: string, ip: string): Promise<ReturnType<typeof serializeUser>> {
@@ -81,19 +99,20 @@ export async function login(username: string, password: string, ip: string): Pro
   return serializeUser(user);
 }
 
-export async function requestPasswordReset(email: string, ip: string, resetUrlBuilder: (token: string) => string): Promise<{ emailSent: boolean }> {
+export async function requestPasswordReset(email: string, ip: string, resetUrlBuilder: (token: string) => string): Promise<{ emailSent: boolean; resetUrl?: string }> {
   const user = await userRepo.findByEmail(email);
   auditSecurity("password_reset.request", { user: user?.id ?? "unknown", ip });
   let emailSent = false;
+  let resetUrl: string | undefined;
   if (user) {
     const token = crypto.randomBytes(32).toString("hex");
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
     await userRepo.createPasswordResetToken(user.id, token, expiresAt);
-    const resetUrl = resetUrlBuilder(token);
+    resetUrl = resetUrlBuilder(token);
     const resetResult = await sendPasswordResetEmail(user.email, resetUrl);
     emailSent = resetResult.sent;
   }
-  return { emailSent };
+  return { emailSent, resetUrl };
 }
 
 export async function resetPassword(token: string, password: string): Promise<void> {
@@ -104,4 +123,27 @@ export async function resetPassword(token: string, password: string): Promise<vo
   const passwordHash = await bcrypt.hash(password, 10);
   await userRepo.updatePassword(record.userId, passwordHash);
   await userRepo.markTokenUsed(record.id);
+}
+
+export async function resendVerification(userId: number, verifyUrlBuilder: (token: string) => string): Promise<{ sent: boolean }> {
+  const user = await userRepo.findById(userId);
+  if (!user) return { sent: false };
+  if (user.emailVerifiedAt) {
+    return { sent: true };
+  }
+  const token = crypto.randomBytes(32).toString("hex");
+  const hashedToken = hashToken(token);
+  const expiresAt = new Date(Date.now() + EMAIL_VERIFY_EXPIRY_HOURS * 60 * 60 * 1000);
+  await userRepo.setEmailVerifyToken(userId, hashedToken, expiresAt);
+  const verifyUrl = verifyUrlBuilder(token);
+  return sendEmailVerificationEmail(user.email, user.displayName || user.username, verifyUrl);
+}
+
+export async function verifyEmailToken(plainToken: string): Promise<number | null> {
+  if (!plainToken?.trim()) return null;
+  const hashed = hashToken(plainToken.trim());
+  const user = await userRepo.findByEmailVerifyToken(hashed);
+  if (!user) return null;
+  const updated = await userRepo.verifyEmailAndClearToken(user.id);
+  return updated ? user.id : null;
 }

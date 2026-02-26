@@ -9,6 +9,10 @@ import { errorHandler } from "./middleware/errorHandler";
 import authRoutes from "./routes/authRoutes";
 import bbqRoutes from "./routes/bbqRoutes";
 import healthRoutes from "./routes/healthRoutes";
+import { bbqRepo } from "./repositories/bbqRepo";
+import { participantRepo } from "./repositories/participantRepo";
+import { userRepo } from "./repositories/userRepo";
+import { log } from "./lib/logger";
 
 declare module "express-session" {
   interface SessionData {
@@ -74,6 +78,104 @@ export function createApp() {
   );
 
   app.use(requestContext);
+
+  // Legacy aggregate endpoint (/all) for older deployed clients.
+  // Fail-soft: partial slices return defaults + errors metadata instead of 500.
+  app.get("/all", async (req, res) => {
+    const startedAt = Date.now();
+    const reqId = (req as express.Request & { requestId?: string }).requestId;
+    const sessionUserId = req.session?.userId;
+    const sessionUsername = req.session?.username;
+    if (!sessionUsername) {
+      return res.status(401).json({ code: "UNAUTHORIZED", message: "Authentication required" });
+    }
+
+    const sliceErrors: Array<{ slice: string; code: "SLICE_FAILED" }> = [];
+    try {
+      const results = await Promise.allSettled([
+        bbqRepo.listAccessible(sessionUsername, sessionUserId),
+        participantRepo.getAllPendingRequestsForCreator(sessionUsername),
+        sessionUserId ? userRepo.findById(sessionUserId) : Promise.resolve(null),
+      ]);
+
+      const [eventsResult, requestsResult, userResult] = results;
+
+      const events = eventsResult.status === "fulfilled" ? (eventsResult.value ?? []) : [];
+      if (eventsResult.status === "rejected") {
+        sliceErrors.push({ slice: "events", code: "SLICE_FAILED" });
+        log("error", "Legacy /all slice failed", {
+          reqId,
+          route: "/all",
+          slice: "events",
+          userId: sessionUserId,
+          username: sessionUsername,
+          errorName: eventsResult.reason instanceof Error ? eventsResult.reason.name : "Error",
+          errorMessage: eventsResult.reason instanceof Error ? eventsResult.reason.message : String(eventsResult.reason),
+          stack: eventsResult.reason instanceof Error ? eventsResult.reason.stack : undefined,
+        });
+      }
+
+      const requests = requestsResult.status === "fulfilled" ? (requestsResult.value ?? []) : [];
+      if (requestsResult.status === "rejected") {
+        sliceErrors.push({ slice: "requests", code: "SLICE_FAILED" });
+        log("error", "Legacy /all slice failed", {
+          reqId,
+          route: "/all",
+          slice: "requests",
+          userId: sessionUserId,
+          username: sessionUsername,
+          errorName: requestsResult.reason instanceof Error ? requestsResult.reason.name : "Error",
+          errorMessage: requestsResult.reason instanceof Error ? requestsResult.reason.message : String(requestsResult.reason),
+          stack: requestsResult.reason instanceof Error ? requestsResult.reason.stack : undefined,
+        });
+      }
+
+      const user = userResult.status === "fulfilled" ? (userResult.value ?? null) : null;
+      if (userResult.status === "rejected") {
+        sliceErrors.push({ slice: "user", code: "SLICE_FAILED" });
+        log("error", "Legacy /all slice failed", {
+          reqId,
+          route: "/all",
+          slice: "user",
+          userId: sessionUserId,
+          username: sessionUsername,
+          errorName: userResult.reason instanceof Error ? userResult.reason.name : "Error",
+          errorMessage: userResult.reason instanceof Error ? userResult.reason.message : String(userResult.reason),
+          stack: userResult.reason instanceof Error ? userResult.reason.stack : undefined,
+        });
+      }
+
+      return res.json({
+        events,
+        barbecues: events,
+        requests,
+        user,
+        errors: sliceErrors,
+      });
+    } catch (err) {
+      const elapsedMs = Date.now() - startedAt;
+      log("error", "Legacy /all endpoint failed", {
+        reqId,
+        route: "/all",
+        userId: sessionUserId,
+        username: sessionUsername,
+        errorName: err instanceof Error ? err.name : "Error",
+        errorMessage: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+        elapsedMs,
+      });
+      return res.status(500).json({ code: "ALL_ENDPOINT_FAILED", message: "Failed to load dashboard data" });
+    } finally {
+      const elapsedMs = Date.now() - startedAt;
+      log("info", "Legacy /all completed", {
+        reqId,
+        route: "/all",
+        userId: sessionUserId,
+        username: sessionUsername,
+        elapsedMs,
+      });
+    }
+  });
 
   app.use("/api", authRoutes);
   app.use("/api", bbqRoutes);

@@ -56,6 +56,7 @@ export const api = {
         currency: z.string().length(3).optional(),
         currencySource: z.enum(["auto", "manual"]).optional(),
         visibility: z.enum(["private", "public"]).optional(),
+        visibilityOrigin: z.enum(["private", "public"]).optional(),
         publicMode: z.enum(["marketing", "joinable"]).optional(),
         publicListingStatus: z.enum(["inactive", "active", "expired"]).optional(),
         publicListingExpiresAt: z.union([z.string(), z.date(), z.null()]).optional(),

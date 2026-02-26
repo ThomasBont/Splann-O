@@ -4,6 +4,8 @@ import { getEventTheme } from "@/theme/useEventTheme";
 import { useLanguage } from "@/hooks/use-language";
 import type { EventCategory } from "@/theme/eventThemes";
 import { cnTheme } from "@/theme/eventThemes";
+import { EventCategoryBadge } from "@/components/event/EventCategoryBadge";
+import { getEventTheme as getCategoryTheme, getEventThemeStyle, type EventThemeCategory } from "@/lib/eventTheme";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -48,6 +50,7 @@ export interface EventHeaderProps {
   eventStatus?: "draft" | "active" | "settling" | "settled";
   onSettleUp?: () => void;
   settleUpPending?: boolean;
+  themeCategoryKey?: EventThemeCategory | string | null;
 }
 
 function StatusPill({ status }: { status: "draft" | "active" | "settling" | "settled" }) {
@@ -96,9 +99,11 @@ export function EventHeader({
   eventStatus = "active",
   onSettleUp,
   settleUpPending,
+  themeCategoryKey,
 }: EventHeaderProps) {
   const { t } = useLanguage();
   const theme = getEventTheme(category, type);
+  const categoryTheme = getCategoryTheme(themeCategoryKey);
   const eventTypeLabel = (t.eventTypes as Record<string, string>)[theme.labelKey] ?? theme.label;
 
   const subtitleParts = [eventTypeLabel];
@@ -106,7 +111,10 @@ export function EventHeader({
   if (locationDisplay) subtitleParts.push(locationDisplay);
 
   return (
-    <div className="relative overflow-hidden rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] shadow-[var(--shadow-sm)]">
+    <div
+      style={getEventThemeStyle(themeCategoryKey)}
+      className={`relative overflow-hidden rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] shadow-[var(--shadow-sm)] ${categoryTheme.classes.surface}`}
+    >
       {/* Theme strip - subtle accent */}
       <div
         className={cnTheme(theme, "strip") + " h-0.5 w-full opacity-50"}
@@ -129,6 +137,7 @@ export function EventHeader({
                   <h1 className="text-base sm:text-lg font-semibold text-foreground truncate">
                     {title}
                   </h1>
+                  <EventCategoryBadge category={themeCategoryKey} compact />
                   <StatusPill status={eventStatus} />
                 </div>
                 <p className="text-xs text-muted-foreground mt-0.5">

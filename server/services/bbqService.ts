@@ -2,7 +2,7 @@ import { bbqRepo } from "../repositories/bbqRepo";
 import { participantRepo } from "../repositories/participantRepo";
 import { userRepo } from "../repositories/userRepo";
 import { getLimits } from "../lib/plan";
-import { forbidden, upgradeRequired } from "../lib/errors";
+import { AppError, forbidden, upgradeRequired } from "../lib/errors";
 import { auditLog } from "../lib/audit";
 import { resolveTripCurrency } from "../lib/country-currency";
 import { isPublicListingActive, slugifyPublicEvent } from "../lib/public-listing";
@@ -21,6 +21,9 @@ export type PublicEventListItem = {
   publicDescription: string | null;
   publicSlug: string;
   publicMode: "marketing" | "joinable";
+  publicListingStatus: "inactive" | "active" | "expired";
+  publicListingExpiresAt: string | null;
+  themeCategory: "party" | "networking" | "meetup" | "workshop" | "conference" | "training" | "sports" | "other";
 };
 
 export type PublicEventDetail = PublicEventListItem & {
@@ -49,7 +52,26 @@ function requireListingForPublicVisibility(next: {
   }
 }
 
+function requireVisibilityOriginAllowsPublic(next: {
+  visibility?: "private" | "public";
+  visibilityOrigin?: "private" | "public";
+}, current?: Barbecue) {
+  const targetVisibility = next.visibility ?? (current?.visibility as "private" | "public" | undefined);
+  if (targetVisibility !== "public") return;
+  const origin = next.visibilityOrigin ?? (current?.visibilityOrigin as "private" | "public" | undefined) ?? "public";
+  if (origin === "private") {
+    throw new AppError("EVENT_VISIBILITY_LOCKED", "This private event cannot be converted to public.", 400);
+  }
+}
+
 function toPublicListItem(event: Barbecue): PublicEventListItem {
+  const tpl = (event.templateData && typeof event.templateData === "object") ? event.templateData as Record<string, unknown> : null;
+  const rawCategory = typeof tpl?.publicCategory === "string" ? tpl.publicCategory.toLowerCase() : "";
+  const themeCategory =
+    rawCategory === "party" || rawCategory === "networking" || rawCategory === "meetup" || rawCategory === "workshop" ||
+    rawCategory === "conference" || rawCategory === "training" || rawCategory === "sports" || rawCategory === "other"
+      ? rawCategory
+      : (String(event.eventType ?? "").includes("party") || String(event.eventType ?? "") === "barbecue" ? "party" : "other");
   return {
     id: event.id,
     title: event.name,
@@ -61,6 +83,9 @@ function toPublicListItem(event: Barbecue): PublicEventListItem {
     publicDescription: event.publicDescription ?? null,
     publicSlug: event.publicSlug ?? "",
     publicMode: (event.publicMode as "marketing" | "joinable") ?? "marketing",
+    publicListingStatus: (event.publicListingStatus as "inactive" | "active" | "expired") ?? "inactive",
+    publicListingExpiresAt: event.publicListingExpiresAt ? event.publicListingExpiresAt.toISOString() : null,
+    themeCategory: themeCategory as PublicEventListItem["themeCategory"],
   };
 }
 
@@ -89,6 +114,7 @@ export async function createBarbecue(
     placeId?: string | null;
     currencySource?: "auto" | "manual";
     visibility?: "private" | "public";
+    visibilityOrigin?: "private" | "public";
     publicMode?: "marketing" | "joinable";
     publicListingStatus?: "inactive" | "active" | "expired";
     publicListingExpiresAt?: Date | null;
@@ -100,6 +126,7 @@ export async function createBarbecue(
 ): Promise<Barbecue> {
   const creatorId = input.creatorId?.trim() || sessionUsername;
   const requestedVisibility = input.visibility ?? (input.isPublic ? "public" : "private");
+  const visibilityOrigin = input.visibilityOrigin ?? (requestedVisibility === "public" ? "public" : "public");
   let creatorUser: Awaited<ReturnType<typeof userRepo.findByUsername>> | undefined;
   if (creatorId) {
     creatorUser = await userRepo.findByUsername(creatorId);
@@ -123,6 +150,7 @@ export async function createBarbecue(
     currency = creatorUser?.defaultCurrencyCode ?? "EUR";
   }
 
+  requireVisibilityOriginAllowsPublic({ visibility: requestedVisibility, visibilityOrigin });
   requireListingForPublicVisibility(
     {
       visibility: requestedVisibility,
@@ -137,6 +165,7 @@ export async function createBarbecue(
     currency: currency ?? "EUR",
     currencySource,
     visibility: requestedVisibility,
+    visibilityOrigin,
     publicMode: input.publicMode ?? "marketing",
     publicListingStatus: input.publicListingStatus ?? "inactive",
     publicListingExpiresAt: input.publicListingExpiresAt ?? null,
@@ -173,6 +202,7 @@ export async function updateBarbecue(
     currency?: string;
     currencySource?: "auto" | "manual";
     visibility?: "private" | "public";
+    visibilityOrigin?: "private" | "public";
     publicMode?: "marketing" | "joinable";
     publicListingStatus?: "inactive" | "active" | "expired";
     publicListingExpiresAt?: Date | null;
@@ -185,6 +215,13 @@ export async function updateBarbecue(
   const bbq = await bbqRepo.getById(id);
   if (!bbq) return undefined;
   if (bbq.creatorId !== sessionUsername) return undefined;
+  requireVisibilityOriginAllowsPublic(
+    {
+      visibility: updates.visibility,
+      visibilityOrigin: updates.visibilityOrigin,
+    },
+    bbq,
+  );
   requireListingForPublicVisibility(
     {
       visibility: updates.visibility,
@@ -205,6 +242,7 @@ export async function updateBarbecue(
     countryName: updates.countryName,
     placeId: updates.placeId,
     visibility: updates.visibility,
+    visibilityOrigin: updates.visibilityOrigin,
     publicMode: updates.publicMode,
     publicListingStatus: updates.publicListingStatus,
     publicListingExpiresAt: updates.publicListingExpiresAt,
@@ -320,13 +358,22 @@ export async function activateListing(id: number, sessionUsername?: string): Pro
   return withSlug ?? updated;
 }
 
-export async function activateListingBySystem(id: number, expiresAt?: Date | null): Promise<Barbecue | undefined> {
+export async function activateListingBySystem(
+  id: number,
+  options?: {
+    expiresAt?: Date | null;
+    publishAfterActivation?: boolean;
+    publicMode?: "marketing" | "joinable";
+  }
+): Promise<Barbecue | undefined> {
   const event = await bbqRepo.getById(id);
   if (!event) return undefined;
-  const nextExpiry = expiresAt ?? new Date(Date.now() + DEFAULT_LISTING_DURATION_DAYS * 24 * 60 * 60 * 1000);
+  const nextExpiry = options?.expiresAt ?? new Date(Date.now() + DEFAULT_LISTING_DURATION_DAYS * 24 * 60 * 60 * 1000);
+  const canPublish = options?.publishAfterActivation === true && (event.visibilityOrigin as string | undefined) !== "private";
   const updated = await bbqRepo.update(id, {
     publicListingStatus: "active",
     publicListingExpiresAt: nextExpiry,
+    ...(canPublish ? { visibility: "public", publicMode: options?.publicMode ?? (event.publicMode as "marketing" | "joinable" | undefined) ?? "marketing" } : {}),
   });
   if (!updated) return undefined;
   return (await ensurePublicSlug(updated)) ?? updated;

@@ -75,6 +75,23 @@
   --primary-border: hsl(43 86% 48%);
   --secondary-border: hsl(240 10% 78%);
   --destructive-border: hsl(0 62% 38%);
+
+  /* Event category theme tokens (triplets, consumed via hsl(var(--...))) */
+  --event-accent-social: var(--splanno-orange);
+  --event-accent-professional: var(--splanno-blue);
+  --event-accent-neutral: var(--splanno-green);
+  --event-accent-meetup: var(--splanno-blue);
+  --event-accent-sports: var(--splanno-orange);
+
+  --event-tint-social: var(--secondary);
+  --event-tint-professional: var(--secondary);
+  --event-tint-neutral: var(--muted);
+
+  --event-badge-social: var(--splanno-orange);
+  --event-badge-professional: var(--splanno-blue);
+  --event-badge-neutral: var(--splanno-green);
+  --event-badge-meetup: var(--splanno-blue);
+  --event-badge-sports: var(--splanno-orange);
 }
 
 /* Dark theme */
@@ -127,6 +144,23 @@
   --primary-border: hsl(43 86% 52%);
   --secondary-border: hsl(240 12% 28%);
   --destructive-border: hsl(0 62% 34%);
+
+  /* Event category theme tokens (dark) */
+  --event-accent-social: var(--splanno-orange);
+  --event-accent-professional: var(--splanno-blue);
+  --event-accent-neutral: var(--splanno-green);
+  --event-accent-meetup: var(--splanno-blue);
+  --event-accent-sports: var(--splanno-orange);
+
+  --event-tint-social: var(--secondary);
+  --event-tint-professional: var(--secondary);
+  --event-tint-neutral: var(--muted);
+
+  --event-badge-social: var(--splanno-orange);
+  --event-badge-professional: var(--splanno-blue);
+  --event-badge-neutral: var(--splanno-green);
+  --event-badge-meetup: var(--splanno-blue);
+  --event-badge-sports: var(--splanno-orange);
 }
 
 @layer base {

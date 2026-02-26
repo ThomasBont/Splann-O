@@ -14,6 +14,9 @@ export type ExploreEvent = {
   publicDescription: string | null;
   publicSlug: string;
   publicMode: "marketing" | "joinable";
+  publicListingStatus?: "inactive" | "active" | "expired";
+  publicListingExpiresAt?: string | null;
+  themeCategory?: "party" | "networking" | "meetup" | "workshop" | "conference" | "training" | "sports" | "other";
 };
 
 export type PublicEventDetail = ExploreEvent & {
@@ -62,6 +65,7 @@ export function useCreateBarbecue() {
       countryName?: string | null;
       placeId?: string | null;
       visibility?: "private" | "public";
+      visibilityOrigin?: "private" | "public";
       publicMode?: "marketing" | "joinable";
       publicListingStatus?: "inactive" | "active" | "expired";
       publicListingExpiresAt?: string | null;
@@ -106,6 +110,7 @@ export function useUpdateBarbecue() {
       currency?: string;
       currencySource?: "auto" | "manual";
       visibility?: "private" | "public";
+      visibilityOrigin?: "private" | "public";
       publicMode?: "marketing" | "joinable";
       publicListingStatus?: "inactive" | "active" | "expired";
       publicListingExpiresAt?: string | null;
@@ -127,6 +132,7 @@ export function useUpdateBarbecue() {
       if (rest.currency !== undefined) body.currency = rest.currency;
       if (rest.currencySource !== undefined) body.currencySource = rest.currencySource;
       if (rest.visibility !== undefined) body.visibility = rest.visibility;
+      if (rest.visibilityOrigin !== undefined) body.visibilityOrigin = rest.visibilityOrigin;
       if (rest.publicMode !== undefined) body.publicMode = rest.publicMode;
       if (rest.publicListingStatus !== undefined) body.publicListingStatus = rest.publicListingStatus;
       if (rest.publicListingExpiresAt !== undefined) body.publicListingExpiresAt = rest.publicListingExpiresAt;
@@ -211,10 +217,14 @@ export function useDeactivateListing() {
 
 export function useCheckoutPublicListing() {
   return useMutation({
-    mutationFn: async (id: number) => {
+    mutationFn: async (input: number | { id: number; publicMode?: "marketing" | "joinable" }) => {
+      const id = typeof input === "number" ? input : input.id;
+      const publicMode = typeof input === "number" ? undefined : input.publicMode;
       const res = await fetch(`/api/events/${id}/checkout-public-listing`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         credentials: "include",
+        body: JSON.stringify(publicMode ? { publicMode } : {}),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error((body as { message?: string }).message || "Failed to start checkout");

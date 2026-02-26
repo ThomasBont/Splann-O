@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useLanguage } from "@/hooks/use-language";
 import { useCreateExpense, useUpdateExpense } from "@/hooks/use-expenses";
 import { useParticipants } from "@/hooks/use-participants";
@@ -18,6 +18,7 @@ import { Loader2, Plus } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { getCategoryDef, getPlaceholderKeyForCategory } from "@/config/expenseCategories";
 import { getExpensePlaceholderKey, getThemeConfig, type ThemeId } from "@/themes/themeRegistry";
+import { getSmartDefaultsForGroup, resolveExpenseDefaults, updateSmartDefaultsAfterExpenseCreate } from "@/lib/smart-defaults";
 import type { ExpenseWithParticipant } from "@shared/schema";
 
 interface AddExpenseDialogProps {
@@ -36,11 +37,14 @@ interface AddExpenseDialogProps {
   eventType?: string | null;
   /** Event kind for theme resolution */
   eventKind?: "party" | "trip";
+  currentUsername?: string | null;
+  currencyCode?: string | null;
+  groupHomeCurrencyCode?: string | null;
 }
 
 const DEFAULT_CATEGORIES = ["Meat", "Bread", "Drinks", "Charcoal", "Transportation", "Other"];
 
-export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, currencySymbol, categories: categoriesProp, defaultItem: defaultItemProp, defaultCategory: defaultCategoryProp, defaultOptIn: defaultOptInProp, allowOptIn = false, onAddCustomCategory, eventType, eventKind = "party" }: AddExpenseDialogProps) {
+export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, currencySymbol, categories: categoriesProp, defaultItem: defaultItemProp, defaultCategory: defaultCategoryProp, defaultOptIn: defaultOptInProp, allowOptIn = false, onAddCustomCategory, eventType, eventKind = "party", currentUsername, currencyCode, groupHomeCurrencyCode }: AddExpenseDialogProps) {
   const { t } = useLanguage();
   const { toast } = useToast();
   const participants = useParticipants(bbqId);
@@ -57,6 +61,27 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
   const [showCustomCategoryInput, setShowCustomCategoryInput] = useState(false);
   const [customCategoryName, setCustomCategoryName] = useState("");
 
+  const participantList = (participants.data ?? []) as Array<{ id: number; userId?: string | null; name: string }>;
+  const smartStored = useMemo(() => getSmartDefaultsForGroup(bbqId), [bbqId, open]);
+  const resolvedDefaults = useMemo(
+    () =>
+      resolveExpenseDefaults({
+        groupId: bbqId,
+        currentUserId: currentUsername,
+        groupMembers: participantList,
+        storedDefaults: smartStored.defaults,
+        storedStats: smartStored.stats,
+        groupHomeCurrencyCode,
+        appDefaultCurrencyCode: currencyCode,
+      }),
+    [bbqId, currentUsername, participantList, smartStored.defaults, smartStored.stats, groupHomeCurrencyCode, currencyCode]
+  );
+  const orderedParticipants = useMemo(() => {
+    if (!participantList.length) return participantList;
+    const rank = new Map(resolvedDefaults.orderedParticipantIds.map((id, idx) => [id, idx]));
+    return [...participantList].sort((a, b) => (rank.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.id) ?? Number.MAX_SAFE_INTEGER));
+  }, [participantList, resolvedDefaults.orderedParticipantIds]);
+
   useEffect(() => {
     if (open) {
       setShowCustomCategoryInput(false);
@@ -68,17 +93,19 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
         setAmount(editingExpense.amount.toString());
         setOptInByDefault(false);
       } else {
-        if (participants.data && participants.data.length > 0) {
-          setParticipantId(participants.data[0].id.toString());
+        if (participantList.length > 0) {
+          const suggestedPayerId = resolvedDefaults.payerParticipantId ?? participantList[0].id;
+          setParticipantId(String(suggestedPayerId));
         }
-        const cat = defaultCategoryProp ?? categories[0] ?? "Other";
+        const rememberedCategory = smartStored.defaults?.lastCategory;
+        const cat = defaultCategoryProp ?? (rememberedCategory && categories.includes(rememberedCategory) ? rememberedCategory : undefined) ?? categories[0] ?? "Other";
         setCategory(categories.includes(cat) ? cat : categories[0] ?? "Other");
         setItem(defaultItemProp ?? "");
         setAmount("");
         setOptInByDefault(defaultOptInProp ?? false);
       }
     }
-  }, [open, editingExpense, participants.data, categories, defaultItemProp, defaultCategoryProp, defaultOptInProp]);
+  }, [open, editingExpense, participantList, categories, defaultItemProp, defaultCategoryProp, defaultOptInProp, resolvedDefaults.payerParticipantId, smartStored.defaults?.lastCategory]);
 
   const themeId = eventType && eventKind ? (getThemeConfig(eventKind, eventType).id as ThemeId) : null;
   const placeholderKey = themeId != null ? getExpensePlaceholderKey(category, themeId) : getPlaceholderKeyForCategory(category);
@@ -108,6 +135,19 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
         allowOptIn ? { ...payload, optInByDefault: optInByDefault } : payload,
         {
           onSuccess: () => {
+            const payer = participantList.find((p) => String(p.id) === participantId);
+            if (bbqId) {
+              updateSmartDefaultsAfterExpenseCreate({
+                groupId: bbqId,
+                currentUserId: currentUsername,
+                currencyCode,
+                splitMethod: "equally",
+                payerParticipantId: parseInt(participantId),
+                payerUserId: payer?.userId ?? null,
+                participantIds: [parseInt(participantId)],
+                category,
+              });
+            }
             toast({ variant: "success", message: t.modals.expenseAdded });
             onOpenChange(false);
           },
@@ -150,15 +190,22 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
     >
       <form id="add-expense-form" onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-2">
-          <Label htmlFor="participant" className="uppercase text-xs tracking-wider text-muted-foreground">
-            {t.modals.paidByLabel}
-          </Label>
+          <div className="flex items-center justify-between gap-2">
+            <Label htmlFor="participant" className="uppercase text-xs tracking-wider text-muted-foreground">
+              {t.modals.paidByLabel}
+            </Label>
+            {!editingExpense && resolvedDefaults.payerSuggestionSource !== "fallback" ? (
+              <span className="text-[11px] text-muted-foreground">
+                {resolvedDefaults.payerSuggestionSource === "lastUsed" ? "Last used" : "Suggested"}
+              </span>
+            ) : null}
+          </div>
           <Select value={participantId} onValueChange={setParticipantId}>
             <SelectTrigger id="participant" className="bg-secondary/50 border-white/10" data-testid="select-expense-person">
               <SelectValue placeholder={t.modals.paidByLabel} />
             </SelectTrigger>
             <SelectContent className="bg-card border-white/10">
-              {participants.data?.map((p: any) => (
+              {orderedParticipants.map((p: any) => (
                 <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
               ))}
             </SelectContent>

@@ -93,6 +93,8 @@ export const barbecues = pgTable("barbecues", {
   currencySource: text("currency_source").notNull().default("auto"),
   /** Private/public visibility for platform listing. */
   visibility: text("visibility").notNull().default("private"),
+  /** Immutable origin chosen at creation: private-origin events cannot become public later. */
+  visibilityOrigin: text("visibility_origin").notNull().default("public"),
   /** Public page mode. */
   publicMode: text("public_mode").notNull().default("marketing"),
   /** Listing gate status (phase 1 stub activation). */

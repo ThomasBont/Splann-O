@@ -6,6 +6,7 @@ type CheckoutSessionRequest = {
   successUrl: string;
   cancelUrl: string;
   metadata: Record<string, string>;
+  idempotencyKey?: string;
 };
 
 type StripeCheckoutSessionResponse = {
@@ -42,6 +43,7 @@ export async function createStripeCheckoutSession(input: CheckoutSessionRequest)
     headers: {
       Authorization: `Bearer ${secretKey}`,
       "Content-Type": "application/x-www-form-urlencoded",
+      ...(input.idempotencyKey ? { "Idempotency-Key": input.idempotencyKey } : {}),
     },
     body: formEncode(body),
   });

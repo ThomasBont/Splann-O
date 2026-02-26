@@ -57,6 +57,7 @@ router.get(p(api.barbecues.listPublic.path), asyncHandler(async (_req, res) => {
 const countryCodeSchema = z.string().length(2, "countryCode must be ISO-3166-1 alpha-2 (2 chars)").transform((s) => s.toUpperCase());
 const currencyCodeSchema = z.string().length(3, "currency must be ISO-4217 (3 chars)").transform((s) => s.toUpperCase());
 const visibilitySchema = z.enum(["private", "public"]);
+const visibilityOriginSchema = z.enum(["private", "public"]);
 const publicModeSchema = z.enum(["marketing", "joinable"]);
 const listingStatusSchema = z.enum(["inactive", "active", "expired"]);
 
@@ -67,6 +68,7 @@ router.post(p(api.barbecues.create.path), asyncHandler(async (req, res) => {
     currency: currencyCodeSchema.optional(),
     currencySource: z.enum(["auto", "manual"]).optional(),
     visibility: visibilitySchema.optional(),
+    visibilityOrigin: visibilityOriginSchema.optional(),
     publicMode: publicModeSchema.optional(),
     publicListingStatus: listingStatusSchema.optional(),
     publicListingExpiresAt: z.coerce.date().nullable().optional(),
@@ -150,6 +152,7 @@ router.patch(p(api.barbecues.update.path), requireAuth, asyncHandler(async (req,
     currency: z.string().length(3).transform((s) => s.toUpperCase()).optional(),
     currencySource: z.enum(["auto", "manual"]).optional(),
     visibility: visibilitySchema.optional(),
+    visibilityOrigin: visibilityOriginSchema.optional(),
     publicMode: publicModeSchema.optional(),
     publicListingStatus: listingStatusSchema.optional(),
     publicListingExpiresAt: z.coerce.date().nullable().optional(),
@@ -200,21 +203,26 @@ router.post("/events/:id/checkout-public-listing", requireAuth, asyncHandler(asy
   const bbq = await bbqRepo.getById(id);
   if (!bbq) notFound("Event not found");
   if (bbq.creatorId !== req.session!.username) forbidden("Only the creator can activate listing");
+  const body = z.object({ publicMode: publicModeSchema.optional() }).parse(req.body ?? {});
 
   const appUrl = (process.env.APP_URL ?? "").replace(/\/$/, "");
   const priceId = process.env.STRIPE_PRICE_PUBLIC_LISTING?.trim();
   if (!appUrl) badRequest("APP_URL is not configured");
   if (!priceId) badRequest("STRIPE_PRICE_PUBLIC_LISTING is not configured");
+  const checkoutPublicMode = body.publicMode ?? (bbq.publicMode as "marketing" | "joinable" | undefined) ?? "marketing";
 
   const session = await createStripeCheckoutSession({
     priceId,
     successUrl: `${appUrl}/app?listing=success&eventId=${id}&session_id={CHECKOUT_SESSION_ID}`,
     cancelUrl: `${appUrl}/app?listing=cancel&eventId=${id}`,
+    idempotencyKey: `public-listing:${id}:${req.session!.userId ?? req.session!.username}:${checkoutPublicMode}`,
     metadata: {
       eventId: String(id),
       userId: String(req.session!.userId),
       action: "activate_public_listing",
       intendedAction: "activate_public_listing",
+      publishAfterActivation: "true",
+      publicMode: checkoutPublicMode,
     },
   });
 
@@ -265,7 +273,12 @@ router.post("/stripe/webhook", asyncHandler(async (req, res) => {
     if (action === "activate_public_listing" && metadata.eventId) {
       const eventIdNum = Number(metadata.eventId);
       if (Number.isFinite(eventIdNum)) {
-        await bbqService.activateListingBySystem(eventIdNum);
+        const publishAfterActivation = metadata.publishAfterActivation === "true";
+        const publicMode = metadata.publicMode === "joinable" ? "joinable" : metadata.publicMode === "marketing" ? "marketing" : undefined;
+        await bbqService.activateListingBySystem(eventIdNum, {
+          publishAfterActivation,
+          publicMode,
+        });
       }
     }
   }

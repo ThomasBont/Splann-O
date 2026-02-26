@@ -100,6 +100,7 @@ export const bbqRepo = {
       currency?: string;
       currencySource?: "auto" | "manual";
       visibility?: "private" | "public";
+      visibilityOrigin?: "private" | "public";
       publicMode?: "marketing" | "joinable";
       publicListingStatus?: "inactive" | "active" | "expired";
       publicListingExpiresAt?: Date | null;
@@ -126,6 +127,7 @@ export const bbqRepo = {
       set.visibility = updates.visibility;
       set.isPublic = updates.visibility === "public";
     }
+    if (updates.visibilityOrigin !== undefined) set.visibilityOrigin = updates.visibilityOrigin;
     if (updates.publicMode !== undefined) set.publicMode = updates.publicMode;
     if (updates.publicListingStatus !== undefined) set.publicListingStatus = updates.publicListingStatus;
     if (updates.publicListingExpiresAt !== undefined) set.publicListingExpiresAt = updates.publicListingExpiresAt;

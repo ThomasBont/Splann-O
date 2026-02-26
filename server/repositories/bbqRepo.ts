@@ -102,7 +102,10 @@ export const bbqRepo = {
       visibility?: "private" | "public";
       visibilityOrigin?: "private" | "public";
       publicMode?: "marketing" | "joinable";
-      publicListingStatus?: "inactive" | "active" | "expired";
+      publicTemplate?: string;
+      publicListingStatus?: "inactive" | "active" | "expired" | "paused";
+      publicListFromAt?: Date | null;
+      publicListUntilAt?: Date | null;
       publicListingExpiresAt?: Date | null;
       publicSlug?: string | null;
       organizationName?: string | null;
@@ -129,7 +132,10 @@ export const bbqRepo = {
     }
     if (updates.visibilityOrigin !== undefined) set.visibilityOrigin = updates.visibilityOrigin;
     if (updates.publicMode !== undefined) set.publicMode = updates.publicMode;
+    if (updates.publicTemplate !== undefined) set.publicTemplate = updates.publicTemplate;
     if (updates.publicListingStatus !== undefined) set.publicListingStatus = updates.publicListingStatus;
+    if (updates.publicListFromAt !== undefined) set.publicListFromAt = updates.publicListFromAt;
+    if (updates.publicListUntilAt !== undefined) set.publicListUntilAt = updates.publicListUntilAt;
     if (updates.publicListingExpiresAt !== undefined) set.publicListingExpiresAt = updates.publicListingExpiresAt;
     if (updates.publicSlug !== undefined) set.publicSlug = updates.publicSlug;
     if (updates.organizationName !== undefined) set.organizationName = updates.organizationName;

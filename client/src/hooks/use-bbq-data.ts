@@ -14,7 +14,10 @@ export type ExploreEvent = {
   publicDescription: string | null;
   publicSlug: string;
   publicMode: "marketing" | "joinable";
-  publicListingStatus?: "inactive" | "active" | "expired";
+  publicTemplate?: "classic" | "keynote" | "workshop" | "nightlife" | "meetup";
+  publicListingStatus?: "inactive" | "active" | "expired" | "paused";
+  publicListFromAt?: string | null;
+  publicListUntilAt?: string | null;
   publicListingExpiresAt?: string | null;
   themeCategory?: "party" | "networking" | "meetup" | "workshop" | "conference" | "training" | "sports" | "other";
 };
@@ -22,6 +25,22 @@ export type ExploreEvent = {
 export type PublicEventDetail = ExploreEvent & {
   locationName: string | null;
   bannerImageUrl: string | null;
+  organizer: {
+    username: string | null;
+    displayName: string | null;
+    avatarUrl: string | null;
+    profileImageUrl: string | null;
+    publicEventsHosted: number;
+    verifiedHost: boolean;
+  } | null;
+  rsvpTiers: Array<{
+    id: string;
+    name: string;
+    description: string | null;
+    priceLabel: string | null;
+    capacity: number | null;
+    isFree: boolean;
+  }>;
 };
 
 export type PublicProfileEvent = {
@@ -34,6 +53,7 @@ export type PublicProfileEvent = {
   publicSlug: string;
   publicMode: "marketing" | "joinable";
   attendeeCount: number;
+  bannerImageUrl: string | null;
   themeCategory: "party" | "networking" | "meetup" | "workshop" | "conference" | "training" | "sports" | "other";
 };
 
@@ -99,8 +119,12 @@ export function useCreateBarbecue() {
       visibility?: "private" | "public";
       visibilityOrigin?: "private" | "public";
       publicMode?: "marketing" | "joinable";
-      publicListingStatus?: "inactive" | "active" | "expired";
+      publicTemplate?: "classic" | "keynote" | "workshop" | "nightlife" | "meetup";
+      publicListingStatus?: "inactive" | "active" | "expired" | "paused";
+      publicListFromAt?: string | null;
+      publicListUntilAt?: string | null;
       publicListingExpiresAt?: string | null;
+      status?: "draft" | "active" | "settling" | "settled";
       organizationName?: string | null;
       publicDescription?: string | null;
       bannerImageUrl?: string | null;
@@ -144,7 +168,10 @@ export function useUpdateBarbecue() {
       visibility?: "private" | "public";
       visibilityOrigin?: "private" | "public";
       publicMode?: "marketing" | "joinable";
-      publicListingStatus?: "inactive" | "active" | "expired";
+      publicTemplate?: "classic" | "keynote" | "workshop" | "nightlife" | "meetup";
+      publicListingStatus?: "inactive" | "active" | "expired" | "paused";
+      publicListFromAt?: string | null;
+      publicListUntilAt?: string | null;
       publicListingExpiresAt?: string | null;
       organizationName?: string | null;
       publicDescription?: string | null;
@@ -166,7 +193,10 @@ export function useUpdateBarbecue() {
       if (rest.visibility !== undefined) body.visibility = rest.visibility;
       if (rest.visibilityOrigin !== undefined) body.visibilityOrigin = rest.visibilityOrigin;
       if (rest.publicMode !== undefined) body.publicMode = rest.publicMode;
+      if (rest.publicTemplate !== undefined) body.publicTemplate = rest.publicTemplate;
       if (rest.publicListingStatus !== undefined) body.publicListingStatus = rest.publicListingStatus;
+      if (rest.publicListFromAt !== undefined) body.publicListFromAt = rest.publicListFromAt;
+      if (rest.publicListUntilAt !== undefined) body.publicListUntilAt = rest.publicListUntilAt;
       if (rest.publicListingExpiresAt !== undefined) body.publicListingExpiresAt = rest.publicListingExpiresAt;
       if (rest.organizationName !== undefined) body.organizationName = rest.organizationName;
       if (rest.publicDescription !== undefined) body.publicDescription = rest.publicDescription;
@@ -212,6 +242,86 @@ export function usePublicEvent(slug: string | null) {
         throw new Error("fetch_failed");
       }
       return res.json() as Promise<PublicEventDetail>;
+    },
+  });
+}
+
+export type PublicEventRsvpSummary = {
+  tiers: Array<{
+    id: string;
+    name: string;
+    description: string | null;
+    priceLabel: string | null;
+    capacity: number | null;
+    isFree: boolean;
+    counts: { requested: number; approved: number; declined: number; going: number };
+    soldOut: boolean;
+  }>;
+  myRsvp: { id: number; tierId: string | null; status: "requested" | "approved" | "declined" | "going" } | null;
+};
+
+export function usePublicEventRsvpSummary(slug: string | null) {
+  return useQuery({
+    queryKey: ["/api/public/events", slug, "rsvps"],
+    enabled: !!slug,
+    queryFn: async () => {
+      const res = await fetch(`/api/public/events/${encodeURIComponent(slug!)}/rsvps`, { credentials: "include" });
+      if (!res.ok) throw new Error("fetch_failed");
+      return res.json() as Promise<PublicEventRsvpSummary>;
+    },
+  });
+}
+
+export function useSubmitPublicEventRsvp(slug: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { tierId?: string | null; status?: "requested" | "going" }) => {
+      if (!slug) throw new Error("Missing event slug");
+      const res = await fetch(`/api/public/events/${encodeURIComponent(slug)}/rsvps`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(input),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((body as { message?: string }).message || "Failed to RSVP");
+      return body;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/public/events", slug, "rsvps"] });
+    },
+  });
+}
+
+export function usePublicEventRsvpRequests(eventId: number | null, enabled = true) {
+  return useQuery({
+    queryKey: ["/api/events", eventId, "rsvp-requests"],
+    enabled: !!eventId && enabled,
+    queryFn: async () => {
+      const res = await fetch(`/api/events/${eventId}/rsvp-requests`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load RSVP requests");
+      return res.json() as Promise<Array<{ id: number; tierId: string | null; userId: number | null; name: string | null; status: string; createdAt: string | null }>>;
+    },
+  });
+}
+
+export function useUpdatePublicEventRsvpRequest(eventId: number | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { rsvpId: number; status: "approved" | "declined" | "going" | "requested" }) => {
+      if (!eventId) throw new Error("Missing event");
+      const res = await fetch(`/api/events/${eventId}/rsvp-requests/${input.rsvpId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ status: input.status }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((body as { message?: string }).message || "Failed to update request");
+      return body;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/events", eventId, "rsvp-requests"] });
     },
   });
 }

@@ -165,6 +165,7 @@ export const userRepo = {
           publicSlug: string;
           publicMode: "marketing" | "joinable";
           attendeeCount: number;
+          bannerImageUrl: string | null;
           themeCategory: "party" | "networking" | "meetup" | "workshop" | "conference" | "training" | "sports" | "other";
         }>;
       }
@@ -249,6 +250,7 @@ export const userRepo = {
         publicSlug: e.publicSlug ?? "",
         publicMode: (e.publicMode as "marketing" | "joinable") ?? "marketing",
         attendeeCount: attendeeCountByEventId.get(e.id) ?? 0,
+        bannerImageUrl: e.bannerImageUrl ?? null,
         themeCategory: mapThemeCategory(e) as "party" | "networking" | "meetup" | "workshop" | "conference" | "training" | "sports" | "other",
       })),
     };

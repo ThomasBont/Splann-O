@@ -10,13 +10,14 @@ import {
   useAcceptInvite, useDeclineInvite,
 } from "@/hooks/use-participants";
 import { useExpenses, useDeleteExpense, useExpenseShares, useSetExpenseShare } from "@/hooks/use-expenses";
-import { useBarbecues, useCreateBarbecue, useDeleteBarbecue, useUpdateBarbecue, useEnsureInviteToken, useSettleUp, useEventNotifications, useMarkEventNotificationRead, useCheckoutPublicListing, useDeactivateListing, useExploreEvents, type EventNotification, type ExploreEvent } from "@/hooks/use-bbq-data";
+import { useBarbecues, useCreateBarbecue, useDeleteBarbecue, useUpdateBarbecue, useEnsureInviteToken, useSettleUp, useEventNotifications, useMarkEventNotificationRead, useCheckoutPublicListing, useDeactivateListing, useExploreEvents, usePublicEventRsvpRequests, useUpdatePublicEventRsvpRequest, type EventNotification, type ExploreEvent } from "@/hooks/use-bbq-data";
 import { useQueryClient } from "@tanstack/react-query";
 import { useFriends, useFriendRequests, useAllPendingRequests, useAcceptFriendRequest, useRemoveFriend } from "@/hooks/use-friends";
 import { UserProfileModal } from "@/components/user-profile-modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { EventTabs, EventTabsContent, EventTabsList, EventTabsTrigger } from "@/components/event/EventTabs";
 import { Modal, ModalSection } from "@/components/ui/modal";
 import {
@@ -135,6 +136,31 @@ const PUBLIC_CREATE_CATEGORY_OPTIONS = [
   { key: "sports", label: "Sports", area: "trips", eventType: "other_trip" },
   { key: "other", label: "Other", area: "parties", eventType: "other_party" },
 ] as const;
+
+const PUBLIC_BANNER_PRESETS = [
+  "https://images.unsplash.com/photo-1492684223066-81342ee5ff30?auto=format&fit=crop&w=1600&q=80",
+  "https://images.unsplash.com/photo-1511578314322-379afb476865?auto=format&fit=crop&w=1600&q=80",
+  "https://images.unsplash.com/photo-1505373877841-8d25f7d46678?auto=format&fit=crop&w=1600&q=80",
+  "https://images.unsplash.com/photo-1515169067868-5387ec356754?auto=format&fit=crop&w=1600&q=80",
+] as const;
+
+const PUBLIC_TEMPLATE_OPTIONS = [
+  { key: "classic", label: "Classic", description: "Balanced hero and details layout" },
+  { key: "keynote", label: "Keynote", description: "Large headline, presentation-style hero" },
+  { key: "workshop", label: "Workshop", description: "Focused agenda-first structure" },
+  { key: "nightlife", label: "Nightlife", description: "Atmospheric, bold hero treatment" },
+  { key: "meetup", label: "Meetup", description: "Friendly community event layout" },
+] as const;
+
+type PublicTemplateKey = (typeof PUBLIC_TEMPLATE_OPTIONS)[number]["key"];
+type PublicRsvpTierDraft = {
+  id: string;
+  name: string;
+  description: string;
+  priceLabel: string;
+  capacity: string;
+  isFree: boolean;
+};
 
 type PublicCreateCategoryKey = (typeof PUBLIC_CREATE_CATEGORY_OPTIONS)[number]["key"];
 
@@ -454,12 +480,26 @@ export default function Home() {
   const [newBbqAllowOptIn, setNewBbqAllowOptIn] = useState(false);
   const [newEventPublicCategory, setNewEventPublicCategory] = useState<PublicCreateCategoryKey>("networking");
   const [newEventWizardStep, setNewEventWizardStep] = useState<1 | 2 | 3>(1);
+  const [newPublicCreateStep, setNewPublicCreateStep] = useState<1 | 2 | 3 | 4 | 5>(1);
   const [newEventWizardGoal, setNewEventWizardGoal] = useState<"private" | "public" | null>(null);
   const [newEventPrivateAck, setNewEventPrivateAck] = useState(false);
   const [newEventPublicAck, setNewEventPublicAck] = useState(false);
   const [newEventArea, setNewEventArea] = useState<"parties" | "trips">("parties");
   const [newEventType, setNewEventType] = useState<string>("barbecue");
   const [newEventLocation, setNewEventLocation] = useState<LocationOption | null>(null);
+  const [newPublicDescription, setNewPublicDescription] = useState("");
+  const [newPublicOrganizationName, setNewPublicOrganizationName] = useState("");
+  const [newPublicBannerUrl, setNewPublicBannerUrl] = useState("");
+  const [newPublicTemplate, setNewPublicTemplate] = useState<PublicTemplateKey>("classic");
+  const [newPublicCapacity, setNewPublicCapacity] = useState("");
+  const [newPublicExternalLink, setNewPublicExternalLink] = useState("");
+  const [newPublicListFromAt, setNewPublicListFromAt] = useState("");
+  const [newPublicListUntilAt, setNewPublicListUntilAt] = useState("");
+  const [newPublicRsvpTiers, setNewPublicRsvpTiers] = useState<PublicRsvpTierDraft[]>([
+    { id: "general", name: "General Admission", description: "", priceLabel: "", capacity: "", isFree: true },
+  ]);
+  const [newPublicDraftChoice, setNewPublicDraftChoice] = useState<"draft" | "publish">("draft");
+  const [newPublicCreatedEvent, setNewPublicCreatedEvent] = useState<Barbecue | null>(null);
 
   useEffect(() => {
     if (newEventLocation) {
@@ -691,6 +731,7 @@ export default function Home() {
   const isCreator = !!(username && selectedBbq?.creatorId === username);
   const isPrivate = selectedBbq ? !selectedBbq.isPublic : false;
   const isPrivateContext = !!selectedBbq && isPrivate;
+  const isPublicBuilderContext = !!selectedBbq && (selectedBbq.visibilityOrigin === "public" || selectedBbq.visibility === "public");
   const privateMood = getCircleMoodTokens(isPrivateContext ? getCirclePersonalityFromEvent(selectedBbq) : "minimal");
 
   const { data: participants = [] } = useParticipants(selectedBbqId);
@@ -700,6 +741,8 @@ export default function Home() {
   const { data: expenseSharesList = [] } = useExpenseShares(selectedBbq?.allowOptInExpenses ? selectedBbqId : null);
   const setExpenseShare = useSetExpenseShare(selectedBbqId);
   const { data: pendingRequests = [] } = usePendingRequests(isCreator ? selectedBbqId : null);
+  const { data: publicRsvpRequests = [] } = usePublicEventRsvpRequests(selectedBbqId, isCreator && isPublicBuilderContext);
+  const updatePublicRsvpRequest = useUpdatePublicEventRsvpRequest(selectedBbqId);
   const { data: invitedParticipants = [] } = useInvitedParticipants(isCreator && isPrivate ? selectedBbqId : null);
   const { data: memberships = [] } = useMemberships(username);
   const privateSuggestionsEligible = isEligibleForLocalSuggestions({
@@ -724,6 +767,17 @@ export default function Home() {
   useEffect(() => {
     setDisplayCurrency(currency);
   }, [currency]);
+
+  useEffect(() => {
+    if (!selectedBbq) return;
+    if (isPublicBuilderContext) {
+      const valid = new Set(["overview", "attendees", "schedule", "content", "settings"]);
+      if (!valid.has(activeEventTab)) setActiveEventTab("overview");
+      return;
+    }
+    const valid = new Set(["expenses", "people", "split", "notes", "chat"]);
+    if (!valid.has(activeEventTab)) setActiveEventTab("expenses");
+  }, [selectedBbq?.id, isPublicBuilderContext, activeEventTab]);
 
   useEffect(() => {
     if (!selectedBbqId) {
@@ -972,11 +1026,13 @@ export default function Home() {
     );
   };
 
-  const handleCreateBbq = () => {
+  const handleCreateBbq = (publicCreateChoice?: "draft" | "publish") => {
     if (!newBbqName.trim()) return;
     const requestedPublicOnCreate = newBbqIsPublic;
     const requestedPublicModeOnCreate = newBbqPublicMode;
     const requestedVisibilityOriginOnCreate = newBbqVisibilityOrigin;
+    const effectivePublicCreateChoice = publicCreateChoice ?? newPublicDraftChoice;
+    const requestedCreateAndPublish = requestedVisibilityOriginOnCreate === "public" && effectivePublicCreateChoice === "publish";
     // Template-specific default data at creation time
     let templateData: unknown | null = null;
     if (newEventType === "barbecue") {
@@ -986,7 +1042,22 @@ export default function Home() {
     }
     if (requestedVisibilityOriginOnCreate === "public") {
       const baseTemplate = (templateData && typeof templateData === "object") ? templateData as Record<string, unknown> : {};
-      templateData = { ...baseTemplate, publicCategory: newEventPublicCategory };
+      templateData = {
+        ...baseTemplate,
+        publicCategory: newEventPublicCategory,
+        publicCapacity: newPublicCapacity ? Number(newPublicCapacity) : null,
+        publicExternalLink: newPublicExternalLink.trim() || null,
+        publicRsvpTiers: newPublicRsvpTiers
+          .map((tier) => ({
+            id: tier.id,
+            name: tier.name.trim(),
+            description: tier.description.trim() || null,
+            priceLabel: tier.isFree ? null : (tier.priceLabel.trim() || null),
+            capacity: tier.capacity ? Number(tier.capacity) : null,
+            isFree: tier.isFree,
+          }))
+          .filter((tier) => tier.name),
+      };
     } else {
       const baseTemplate = (templateData && typeof templateData === "object") ? templateData as Record<string, unknown> : {};
       templateData = {
@@ -1002,10 +1073,17 @@ export default function Home() {
       visibility: "private",
       visibilityOrigin: requestedVisibilityOriginOnCreate,
       publicMode: requestedPublicModeOnCreate,
+      publicTemplate: requestedVisibilityOriginOnCreate === "public" ? newPublicTemplate : undefined,
       allowOptInExpenses: newBbqAllowOptIn,
       area: newEventArea,
       eventType: newEventType,
       templateData,
+      status: requestedVisibilityOriginOnCreate === "public" ? "draft" : undefined,
+      organizationName: requestedVisibilityOriginOnCreate === "public" ? (newPublicOrganizationName.trim() || null) : undefined,
+      publicDescription: requestedVisibilityOriginOnCreate === "public" ? (newPublicDescription.trim() || null) : undefined,
+      bannerImageUrl: requestedVisibilityOriginOnCreate === "public" ? (newPublicBannerUrl.trim() || null) : undefined,
+      publicListFromAt: requestedVisibilityOriginOnCreate === "public" && newPublicListFromAt ? new Date(newPublicListFromAt).toISOString() : undefined,
+      publicListUntilAt: requestedVisibilityOriginOnCreate === "public" && newPublicListUntilAt ? new Date(newPublicListUntilAt).toISOString() : undefined,
     };
     if (newEventLocation) {
       payload.locationName = newEventLocation.locationName;
@@ -1028,26 +1106,23 @@ export default function Home() {
         setSelectedBbqId(data.id);
         setArea(getEventArea(data));
         setEventVisibilityTab("private");
-        setNewBbqName(""); setNewBbqDate(new Date().toISOString().split('T')[0]); setNewBbqAllowOptIn(false);
-        setNewEventArea("parties"); setNewEventType("barbecue"); setNewEventLocation(null); setNewBbqPublicMode("marketing");
-        resetNewEventWizard();
-        setNewBbqCurrency(((user?.defaultCurrencyCode as CurrencyCode | undefined) ?? "EUR"));
-        setIsNewBbqOpen(false);
         if (requestedPublicOnCreate) {
-          toast({
-            title: "Event created as Private",
-            message: "Activate listing to publish.",
-            variant: "warning",
-            actionLabel: "Activate & publish",
-            onAction: async () => {
-              try {
-                const { url } = await checkoutPublicListing.mutateAsync({ id: data.id, publicMode: requestedPublicModeOnCreate });
-                window.location.href = url;
-              } catch (err) {
-                toast({ title: (err as Error).message || "Failed to publish", variant: "destructive" });
-              }
-            },
-          });
+          setNewPublicCreatedEvent(data);
+          setNewPublicCreateStep(5);
+          if (requestedCreateAndPublish) {
+            void checkoutPublicListing.mutateAsync({ id: data.id, publicMode: requestedPublicModeOnCreate })
+              .then(({ url }) => { window.location.href = url; })
+              .catch((err) => {
+                const msg = (err as Error).message || "Failed to publish";
+                if (!/APP_URL/i.test(msg)) toast({ title: msg, variant: "destructive" });
+              });
+          }
+        } else {
+          setNewBbqName(""); setNewBbqDate(new Date().toISOString().split('T')[0]); setNewBbqAllowOptIn(false);
+          setNewEventArea("parties"); setNewEventType("barbecue"); setNewEventLocation(null); setNewBbqPublicMode("marketing");
+          resetNewEventWizard();
+          setNewBbqCurrency(((user?.defaultCurrencyCode as CurrencyCode | undefined) ?? "EUR"));
+          setIsNewBbqOpen(false);
         }
       },
       onError: (err: unknown) => {
@@ -1064,10 +1139,22 @@ export default function Home() {
 
   const resetNewEventWizard = () => {
     setNewEventWizardStep(1);
+    setNewPublicCreateStep(1);
     setNewEventWizardGoal(null);
     setNewEventPrivateAck(false);
     setNewEventPublicAck(false);
     setNewEventPublicCategory("networking");
+    setNewPublicDescription("");
+    setNewPublicOrganizationName("");
+    setNewPublicBannerUrl("");
+    setNewPublicTemplate("classic");
+    setNewPublicCapacity("");
+    setNewPublicExternalLink("");
+    setNewPublicListFromAt("");
+    setNewPublicListUntilAt("");
+    setNewPublicRsvpTiers([{ id: "general", name: "General Admission", description: "", priceLabel: "", capacity: "", isFree: true }]);
+    setNewPublicDraftChoice("draft");
+    setNewPublicCreatedEvent(null);
     setNewBbqVisibilityOrigin("public");
     setNewBbqIsPublic(true);
   };
@@ -1093,6 +1180,19 @@ export default function Home() {
     setNewEventPublicCategory(categoryKey);
     setNewEventArea(preset.area);
     setNewEventType(preset.eventType);
+  };
+
+  const updatePublicRsvpTier = (id: string, patch: Partial<PublicRsvpTierDraft>) => {
+    setNewPublicRsvpTiers((prev) => prev.map((tier) => (tier.id === id ? { ...tier, ...patch } : tier)));
+  };
+
+  const addPublicRsvpTier = () => {
+    const nextId = `tier_${Math.random().toString(36).slice(2, 8)}`;
+    setNewPublicRsvpTiers((prev) => [...prev, { id: nextId, name: "", description: "", priceLabel: "", capacity: "", isFree: true }].slice(0, 8));
+  };
+
+  const removePublicRsvpTier = (id: string) => {
+    setNewPublicRsvpTiers((prev) => (prev.length <= 1 ? prev : prev.filter((tier) => tier.id !== id)));
   };
 
   const markEventRecent = (eventId: number) => {
@@ -1143,6 +1243,10 @@ export default function Home() {
     selectedBbq.publicListingStatus !== "active"
   );
   const selectedBbqVisibilityOriginLocked = selectedBbq?.visibilityOrigin === "private";
+  const publicPeopleTabValue = isPublicBuilderContext ? "attendees" : "people";
+  const publicScheduleTabValue = isPublicBuilderContext ? "schedule" : "notes";
+  const publicContentTabValue = isPublicBuilderContext ? "content" : "chat";
+  const publicSettingsTabValue = "settings";
   const handleSettleUp = () => {
     if (!selectedBbqId) return;
     settleUp.mutate(selectedBbqId, {
@@ -1815,7 +1919,7 @@ export default function Home() {
                 addExpenseLabel={t.addExpense}
                 isCreator={isCreator}
                 allowOptIn={!!selectedBbq?.allowOptInExpenses}
-                onOptInChange={(checked) => selectedBbqId && updateBbq.mutate({ id: selectedBbqId, allowOptInExpenses: checked })}
+                onOptInChange={!isPublicBuilderContext ? ((checked) => selectedBbqId && updateBbq.mutate({ id: selectedBbqId, allowOptInExpenses: checked })) : undefined}
                 optInPending={updateBbq.isPending}
                 onDelete={selectedBbqId ? () => handleDeleteBbq(selectedBbqId) : undefined}
                 inviteLinkUrl={
@@ -1843,8 +1947,9 @@ export default function Home() {
                       : undefined
                 }
                 eventStatus={eventStatus}
-                onSettleUp={isCreator ? () => setSettleUpModalOpen(true) : undefined}
+                onSettleUp={isCreator && !isPublicBuilderContext ? () => setSettleUpModalOpen(true) : undefined}
                 settleUpPending={settleUp.isPending}
+                showAddExpenseAction={!isPublicBuilderContext}
                 />
               </div>
 
@@ -1970,7 +2075,7 @@ export default function Home() {
                 </div>
               )}
 
-              {isCreator && selectedBbq && (
+              {isCreator && selectedBbq && !isPublicBuilderContext && (
                 <div className="mt-4 rounded-xl border border-border/60 bg-card p-4 space-y-4">
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -2103,7 +2208,7 @@ export default function Home() {
               )}
 
               {/* Participant settling banner: show when status=settling and current user owes */}
-              {eventStatus === "settling" && !isCreator && myParticipant && (() => {
+              {!isPublicBuilderContext && eventStatus === "settling" && !isCreator && myParticipant && (() => {
                 const myBalance = balances.find((b: { id: number }) => b.id === myParticipant.id) as { balance: number } | undefined;
                 const amountOwed = myBalance && myBalance.balance < -0.01 ? Math.abs(myBalance.balance) : 0;
                 if (amountOwed < 0.01) return null;
@@ -2147,8 +2252,9 @@ export default function Home() {
                   </div>
                 )}
                 <p className="text-xs text-muted-foreground">
-                  {formatMoney(totalSpent)} spent · {participantCount} {participantCount === 1 ? "person" : "people"} · {expenses.length} expense{expenses.length !== 1 ? "s" : ""}
-                  {!allowOptIn && ` · ${formatMoney(fairShare)} ${t.fairShare.toLowerCase()}`}
+                  {isPublicBuilderContext
+                    ? `${participantCount} ${participantCount === 1 ? "attendee" : "attendees"} · ${selectedBbq?.publicMode === "joinable" ? "Join requests enabled" : "Invite-only joins"} · ${publicListingActive ? "Listed" : "Unlisted"}`
+                    : `${formatMoney(totalSpent)} spent · ${participantCount} ${participantCount === 1 ? "person" : "people"} · ${expenses.length} expense${expenses.length !== 1 ? "s" : ""}${!allowOptIn ? ` · ${formatMoney(fairShare)} ${t.fairShare.toLowerCase()}` : ""}`}
                 </p>
                 {showUpdatedAfterBadge && (
                   <span className="text-[10px] px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-600 dark:text-amber-400 font-medium" data-testid="badge-updated-after">
@@ -2158,7 +2264,7 @@ export default function Home() {
               </div>
 
               {/* Completion banner when event is settled */}
-              {eventStatus === "settled" && (
+              {!isPublicBuilderContext && eventStatus === "settled" && (
                 <div className={`mt-4 rounded-xl border border-green-500/30 bg-green-500/10 px-4 py-2.5 flex items-center gap-2 ${isPrivateContext ? "rounded-2xl bg-gradient-to-r from-emerald-500/12 to-emerald-500/6 ring-1 ring-emerald-500/10" : ""}`}>
                   <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0" />
                   <p className="text-sm font-medium text-foreground">{isPrivateContext ? "Everyone’s settled up. You’re all in sync." : t.split.allSettledStillFriends}</p>
@@ -2166,7 +2272,7 @@ export default function Home() {
               )}
 
               {/* Creator: Mark as settled when all balances zero */}
-              {isCreator && eventStatus === "settling" && allBalancesZero && (
+              {!isPublicBuilderContext && isCreator && eventStatus === "settling" && allBalancesZero && (
                 <div className={`mt-4 rounded-xl border border-green-500/30 bg-green-500/10 px-4 py-3 flex items-center justify-between gap-3 ${isPrivateContext ? "rounded-2xl bg-gradient-to-r from-emerald-500/12 to-transparent ring-1 ring-emerald-500/10" : ""}`}>
                   <p className="text-sm font-medium text-foreground">{isPrivateContext ? "Everything looks settled. You can close this out anytime." : t.settleUp.everyonePaid}</p>
                   <Button
@@ -2183,7 +2289,7 @@ export default function Home() {
               )}
 
             {/* Template-specific optional sections */}
-            {eventTemplate.key === "barbecue" && (
+            {!isPublicBuilderContext && eventTemplate.key === "barbecue" && (
               <div className={`mt-4 rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-4 space-y-3 shadow-[var(--shadow-sm)] ${isPrivateContext ? `rounded-2xl border-border/60 bg-gradient-to-b from-[hsl(var(--surface-1))] to-[hsl(var(--surface-0))] shadow-sm shadow-neutral-200/40 dark:shadow-black/20 ${privateMood.ringClass} ring-1 space-y-3.5` : ""}`}>
                 <div className="flex items-center justify-between gap-2">
                   <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
@@ -2208,7 +2314,7 @@ export default function Home() {
               </div>
             )}
 
-            {eventTemplate.key === "birthday" && (
+            {!isPublicBuilderContext && eventTemplate.key === "birthday" && (
               <div className="mt-4 rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-4 space-y-3 shadow-[var(--shadow-sm)]">
                 <div className="flex items-center justify-between gap-2">
                   <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
@@ -2258,16 +2364,284 @@ export default function Home() {
             <div className="mt-4">
             <EventTabs value={activeEventTab} onValueChange={setActiveEventTab}>
               <EventTabsList>
-                <EventTabsTrigger value="expenses" data-testid="tab-expenses">{t.tabs.expenses}</EventTabsTrigger>
-                <EventTabsTrigger value="people" data-testid="tab-people">{t.tabs.people}</EventTabsTrigger>
-                <EventTabsTrigger value="split" data-testid="tab-split">{t.tabs.split}</EventTabsTrigger>
-                <EventTabsTrigger value="notes" data-testid="tab-notes">{t.tabs.notes}</EventTabsTrigger>
-                <EventTabsTrigger value="chat" data-testid="tab-chat">{t.tabs.chat}</EventTabsTrigger>
+                {isPublicBuilderContext ? (
+                  <>
+                    <EventTabsTrigger value="overview" data-testid="tab-overview">Overview</EventTabsTrigger>
+                    <EventTabsTrigger value="attendees" data-testid="tab-attendees">Attendees</EventTabsTrigger>
+                    <EventTabsTrigger value="schedule" data-testid="tab-schedule">Schedule</EventTabsTrigger>
+                    <EventTabsTrigger value="content" data-testid="tab-content">Content</EventTabsTrigger>
+                    {isCreator && <EventTabsTrigger value="settings" data-testid="tab-settings">Settings</EventTabsTrigger>}
+                  </>
+                ) : (
+                  <>
+                    <EventTabsTrigger value="expenses" data-testid="tab-expenses">{t.tabs.expenses}</EventTabsTrigger>
+                    <EventTabsTrigger value="people" data-testid="tab-people">{t.tabs.people}</EventTabsTrigger>
+                    <EventTabsTrigger value="split" data-testid="tab-split">{t.tabs.split}</EventTabsTrigger>
+                    <EventTabsTrigger value="notes" data-testid="tab-notes">{t.tabs.notes}</EventTabsTrigger>
+                    <EventTabsTrigger value="chat" data-testid="tab-chat">{t.tabs.chat}</EventTabsTrigger>
+                  </>
+                )}
               </EventTabsList>
 
+              {isPublicBuilderContext && selectedBbq && (
+                <>
+                  <EventTabsContent value="overview" className="space-y-4">
+                    <div className="rounded-2xl border border-border/60 bg-card p-4 space-y-4 shadow-sm">
+                      <div className="aspect-[16/7] rounded-xl border border-border/60 bg-muted/20 overflow-hidden flex items-center justify-center text-xs text-muted-foreground">
+                        {selectedBbq.bannerImageUrl ? (
+                          <img src={selectedBbq.bannerImageUrl} alt={selectedBbq.name} className="h-full w-full object-cover" />
+                        ) : (
+                          "Add a banner in Settings to brand your public page"
+                        )}
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div>
+                          <p className="text-xs uppercase tracking-wide text-muted-foreground">Listing mode</p>
+                          <p className="text-sm font-medium mt-1">{selectedBbq.publicMode === "joinable" ? "Joinable" : "Marketing"}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs uppercase tracking-wide text-muted-foreground">Listing status</p>
+                          <p className="text-sm font-medium mt-1">
+                            {publicListingActive ? `Listed until ${selectedBbq.publicListingExpiresAt ? new Date(selectedBbq.publicListingExpiresAt).toLocaleDateString() : "—"}` : "Draft / unlisted"}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground">Description</p>
+                        <p className="text-sm text-foreground/90 whitespace-pre-wrap">{selectedBbq.publicDescription || "Add a public description in Settings to explain what attendees should expect."}</p>
+                      </div>
+                    </div>
+                  </EventTabsContent>
+                  <EventTabsContent value="schedule">
+                    <div className="rounded-2xl border border-border/60 bg-card p-6">
+                      <p className="text-sm font-medium">Schedule</p>
+                      <p className="text-sm text-muted-foreground mt-1">Add agenda blocks and timing details here in a future update.</p>
+                    </div>
+                  </EventTabsContent>
+                  <EventTabsContent value="content">
+                    <div className="rounded-2xl border border-border/60 bg-card p-6">
+                      <p className="text-sm font-medium">Content</p>
+                      <p className="text-sm text-muted-foreground mt-1">Share updates, links, and assets for attendees here in a future update.</p>
+                    </div>
+                  </EventTabsContent>
+                  {isCreator && (
+                    <EventTabsContent value="settings" className="space-y-4">
+                      <div className="rounded-xl border border-border/60 bg-card p-4 space-y-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <h2 className="text-sm font-semibold">Public event settings</h2>
+                            <p className="text-xs text-muted-foreground mt-1">Professional event tools for listing, branding, and visibility.</p>
+                          </div>
+                          {selectedBbq.publicSlug && (
+                            <button type="button" className="text-xs text-primary hover:underline" onClick={() => window.open(`/events/${selectedBbq.publicSlug}`, "_blank")}>
+                              Open public page
+                            </button>
+                          )}
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-xs text-muted-foreground">Banner URL</Label>
+                          <Input
+                            value={selectedBbq.bannerImageUrl ?? ""}
+                            placeholder="https://…"
+                            onChange={(e) => updateBbq.mutate({ id: selectedBbq.id, bannerImageUrl: e.target.value || null })}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="text-xs text-muted-foreground">Template</Label>
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            {PUBLIC_TEMPLATE_OPTIONS.map((template) => (
+                              <button
+                                key={`settings-public-template-${template.key}`}
+                                type="button"
+                                onClick={() => updateBbq.mutate({ id: selectedBbq.id, publicTemplate: template.key })}
+                                className={`rounded-lg border p-3 text-left ${((selectedBbq.publicTemplate as string | undefined) ?? "classic") === template.key ? "border-primary bg-primary/5" : "border-border"}`}
+                              >
+                                <p className="text-sm font-semibold">{template.label}</p>
+                                <p className="text-xs text-muted-foreground mt-1">{template.description}</p>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <p className="text-sm font-medium">Public mode</p>
+                          <div className="grid gap-2 md:grid-cols-2">
+                            <button type="button" className={`rounded-lg border p-3 text-left ${selectedBbq.publicMode !== "joinable" ? "border-primary bg-primary/5" : "border-border"}`} onClick={() => updateBbq.mutate({ id: selectedBbq.id, publicMode: "marketing" })}>
+                              <p className="text-sm font-semibold">Marketing</p>
+                              <p className="text-xs text-muted-foreground mt-1">Visible on Explore. People can view details, join via invite link.</p>
+                            </button>
+                            <button type="button" className={`rounded-lg border p-3 text-left ${selectedBbq.publicMode === "joinable" ? "border-primary bg-primary/5" : "border-border"}`} onClick={() => updateBbq.mutate({ id: selectedBbq.id, publicMode: "joinable" })}>
+                              <p className="text-sm font-semibold">Joinable</p>
+                              <p className="text-xs text-muted-foreground mt-1">Visible on Explore. People can request to join.</p>
+                            </button>
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <p className="text-sm font-medium">Visibility</p>
+                          {selectedBbqVisibilityOriginLocked && (
+                            <p className="text-xs text-amber-700 dark:text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-md px-2 py-1.5">
+                              This event was created as Private and cannot be converted to Public later.
+                            </p>
+                          )}
+                          <div className="flex rounded-lg border border-border overflow-hidden">
+                            <button
+                              type="button"
+                              className={`flex-1 py-2 text-sm font-medium ${selectedBbq.visibility !== "public" ? "bg-primary text-primary-foreground" : "hover:bg-muted/40"}`}
+                              onClick={() => updateBbq.mutate({ id: selectedBbq.id, visibility: "private" })}
+                              disabled={updateBbq.isPending}
+                            >
+                              Unlisted
+                            </button>
+                            <button
+                              type="button"
+                              className={`flex-1 py-2 text-sm font-medium ${selectedBbq.visibility === "public" ? "bg-primary text-primary-foreground" : "hover:bg-muted/40"} ${(!publicListingActive || selectedBbqVisibilityOriginLocked) ? "opacity-60 cursor-not-allowed" : ""}`}
+                              onClick={() => {
+                                if (!publicListingActive || selectedBbqVisibilityOriginLocked) return;
+                                updateBbq.mutate({ id: selectedBbq.id, visibility: "public" }, {
+                                  onError: (err) => toast({ title: (err as Error).message, variant: "destructive" }),
+                                });
+                              }}
+                              disabled={updateBbq.isPending || !publicListingActive || selectedBbqVisibilityOriginLocked}
+                            >
+                              Listed
+                            </button>
+                          </div>
+                          <p className="text-xs text-muted-foreground">Only listed public events appear on Explore and public profiles.</p>
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="space-y-2">
+                            <Label className="text-xs text-muted-foreground">List from (optional)</Label>
+                            <Input
+                              type="datetime-local"
+                              value={selectedBbq.publicListFromAt ? new Date(selectedBbq.publicListFromAt).toISOString().slice(0, 16) : ""}
+                              onChange={(e) => updateBbq.mutate({ id: selectedBbq.id, publicListFromAt: e.target.value ? new Date(e.target.value).toISOString() : null })}
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label className="text-xs text-muted-foreground">List until (optional)</Label>
+                            <Input
+                              type="datetime-local"
+                              value={selectedBbq.publicListUntilAt ? new Date(selectedBbq.publicListUntilAt).toISOString().slice(0, 16) : ""}
+                              onChange={(e) => updateBbq.mutate({ id: selectedBbq.id, publicListUntilAt: e.target.value ? new Date(e.target.value).toISOString() : null })}
+                            />
+                          </div>
+                        </div>
+                        {!publicListingActive ? (
+                          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 space-y-2">
+                            <p className="text-sm font-medium">{selectedBbq.publicListingStatus === "paused" ? "Listing paused" : "Listing inactive"}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {selectedBbq.publicListingStatus === "paused"
+                                ? "This listing is temporarily hidden from Explore. Resume it anytime before the listing expires."
+                                : "Activate a listing to publish this event on Explore. Payment is handled through Stripe Checkout."}
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              <Button
+                                size="sm"
+                                onClick={() => {
+                                  if (selectedBbq.publicListingStatus === "paused") {
+                                    updateBbq.mutate({ id: selectedBbq.id, publicListingStatus: "active", visibility: "public" });
+                                    return;
+                                  }
+                                  checkoutPublicListing.mutate({ id: selectedBbq.id, publicMode: ((selectedBbq.publicMode === "joinable" || selectedBbq.publicMode === "marketing") ? selectedBbq.publicMode : "marketing") }, {
+                                    onSuccess: ({ url }) => { window.location.href = url; },
+                                    onError: (err) => {
+                                      const msg = (err as Error).message || "";
+                                      if (/APP_URL/i.test(msg)) return;
+                                      toast({ title: msg, variant: "destructive" });
+                                    },
+                                  });
+                                }}
+                                disabled={checkoutPublicListing.isPending || updateBbq.isPending}
+                              >
+                                {selectedBbq.publicListingStatus === "paused" ? "Resume listing" : "Activate listing & publish"}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={async () => {
+                                  const ensured = await ensureInviteToken.mutateAsync(selectedBbq.id);
+                                  if (!ensured?.inviteToken) return;
+                                  const url = `${typeof window !== "undefined" ? window.location.origin : ""}/join/${ensured.inviteToken}`;
+                                  await navigator.clipboard.writeText(url);
+                                  toast({ title: t.bbq.copySuccess, variant: "success" });
+                                }}
+                              >
+                                Copy invite link
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-medium">Listing active</p>
+                              <p className="text-xs text-muted-foreground">
+                                Listing active until {selectedBbq.publicListingExpiresAt ? new Date(selectedBbq.publicListingExpiresAt).toLocaleDateString() : "—"}
+                              </p>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {selectedBbq.publicSlug && (
+                                <Button size="sm" variant="outline" onClick={() => window.open(`/events/${selectedBbq.publicSlug}`, "_blank")}>
+                                  Preview public page
+                                </Button>
+                              )}
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => updateBbq.mutate({ id: selectedBbq.id, publicListingStatus: "paused", visibility: "private" })}
+                                disabled={updateBbq.isPending}
+                              >
+                                Pause listing
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => deactivateListing.mutate(selectedBbq.id, {
+                                  onSuccess: () => toast({ title: "Listing deactivated", variant: "success" }),
+                                  onError: (err) => toast({ title: (err as Error).message, variant: "destructive" }),
+                                })}
+                                disabled={deactivateListing.isPending}
+                              >
+                                Deactivate listing
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </EventTabsContent>
+                  )}
+                </>
+              )}
+
               {/* People Tab */}
-              <EventTabsContent value="people" className="space-y-4">
-                {(canManage || isCreator) && (
+              <EventTabsContent value={publicPeopleTabValue} className="space-y-4">
+                {isPublicBuilderContext && isCreator && (
+                  <div className="rounded-xl border border-border/60 bg-card p-4 space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-semibold">RSVP requests</h3>
+                        <p className="text-xs text-muted-foreground mt-1">Review requests for joinable public events and manage attendee status.</p>
+                      </div>
+                    </div>
+                    {publicRsvpRequests.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No RSVP requests yet.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {publicRsvpRequests.map((req) => (
+                          <div key={`public-rsvp-request-${req.id}`} className="rounded-lg border border-border/60 p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium truncate">{req.name || `User #${req.userId ?? "guest"}`}</p>
+                              <p className="text-xs text-muted-foreground mt-1">Tier: {req.tierId || "General"} · Status: {req.status}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Button size="sm" variant="outline" disabled={updatePublicRsvpRequest.isPending} onClick={() => updatePublicRsvpRequest.mutate({ rsvpId: req.id, status: "approved" })}>Approve</Button>
+                              <Button size="sm" variant="ghost" disabled={updatePublicRsvpRequest.isPending} onClick={() => updatePublicRsvpRequest.mutate({ rsvpId: req.id, status: "declined" })}>Decline</Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                {!isPublicBuilderContext && (canManage || isCreator) && (
                   <InviteLink
                     url={
                       selectedBbq?.inviteToken
@@ -2293,7 +2667,7 @@ export default function Home() {
                 <div className="flex items-center justify-between gap-3 flex-wrap">
                   <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">{t.participants}</h3>
                   <div className="flex items-center gap-2">
-                    {canManage && (
+                    {!isPublicBuilderContext && canManage && (
                       <Button size="sm" onClick={() => setIsAddPersonOpen(true)} className="btn-interact bg-primary text-primary-foreground font-medium shrink-0" data-testid="button-add-person">
                         <Plus className="w-4 h-4 mr-1.5" />
                         {t.addPerson}
@@ -2447,7 +2821,7 @@ export default function Home() {
               </EventTabsContent>
 
               {/* Expenses Tab */}
-              <EventTabsContent value="expenses" className="space-y-3">
+              {!isPublicBuilderContext && <EventTabsContent value="expenses" className="space-y-3">
                 {/* Quick add chips — up to 5 + More */}
                 {(isCreator || isAcceptedMember) && (isTripEventType(selectedBbq?.eventType) || isPartyEventType(selectedBbq?.eventType)) && (() => {
                   const { category, type } = normalizeEvent(selectedBbq ?? {});
@@ -2674,10 +3048,10 @@ export default function Home() {
                     />
                   </div>
                 )}
-              </EventTabsContent>
+              </EventTabsContent>}
 
               {/* Split Tab */}
-              <EventTabsContent value="split" className="space-y-4">
+              {!isPublicBuilderContext && <EventTabsContent value="split" className="space-y-4">
                 <IndividualContributions
                   balances={balances}
                   totalSpent={totalSpent}
@@ -2776,19 +3150,19 @@ export default function Home() {
                   }}
                   warm={isPrivateContext}
                 />
-              </EventTabsContent>
+              </EventTabsContent>}
 
               {/* Notes Tab */}
-              <EventTabsContent value="notes">
+              {!isPublicBuilderContext && <EventTabsContent value={publicScheduleTabValue}>
                 <NotesTab
                   eventId={selectedBbqId}
                   myParticipantId={myParticipant?.id ?? null}
                   canAddNote={!!myParticipant}
                 />
-              </EventTabsContent>
+              </EventTabsContent>}
 
               {/* Chat Tab — placeholder */}
-              <EventTabsContent value="chat">
+              {!isPublicBuilderContext && <EventTabsContent value={publicContentTabValue}>
                 <div
                   className="flex flex-col items-center justify-center py-16 px-6 rounded-xl border border-border bg-card/50"
                   style={{
@@ -2816,7 +3190,7 @@ export default function Home() {
                     {t.activity.enableChat}
                   </Button>
                 </div>
-              </EventTabsContent>
+              </EventTabsContent>}
             </EventTabs>
             </div>
             </EventTemplateWrapper>
@@ -2843,7 +3217,7 @@ export default function Home() {
         scrollable
         footer={
           <div className="w-full space-y-2">
-            {newEventWizardStep === 3 && newBbqVisibilityOrigin === "public" && (
+            {newEventWizardStep === 3 && newBbqVisibilityOrigin === "public" && newPublicCreateStep < 5 && (
               <p className="text-xs text-muted-foreground text-right">
                 Your event is created as a private draft. Publish to Explore when ready.
               </p>
@@ -2852,6 +3226,22 @@ export default function Home() {
               <Button
                 variant="ghost"
                 onClick={() => {
+                  if (newEventWizardStep === 3 && newBbqVisibilityOrigin === "public" && newPublicCreateStep > 1 && newPublicCreateStep < 5) {
+                    setNewPublicCreateStep((s) => (s > 1 ? ((s - 1) as 1 | 2 | 3) : s));
+                    return;
+                  }
+                  if (newEventWizardStep === 3 && newBbqVisibilityOrigin === "public" && newPublicCreateStep === 5) {
+                    setIsNewBbqOpen(false);
+                    setNewEventArea(area);
+                    setNewEventType(area === "trips" ? "city_trip" : "barbecue");
+                    setNewEventLocation(null);
+                    resetNewEventWizard();
+                    setNewBbqName("");
+                    setNewBbqDate(new Date().toISOString().split('T')[0]);
+                    setNewBbqAllowOptIn(false);
+                    setNewBbqCurrency(((user?.defaultCurrencyCode as CurrencyCode | undefined) ?? "EUR"));
+                    return;
+                  }
                   if (newEventWizardStep > 1) {
                     setNewEventWizardStep((s) => (s > 1 ? ((s - 1) as 1 | 2) : s));
                     return;
@@ -2861,7 +3251,9 @@ export default function Home() {
                 className="w-full sm:w-auto order-2 sm:order-1"
                 data-testid="button-cancel-bbq"
               >
-                {newEventWizardStep > 1 ? "Back" : t.modals.cancel}
+                {newEventWizardStep === 3 && newBbqVisibilityOrigin === "public" && newPublicCreateStep === 5
+                  ? "Done"
+                  : (newEventWizardStep > 1 ? "Back" : t.modals.cancel)}
               </Button>
               {newEventWizardStep < 3 ? (
                 <Button
@@ -2886,14 +3278,46 @@ export default function Home() {
                 >
                   Continue
                 </Button>
-              ) : (
+              ) : newBbqVisibilityOrigin === "public" && newPublicCreateStep < 4 ? (
                 <Button
-                  onClick={handleCreateBbq}
+                  onClick={() => setNewPublicCreateStep((s) => ((s + 1) as 2 | 3 | 4))}
+                  disabled={
+                    (newPublicCreateStep === 1 && !newBbqName.trim()) ||
+                    (newPublicCreateStep === 2 && !newBbqName.trim())
+                  }
+                  className="w-full sm:w-auto bg-primary text-primary-foreground font-semibold transition-all duration-150 order-1 sm:order-2"
+                  data-testid="button-public-builder-next"
+                >
+                  Next
+                </Button>
+              ) : newBbqVisibilityOrigin === "public" && newPublicCreateStep === 4 ? (
+                <div className="flex w-full sm:w-auto order-1 sm:order-2 gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => { setNewPublicDraftChoice("draft"); handleCreateBbq("draft"); }}
+                    disabled={!newBbqName.trim() || createBbq.isPending}
+                    className="flex-1 sm:flex-none"
+                    data-testid="button-create-public-draft"
+                  >
+                    {createBbq.isPending && newPublicDraftChoice === "draft" ? <Loader2 className="w-4 h-4 animate-spin" /> : "Create in Draft"}
+                  </Button>
+                  <Button
+                    onClick={() => { setNewPublicDraftChoice("publish"); handleCreateBbq("publish"); }}
+                    disabled={!newBbqName.trim() || createBbq.isPending}
+                    className="flex-1 sm:flex-none bg-primary text-primary-foreground font-semibold"
+                    data-testid="button-create-public-publish"
+                  >
+                    {createBbq.isPending && newPublicDraftChoice === "publish" ? <Loader2 className="w-4 h-4 animate-spin" /> : "Create & Publish"}
+                  </Button>
+                </div>
+              ) : newBbqVisibilityOrigin === "public" && newPublicCreateStep === 5 ? null : (
+                <Button
+                  onClick={() => handleCreateBbq()}
                   disabled={!newBbqName.trim() || createBbq.isPending}
                   className="w-full sm:w-auto bg-primary text-primary-foreground font-semibold shadow-lg shadow-primary/20 hover:shadow-primary/30 hover:-translate-y-0.5 transition-all duration-150 order-1 sm:order-2"
                   data-testid="button-create-bbq"
                 >
-                  {createBbq.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : (newBbqVisibilityOrigin === "public" ? "Create draft" : t.bbq.create)}
+                  {createBbq.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : t.bbq.create}
                 </Button>
               )}
             </div>
@@ -2923,7 +3347,7 @@ export default function Home() {
                       className={`rounded-xl border p-4 text-left transition-all ${!shouldReduceMotion ? "duration-150" : ""} ${newEventWizardGoal === "private" ? "border-primary bg-primary/5 shadow-sm" : "border-border hover:bg-muted/20"}`}
                       data-testid="wizard-goal-private"
                     >
-                      <div className="flex items-center gap-2 font-semibold"><Lock className="w-4 h-4" /> Private (friends)</div>
+                      <div className="flex items-center gap-2 font-semibold"><Lock className="w-4 h-4" /> Private event (friends)</div>
                       <p className="text-xs text-muted-foreground mt-2">For friend groups, shared costs, and invite-only coordination.</p>
                     </button>
                     <button
@@ -2932,7 +3356,7 @@ export default function Home() {
                       className={`rounded-xl border p-4 text-left transition-all ${!shouldReduceMotion ? "duration-150" : ""} ${newEventWizardGoal === "public" ? "border-primary bg-primary/5 shadow-sm" : "border-border hover:bg-muted/20"}`}
                       data-testid="wizard-goal-public"
                     >
-                      <div className="flex items-center gap-2 font-semibold"><Globe className="w-4 h-4" /> Public (professional)</div>
+                      <div className="flex items-center gap-2 font-semibold"><Globe className="w-4 h-4" /> Public event (professional)</div>
                       <p className="text-xs text-muted-foreground mt-2">For organizations, brands, and events you may want listed on Explore.</p>
                     </button>
                   </div>
@@ -2999,63 +3423,356 @@ export default function Home() {
           <ModalSection title={t.bbq.eventBasics}>
             {newBbqVisibilityOrigin === "public" ? (
               <div className="space-y-5">
-                <div className="space-y-2">
-                  <Label className="text-muted-foreground">{t.bbq.bbqName}</Label>
-                  <Input
-                    placeholder={t.events.event}
-                    value={newBbqName}
-                    onChange={e => setNewBbqName(e.target.value)}
-                    onKeyDown={e => e.key === "Enter" && handleCreateBbq()}
-                    autoFocus
-                    data-testid="input-bbq-name"
-                    className="focus-visible:ring-2 focus-visible:ring-primary/40"
-                  />
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-base font-semibold">Public event builder</h3>
+                    <p className="text-xs text-muted-foreground">A guided setup for professional events. Your event starts Unlisted.</p>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                    {[
+                      { n: 1, label: "Basics" },
+                      { n: 2, label: "Branding" },
+                      { n: 3, label: "Publish" },
+                      { n: 4, label: "Success" },
+                    ].map((step) => {
+                      const active = newPublicCreateStep === step.n || (step.n === 4 && newPublicCreateStep === 5);
+                      return (
+                        <span key={step.n} className={`rounded-full border px-2 py-0.5 ${active ? "border-primary/40 bg-primary/5 text-primary" : "border-border"}`}>
+                          {step.label}
+                        </span>
+                      );
+                    })}
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-3">
-                    <Label className="text-muted-foreground">Category</Label>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground hidden sm:inline">Theme preview</span>
-                      <EventCategoryBadge category={newEventPublicCategory} compact showTone />
+
+                {newPublicCreateStep === 1 && (
+                  <div className="space-y-4">
+                    <div className="rounded-xl border border-border/60 bg-muted/10 p-4">
+                      <p className="text-sm font-medium">Public events are designed for professional hosting.</p>
+                      <p className="text-xs text-muted-foreground mt-1">Your event starts as Unlisted. Only people with your link can view it. Publish when you’re ready to appear on Explore.</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-muted-foreground">{t.bbq.bbqName}</Label>
+                      <Input
+                        placeholder={t.events.event}
+                        value={newBbqName}
+                        onChange={e => setNewBbqName(e.target.value)}
+                        autoFocus
+                        data-testid="input-bbq-name"
+                        className="focus-visible:ring-2 focus-visible:ring-primary/40"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <Label className="text-muted-foreground">Category</Label>
+                        <EventCategoryBadge category={newEventPublicCategory} compact showTone />
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        {PUBLIC_CREATE_CATEGORY_OPTIONS.map((option) => (
+                          <button
+                            key={option.key}
+                            type="button"
+                            onClick={() => applyPublicCreateCategory(option.key)}
+                            className={`rounded-lg border px-3 py-2 text-sm font-medium text-left transition-colors ${newEventPublicCategory === option.key ? "border-primary bg-primary/5 text-foreground" : "border-border text-muted-foreground hover:bg-muted/20 hover:text-foreground"}`}
+                            data-testid={`button-public-category-${option.key}`}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
+                      <p className="text-xs text-muted-foreground">Choose the category that best matches how your event will appear in Explore.</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-muted-foreground">Public listing</Label>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <button
+                          type="button"
+                          onClick={() => setNewBbqPublicMode("marketing")}
+                          className={`rounded-lg border p-3 text-left transition-colors ${newBbqPublicMode === "marketing" ? "border-primary bg-primary/5" : "border-border hover:bg-muted/20"}`}
+                        >
+                          <p className="text-sm font-semibold">Marketing</p>
+                          <p className="text-xs text-muted-foreground mt-1">Visible on Explore. People can view details, join via invite link.</p>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setNewBbqPublicMode("joinable")}
+                          className={`rounded-lg border p-3 text-left transition-colors ${newBbqPublicMode === "joinable" ? "border-primary bg-primary/5" : "border-border hover:bg-muted/20"}`}
+                        >
+                          <p className="text-sm font-semibold">Joinable</p>
+                          <p className="text-xs text-muted-foreground mt-1">Visible on Explore. People can request to join.</p>
+                        </button>
+                      </div>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    {PUBLIC_CREATE_CATEGORY_OPTIONS.map((option) => (
+                )}
+
+                {newPublicCreateStep === 2 && (
+                  <div className="space-y-4">
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label className="text-muted-foreground">Date</Label>
+                        <Input type="date" value={newBbqDate} onChange={e => setNewBbqDate(e.target.value)} data-testid="input-bbq-date" />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-muted-foreground">Capacity (optional)</Label>
+                        <Input inputMode="numeric" placeholder="e.g. 120" value={newPublicCapacity} onChange={(e) => setNewPublicCapacity(e.target.value.replace(/[^\d]/g, ""))} />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-muted-foreground">Location</Label>
+                      <LocationCombobox value={newEventLocation} onChange={setNewEventLocation} placeholder="Search city or country…" data-testid="input-event-location" />
+                      <p className="text-xs text-muted-foreground">Currency is set automatically from the country (or your default if none selected).</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-muted-foreground">Organization (optional)</Label>
+                      <Input value={newPublicOrganizationName} onChange={(e) => setNewPublicOrganizationName(e.target.value)} placeholder="Studio, brand, venue, team…" />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-muted-foreground">Description</Label>
+                      <Textarea value={newPublicDescription} onChange={(e) => setNewPublicDescription(e.target.value)} rows={4} maxLength={5000} placeholder="What is this event about? What should attendees know before joining?" />
+                      <p className="text-xs text-muted-foreground text-right">{newPublicDescription.length}/5000</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-muted-foreground">External link (optional)</Label>
+                      <Input type="url" value={newPublicExternalLink} onChange={(e) => setNewPublicExternalLink(e.target.value)} placeholder="https://your-site.example/event" />
+                    </div>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <Label className="text-muted-foreground">Tickets / RSVP</Label>
+                        <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={addPublicRsvpTier}>
+                          <Plus className="w-3.5 h-3.5 mr-1" /> Add tier
+                        </Button>
+                      </div>
+                      <div className="space-y-2">
+                        {newPublicRsvpTiers.map((tier) => (
+                          <div key={tier.id} className="rounded-xl border border-border/60 bg-card p-3 space-y-2">
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              <Input placeholder="Tier name" value={tier.name} onChange={(e) => updatePublicRsvpTier(tier.id, { name: e.target.value })} />
+                              <div className="flex items-center gap-2">
+                                <Input
+                                  placeholder={tier.isFree ? "Free" : "Price label (e.g. €39)"}
+                                  value={tier.priceLabel}
+                                  onChange={(e) => updatePublicRsvpTier(tier.id, { priceLabel: e.target.value })}
+                                  disabled={tier.isFree}
+                                />
+                                <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => removePublicRsvpTier(tier.id)} disabled={newPublicRsvpTiers.length <= 1}>
+                                  <X className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            </div>
+                            <Textarea rows={2} placeholder="Description (optional)" value={tier.description} onChange={(e) => updatePublicRsvpTier(tier.id, { description: e.target.value })} />
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                              <div className="flex items-center gap-2 rounded-lg border border-border/60 px-3 py-2">
+                                <input type="checkbox" checked={tier.isFree} onChange={(e) => updatePublicRsvpTier(tier.id, { isFree: e.target.checked, priceLabel: e.target.checked ? "" : tier.priceLabel })} />
+                                <span className="text-sm">Free tier</span>
+                              </div>
+                              <Input
+                                inputMode="numeric"
+                                placeholder="Capacity (optional)"
+                                value={tier.capacity}
+                                onChange={(e) => updatePublicRsvpTier(tier.id, { capacity: e.target.value.replace(/[^\d]/g, "") })}
+                                className="sm:max-w-[220px]"
+                              />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {newPublicCreateStep === 3 && (
+                  <div className="space-y-4">
+                    <div className="rounded-xl border border-border/60 bg-muted/10 p-4">
+                      <p className="text-sm font-medium">Branding</p>
+                      <p className="text-xs text-muted-foreground mt-1">Use a wide banner (recommended 16:9). We’ll center-crop it for public surfaces.</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-muted-foreground">Template</Label>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {PUBLIC_TEMPLATE_OPTIONS.map((template) => (
+                          <button
+                            key={template.key}
+                            type="button"
+                            onClick={() => setNewPublicTemplate(template.key)}
+                            className={`rounded-xl border p-3 text-left transition-colors ${newPublicTemplate === template.key ? "border-primary bg-primary/5" : "border-border hover:bg-muted/20"}`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-sm font-semibold">{template.label}</p>
+                              <span className="text-[10px] px-2 py-0.5 rounded-full border border-border/70 text-muted-foreground">Layout</span>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-1">{template.description}</p>
+                            <div className={`mt-2 h-12 rounded-lg border border-border/50 ${template.key === "keynote" ? "bg-gradient-to-r from-primary/15 to-primary/5" : template.key === "nightlife" ? "bg-gradient-to-r from-fuchsia-500/15 to-violet-500/5" : template.key === "workshop" ? "bg-gradient-to-r from-emerald-500/12 to-emerald-500/5" : "bg-muted/25"}`} />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-muted-foreground">Banner image URL</Label>
+                      <Input
+                        type="url"
+                        value={newPublicBannerUrl}
+                        onChange={(e) => setNewPublicBannerUrl(e.target.value)}
+                        placeholder="https://…"
+                        data-testid="input-public-banner-url"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                      {PUBLIC_BANNER_PRESETS.map((url, idx) => (
+                        <button
+                          key={`public-banner-preset-${idx}`}
+                          type="button"
+                          onClick={() => setNewPublicBannerUrl(url)}
+                          className={`overflow-hidden rounded-xl border ${newPublicBannerUrl === url ? "border-primary ring-2 ring-primary/20" : "border-border/60"}`}
+                          data-testid={`button-public-banner-preset-${idx}`}
+                        >
+                          <img src={url} alt="" className="h-20 w-full object-cover" />
+                        </button>
+                      ))}
+                    </div>
+                    <div className="rounded-2xl border border-border/60 bg-card p-3">
+                      <p className="text-xs text-muted-foreground mb-2">Preview</p>
+                      <div className="aspect-[16/9] rounded-xl border border-border/60 bg-muted/30 overflow-hidden flex items-center justify-center text-xs text-muted-foreground">
+                        {newPublicBannerUrl ? (
+                          <img src={newPublicBannerUrl} alt="Banner preview" className="h-full w-full object-cover" />
+                        ) : (
+                          "No banner selected yet"
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {newPublicCreateStep === 4 && (
+                  <div className="space-y-4">
+                    <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-2">
+                      <p className="text-sm font-medium">Publish settings</p>
+                      <p className="text-xs text-muted-foreground">Public events start as Unlisted by default. Publishing makes them visible on Explore (after listing activation).</p>
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2">
                       <button
-                        key={option.key}
                         type="button"
-                        onClick={() => applyPublicCreateCategory(option.key)}
-                        className={`rounded-lg border px-3 py-2 text-sm font-medium text-left transition-colors ${newEventPublicCategory === option.key ? "border-primary bg-primary/5 text-foreground" : "border-border text-muted-foreground hover:bg-muted/20 hover:text-foreground"}`}
-                        data-testid={`button-public-category-${option.key}`}
+                        onClick={() => setNewPublicDraftChoice("draft")}
+                        className={`rounded-lg border p-3 text-left ${newPublicDraftChoice === "draft" ? "border-primary bg-primary/5" : "border-border"}`}
                       >
-                        {option.label}
+                        <p className="text-sm font-semibold">Draft / Unlisted</p>
+                        <p className="text-xs text-muted-foreground mt-1">Create privately first. Only people with your invite link can view it.</p>
                       </button>
-                    ))}
+                      <button
+                        type="button"
+                        onClick={() => setNewPublicDraftChoice("publish")}
+                        className={`rounded-lg border p-3 text-left ${newPublicDraftChoice === "publish" ? "border-primary bg-primary/5" : "border-border"}`}
+                      >
+                        <p className="text-sm font-semibold">Create & publish</p>
+                        <p className="text-xs text-muted-foreground mt-1">Start checkout after creation and publish on Explore when payment is confirmed.</p>
+                      </button>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label className="text-muted-foreground">List from (optional)</Label>
+                        <Input type="datetime-local" value={newPublicListFromAt} onChange={(e) => setNewPublicListFromAt(e.target.value)} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-muted-foreground">List until (optional)</Label>
+                        <Input type="datetime-local" value={newPublicListUntilAt} onChange={(e) => setNewPublicListUntilAt(e.target.value)} />
+                      </div>
+                    </div>
+                    <p className="text-xs text-muted-foreground">Publishing makes the event visible on Explore, depending on your public mode.</p>
                   </div>
-                  <p className="text-xs text-muted-foreground">Choose the category that best matches how your event will appear in Explore.</p>
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label className="text-muted-foreground">Location</Label>
-                    <LocationCombobox
-                      value={newEventLocation}
-                      onChange={setNewEventLocation}
-                      placeholder="Search city or country…"
-                      data-testid="input-event-location"
-                    />
-                    <p className="text-xs text-muted-foreground">Currency is set automatically from the country (or your default if none selected).</p>
+                )}
+
+                {newPublicCreateStep === 5 && newPublicCreatedEvent && (
+                  <div className="space-y-4">
+                    {(() => {
+                      const shareUrl = newPublicCreatedEvent.publicSlug
+                        ? `${typeof window !== "undefined" ? window.location.origin : ""}/events/${newPublicCreatedEvent.publicSlug}`
+                        : "";
+                      const copyShareLink = async () => {
+                        if (!shareUrl) {
+                          toast({ title: "Public link is not ready yet.", variant: "default" });
+                          return;
+                        }
+                        try {
+                          await navigator.clipboard.writeText(shareUrl);
+                          toast({ title: "Link copied", variant: "success" });
+                        } catch {
+                          const input = document.getElementById("public-event-share-link-input") as HTMLInputElement | null;
+                          if (input) {
+                            input.focus();
+                            input.select();
+                          }
+                          toast({ title: "Press Ctrl/Cmd+C to copy", variant: "default" });
+                        }
+                      };
+                      return (
+                        <>
+                    <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4">
+                      <p className="text-sm font-semibold">Draft created</p>
+                      <p className="text-xs text-muted-foreground mt-1">Your public event was created as an unlisted draft. It has a public page link already, and it will only appear on Explore after you publish the listing.</p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs text-muted-foreground">Share link</Label>
+                      <Input
+                        id="public-event-share-link-input"
+                        value={shareUrl}
+                        readOnly
+                        onFocus={(e) => e.currentTarget.select()}
+                        placeholder="Public link will appear here"
+                        data-testid="input-public-event-share-link"
+                      />
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      <Button
+                        type="button"
+                        onClick={copyShareLink}
+                        className="bg-primary text-primary-foreground"
+                        data-testid="button-copy-public-share-link"
+                      >
+                        Copy share link
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          if (newPublicCreatedEvent.publicSlug) window.open(`/events/${newPublicCreatedEvent.publicSlug}`, "_blank");
+                          else toast({ title: "Public page preview is available after listing activation.", variant: "default" });
+                        }}
+                      >
+                        Preview public page
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => checkoutPublicListing.mutate({ id: newPublicCreatedEvent.id, publicMode: newBbqPublicMode }, {
+                          onSuccess: ({ url }) => { window.location.href = url; },
+                          onError: (err) => {
+                            const msg = (err as Error).message || "Failed to start checkout";
+                            if (!/APP_URL/i.test(msg)) toast({ title: msg, variant: "destructive" });
+                          },
+                        })}
+                        disabled={checkoutPublicListing.isPending}
+                      >
+                        Publish listing
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={async () => {
+                          const ensured = await ensureInviteToken.mutateAsync(newPublicCreatedEvent.id);
+                          if (!ensured?.inviteToken) return;
+                          const url = `${typeof window !== "undefined" ? window.location.origin : ""}/join/${ensured.inviteToken}`;
+                          await navigator.clipboard.writeText(url);
+                          toast({ title: "Invite link copied", variant: "success" });
+                        }}
+                      >
+                        Share invite link
+                      </Button>
+                    </div>
+                        </>
+                      );
+                    })()}
                   </div>
-                  <div className="space-y-2">
-                    <Label className="text-muted-foreground">{t.bbq.date}</Label>
-                    <Input
-                      type="date"
-                      value={newBbqDate}
-                      onChange={e => setNewBbqDate(e.target.value)}
-                      data-testid="input-bbq-date"
-                      className="focus-visible:ring-2 focus-visible:ring-primary/40"
-                    />
-                  </div>
-                </div>
+                )}
               </div>
             ) : (
               <div className="space-y-4">
@@ -3162,41 +3879,6 @@ export default function Home() {
               </div>
             )}
           </ModalSection>
-
-          {/* Section 2 — Public listing (public flow only) */}
-          {newBbqVisibilityOrigin === "public" && (
-          <ModalSection title="Public listing">
-            <div className="space-y-2">
-              <p className="text-xs text-muted-foreground">
-                This is a public-intent event. It will be created as a private draft and can be published to Explore after listing activation.
-              </p>
-              <div className="space-y-2 rounded-lg border border-border/60 bg-muted/10 p-3">
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <button
-                    type="button"
-                    onClick={() => setNewBbqPublicMode("marketing")}
-                    className={`rounded-lg border p-3 text-left transition-colors ${newBbqPublicMode === "marketing" ? "border-primary bg-primary/5" : "border-border hover:bg-muted/20"}`}
-                  >
-                    <p className="text-sm font-semibold">Marketing</p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Visible on Explore. People can view details, join only via invite link.
-                    </p>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setNewBbqPublicMode("joinable")}
-                    className={`rounded-lg border p-3 text-left transition-colors ${newBbqPublicMode === "joinable" ? "border-primary bg-primary/5" : "border-border hover:bg-muted/20"}`}
-                  >
-                    <p className="text-sm font-semibold">Joinable</p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Visible on Explore. People can request to join.
-                    </p>
-                  </button>
-                </div>
-              </div>
-            </div>
-          </ModalSection>
-          )}
           </>
           )}
         </div>

@@ -21,7 +21,10 @@ export type PublicEventListItem = {
   publicDescription: string | null;
   publicSlug: string;
   publicMode: "marketing" | "joinable";
-  publicListingStatus: "inactive" | "active" | "expired";
+  publicTemplate: "classic" | "keynote" | "workshop" | "nightlife" | "meetup";
+  publicListingStatus: "inactive" | "active" | "expired" | "paused";
+  publicListFromAt: string | null;
+  publicListUntilAt: string | null;
   publicListingExpiresAt: string | null;
   themeCategory: "party" | "networking" | "meetup" | "workshop" | "conference" | "training" | "sports" | "other";
 };
@@ -29,6 +32,22 @@ export type PublicEventListItem = {
 export type PublicEventDetail = PublicEventListItem & {
   locationName: string | null;
   bannerImageUrl: string | null;
+  organizer: {
+    username: string | null;
+    displayName: string | null;
+    avatarUrl: string | null;
+    profileImageUrl: string | null;
+    publicEventsHosted: number;
+    verifiedHost: boolean;
+  } | null;
+  rsvpTiers: Array<{
+    id: string;
+    name: string;
+    description: string | null;
+    priceLabel: string | null;
+    capacity: number | null;
+    isFree: boolean;
+  }>;
 };
 
 export type PublicEventLookupResult =
@@ -39,7 +58,9 @@ export type PublicEventLookupResult =
 
 function requireListingForPublicVisibility(next: {
   visibility?: "private" | "public";
-  publicListingStatus?: "inactive" | "active" | "expired";
+  publicListingStatus?: "inactive" | "active" | "expired" | "paused";
+  publicListFromAt?: Date | null;
+  publicListUntilAt?: Date | null;
   publicListingExpiresAt?: Date | null;
 }, current?: Barbecue) {
   const visibility = next.visibility ?? (current?.visibility as "private" | "public" | undefined) ?? "private";
@@ -47,7 +68,11 @@ function requireListingForPublicVisibility(next: {
   const listingStatus = next.publicListingStatus ?? (current?.publicListingStatus as string | undefined) ?? "inactive";
   const listingExpiresAt =
     next.publicListingExpiresAt !== undefined ? next.publicListingExpiresAt : (current?.publicListingExpiresAt ?? null);
-  if (!isPublicListingActive({ publicListingStatus: listingStatus, publicListingExpiresAt: listingExpiresAt })) {
+  const listFromAt =
+    next.publicListFromAt !== undefined ? next.publicListFromAt : (current?.publicListFromAt ?? null);
+  const listUntilAt =
+    next.publicListUntilAt !== undefined ? next.publicListUntilAt : (current?.publicListUntilAt ?? null);
+  if (!isPublicListingActive({ publicListingStatus: listingStatus, publicListingExpiresAt: listingExpiresAt, publicListFromAt: listFromAt, publicListUntilAt: listUntilAt })) {
     forbidden("Public listing requires activation");
   }
 }
@@ -83,10 +108,36 @@ function toPublicListItem(event: Barbecue): PublicEventListItem {
     publicDescription: event.publicDescription ?? null,
     publicSlug: event.publicSlug ?? "",
     publicMode: (event.publicMode as "marketing" | "joinable") ?? "marketing",
-    publicListingStatus: (event.publicListingStatus as "inactive" | "active" | "expired") ?? "inactive",
+    publicTemplate: (event.publicTemplate as PublicEventListItem["publicTemplate"] | undefined) ?? "classic",
+    publicListingStatus: (event.publicListingStatus as PublicEventListItem["publicListingStatus"] | undefined) ?? "inactive",
+    publicListFromAt: event.publicListFromAt ? event.publicListFromAt.toISOString() : null,
+    publicListUntilAt: event.publicListUntilAt ? event.publicListUntilAt.toISOString() : null,
     publicListingExpiresAt: event.publicListingExpiresAt ? event.publicListingExpiresAt.toISOString() : null,
     themeCategory: themeCategory as PublicEventListItem["themeCategory"],
   };
+}
+
+function parsePublicRsvpTiers(event: Barbecue): PublicEventDetail["rsvpTiers"] {
+  const tpl = (event.templateData && typeof event.templateData === "object") ? (event.templateData as Record<string, unknown>) : null;
+  const raw = Array.isArray(tpl?.publicRsvpTiers) ? tpl?.publicRsvpTiers : [];
+  return raw
+    .map((t): PublicEventDetail["rsvpTiers"][number] | null => {
+      if (!t || typeof t !== "object") return null;
+      const row = t as Record<string, unknown>;
+      const id = typeof row.id === "string" && row.id.trim() ? row.id.trim() : `tier-${Math.random().toString(36).slice(2, 8)}`;
+      const name = typeof row.name === "string" ? row.name.trim() : "";
+      if (!name) return null;
+      return {
+        id,
+        name,
+        description: typeof row.description === "string" && row.description.trim() ? row.description.trim() : null,
+        priceLabel: typeof row.priceLabel === "string" && row.priceLabel.trim() ? row.priceLabel.trim() : null,
+        capacity: typeof row.capacity === "number" && Number.isFinite(row.capacity) ? row.capacity : null,
+        isFree: row.isFree === true || !row.priceLabel,
+      };
+    })
+    .filter((v): v is NonNullable<typeof v> => !!v)
+    .slice(0, 20);
 }
 
 export async function listBarbecues(currentUsername?: string, currentUserId?: number): Promise<Barbecue[]> {
@@ -116,7 +167,10 @@ export async function createBarbecue(
     visibility?: "private" | "public";
     visibilityOrigin?: "private" | "public";
     publicMode?: "marketing" | "joinable";
-    publicListingStatus?: "inactive" | "active" | "expired";
+    publicTemplate?: "classic" | "keynote" | "workshop" | "nightlife" | "meetup";
+    publicListingStatus?: "inactive" | "active" | "expired" | "paused";
+    publicListFromAt?: Date | null;
+    publicListUntilAt?: Date | null;
     publicListingExpiresAt?: Date | null;
     organizationName?: string | null;
     publicDescription?: string | null;
@@ -155,6 +209,8 @@ export async function createBarbecue(
     {
       visibility: requestedVisibility,
       publicListingStatus: input.publicListingStatus,
+      publicListFromAt: input.publicListFromAt ?? null,
+      publicListUntilAt: input.publicListUntilAt ?? null,
       publicListingExpiresAt: input.publicListingExpiresAt ?? null,
     },
   );
@@ -167,7 +223,10 @@ export async function createBarbecue(
     visibility: requestedVisibility,
     visibilityOrigin,
     publicMode: input.publicMode ?? "marketing",
+    publicTemplate: input.publicTemplate ?? "classic",
     publicListingStatus: input.publicListingStatus ?? "inactive",
+    publicListFromAt: input.publicListFromAt ?? null,
+    publicListUntilAt: input.publicListUntilAt ?? null,
     publicListingExpiresAt: input.publicListingExpiresAt ?? null,
     isPublic: requestedVisibility === "public",
   } as Parameters<typeof bbqRepo.create>[0]);
@@ -181,6 +240,14 @@ export async function createBarbecue(
     });
   }
   auditLog("barbecue.create", { barbecueId: created.id, username: sessionUsername });
+  if (visibilityOrigin === "public") {
+    const withSlug = await ensurePublicSlug(created);
+    if (!withSlug) return created;
+    if (requestedVisibility === "public" && isPublicListingActive(withSlug)) {
+      return withSlug;
+    }
+    return withSlug;
+  }
   if (requestedVisibility === "public" && isPublicListingActive(created)) {
     return (await ensurePublicSlug(created)) ?? created;
   }
@@ -204,7 +271,10 @@ export async function updateBarbecue(
     visibility?: "private" | "public";
     visibilityOrigin?: "private" | "public";
     publicMode?: "marketing" | "joinable";
-    publicListingStatus?: "inactive" | "active" | "expired";
+    publicTemplate?: "classic" | "keynote" | "workshop" | "nightlife" | "meetup";
+    publicListingStatus?: "inactive" | "active" | "expired" | "paused";
+    publicListFromAt?: Date | null;
+    publicListUntilAt?: Date | null;
     publicListingExpiresAt?: Date | null;
     organizationName?: string | null;
     publicDescription?: string | null;
@@ -226,6 +296,8 @@ export async function updateBarbecue(
     {
       visibility: updates.visibility,
       publicListingStatus: updates.publicListingStatus,
+      publicListFromAt: updates.publicListFromAt,
+      publicListUntilAt: updates.publicListUntilAt,
       publicListingExpiresAt: updates.publicListingExpiresAt,
     },
     bbq,
@@ -244,7 +316,10 @@ export async function updateBarbecue(
     visibility: updates.visibility,
     visibilityOrigin: updates.visibilityOrigin,
     publicMode: updates.publicMode,
+    publicTemplate: updates.publicTemplate,
     publicListingStatus: updates.publicListingStatus,
+    publicListFromAt: updates.publicListFromAt,
+    publicListUntilAt: updates.publicListUntilAt,
     publicListingExpiresAt: updates.publicListingExpiresAt,
     organizationName: updates.organizationName,
     publicDescription: updates.publicDescription,
@@ -315,24 +390,62 @@ export async function getPublicEventBySlug(slug: string): Promise<PublicEventDet
   const event = await bbqRepo.getByPublicSlug(slug);
   if (!event) return null;
   if (event.visibility !== "public" || !isPublicListingActive(event) || !event.publicSlug) return null;
+  const creator = event.creatorId ? await userRepo.findByUsername(event.creatorId) : undefined;
+  const creatorProfile = event.creatorId ? await userRepo.getShareablePublicProfile(event.creatorId) : undefined;
   return {
     ...toPublicListItem(event),
     locationName: event.locationName ?? (event.city && event.countryName ? `${event.city}, ${event.countryName}` : null),
     bannerImageUrl: event.bannerImageUrl ?? null,
+    organizer: creator ? {
+      username: creator.username,
+      displayName: creator.displayName ?? null,
+      avatarUrl: creator.avatarUrl ?? null,
+      profileImageUrl: creator.profileImageUrl ?? null,
+      publicEventsHosted: creatorProfile?.stats.publicEventsHosted ?? 0,
+      verifiedHost: process.env.VITE_ENABLE_VERIFIED_HOST_BADGE === "true" || process.env.ENABLE_VERIFIED_HOST_BADGE === "true",
+    } : null,
+    rsvpTiers: parsePublicRsvpTiers(event),
   };
 }
 
 export async function getPublicEventBySlugForPublicView(slug: string): Promise<PublicEventLookupResult> {
   const event = await bbqRepo.getByPublicSlug(slug);
   if (!event) return { status: "not_found" };
-  if (event.visibility !== "public") return { status: "unavailable" };
-  if (event.publicListingStatus !== "active") return { status: "unavailable" };
-  if (!event.publicListingExpiresAt) return { status: "unavailable" };
-  if (event.publicListingExpiresAt.getTime() <= Date.now()) return { status: "expired" };
+  if ((event.visibilityOrigin as string | undefined) === "private") return { status: "unavailable" };
   if (!event.publicSlug) return { status: "not_found" };
+
+  const isListedAndVisible =
+    event.visibility === "public" &&
+    isPublicListingActive(event) &&
+    event.publicListingStatus !== "paused";
+
+  if (!isListedAndVisible) {
+    const creator = event.creatorId ? await userRepo.findByUsername(event.creatorId) : undefined;
+    const creatorProfile = event.creatorId ? await userRepo.getShareablePublicProfile(event.creatorId) : undefined;
+    return {
+      status: "ok",
+      eventId: event.id,
+      event: {
+        ...toPublicListItem(event),
+        locationName: event.locationName ?? (event.city && event.countryName ? `${event.city}, ${event.countryName}` : null),
+        bannerImageUrl: event.bannerImageUrl ?? null,
+        organizer: creator ? {
+          username: creator.username,
+          displayName: creator.displayName ?? null,
+          avatarUrl: creator.avatarUrl ?? null,
+          profileImageUrl: creator.profileImageUrl ?? null,
+          publicEventsHosted: creatorProfile?.stats.publicEventsHosted ?? 0,
+          verifiedHost: process.env.ENABLE_VERIFIED_HOST_BADGE === "true",
+        } : null,
+        rsvpTiers: parsePublicRsvpTiers(event),
+      },
+    };
+  }
 
   await bbqRepo.incrementPublicViewCount(event.id);
 
+  const creator = event.creatorId ? await userRepo.findByUsername(event.creatorId) : undefined;
+  const creatorProfile = event.creatorId ? await userRepo.getShareablePublicProfile(event.creatorId) : undefined;
   return {
     status: "ok",
     eventId: event.id,
@@ -340,6 +453,15 @@ export async function getPublicEventBySlugForPublicView(slug: string): Promise<P
       ...toPublicListItem(event),
       locationName: event.locationName ?? (event.city && event.countryName ? `${event.city}, ${event.countryName}` : null),
       bannerImageUrl: event.bannerImageUrl ?? null,
+      organizer: creator ? {
+        username: creator.username,
+        displayName: creator.displayName ?? null,
+        avatarUrl: creator.avatarUrl ?? null,
+        profileImageUrl: creator.profileImageUrl ?? null,
+        publicEventsHosted: creatorProfile?.stats.publicEventsHosted ?? 0,
+        verifiedHost: process.env.ENABLE_VERIFIED_HOST_BADGE === "true",
+      } : null,
+      rsvpTiers: parsePublicRsvpTiers(event),
     },
   };
 }
@@ -352,6 +474,8 @@ export async function activateListing(id: number, sessionUsername?: string): Pro
   const updated = await bbqRepo.update(id, {
     publicListingStatus: "active",
     publicListingExpiresAt: expiresAt,
+    publicListFromAt: event.publicListFromAt ?? null,
+    publicListUntilAt: event.publicListUntilAt ?? null,
   });
   if (!updated) return undefined;
   const withSlug = await ensurePublicSlug(updated);

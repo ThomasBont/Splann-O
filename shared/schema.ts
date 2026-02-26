@@ -97,8 +97,14 @@ export const barbecues = pgTable("barbecues", {
   visibilityOrigin: text("visibility_origin").notNull().default("public"),
   /** Public page mode. */
   publicMode: text("public_mode").notNull().default("marketing"),
+  /** Public page template layout. */
+  publicTemplate: text("public_template").notNull().default("classic"),
   /** Listing gate status (phase 1 stub activation). */
   publicListingStatus: text("public_listing_status").notNull().default("inactive"),
+  /** Optional listing window start (event remains hidden before this). */
+  publicListFromAt: timestamp("public_list_from_at"),
+  /** Optional listing window end (event auto-hides after this). */
+  publicListUntilAt: timestamp("public_list_until_at"),
   publicListingExpiresAt: timestamp("public_listing_expires_at"),
   publicSlug: text("public_slug").unique(),
   organizationName: text("organization_name"),
@@ -163,6 +169,20 @@ export const notes = pgTable("notes", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+export const publicEventRsvps = pgTable("public_event_rsvps", {
+  id: serial("id").primaryKey(),
+  barbecueId: integer("barbecue_id").references(() => barbecues.id, { onDelete: "cascade" }).notNull(),
+  tierId: text("tier_id"),
+  userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
+  email: text("email"),
+  name: text("name"),
+  status: text("status").notNull().default("requested"), // requested | approved | declined | going
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  uniquePerUserTier: unique().on(table.barbecueId, table.userId, table.tierId),
+}));
+
 export const insertNoteSchema = createInsertSchema(notes)
   .omit({ id: true, createdAt: true, updatedAt: true })
   .extend({
@@ -211,6 +231,8 @@ export type InsertNote = z.infer<typeof insertNoteSchema>;
 export type NoteWithAuthor = Note & {
   authorName: string;
 };
+
+export type PublicEventRsvp = typeof publicEventRsvps.$inferSelect;
 
 export type Friendship = typeof friendships.$inferSelect;
 

@@ -2,7 +2,7 @@ import { Router, type Request } from "express";
 import { z } from "zod";
 import { eq, and } from "drizzle-orm";
 import { api } from "@shared/routes";
-import { users, expenses, notes, stripeEvents } from "@shared/schema";
+import { users, expenses, notes, stripeEvents, publicEventRsvps } from "@shared/schema";
 import { bbqRepo } from "../repositories/bbqRepo";
 import { participantRepo } from "../repositories/participantRepo";
 import { expenseRepo } from "../repositories/expenseRepo";
@@ -18,6 +18,29 @@ import { badRequest, conflict, forbidden, gone, notFound, unauthorized, upgradeR
 import { createStripeCheckoutSession, verifyStripeWebhookSignature } from "../lib/stripe";
 
 const router = Router();
+
+function getPublicRsvpTiersFromTemplateData(templateData: unknown) {
+  const tpl = templateData && typeof templateData === "object" ? (templateData as Record<string, unknown>) : null;
+  const raw = Array.isArray(tpl?.publicRsvpTiers) ? tpl.publicRsvpTiers : [];
+  return raw
+    .map((row) => {
+      if (!row || typeof row !== "object") return null;
+      const r = row as Record<string, unknown>;
+      const id = typeof r.id === "string" ? r.id.trim() : "";
+      const name = typeof r.name === "string" ? r.name.trim() : "";
+      if (!id || !name) return null;
+      return {
+        id,
+        name,
+        description: typeof r.description === "string" && r.description.trim() ? r.description.trim() : null,
+        priceLabel: typeof r.priceLabel === "string" && r.priceLabel.trim() ? r.priceLabel.trim() : null,
+        capacity: typeof r.capacity === "number" && Number.isFinite(r.capacity) ? r.capacity : null,
+        isFree: r.isFree === true || !r.priceLabel,
+      };
+    })
+    .filter((v): v is NonNullable<typeof v> => !!v)
+    .slice(0, 20);
+}
 
 /** Strip /api prefix for router mounted at /api */
 const p = (path: string) => (path.startsWith("/api") ? path.slice(4) : path);
@@ -59,7 +82,8 @@ const currencyCodeSchema = z.string().length(3, "currency must be ISO-4217 (3 ch
 const visibilitySchema = z.enum(["private", "public"]);
 const visibilityOriginSchema = z.enum(["private", "public"]);
 const publicModeSchema = z.enum(["marketing", "joinable"]);
-const listingStatusSchema = z.enum(["inactive", "active", "expired"]);
+const publicTemplateSchema = z.enum(["classic", "keynote", "workshop", "nightlife", "meetup"]);
+const listingStatusSchema = z.enum(["inactive", "active", "expired", "paused"]);
 
 router.post(p(api.barbecues.create.path), asyncHandler(async (req, res) => {
   const bodySchema = api.barbecues.create.input.extend({
@@ -70,7 +94,10 @@ router.post(p(api.barbecues.create.path), asyncHandler(async (req, res) => {
     visibility: visibilitySchema.optional(),
     visibilityOrigin: visibilityOriginSchema.optional(),
     publicMode: publicModeSchema.optional(),
+    publicTemplate: publicTemplateSchema.optional(),
     publicListingStatus: listingStatusSchema.optional(),
+    publicListFromAt: z.coerce.date().nullable().optional(),
+    publicListUntilAt: z.coerce.date().nullable().optional(),
     publicListingExpiresAt: z.coerce.date().nullable().optional(),
     organizationName: z.string().max(160).nullable().optional(),
     publicDescription: z.string().max(5000).nullable().optional(),
@@ -98,6 +125,137 @@ router.get("/public/events/:slug", publicRateLimit(60, 60_000), asyncHandler(asy
   if (result.status === "unavailable") notFound("Public event not found");
   if (result.status === "not_found") notFound("Public event not found");
   res.json(result.event);
+}));
+
+router.get("/public/events/:slug/rsvps", publicRateLimit(60, 60_000), asyncHandler(async (req, res) => {
+  const slug = String(req.params.slug || "").trim();
+  if (!slug) badRequest("Invalid slug");
+  const event = await bbqRepo.getByPublicSlug(slug);
+  if (!event) notFound("Public event not found");
+  if (event.visibility !== "public") notFound("Public event not found");
+  if (event.publicListingStatus === "paused") notFound("Public event not found");
+  if (!bbqService.isPublicListingActive(event)) {
+    if (event.publicListingExpiresAt && event.publicListingExpiresAt.getTime() <= Date.now()) gone("Public event listing expired");
+    notFound("Public event not found");
+  }
+  const tiers = getPublicRsvpTiersFromTemplateData(event.templateData);
+  const rows = await db.select().from(publicEventRsvps).where(eq(publicEventRsvps.barbecueId, event.id));
+  const countsByTier: Record<string, { requested: number; approved: number; declined: number; going: number }> = {};
+  for (const tier of tiers) countsByTier[tier.id] = { requested: 0, approved: 0, declined: 0, going: 0 };
+  for (const row of rows) {
+    const tierKey = row.tierId ?? "__default__";
+    if (!countsByTier[tierKey]) countsByTier[tierKey] = { requested: 0, approved: 0, declined: 0, going: 0 };
+    const status = row.status === "approved" || row.status === "declined" || row.status === "going" ? row.status : "requested";
+    countsByTier[tierKey][status] += 1;
+  }
+  const myRsvp = req.session?.userId
+    ? rows.find((r) => r.userId === req.session!.userId) ?? null
+    : null;
+  res.json({
+    tiers: tiers.map((tier) => {
+      const counts = countsByTier[tier.id] ?? { requested: 0, approved: 0, declined: 0, going: 0 };
+      const filled = counts.approved + counts.going;
+      return {
+        ...tier,
+        counts,
+        soldOut: tier.capacity != null ? filled >= tier.capacity : false,
+      };
+    }),
+    myRsvp: myRsvp ? { id: myRsvp.id, tierId: myRsvp.tierId ?? null, status: (myRsvp.status as "requested" | "approved" | "declined" | "going") } : null,
+  });
+}));
+
+router.post("/public/events/:slug/rsvps", requireAuth, asyncHandler(async (req, res) => {
+  const slug = String(req.params.slug || "").trim();
+  if (!slug) badRequest("Invalid slug");
+  const parsed = z.object({
+    tierId: z.string().trim().min(1).max(120).nullable().optional(),
+    status: z.enum(["requested", "going"]).optional(),
+  }).parse(req.body ?? {});
+  const event = await bbqRepo.getByPublicSlug(slug);
+  if (!event) notFound("Public event not found");
+  if (event.visibility !== "public" || event.publicListingStatus === "paused" || !bbqService.isPublicListingActive(event)) notFound("Public event not found");
+  const tiers = getPublicRsvpTiersFromTemplateData(event.templateData);
+  if (parsed.tierId && !tiers.some((t) => t.id === parsed.tierId)) badRequest("Invalid tier");
+  const targetTier = parsed.tierId ? tiers.find((t) => t.id === parsed.tierId) ?? null : null;
+  if (targetTier?.capacity != null) {
+    const rows = await db.select().from(publicEventRsvps).where(and(eq(publicEventRsvps.barbecueId, event.id), eq(publicEventRsvps.tierId, targetTier.id)));
+    const filled = rows.filter((r) => r.status === "approved" || r.status === "going").length;
+    if (filled >= targetTier.capacity) conflict("Tier is sold out");
+  }
+  const status = event.publicMode === "joinable" ? "requested" : (parsed.status ?? "going");
+  const existing = await db.select().from(publicEventRsvps).where(and(eq(publicEventRsvps.barbecueId, event.id), eq(publicEventRsvps.userId, req.session!.userId!)));
+  let row;
+  if (existing[0]) {
+    const [updated] = await db.update(publicEventRsvps)
+      .set({ tierId: parsed.tierId ?? null, status, name: req.session!.username ?? null, updatedAt: new Date() })
+      .where(eq(publicEventRsvps.id, existing[0].id))
+      .returning();
+    row = updated;
+  } else {
+    const [created] = await db.insert(publicEventRsvps).values({
+      barbecueId: event.id,
+      tierId: parsed.tierId ?? null,
+      userId: req.session!.userId!,
+      email: null,
+      name: req.session!.username ?? null,
+      status,
+    }).returning();
+    row = created;
+  }
+  res.status(201).json({ id: row.id, tierId: row.tierId, status: row.status });
+}));
+
+router.get("/events/:id/rsvp-requests", requireAuth, asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  const bbq = await bbqRepo.getById(id);
+  if (!bbq) notFound("Event not found");
+  if (bbq.creatorId !== req.session!.username) forbidden("Only the creator can view RSVP requests");
+  const rows = await db.select().from(publicEventRsvps).where(eq(publicEventRsvps.barbecueId, id));
+  res.json(rows);
+}));
+
+router.patch("/events/:id/rsvp-requests/:rsvpId", requireAuth, asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  const rsvpId = Number(req.params.rsvpId);
+  const bbq = await bbqRepo.getById(id);
+  if (!bbq) notFound("Event not found");
+  if (bbq.creatorId !== req.session!.username) forbidden("Only the creator can manage RSVP requests");
+  const body = z.object({ status: z.enum(["approved", "declined", "going", "requested"]) }).parse(req.body ?? {});
+  const [updated] = await db.update(publicEventRsvps)
+    .set({ status: body.status, updatedAt: new Date() })
+    .where(and(eq(publicEventRsvps.id, rsvpId), eq(publicEventRsvps.barbecueId, id)))
+    .returning();
+  if (!updated) notFound("RSVP not found");
+  res.json(updated);
+}));
+
+router.get("/share/event/:id.svg", asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  const bbq = await bbqRepo.getById(id);
+  if (!bbq) notFound("Event not found");
+  if (bbq.visibility !== "public" || !bbq.publicSlug || !bbqService.isPublicListingActive(bbq)) notFound("Public event not found");
+  const title = (bbq.name || "Public event").slice(0, 80).replace(/[<>&]/g, "");
+  const subtitle = `${[bbq.city, bbq.countryName].filter(Boolean).join(", ") || "Location TBA"} · ${bbq.date ? bbq.date.toISOString().slice(0, 10) : "Date TBA"}`.replace(/[<>&]/g, "");
+  const organizer = (bbq.organizationName || bbq.creatorId || "Splanno").slice(0, 60).replace(/[<>&]/g, "");
+  const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#101828"/>
+      <stop offset="100%" stop-color="#1f2937"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#g)"/>
+  <rect x="40" y="40" width="1120" height="550" rx="28" fill="rgba(255,255,255,0.06)" stroke="rgba(255,255,255,0.14)"/>
+  <text x="80" y="130" fill="rgba(255,255,255,0.82)" font-size="28" font-family="Inter, Arial, sans-serif">Splanno · Public Event</text>
+  <text x="80" y="245" fill="#ffffff" font-size="64" font-weight="700" font-family="Inter, Arial, sans-serif">${title}</text>
+  <text x="80" y="305" fill="rgba(255,255,255,0.75)" font-size="28" font-family="Inter, Arial, sans-serif">${subtitle}</text>
+  <text x="80" y="540" fill="rgba(255,255,255,0.85)" font-size="24" font-family="Inter, Arial, sans-serif">Hosted by ${organizer}</text>
+</svg>`;
+  res.setHeader("Content-Type", "image/svg+xml; charset=utf-8");
+  res.setHeader("Cache-Control", "public, max-age=300");
+  res.send(svg);
 }));
 
 router.get(p(api.barbecues.get.path), asyncHandler(async (req, res) => {
@@ -154,7 +312,10 @@ router.patch(p(api.barbecues.update.path), requireAuth, asyncHandler(async (req,
     visibility: visibilitySchema.optional(),
     visibilityOrigin: visibilityOriginSchema.optional(),
     publicMode: publicModeSchema.optional(),
+    publicTemplate: publicTemplateSchema.optional(),
     publicListingStatus: listingStatusSchema.optional(),
+    publicListFromAt: z.coerce.date().nullable().optional(),
+    publicListUntilAt: z.coerce.date().nullable().optional(),
     publicListingExpiresAt: z.coerce.date().nullable().optional(),
     organizationName: z.string().max(160).nullable().optional(),
     publicDescription: z.string().max(5000).nullable().optional(),

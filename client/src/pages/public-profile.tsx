@@ -289,8 +289,12 @@ export default function PublicProfilePage() {
                         <Card className="rounded-2xl border-border/60 transition-all duration-150 hover:-translate-y-0.5 hover:shadow-md active:scale-[0.995]">
                           <CardContent className="p-4">
                             <div className="flex items-start gap-3">
-                              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-muted/50 shrink-0">
-                                <EventCategoryBadge category={event.themeCategory} compact />
+                              <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-muted/50 shrink-0 overflow-hidden">
+                                {event.bannerImageUrl ? (
+                                  <img src={event.bannerImageUrl} alt="" className="h-full w-full object-cover" />
+                                ) : (
+                                  <EventCategoryBadge category={event.themeCategory} compact />
+                                )}
                               </div>
                               <div className="flex-1 min-w-0">
                                 <div className="flex flex-wrap items-center gap-2">

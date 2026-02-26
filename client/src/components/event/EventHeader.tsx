@@ -51,6 +51,7 @@ export interface EventHeaderProps {
   onSettleUp?: () => void;
   settleUpPending?: boolean;
   themeCategoryKey?: EventThemeCategory | string | null;
+  showAddExpenseAction?: boolean;
 }
 
 function StatusPill({ status }: { status: "draft" | "active" | "settling" | "settled" }) {
@@ -100,6 +101,7 @@ export function EventHeader({
   onSettleUp,
   settleUpPending,
   themeCategoryKey,
+  showAddExpenseAction = true,
 }: EventHeaderProps) {
   const { t } = useLanguage();
   const theme = getEventTheme(category, type);
@@ -171,15 +173,17 @@ export function EventHeader({
               triggerClassName="h-8 text-xs"
               data-testid="select-display-currency"
             />
-            <Button
-              size="sm"
-              onClick={onAddExpense}
-              className="btn-interact h-8 bg-primary text-primary-foreground text-xs font-medium px-3"
-              data-testid="button-add-expense-header"
-            >
-              <Plus className="w-3.5 h-3.5 mr-1.5" />
-              {addExpenseLabel}
-            </Button>
+            {showAddExpenseAction && (
+              <Button
+                size="sm"
+                onClick={onAddExpense}
+                className="btn-interact h-8 bg-primary text-primary-foreground text-xs font-medium px-3"
+                data-testid="button-add-expense-header"
+              >
+                <Plus className="w-3.5 h-3.5 mr-1.5" />
+                {addExpenseLabel}
+              </Button>
+            )}
             {isCreator && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>

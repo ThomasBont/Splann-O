@@ -155,7 +155,7 @@ export function useUpdateBarbecue() {
   });
 }
 
-export function useExploreEvents() {
+export function useExploreEvents(enabled = true) {
   return useQuery({
     queryKey: ["/api/explore/events"],
     queryFn: async () => {
@@ -163,6 +163,7 @@ export function useExploreEvents() {
       if (!res.ok) throw new Error("Failed to fetch explore events");
       return res.json() as Promise<ExploreEvent[]>;
     },
+    enabled,
   });
 }
 

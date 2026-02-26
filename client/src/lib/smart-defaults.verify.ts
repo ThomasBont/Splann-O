@@ -14,7 +14,7 @@ const defaults: SmartGroupDefaults = {
   groupId: 42,
   currencyCode: "EUR",
   splitMethod: "equally",
-  lastParticipantIds: [2, 99, 1],
+  lastParticipantIds: [2, 2, 99, 1, 1],
   payerUserId: "bob",
   lastPayerParticipantId: 2,
   updatedAt: Date.now(),
@@ -22,9 +22,9 @@ const defaults: SmartGroupDefaults = {
 
 const stats: SmartGroupStats = {
   groupId: 42,
-  payerCountByUserId: { bob: 3, alice: 1 },
-  recentPayerUserIds: ["bob", "alice"],
-  recentPayerParticipantIds: [2, 1],
+  payerCountByUserId: { bob: 5, alice: 4 },
+  recentPayerUserIds: ["alice", "bob"],
+  recentPayerParticipantIds: [1, 2],
   participantPickCount: { "2": 5, "3": 2, "1": 1 },
   updatedAt: Date.now(),
 };
@@ -40,10 +40,14 @@ const resolved = resolveExpenseDefaults({
 });
 
 assert(resolved.currencyCode === "EUR", "should prefer stored group currency");
-assert(resolved.payerParticipantId === 2, "should pick most common payer in group");
+assert(resolved.payerParticipantId === 1, "recency should win when payer counts are close");
 assert(resolved.payerSuggestionSource === "lastUsed", "should prefer recent last-used payer when counts are close");
-assert(resolved.lastParticipantIds.join(",") === "2,1", "should drop missing participants from last set");
+assert(resolved.lastParticipantIds.join(",") === "2,1", "should dedupe and drop unknown participants from last set");
 assert(resolved.orderedParticipantIds[0] === 1, "should keep current user first for convenience");
+assert(
+  resolved.orderedParticipantIds.indexOf(2) < resolved.orderedParticipantIds.indexOf(3),
+  "higher participant pick count should rank earlier after current user"
+);
 assert(resolved.splitMethod === "equally", "should default split method");
 
 const fallback = resolveExpenseDefaults({
@@ -83,8 +87,9 @@ const frequencyWins = resolveExpenseDefaults({
   groupMembers: members,
   storedStats: {
     groupId: 10,
-    payerCountByUserId: { bob: 1, alice: 8 },
+    payerCountByUserId: { alice: 8, bob: 1 },
     recentPayerUserIds: ["bob", "alice"],
+    recentPayerParticipantIds: [2, 1],
     updatedAt: Date.now(),
   },
 });

@@ -46,6 +46,7 @@ export type ResolvedExpenseDefaults = {
 };
 
 const RECENT_PAYER_WINDOW = 5;
+const DOMINANCE_THRESHOLD = 2;
 
 function defaultStore(): SmartDefaultsStore {
   return { schemaVersion: 1, groups: {}, stats: {} };
@@ -103,7 +104,12 @@ export function resolveExpenseDefaults(input: {
   const validMemberIds = new Set(members.map((m) => m.id));
   const currentUserParticipant = members.find((m) => m.userId && input.currentUserId && m.userId === input.currentUserId) ?? null;
 
-  const cleanedLastParticipantIds = (input.storedDefaults?.lastParticipantIds ?? []).filter((id) => validMemberIds.has(id));
+  const seenLastParticipantIds = new Set<number>();
+  const cleanedLastParticipantIds = (input.storedDefaults?.lastParticipantIds ?? []).filter((id) => {
+    if (!validMemberIds.has(id) || seenLastParticipantIds.has(id)) return false;
+    seenLastParticipantIds.add(id);
+    return true;
+  });
 
   const preferredCurrency = input.storedDefaults?.currencyCode
     ?? input.groupHomeCurrencyCode
@@ -115,6 +121,7 @@ export function resolveExpenseDefaults(input: {
   let preferredPayerParticipantId: number | null = null;
   let payerSuggestionSource: ResolvedExpenseDefaults["payerSuggestionSource"] = "fallback";
   let payerSuggestionConfidence: ResolvedExpenseDefaults["payerSuggestionConfidence"] = "low";
+  let mostCommonWonByDominance = false;
 
   const recentPayerParticipantId = (() => {
     const recentParticipantIds = (input.storedStats?.recentPayerParticipantIds ?? []).slice(0, RECENT_PAYER_WINDOW);
@@ -168,15 +175,17 @@ export function resolveExpenseDefaults(input: {
   if (recentPayerParticipantId && topPayerParticipantId) {
     const recentCount = getPayerCount(recentPayerParticipantId);
     const topCount = getPayerCount(topPayerParticipantId);
-    const stronglyDifferent = topCount >= recentCount + 3 || (recentCount > 0 && topCount >= recentCount * 2 + 1);
-    if (!stronglyDifferent) {
+    const isDifferentPayer = recentPayerParticipantId !== topPayerParticipantId;
+    const topDominates = isDifferentPayer && topCount > 0 && topCount >= Math.max(1, recentCount) * DOMINANCE_THRESHOLD;
+    if (!topDominates) {
       preferredPayerParticipantId = recentPayerParticipantId;
       payerSuggestionSource = "lastUsed";
-      payerSuggestionConfidence = recentCount >= 2 ? "high" : "medium";
+      payerSuggestionConfidence = "medium";
     } else {
       preferredPayerParticipantId = topPayerParticipantId;
       payerSuggestionSource = "mostCommon";
       payerSuggestionConfidence = "high";
+      mostCommonWonByDominance = true;
     }
   } else if (recentPayerParticipantId) {
     preferredPayerParticipantId = recentPayerParticipantId;
@@ -185,7 +194,7 @@ export function resolveExpenseDefaults(input: {
   } else if (topPayerParticipantId) {
     preferredPayerParticipantId = topPayerParticipantId;
     payerSuggestionSource = "mostCommon";
-    payerSuggestionConfidence = getPayerCount(topPayerParticipantId) >= 3 ? "high" : "medium";
+    payerSuggestionConfidence = mostCommonWonByDominance ? "high" : "medium";
   }
 
   if (!preferredPayerParticipantId && currentUserParticipant) {

@@ -28,6 +28,7 @@ export interface SettlementPlanProps {
     shared: string;
     error: string;
   };
+  warm?: boolean;
 }
 
 /** Settlement plan list with per-row share menu. */
@@ -41,24 +42,25 @@ export function SettlementPlan({
   getEventTheme,
   shareLink,
   shareLabels,
+  warm = false,
 }: SettlementPlanProps) {
   return (
-    <div className="rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-4 shadow-[var(--shadow-sm)]">
+    <div className={`rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-4 shadow-[var(--shadow-sm)] ${warm ? "rounded-2xl border-border/60 bg-gradient-to-b from-[hsl(var(--surface-1))] to-[hsl(var(--surface-0))] shadow-sm shadow-neutral-200/40 dark:shadow-black/20 p-[1.1rem]" : ""}`}>
       <h3 className="text-sm font-semibold text-muted-foreground mb-4">{settlementLabel}</h3>
       {settlements.length === 0 ? (
-        <div className="text-center py-4 text-muted-foreground">
+        <div className={`text-center py-4 text-muted-foreground ${warm ? "rounded-2xl bg-emerald-500/5 border border-emerald-500/15" : ""}`}>
           <CheckCircle2 className="w-8 h-8 mx-auto mb-2 text-green-400 opacity-70" />
-          <p className="text-sm">{allSettledLabel}</p>
+          <p className="text-sm">{warm ? "All settled. Still friends 🫶" : allSettledLabel}</p>
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className={warm ? "space-y-2.5" : "space-y-2"}>
           {settlements.map((s, i) => {
             const eventTheme = getEventTheme();
             const settleCardData = getSettleCardData(s);
             return (
               <div
                 key={i}
-                className="group relative flex flex-col gap-2 border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]/50 rounded-[var(--radius-md)] px-3 py-2.5"
+                className={`group relative flex flex-col gap-2 border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]/50 rounded-[var(--radius-md)] px-3 py-2.5 ${warm ? "rounded-2xl border-border/60 shadow-sm shadow-neutral-200/25 dark:shadow-black/10 hover:scale-[1.01] transition-transform duration-150 motion-reduce:transition-none" : ""}`}
                 data-testid={`settlement-${i}`}
               >
                 <div className="flex items-center gap-3">

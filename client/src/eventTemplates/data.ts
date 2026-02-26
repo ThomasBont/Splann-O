@@ -1,4 +1,5 @@
 import type { Barbecue } from "@shared/schema";
+import type { CirclePersonality } from "@/lib/circlePersonality";
 
 export type BarbecueRole = {
   id: string;
@@ -11,6 +12,8 @@ export type BarbecueTemplateData = {
   roles: BarbecueRole[];
   /** Custom expense categories added by the event creator. */
   customCategories?: string[];
+  /** Private-circle visual mood hint (subtle styling only). */
+  personality?: CirclePersonality;
 };
 
 export const defaultBarbecueTemplateData: BarbecueTemplateData = {
@@ -32,6 +35,7 @@ export const defaultBarbecueTemplateData: BarbecueTemplateData = {
     },
   ],
   customCategories: [],
+  personality: "cozy",
 };
 
 export type BirthdayContribution = {
@@ -43,11 +47,13 @@ export type BirthdayTemplateData = {
   contributions: BirthdayContribution[];
   /** Custom expense categories added by the event creator. */
   customCategories?: string[];
+  personality?: CirclePersonality;
 };
 
 export const defaultBirthdayTemplateData: BirthdayTemplateData = {
   contributions: [],
   customCategories: [],
+  personality: "cozy",
 };
 
 /**
@@ -68,4 +74,3 @@ export function getTemplateData<T>(
     return defaults;
   }
 }
-

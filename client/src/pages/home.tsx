@@ -10,7 +10,7 @@ import {
   useAcceptInvite, useDeclineInvite,
 } from "@/hooks/use-participants";
 import { useExpenses, useDeleteExpense, useExpenseShares, useSetExpenseShare } from "@/hooks/use-expenses";
-import { useBarbecues, useCreateBarbecue, useDeleteBarbecue, useUpdateBarbecue, useEnsureInviteToken, useSettleUp, useEventNotifications, useMarkEventNotificationRead, useCheckoutPublicListing, useDeactivateListing, type EventNotification } from "@/hooks/use-bbq-data";
+import { useBarbecues, useCreateBarbecue, useDeleteBarbecue, useUpdateBarbecue, useEnsureInviteToken, useSettleUp, useEventNotifications, useMarkEventNotificationRead, useCheckoutPublicListing, useDeactivateListing, useExploreEvents, type EventNotification, type ExploreEvent } from "@/hooks/use-bbq-data";
 import { useQueryClient } from "@tanstack/react-query";
 import { useFriends, useFriendRequests, useAllPendingRequests, useAcceptFriendRequest, useRemoveFriend } from "@/hooks/use-friends";
 import { UserProfileModal } from "@/components/user-profile-modal";
@@ -102,6 +102,17 @@ import { normalizeEvent, getEventArea } from "@/utils/eventUtils";
 import { computeSplit, getFairShareForParticipant } from "@/lib/split/calc";
 import { getEventCategoryFromData, getEventTheme as getCategoryTheme, getEventThemeStyle } from "@/lib/eventTheme";
 import { EventCategoryBadge } from "@/components/event/EventCategoryBadge";
+import { getCircleMoodTokens, getCirclePersonalityFromEvent, getDefaultCirclePersonality } from "@/lib/circlePersonality";
+import {
+  defaultPrivateSuggestionState,
+  getNearbyPublicEvents,
+  getSuggestionDistanceLabel,
+  isEligibleForLocalSuggestions,
+  isSuggestionCacheFresh,
+  loadPrivateSuggestionState,
+  savePrivateSuggestionState,
+  type SuggestionVote,
+} from "@/lib/private-event-suggestions";
 import type { ExpenseWithParticipant, Barbecue, Participant, FriendInfo, PendingRequestWithBbq } from "@shared/schema";
 
 /** Fallback colors for expense chart. Extended for custom categories (hash-based). */
@@ -678,14 +689,26 @@ export default function Home() {
   const displayCurrencyInfo = getCurrency(displayCurrency) ?? getCurrency("EUR")!;
   const isCreator = !!(username && selectedBbq?.creatorId === username);
   const isPrivate = selectedBbq ? !selectedBbq.isPublic : false;
+  const isPrivateContext = !!selectedBbq && isPrivate;
+  const privateMood = getCircleMoodTokens(isPrivateContext ? getCirclePersonalityFromEvent(selectedBbq) : "minimal");
 
   const { data: participants = [] } = useParticipants(selectedBbqId);
   const { data: expenses = [] } = useExpenses(selectedBbqId);
+  const [showLocalSuggestionsModal, setShowLocalSuggestionsModal] = useState(false);
+  const [privateSuggestionState, setPrivateSuggestionState] = useState(defaultPrivateSuggestionState());
   const { data: expenseSharesList = [] } = useExpenseShares(selectedBbq?.allowOptInExpenses ? selectedBbqId : null);
   const setExpenseShare = useSetExpenseShare(selectedBbqId);
   const { data: pendingRequests = [] } = usePendingRequests(isCreator ? selectedBbqId : null);
   const { data: invitedParticipants = [] } = useInvitedParticipants(isCreator && isPrivate ? selectedBbqId : null);
   const { data: memberships = [] } = useMemberships(username);
+  const privateSuggestionsEligible = isEligibleForLocalSuggestions({
+    city: selectedBbq?.city ?? null,
+    locationName: selectedBbq?.locationName ?? null,
+    startAt: selectedBbq?.date ?? null,
+    area: selectedBbq?.area ?? null,
+    eventType: selectedBbq?.eventType ?? null,
+  });
+  const exploreSuggestionsQuery = useExploreEvents(isPrivateContext && privateSuggestionsEligible);
 
   const deleteParticipant = useDeleteParticipant(selectedBbqId);
   const updateParticipantName = useUpdateParticipantName(selectedBbqId);
@@ -700,6 +723,19 @@ export default function Home() {
   useEffect(() => {
     setDisplayCurrency(currency);
   }, [currency]);
+
+  useEffect(() => {
+    if (!selectedBbqId) {
+      setPrivateSuggestionState(defaultPrivateSuggestionState());
+      return;
+    }
+    setPrivateSuggestionState(loadPrivateSuggestionState(selectedBbqId));
+  }, [selectedBbqId]);
+
+  useEffect(() => {
+    if (!selectedBbqId) return;
+    savePrivateSuggestionState(selectedBbqId, privateSuggestionState);
+  }, [selectedBbqId, privateSuggestionState]);
 
   const getMembershipStatus = (bbqId: number): { status: string; participantId: number } | null => {
     const m = memberships.find(m => m.bbqId === bbqId);
@@ -732,6 +768,103 @@ export default function Home() {
     const today = new Date(); today.setHours(0, 0, 0, 0);
     return bbqDate >= today;
   };
+  const visibleExploreSuggestions = useMemo(() => {
+    if (!isPrivateContext || !selectedBbq || !privateSuggestionsEligible || !privateSuggestionState.enabled || privateSuggestionState.muted) return [] as ExploreEvent[];
+    const base = privateSuggestionState.cachedResults ?? [];
+    return base.filter((e) => !privateSuggestionState.dismissedIds.includes(e.id));
+  }, [isPrivateContext, selectedBbq, privateSuggestionsEligible, privateSuggestionState]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!selectedBbqId || !isPrivateContext || !selectedBbq || !privateSuggestionsEligible || !privateSuggestionState.enabled || privateSuggestionState.muted) return;
+    if (isSuggestionCacheFresh(privateSuggestionState.lastFetchedAt) && (privateSuggestionState.cachedResults?.length ?? 0) > 0) return;
+    const sourceEvents = (exploreSuggestionsQuery.data ?? []) as ExploreEvent[];
+    if (!sourceEvents.length) return;
+
+    getNearbyPublicEvents({
+      city: selectedBbq.city ?? null,
+      startAt: selectedBbq.date ?? new Date().toISOString(),
+      endAt: selectedBbq.date ?? null,
+      radiusKm: 25,
+      sourceEvents,
+    }).then((results) => {
+      if (cancelled) return;
+      setPrivateSuggestionState((prev) => ({
+        ...prev,
+        lastFetchedAt: Date.now(),
+        cachedResults: results.slice(0, 10),
+      }));
+    }).catch(() => {
+      // fail quietly (serendipity layer only)
+    });
+
+    return () => { cancelled = true; };
+  }, [
+    selectedBbqId,
+    isPrivateContext,
+    selectedBbq,
+    privateSuggestionsEligible,
+    privateSuggestionState.enabled,
+    privateSuggestionState.muted,
+    privateSuggestionState.lastFetchedAt,
+    privateSuggestionState.cachedResults,
+    exploreSuggestionsQuery.data,
+  ]);
+
+  const inlineExploreSuggestions = visibleExploreSuggestions.slice(0, 3);
+  const modalExploreSuggestions = visibleExploreSuggestions.slice(0, 10);
+  const localSuggestionsMuted = privateSuggestionState.muted || privateSuggestionState.dismissedIds.length >= 3;
+
+  useEffect(() => {
+    if (!selectedBbqId) return;
+    if (privateSuggestionState.dismissedIds.length >= 3 && !privateSuggestionState.muted) {
+      setPrivateSuggestionState((prev) => ({ ...prev, muted: true }));
+    }
+  }, [selectedBbqId, privateSuggestionState.dismissedIds.length, privateSuggestionState.muted]);
+  const getParticipantInitials = (name: string) =>
+    name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase() ?? "")
+      .join("") || "?";
+  const suggestionVoterKey = username ? `user:${username}` : `guest:${user?.id ?? "anon"}`;
+  const suggestionVoterLabel = ((): string => {
+    if (username) {
+      const participant = participants.find((p: Participant) => p.userId === username);
+      return participant?.name || user?.displayName || username;
+    }
+    return user?.displayName || "You";
+  })();
+  const setSuggestionVote = (suggestionId: number, vote: SuggestionVote | null) => {
+    setPrivateSuggestionState((prev) => {
+      const key = String(suggestionId);
+      const current = { ...(prev.votesBySuggestionId[key] ?? {}) };
+      if (vote == null) {
+        delete current[suggestionVoterKey];
+      } else {
+        current[suggestionVoterKey] = { vote, label: suggestionVoterLabel };
+      }
+      return {
+        ...prev,
+        votesBySuggestionId: {
+          ...prev.votesBySuggestionId,
+          [key]: current,
+        },
+      };
+    });
+  };
+  const getSuggestionVotes = (suggestionId: number) => {
+    const entries = Object.entries(privateSuggestionState.votesBySuggestionId[String(suggestionId)] ?? {});
+    const all = entries.map(([userKey, value]) => ({ userKey, vote: value.vote as SuggestionVote, label: value.label ?? userKey.replace(/^user:/, "") }));
+    return {
+      all,
+      up: all.filter((v) => v.vote === "up"),
+      maybe: all.filter((v) => v.vote === "maybe"),
+      down: all.filter((v) => v.vote === "down"),
+      mine: all.find((v) => v.userKey === suggestionVoterKey)?.vote ?? null,
+    };
+  };
 
   const expensesByCategory = expenses.reduce((acc: Record<string, number>, exp: ExpenseWithParticipant) => {
     acc[exp.category] = (acc[exp.category] || 0) + Number(exp.amount);
@@ -746,6 +879,15 @@ export default function Home() {
     () => computeSplit(participants, expenses, expenseSharesList, allowOptIn),
     [participants, expenses, expenseSharesList, allowOptIn]
   );
+  const lastExpenseForRepeat = useMemo(() => {
+    if (!expenses.length) return null;
+    return [...expenses].sort((a: ExpenseWithParticipant, b: ExpenseWithParticipant) => {
+      const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      if (aTime !== bTime) return bTime - aTime;
+      return b.id - a.id;
+    })[0] ?? null;
+  }, [expenses]);
 
   const handleJoin = (bbqId: number) => {
     if (!username) return;
@@ -800,6 +942,12 @@ export default function Home() {
     if (requestedVisibilityOriginOnCreate === "public") {
       const baseTemplate = (templateData && typeof templateData === "object") ? templateData as Record<string, unknown> : {};
       templateData = { ...baseTemplate, publicCategory: newEventPublicCategory };
+    } else {
+      const baseTemplate = (templateData && typeof templateData === "object") ? templateData as Record<string, unknown> : {};
+      templateData = {
+        ...baseTemplate,
+        personality: getDefaultCirclePersonality({ area: newEventArea, eventType: newEventType }),
+      };
     }
     const payload: Parameters<typeof createBbq.mutate>[0] & { currencySource?: "auto" | "manual" } = {
       name: newBbqName.trim(),
@@ -1648,6 +1796,128 @@ export default function Home() {
                 />
               </div>
 
+              {isPrivateContext && selectedBbq && privateSuggestionsEligible && privateSuggestionState.enabled && !localSuggestionsMuted && inlineExploreSuggestions.length > 0 && (
+                <div className={`mt-4 rounded-2xl border border-border/60 bg-card/90 p-4 shadow-sm ${privateMood.backgroundTintClass}`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold">
+                        While you&apos;re in {selectedBbq.city || selectedBbq.countryName || "town"}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {inlineExploreSuggestions.length} thing{inlineExploreSuggestions.length === 1 ? "" : "s"} happening around your dates
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-auto px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+                      onClick={() => setShowLocalSuggestionsModal(true)}
+                    >
+                      See more
+                    </Button>
+                  </div>
+                  <div className="mt-3 space-y-2.5">
+                    {inlineExploreSuggestions.map((suggestion) => {
+                      const isSaved = privateSuggestionState.savedIds.includes(suggestion.id);
+                      const votes = getSuggestionVotes(suggestion.id);
+                      return (
+                        <div
+                          key={`inline-suggestion-${suggestion.id}`}
+                          className="rounded-xl border border-border/50 bg-background/70 px-3 py-2.5"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium truncate">{suggestion.title}</p>
+                              <p className="text-xs text-muted-foreground mt-0.5">
+                                {suggestion.date ? new Date(suggestion.date).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "Date TBA"}
+                                {" · "}
+                                {getSuggestionDistanceLabel({
+                                  privateCity: selectedBbq.city,
+                                  suggestionCity: suggestion.city,
+                                  suggestionCountry: suggestion.countryName,
+                                })}
+                              </p>
+                              <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+                                <div className="inline-flex items-center gap-1 rounded-lg bg-muted/30 p-0.5">
+                                  {([
+                                    { key: "up", emoji: "👍", label: "Interested" },
+                                    { key: "maybe", emoji: "🤔", label: "Maybe" },
+                                    { key: "down", emoji: "👎", label: "Skip" },
+                                  ] as const).map((option) => (
+                                    <button
+                                      key={`${suggestion.id}-${option.key}`}
+                                      type="button"
+                                      className={`h-7 rounded-md px-2 text-xs transition-colors ${votes.mine === option.key ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                                      onClick={() => setSuggestionVote(suggestion.id, votes.mine === option.key ? null : option.key)}
+                                      title={option.label}
+                                    >
+                                      {option.emoji}
+                                    </button>
+                                  ))}
+                                </div>
+                                {votes.up.length > 0 ? (
+                                  <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                    <div className="flex -space-x-1.5">
+                                      {votes.up.slice(0, 3).map((v) => (
+                                        <span
+                                          key={`${suggestion.id}-up-${v.userKey}`}
+                                          className="grid h-5 w-5 place-items-center rounded-full border border-background bg-primary/10 text-[9px] font-semibold text-primary"
+                                          title={v.label}
+                                        >
+                                          {getParticipantInitials(v.label)}
+                                        </span>
+                                      ))}
+                                    </div>
+                                    <span>{votes.up.length} interested</span>
+                                  </div>
+                                ) : votes.maybe.length > 0 ? (
+                                  <span className="text-xs text-muted-foreground">{votes.maybe.length} maybe</span>
+                                ) : null}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className={`h-7 px-2 text-xs ${isSaved ? "text-primary" : "text-muted-foreground"}`}
+                                onClick={() =>
+                                  setPrivateSuggestionState((prev) => ({
+                                    ...prev,
+                                    savedIds: prev.savedIds.includes(suggestion.id)
+                                      ? prev.savedIds.filter((id) => id !== suggestion.id)
+                                      : [...prev.savedIds, suggestion.id],
+                                  }))
+                                }
+                              >
+                                {isSaved ? "Saved" : "Save"}
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 px-2 text-xs text-muted-foreground"
+                                onClick={() =>
+                                  setPrivateSuggestionState((prev) => ({
+                                    ...prev,
+                                    dismissedIds: prev.dismissedIds.includes(suggestion.id)
+                                      ? prev.dismissedIds
+                                      : [...prev.dismissedIds, suggestion.id],
+                                  }))
+                                }
+                              >
+                                Not interested
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {isCreator && selectedBbq && (
                 <div className="mt-4 rounded-xl border border-border/60 bg-card p-4 space-y-4">
                   <div className="flex items-start justify-between gap-3">
@@ -1799,7 +2069,9 @@ export default function Home() {
                         {creatorName} {t.settleUp.participantBanner} 💸
                       </p>
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        {t.settleUp.tapToSettle} {formatMoney(amountOwed)}. Tap to settle up.
+                        {isPrivateContext
+                          ? `${t.settleUp.tapToSettle} ${formatMoney(amountOwed)}. Open settle up when you're ready.`
+                          : `${t.settleUp.tapToSettle} ${formatMoney(amountOwed)}. Tap to settle up.`}
                       </p>
                     </div>
                   </button>
@@ -1807,7 +2079,21 @@ export default function Home() {
               })()}
 
               {/* Inline stats row */}
-              <div className="mt-2 flex items-center gap-2 flex-wrap">
+              <div className={`mt-2 flex items-center gap-2 flex-wrap ${isPrivateContext ? `rounded-2xl ${privateMood.backgroundTintClass} px-3 py-2` : ""}`}>
+                {isPrivateContext && participants.length > 0 && (
+                  <div className="flex items-center -space-x-2 mr-1">
+                    {participants.slice(0, 4).map((p: Participant) => (
+                      <div
+                        key={`stats-avatar-${p.id}`}
+                        className={`h-6 w-6 rounded-full border border-background bg-primary/10 text-[10px] font-semibold ${privateMood.accentClass} grid place-items-center`}
+                        title={p.name}
+                        aria-hidden
+                      >
+                        {getParticipantInitials(p.name)}
+                      </div>
+                    ))}
+                  </div>
+                )}
                 <p className="text-xs text-muted-foreground">
                   {formatMoney(totalSpent)} spent · {participantCount} {participantCount === 1 ? "person" : "people"} · {expenses.length} expense{expenses.length !== 1 ? "s" : ""}
                   {!allowOptIn && ` · ${formatMoney(fairShare)} ${t.fairShare.toLowerCase()}`}
@@ -1821,16 +2107,16 @@ export default function Home() {
 
               {/* Completion banner when event is settled */}
               {eventStatus === "settled" && (
-                <div className="mt-4 rounded-xl border border-green-500/30 bg-green-500/10 px-4 py-2.5 flex items-center gap-2">
+                <div className={`mt-4 rounded-xl border border-green-500/30 bg-green-500/10 px-4 py-2.5 flex items-center gap-2 ${isPrivateContext ? "rounded-2xl bg-gradient-to-r from-emerald-500/12 to-emerald-500/6 ring-1 ring-emerald-500/10" : ""}`}>
                   <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0" />
-                  <p className="text-sm font-medium text-foreground">{t.split.allSettledStillFriends}</p>
+                  <p className="text-sm font-medium text-foreground">{isPrivateContext ? "Everyone’s settled up. You’re all in sync." : t.split.allSettledStillFriends}</p>
                 </div>
               )}
 
               {/* Creator: Mark as settled when all balances zero */}
               {isCreator && eventStatus === "settling" && allBalancesZero && (
-                <div className="mt-4 rounded-xl border border-green-500/30 bg-green-500/10 px-4 py-3 flex items-center justify-between gap-3">
-                  <p className="text-sm font-medium text-foreground">{t.settleUp.everyonePaid}</p>
+                <div className={`mt-4 rounded-xl border border-green-500/30 bg-green-500/10 px-4 py-3 flex items-center justify-between gap-3 ${isPrivateContext ? "rounded-2xl bg-gradient-to-r from-emerald-500/12 to-transparent ring-1 ring-emerald-500/10" : ""}`}>
+                  <p className="text-sm font-medium text-foreground">{isPrivateContext ? "Everything looks settled. You can close this out anytime." : t.settleUp.everyonePaid}</p>
                   <Button
                     size="sm"
                     onClick={() => selectedBbqId && updateBbq.mutate({ id: selectedBbqId, status: "settled" })}
@@ -1846,7 +2132,7 @@ export default function Home() {
 
             {/* Template-specific optional sections */}
             {eventTemplate.key === "barbecue" && (
-              <div className="mt-4 rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-4 space-y-3 shadow-[var(--shadow-sm)]">
+              <div className={`mt-4 rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-4 space-y-3 shadow-[var(--shadow-sm)] ${isPrivateContext ? `rounded-2xl border-border/60 bg-gradient-to-b from-[hsl(var(--surface-1))] to-[hsl(var(--surface-0))] shadow-sm shadow-neutral-200/40 dark:shadow-black/20 ${privateMood.ringClass} ring-1 space-y-3.5` : ""}`}>
                 <div className="flex items-center justify-between gap-2">
                   <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
                     BBQ Roles
@@ -1909,7 +2195,7 @@ export default function Home() {
                     return paid === 0;
                   }) && (
                     <li className="text-xs text-muted-foreground">
-                      No gift contributions yet. Add expenses to start tracking.
+                      {isPrivateContext ? "No gift contributions yet. Add one when the group is ready." : "No gift contributions yet. Add expenses to start tracking."}
                     </li>
                   )}
                 </ul>
@@ -2006,9 +2292,14 @@ export default function Home() {
                     return (
                       <div
                         key={p.id}
-                        className="inline-flex items-center gap-2 border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]/50 rounded-[var(--radius-md)] px-2.5 py-1 text-sm"
+                        className={`inline-flex items-center gap-2 border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]/50 rounded-[var(--radius-md)] px-2.5 py-1 text-sm ${isPrivateContext ? `rounded-2xl border-border/60 bg-gradient-to-b from-[hsl(var(--surface-2))]/70 to-[hsl(var(--surface-0))]/60 px-3 py-1.5 shadow-sm shadow-neutral-200/25 dark:shadow-black/10 ${privateMood.hoverScaleClass} transition-transform ${privateMood.motionDurationClass} motion-reduce:transition-none` : ""}`}
                         data-testid={`chip-participant-${p.id}`}
                       >
+                        {isPrivateContext && !isEditing && (
+                          <span className={`grid h-7 w-7 place-items-center rounded-full bg-primary/10 text-[10px] font-semibold ${privateMood.accentClass} flex-shrink-0`}>
+                            {getParticipantInitials(p.name)}
+                          </span>
+                        )}
                         {isEditing ? (
                           <>
                             <Input
@@ -2124,7 +2415,7 @@ export default function Home() {
                     </div>
                   );
                 })()}
-                <div className="rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-3 shadow-[var(--shadow-sm)]">
+                <div className={`rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-3 shadow-[var(--shadow-sm)] ${isPrivateContext ? `rounded-2xl border-border/60 bg-gradient-to-b from-[hsl(var(--surface-1))] to-[hsl(var(--surface-0))] p-4 shadow-sm shadow-neutral-200/40 dark:shadow-black/20 ${privateMood.ringClass} ring-1` : ""}`}>
                   <div className="flex items-center justify-between gap-2">
                     <h3 className="text-sm font-semibold text-muted-foreground">Expenses</h3>
                     <Button
@@ -2147,9 +2438,10 @@ export default function Home() {
                           return (
                             <EmptyState
                               icon={theme.icon}
-                              title={theme.copy.emptyExpensesTitle}
-                              description={theme.copy.emptyExpensesBody}
+                              title={isPrivateContext ? "This circle is quiet for now" : theme.copy.emptyExpensesTitle}
+                              description={isPrivateContext ? "Add the first expense when you’re ready. Splanno will remember how your circle usually works." : theme.copy.emptyExpensesBody}
                               iconClassName={theme.accent.bg}
+                              className={isPrivateContext ? "py-20" : undefined}
                               primaryAction={
                                 (isCreator || isAcceptedMember)
                                   ? {
@@ -2168,7 +2460,7 @@ export default function Home() {
                           );
                         })()
                       ) : (
-                        <div className="space-y-2">
+                        <div className={isPrivateContext ? "space-y-2.5" : "space-y-2"}>
                           {expenses.map((exp: ExpenseWithParticipant) => {
                       const IconComp = getCategoryDef(exp.category).icon;
                       const color = getCategoryColor(exp.category);
@@ -2180,11 +2472,11 @@ export default function Home() {
                             return (
                         <div
                           key={exp.id}
-                          className="flex flex-col rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-0))]/70 px-3 py-2.5 group shadow-[var(--shadow-sm)]"
+                          className={`flex flex-col rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-0))]/70 px-3 py-2.5 group shadow-[var(--shadow-sm)] ${isPrivateContext ? `rounded-2xl border-border/60 bg-gradient-to-b from-[hsl(var(--surface-0))]/90 to-[hsl(var(--surface-1))]/80 px-3.5 py-3 shadow-sm shadow-neutral-200/35 dark:shadow-black/10 ${privateMood.hoverScaleClass} transition-transform ${privateMood.motionDurationClass} motion-reduce:transition-none ${privateMood.ringClass} ring-1` : ""}`}
                           data-testid={`expense-item-${exp.id}`}
                         >
                           <div className="flex items-center gap-3">
-                            <div className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 bg-muted/40 dark:bg-muted/30">
+                            <div className={`flex items-center justify-center flex-shrink-0 bg-muted/40 dark:bg-muted/30 ${isPrivateContext ? "w-8 h-8 rounded-xl" : "w-7 h-7 rounded-md"}`}>
                               <IconComp className="w-4 h-4" style={{ color }} />
                             </div>
                             <div className="flex-1 min-w-0">
@@ -2196,7 +2488,7 @@ export default function Home() {
                                   <button
                                     type="button"
                                     onClick={() => { setViewedProfileUsername(exp.participantUserId!); setIsProfileOpen(true); }}
-                                    className="hover:text-primary hover:underline"
+                                    className={`hover:text-primary hover:underline ${isPrivateContext ? "decoration-primary/40" : ""}`}
                                     data-testid={`link-expense-payer-${exp.id}`}
                                   >
                                     {exp.participantName}
@@ -2254,7 +2546,7 @@ export default function Home() {
 
                 {/* Category Chart */}
                 {chartData.length > 0 && (
-                  <div className="rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-4 shadow-[var(--shadow-sm)]">
+                  <div className={`rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-4 shadow-[var(--shadow-sm)] ${isPrivateContext ? `rounded-2xl border-border/60 bg-gradient-to-b from-[hsl(var(--surface-1))] to-[hsl(var(--surface-0))] shadow-sm shadow-neutral-200/40 dark:shadow-black/20 p-[1.1rem] ${privateMood.ringClass} ring-1` : ""}`}>
                     <div className="flex items-center justify-between gap-2 mb-4">
                       <h3 className="text-sm font-semibold text-muted-foreground">{t.bbq.breakdown}</h3>
                       <Button
@@ -2338,9 +2630,10 @@ export default function Home() {
                   balances={balances}
                   totalSpent={totalSpent}
                   formatMoney={formatMoney}
-                  emptyLabel={t.emptyState.title}
+                  emptyLabel={isPrivateContext ? "No contributions yet — this circle is just getting started." : t.emptyState.title}
                   contributionsLabel={t.split.contributions}
                   reducedMotion={!!shouldReduceMotion}
+                  warm={isPrivateContext}
                 />
 
                 {/* Event Recap share (when there's expense data) */}
@@ -2393,7 +2686,7 @@ export default function Home() {
 
                 <SettlementPlan
                   settlements={settlements}
-                  allSettledLabel={t.split.allSettled}
+                  allSettledLabel={isPrivateContext ? "All settled. Everything feels clear." : t.split.allSettled}
                   owesLabel={t.split.owes}
                   settlementLabel={t.split.settlement}
                   formatMoney={formatMoney}
@@ -2429,6 +2722,7 @@ export default function Home() {
                     shared: t.split.toastShared,
                     error: t.split.toastError,
                   }}
+                  warm={isPrivateContext}
                 />
               </EventTabsContent>
 
@@ -2817,28 +3111,8 @@ export default function Home() {
             )}
           </ModalSection>
 
-          {/* Section 2 — Split Behavior */}
-          {newBbqVisibilityOrigin !== "public" && (
-          <ModalSection title={t.bbq.splitBehavior}>
-            <div className="flex items-center justify-between gap-4 rounded-xl border border-border/60 p-4 bg-muted/10">
-              <div className="space-y-0.5 min-w-0">
-                <Label htmlFor="new-bbq-flexible-split" className="text-sm font-medium cursor-pointer">
-                  {t.bbq.flexibleSplit}
-                </Label>
-                <p className="text-xs text-muted-foreground">{t.bbq.flexibleSplitDesc}</p>
-              </div>
-              <Switch
-                id="new-bbq-flexible-split"
-                checked={newBbqAllowOptIn}
-                onCheckedChange={setNewBbqAllowOptIn}
-                data-testid="switch-allow-opt-in-expenses"
-              />
-            </div>
-          </ModalSection>
-          )}
-
-          {/* Section 3 — Privacy */}
-          {newBbqVisibilityOrigin === "public" ? (
+          {/* Section 2 — Public listing (public flow only) */}
+          {newBbqVisibilityOrigin === "public" && (
           <ModalSection title="Public listing">
             <div className="space-y-2">
               <p className="text-xs text-muted-foreground">
@@ -2870,72 +3144,6 @@ export default function Home() {
               </div>
             </div>
           </ModalSection>
-          ) : (
-          <ModalSection title={t.bbq.privacy}>
-            <div className="space-y-2">
-              <p className="text-xs text-muted-foreground">
-                Private origin selected in the wizard. This event is permanently locked to Private.
-              </p>
-              <div className="flex rounded-lg border border-border overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => {}}
-                  className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-semibold transition-colors ${
-                    newBbqIsPublic ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted/50"
-                  } opacity-70 cursor-not-allowed`}
-                  data-testid="button-visibility-public"
-                  disabled
-                  title="Private-origin events cannot become public"
-                >
-                  <Globe className="w-4 h-4" /> {t.bbq.publicEvent}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setNewBbqIsPublic(false)}
-                  className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-semibold transition-colors ${
-                    newBbqIsPublic ? "text-muted-foreground hover:bg-muted/50" : "bg-primary text-primary-foreground"
-                  }`}
-                  data-testid="button-visibility-private"
-                  disabled={false}
-                >
-                  <Lock className="w-4 h-4" /> {t.bbq.privateEvent}
-                </button>
-              </div>
-              <p className="text-xs text-muted-foreground">{t.bbq.privateDesc}</p>
-            </div>
-          </ModalSection>
-          )}
-
-          {/* Section 4 — Advanced (collapsible): Currency for parties, or override for trips without location */}
-          {newBbqVisibilityOrigin !== "public" && (
-          <Accordion type="single" collapsible className="rounded-xl border border-border/60 overflow-hidden">
-            <AccordionItem value="advanced" className="border-0">
-              <AccordionTrigger className="px-4 py-3 hover:no-underline hover:bg-muted/30 [&[data-state=open]>svg]:rotate-180">
-                {t.bbq.advancedOptions}
-              </AccordionTrigger>
-              <AccordionContent className="px-4 pb-4 pt-0">
-                <div className="space-y-2">
-                  <Label className="text-muted-foreground">{t.bbq.currency}</Label>
-                  {newEventLocation && (
-                    <p className="text-xs text-muted-foreground">
-                      {newBbqCurrency === (currencyForCountry(newEventLocation.countryCode) ?? "EUR")
-                        ? `Auto from ${newEventLocation.countryName} (${currencyForCountry(newEventLocation.countryCode)}). Change to override.`
-                        : "Manual override"}
-                    </p>
-                  )}
-                  <CurrencyPicker
-                    value={newBbqCurrency}
-                    onChange={(v) => setNewBbqCurrency(v as CurrencyCode)}
-                    profileFavorites={user?.favoriteCurrencyCodes ?? []}
-                    suggestedCode={newEventLocation ? currencyForCountry(newEventLocation.countryCode) : null}
-                    suggestedNote={newEventLocation?.countryName ? `Auto from ${newEventLocation.countryName}` : null}
-                    recentStorageUserKey={user ? `user-${user.id}` : undefined}
-                    data-testid="select-bbq-currency"
-                  />
-                </div>
-              </AccordionContent>
-            </AccordionItem>
-          </Accordion>
           )}
           </>
           )}
@@ -3023,7 +3231,147 @@ export default function Home() {
         currentUsername={username}
         currencyCode={(selectedBbq?.currency as string) || currency}
         groupHomeCurrencyCode={(selectedBbq?.currency as string) || currency}
+        lastExpense={editingExpense ? null : lastExpenseForRepeat}
+        privateTone={isPrivateContext}
       />
+
+      {selectedBbq && (
+        <Modal
+          open={showLocalSuggestionsModal}
+          onClose={() => setShowLocalSuggestionsModal(false)}
+          onOpenChange={setShowLocalSuggestionsModal}
+          title={`While you're in ${selectedBbq.city || selectedBbq.countryName || "town"}`}
+          size="lg"
+          scrollable
+          footer={
+            <Button type="button" variant="ghost" onClick={() => setShowLocalSuggestionsModal(false)}>
+              Close
+            </Button>
+          }
+        >
+          <div className="space-y-4">
+            <div className="rounded-xl border border-border/60 bg-muted/20 p-3 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium">Show local suggestions for this trip</p>
+                <p className="text-xs text-muted-foreground">We keep this subtle and only show nearby public events around your dates.</p>
+              </div>
+              <Switch
+                checked={privateSuggestionState.enabled}
+                onCheckedChange={(checked) => setPrivateSuggestionState((prev) => ({ ...prev, enabled: checked }))}
+              />
+            </div>
+
+            {!privateSuggestionState.enabled ? (
+              <p className="text-sm text-muted-foreground">Suggestions are off for this event.</p>
+            ) : modalExploreSuggestions.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Nothing nearby for these dates right now.</p>
+            ) : (
+              <div className="space-y-2">
+                {modalExploreSuggestions.map((suggestion) => {
+                  const isSaved = privateSuggestionState.savedIds.includes(suggestion.id);
+                  const isDismissed = privateSuggestionState.dismissedIds.includes(suggestion.id);
+                  const votes = getSuggestionVotes(suggestion.id);
+                  if (isDismissed) return null;
+                  return (
+                    <div key={`modal-suggestion-${suggestion.id}`} className="rounded-xl border border-border/60 bg-card p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold truncate">{suggestion.title}</p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {suggestion.date ? new Date(suggestion.date).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) : "Date TBA"}
+                            {" · "}
+                            {getSuggestionDistanceLabel({
+                              privateCity: selectedBbq.city,
+                              suggestionCity: suggestion.city,
+                              suggestionCountry: suggestion.countryName,
+                            })}
+                          </p>
+                          {suggestion.organizationName && (
+                            <p className="text-xs text-muted-foreground mt-1 truncate">{suggestion.organizationName}</p>
+                          )}
+                          <div className="mt-2 flex items-center gap-2 flex-wrap">
+                            <div className="inline-flex items-center gap-1 rounded-lg bg-muted/30 p-0.5">
+                              {([
+                                { key: "up", emoji: "👍", label: "Interested" },
+                                { key: "maybe", emoji: "🤔", label: "Maybe" },
+                                { key: "down", emoji: "👎", label: "Skip" },
+                              ] as const).map((option) => (
+                                <button
+                                  key={`${suggestion.id}-modal-${option.key}`}
+                                  type="button"
+                                  className={`h-7 rounded-md px-2 text-xs transition-colors ${votes.mine === option.key ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+                                  onClick={() => setSuggestionVote(suggestion.id, votes.mine === option.key ? null : option.key)}
+                                  title={option.label}
+                                >
+                                  {option.emoji}
+                                </button>
+                              ))}
+                            </div>
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              {votes.up.length > 0 && (
+                                <div className="flex items-center gap-1.5">
+                                  <div className="flex -space-x-1.5">
+                                    {votes.up.slice(0, 3).map((v) => (
+                                      <span
+                                        key={`${suggestion.id}-modal-up-${v.userKey}`}
+                                        className="grid h-5 w-5 place-items-center rounded-full border border-background bg-primary/10 text-[9px] font-semibold text-primary"
+                                        title={v.label}
+                                      >
+                                        {getParticipantInitials(v.label)}
+                                      </span>
+                                    ))}
+                                  </div>
+                                  <span>{votes.up.length} interested</span>
+                                </div>
+                              )}
+                              {votes.maybe.length > 0 && <span>{votes.maybe.length} maybe</span>}
+                              {votes.down.length > 0 && <span>{votes.down.length} skip</span>}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className={`h-8 px-2 text-xs ${isSaved ? "text-primary" : "text-muted-foreground"}`}
+                            onClick={() =>
+                              setPrivateSuggestionState((prev) => ({
+                                ...prev,
+                                savedIds: prev.savedIds.includes(suggestion.id)
+                                  ? prev.savedIds.filter((id) => id !== suggestion.id)
+                                  : [...prev.savedIds, suggestion.id],
+                              }))
+                            }
+                          >
+                            {isSaved ? "Saved" : "Save"}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 px-2 text-xs text-muted-foreground"
+                            onClick={() =>
+                              setPrivateSuggestionState((prev) => ({
+                                ...prev,
+                                dismissedIds: prev.dismissedIds.includes(suggestion.id)
+                                  ? prev.dismissedIds
+                                  : [...prev.dismissedIds, suggestion.id],
+                              }))
+                            }
+                          >
+                            Not interested
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
 
       {showSettledConfetti && (
         <ConfettiCelebration onComplete={() => setShowSettledConfetti(false)} reducedMotion={!!shouldReduceMotion} />

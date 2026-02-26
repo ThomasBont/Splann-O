@@ -7,6 +7,7 @@ import { ThemeProvider } from "@/hooks/use-theme";
 import { UpgradeProvider } from "@/contexts/UpgradeContext";
 import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
+import LandingV2 from "@/pages/landing-v2";
 import ThemeGalleryPage from "@/pages/theme-gallery";
 import Basic from "@/pages/basic";
 import LoginPage from "@/pages/login";
@@ -24,7 +25,7 @@ import PublicEventPage from "@/pages/public-event";
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={Landing} />
+      <Route path="/" component={LandingV2} />
       <Route path="/join/:token" component={JoinPage} />
       <Route path="/basic" component={Basic} />
       <Route path="/login" component={LoginPage} />

@@ -40,11 +40,13 @@ interface AddExpenseDialogProps {
   currentUsername?: string | null;
   currencyCode?: string | null;
   groupHomeCurrencyCode?: string | null;
+  lastExpense?: ExpenseWithParticipant | null;
+  privateTone?: boolean;
 }
 
 const DEFAULT_CATEGORIES = ["Meat", "Bread", "Drinks", "Charcoal", "Transportation", "Other"];
 
-export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, currencySymbol, categories: categoriesProp, defaultItem: defaultItemProp, defaultCategory: defaultCategoryProp, defaultOptIn: defaultOptInProp, allowOptIn = false, onAddCustomCategory, eventType, eventKind = "party", currentUsername, currencyCode, groupHomeCurrencyCode }: AddExpenseDialogProps) {
+export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, currencySymbol, categories: categoriesProp, defaultItem: defaultItemProp, defaultCategory: defaultCategoryProp, defaultOptIn: defaultOptInProp, allowOptIn = false, onAddCustomCategory, eventType, eventKind = "party", currentUsername, currencyCode, groupHomeCurrencyCode, lastExpense, privateTone = false }: AddExpenseDialogProps) {
   const { t } = useLanguage();
   const { toast } = useToast();
   const participants = useParticipants(bbqId);
@@ -128,7 +130,7 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
           toast({ variant: "success", message: t.modals.expenseUpdated });
           onOpenChange(false);
         },
-        onError: () => toast({ variant: "error", message: t.modals.expenseAddFailed }),
+        onError: () => toast({ variant: "error", message: privateTone ? "Couldn’t save that expense. Please try again." : t.modals.expenseAddFailed }),
       });
     } else {
       createExpense.mutate(
@@ -151,13 +153,27 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
             toast({ variant: "success", message: t.modals.expenseAdded });
             onOpenChange(false);
           },
-          onError: () => toast({ variant: "error", message: t.modals.expenseAddFailed }),
+          onError: () => toast({ variant: "error", message: privateTone ? "Couldn’t add that expense. Please try again." : t.modals.expenseAddFailed }),
         }
       );
     }
   };
 
   const isPending = createExpense.isPending || updateExpense.isPending;
+  const canRepeatLast = !editingExpense && !!lastExpense;
+
+  const applyRepeatLast = () => {
+    if (!lastExpense || editingExpense) return;
+    const lastParticipantId = lastExpense.participantId != null ? String(lastExpense.participantId) : "";
+    if (lastParticipantId && participantList.some((p) => String(p.id) === lastParticipantId)) {
+      setParticipantId(lastParticipantId);
+    }
+    if (lastExpense.category && categories.includes(lastExpense.category)) {
+      setCategory(lastExpense.category);
+    }
+    setItem(lastExpense.item ?? "");
+    setAmount("");
+  };
 
   return (
     <Modal
@@ -189,14 +205,30 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
       data-testid="modal-add-expense"
     >
       <form id="add-expense-form" onSubmit={handleSubmit} className="space-y-4">
+        {canRepeatLast ? (
+          <div className="flex items-center justify-end">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-auto p-0 text-xs text-muted-foreground hover:text-foreground"
+              onClick={applyRepeatLast}
+              data-testid="button-repeat-last-expense"
+            >
+              {privateTone ? "Use last expense" : "Repeat last"}
+            </Button>
+          </div>
+        ) : null}
         <div className="space-y-2">
           <div className="flex items-center justify-between gap-2">
             <Label htmlFor="participant" className="uppercase text-xs tracking-wider text-muted-foreground">
               {t.modals.paidByLabel}
             </Label>
             {!editingExpense && resolvedDefaults.payerSuggestionSource !== "fallback" ? (
-              <span className="text-[11px] text-muted-foreground">
-                {resolvedDefaults.payerSuggestionSource === "lastUsed" ? "Last used" : "Suggested"}
+              <span className="text-xs text-muted-foreground">
+                {resolvedDefaults.payerSuggestionSource === "lastUsed"
+                  ? (privateTone ? "Last used here" : "Last used")
+                  : (privateTone ? "Suggested for this circle" : "Suggested")}
               </span>
             ) : null}
           </div>

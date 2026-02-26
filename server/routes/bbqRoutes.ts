@@ -634,4 +634,14 @@ router.get("/users/:username", requireAuth, asyncHandler(async (req, res) => {
   res.json(profile);
 }));
 
+// Shareable public profile page payload (privacy-safe, no auth required)
+router.get("/public-profile/:username", asyncHandler(async (req, res) => {
+  const username = Array.isArray(req.params.username) ? req.params.username[0] : req.params.username;
+  if (!username) badRequest("Username required");
+  const viewerUsername = req.session?.username;
+  const profile = await userRepo.getShareablePublicProfile(username, viewerUsername);
+  if (!profile) notFound("Profile not found");
+  res.json(profile);
+}));
+
 export default router;

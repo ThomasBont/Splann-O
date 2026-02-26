@@ -21,6 +21,7 @@ import VerifyErrorPage from "@/pages/verify-error";
 import SettingsPage from "@/pages/settings";
 import ExplorePage from "@/pages/explore";
 import PublicEventPage from "@/pages/public-event";
+import PublicProfilePage from "@/pages/public-profile";
 
 function Router() {
   return (
@@ -32,6 +33,7 @@ function Router() {
       <Route path="/app" component={AppRoute} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/explore" component={ExplorePage} />
+      <Route path="/u/:username" component={PublicProfilePage} />
       <Route path="/events/:slug" component={PublicEventPage} />
       <Route path="/reset-password" component={ResetPassword} />
       <Route path="/check-email" component={CheckEmailPage} />

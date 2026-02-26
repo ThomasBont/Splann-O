@@ -1,9 +1,22 @@
-console.log("[env] NODE_ENV=", process.env.NODE_ENV);
-console.log("[env] BETA_MODE=", process.env.BETA_MODE);
+console.log("=== ENV DEBUG START ===");
+console.log("[env] NODE_ENV:", process.env.NODE_ENV);
+console.log("[env] RESEND_API_KEY present:", Boolean(process.env.RESEND_API_KEY));
+console.log("[env] EMAIL_FROM present:", Boolean(process.env.EMAIL_FROM));
+console.log("[env] APP_BASE_URL:", process.env.APP_BASE_URL || process.env.APP_URL);
+if (!process.env.RESEND_API_KEY) {
+  console.warn("[env-warning] RESEND_API_KEY missing at runtime");
+}
+console.log("=== ENV DEBUG END ===");
 
 import dotenv from "dotenv";
 if (process.env.NODE_ENV !== "production") {
-  dotenv.config();
+  dotenv.config({ debug: true });
+}
+
+console.log("[env] RESEND_API_KEY present (post-dotenv):", Boolean(process.env.RESEND_API_KEY));
+console.log("[env] EMAIL_FROM present (post-dotenv):", Boolean(process.env.EMAIL_FROM));
+if (!process.env.RESEND_API_KEY) {
+  console.warn("[env-warning] RESEND_API_KEY still missing after dotenv");
 }
 
 import { loadConfig } from "./config/env";

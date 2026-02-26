@@ -15,9 +15,26 @@ export type SuggestionVote = "up" | "maybe" | "down";
 
 const SCHEMA_VERSION = 2 as const;
 const DAY_MS = 24 * 60 * 60 * 1000;
+const DEVICE_ID_KEY = "splanno:deviceId";
 
 export function getPrivateSuggestionsStorageKey(privateEventId: number) {
   return `splanno:suggestions:v1:${privateEventId}`;
+}
+
+export function getOrCreateSuggestionDeviceId(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const existing = localStorage.getItem(DEVICE_ID_KEY);
+    if (existing) return existing;
+    const next =
+      (typeof crypto !== "undefined" && "randomUUID" in crypto && typeof crypto.randomUUID === "function")
+        ? crypto.randomUUID()
+        : `dev_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+    localStorage.setItem(DEVICE_ID_KEY, next);
+    return next;
+  } catch {
+    return null;
+  }
 }
 
 export function defaultPrivateSuggestionState(): PrivateSuggestionStateV1 {

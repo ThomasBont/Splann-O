@@ -13,6 +13,11 @@ const ACCENT_COLOR = "#2563eb";
 const APP_URL = process.env.APP_URL ?? `http://localhost:${process.env.PORT || 5001}`;
 const FETCH_TIMEOUT_MS = 10_000;
 
+console.log("[email-debug] provider initialized:", {
+  hasKey: Boolean(process.env.RESEND_API_KEY),
+  from: process.env.EMAIL_FROM ?? FROM,
+});
+
 function isDevMailMode(): boolean {
   return process.env.NODE_ENV === "development" && !process.env.RESEND_API_KEY;
 }

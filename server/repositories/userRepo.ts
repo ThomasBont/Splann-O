@@ -1,6 +1,7 @@
 import { db } from "../db";
 import { users, barbecues, participants, expenses, passwordResetTokens, friendships } from "@shared/schema";
-import { eq, and, or } from "drizzle-orm";
+import { eq, and, or, inArray } from "drizzle-orm";
+import { isPublicListingActive } from "../lib/public-listing";
 import type { User, InsertUser, PasswordResetToken } from "@shared/schema";
 
 export const userRepo = {
@@ -134,6 +135,122 @@ export const userRepo = {
     return {
       user: { id: u.id, username: u.username, displayName: u.displayName, profileImageUrl: u.profileImageUrl, avatarUrl: u.avatarUrl, bio: u.bio },
       stats: { eventsCount, friendsCount, totalSpent },
+    };
+  },
+
+  async getShareablePublicProfile(username: string, viewerUsername?: string): Promise<
+    | {
+        profile: {
+          id: number;
+          username: string;
+          displayName: string | null;
+          profileImageUrl: string | null;
+          avatarUrl: string | null;
+          bio: string | null;
+          createdAt: Date | null;
+        };
+        viewerIsOwner: boolean;
+        stats: {
+          publicEventsHosted: number;
+          totalAttendees: number;
+          ratioLabel: "Mostly private" | "Balanced" | "Mostly public" | null;
+        };
+        events: Array<{
+          id: number;
+          title: string;
+          date: string | null;
+          locationName: string | null;
+          city: string | null;
+          countryName: string | null;
+          publicSlug: string;
+          publicMode: "marketing" | "joinable";
+          attendeeCount: number;
+          themeCategory: "party" | "networking" | "meetup" | "workshop" | "conference" | "training" | "sports" | "other";
+        }>;
+      }
+    | undefined
+  > {
+    const user = await this.findByUsername(username);
+    if (!user) return undefined;
+    const viewerIsOwner = !!viewerUsername && viewerUsername === user.username;
+
+    const ownedEvents = await db.select().from(barbecues).where(eq(barbecues.creatorId, username));
+    const visiblePublicEvents = ownedEvents
+      .filter((e) => e.visibility === "public")
+      .filter((e) => e.status !== "draft")
+      .filter((e) => !!e.publicSlug)
+      .filter((e) => isPublicListingActive(e))
+      .sort((a, b) => {
+        const aTime = a.date ? new Date(a.date).getTime() : 0;
+        const bTime = b.date ? new Date(b.date).getTime() : 0;
+        return aTime - bTime;
+      });
+
+    const publicEventIds = visiblePublicEvents.map((e) => e.id);
+    const participantRows = publicEventIds.length
+      ? await db
+          .select({ barbecueId: participants.barbecueId, status: participants.status })
+          .from(participants)
+          .where(inArray(participants.barbecueId, publicEventIds))
+      : [];
+    const attendeeCountByEventId = new Map<number, number>();
+    for (const row of participantRows) {
+      if (row.status !== "accepted") continue;
+      attendeeCountByEventId.set(row.barbecueId, (attendeeCountByEventId.get(row.barbecueId) ?? 0) + 1);
+    }
+
+    const totalOwned = ownedEvents.length;
+    const publicOwned = ownedEvents.filter((e) => e.visibility === "public").length;
+    const privateOwned = Math.max(0, totalOwned - publicOwned);
+    const ratio = totalOwned > 0 ? publicOwned / totalOwned : 0;
+    const ratioLabel: "Mostly private" | "Balanced" | "Mostly public" | null =
+      totalOwned === 0
+        ? null
+        : ratio >= 0.66
+          ? "Mostly public"
+          : ratio <= 0.33
+            ? "Mostly private"
+            : "Balanced";
+
+    const mapThemeCategory = (event: (typeof ownedEvents)[number]) => {
+      const tpl = (event.templateData && typeof event.templateData === "object") ? event.templateData as Record<string, unknown> : null;
+      const rawCategory = typeof tpl?.publicCategory === "string" ? tpl.publicCategory.toLowerCase() : "";
+      if (rawCategory === "party" || rawCategory === "networking" || rawCategory === "meetup" || rawCategory === "workshop" || rawCategory === "conference" || rawCategory === "training" || rawCategory === "sports" || rawCategory === "other") {
+        return rawCategory;
+      }
+      if (String(event.eventType ?? "").includes("party") || String(event.eventType ?? "") === "barbecue") return "party";
+      if (String(event.eventType ?? "").includes("trip")) return "meetup";
+      return "other";
+    };
+
+    return {
+      profile: {
+        id: user.id,
+        username: user.username,
+        displayName: user.displayName ?? null,
+        profileImageUrl: user.profileImageUrl ?? null,
+        avatarUrl: user.avatarUrl ?? null,
+        bio: user.bio ?? null,
+        createdAt: user.createdAt ?? null,
+      },
+      viewerIsOwner,
+      stats: {
+        publicEventsHosted: visiblePublicEvents.length,
+        totalAttendees: visiblePublicEvents.reduce((sum, e) => sum + (attendeeCountByEventId.get(e.id) ?? 0), 0),
+        ratioLabel: viewerIsOwner ? ratioLabel : null,
+      },
+      events: visiblePublicEvents.map((e) => ({
+        id: e.id,
+        title: e.name,
+        date: e.date ? e.date.toISOString() : null,
+        locationName: e.locationName ?? null,
+        city: e.city ?? null,
+        countryName: e.countryName ?? null,
+        publicSlug: e.publicSlug ?? "",
+        publicMode: (e.publicMode as "marketing" | "joinable") ?? "marketing",
+        attendeeCount: attendeeCountByEventId.get(e.id) ?? 0,
+        themeCategory: mapThemeCategory(e) as "party" | "networking" | "meetup" | "workshop" | "conference" | "training" | "sports" | "other",
+      })),
     };
   },
 };

@@ -106,6 +106,7 @@ import { getCircleMoodTokens, getCirclePersonalityFromEvent, getDefaultCirclePer
 import {
   defaultPrivateSuggestionState,
   getNearbyPublicEvents,
+  getOrCreateSuggestionDeviceId,
   getSuggestionDistanceLabel,
   isEligibleForLocalSuggestions,
   isSuggestionCacheFresh,
@@ -828,7 +829,8 @@ export default function Home() {
       .slice(0, 2)
       .map((part) => part[0]?.toUpperCase() ?? "")
       .join("") || "?";
-  const suggestionVoterKey = username ? `user:${username}` : `guest:${user?.id ?? "anon"}`;
+  const suggestionDeviceId = useMemo(() => getOrCreateSuggestionDeviceId(), []);
+  const suggestionVoterKey = user?.id ? `uid:${user.id}` : `dev:${suggestionDeviceId ?? "anon"}`;
   const suggestionVoterLabel = ((): string => {
     if (username) {
       const participant = participants.find((p: Participant) => p.userId === username);
@@ -854,17 +856,60 @@ export default function Home() {
       };
     });
   };
-  const getSuggestionVotes = (suggestionId: number) => {
-    const entries = Object.entries(privateSuggestionState.votesBySuggestionId[String(suggestionId)] ?? {});
-    const all = entries.map(([userKey, value]) => ({ userKey, vote: value.vote as SuggestionVote, label: value.label ?? userKey.replace(/^user:/, "") }));
-    return {
-      all,
-      up: all.filter((v) => v.vote === "up"),
-      maybe: all.filter((v) => v.vote === "maybe"),
-      down: all.filter((v) => v.vote === "down"),
-      mine: all.find((v) => v.userKey === suggestionVoterKey)?.vote ?? null,
-    };
-  };
+  useEffect(() => {
+    if (!selectedBbqId) return;
+    if (!username && !user?.id) return;
+    const legacyKeys = [username ? `user:${username}` : null, user?.id ? `guest:${user.id}` : null].filter(Boolean) as string[];
+    if (legacyKeys.length === 0) return;
+    setPrivateSuggestionState((prev) => {
+      let changed = false;
+      const nextVotesBySuggestionId = { ...prev.votesBySuggestionId };
+      for (const [suggestionId, voteMap] of Object.entries(prev.votesBySuggestionId)) {
+        const nextVoteMap = { ...voteMap };
+        for (const legacyKey of legacyKeys) {
+          if (nextVoteMap[suggestionVoterKey] || !nextVoteMap[legacyKey]) continue;
+          nextVoteMap[suggestionVoterKey] = nextVoteMap[legacyKey];
+          delete nextVoteMap[legacyKey];
+          changed = true;
+        }
+        nextVotesBySuggestionId[suggestionId] = nextVoteMap;
+      }
+      return changed ? { ...prev, votesBySuggestionId: nextVotesBySuggestionId } : prev;
+    });
+  }, [selectedBbqId, username, user?.id, suggestionVoterKey]);
+
+  const suggestionVoteSummaryById = useMemo(() => {
+    const result: Record<number, {
+      all: Array<{ userKey: string; vote: SuggestionVote; label: string; legacy: boolean }>;
+      up: Array<{ userKey: string; vote: SuggestionVote; label: string; legacy: boolean }>;
+      maybe: Array<{ userKey: string; vote: SuggestionVote; label: string; legacy: boolean }>;
+      down: Array<{ userKey: string; vote: SuggestionVote; label: string; legacy: boolean }>;
+      mine: SuggestionVote | null;
+    }> = {};
+    for (const [suggestionId, rawVoteMap] of Object.entries(privateSuggestionState.votesBySuggestionId)) {
+      const all = Object.entries(rawVoteMap ?? {}).map(([userKey, value]) => {
+        const legacy = !userKey.startsWith("uid:") && !userKey.startsWith("dev:");
+        const fallbackLabel =
+          userKey.replace(/^user:/, "").replace(/^guest:/, "Guest").replace(/^uid:/, "User").replace(/^dev:/, "This device");
+        return {
+          userKey,
+          vote: value.vote as SuggestionVote,
+          label: `${value.label ?? fallbackLabel}${legacy ? " (legacy)" : ""}`,
+          legacy,
+        };
+      });
+      result[Number(suggestionId)] = {
+        all,
+        up: all.filter((v) => v.vote === "up"),
+        maybe: all.filter((v) => v.vote === "maybe"),
+        down: all.filter((v) => v.vote === "down"),
+        mine: all.find((v) => v.userKey === suggestionVoterKey)?.vote ?? null,
+      };
+    }
+    return result;
+  }, [privateSuggestionState.votesBySuggestionId, suggestionVoterKey]);
+  const getSuggestionVotes = (suggestionId: number) =>
+    suggestionVoteSummaryById[suggestionId] ?? { all: [], up: [], maybe: [], down: [], mine: null };
 
   const expensesByCategory = expenses.reduce((acc: Record<string, number>, exp: ExpenseWithParticipant) => {
     acc[exp.category] = (acc[exp.category] || 0) + Number(exp.amount);
@@ -1337,6 +1382,13 @@ export default function Home() {
                           {friendRequests.length}
                         </span>
                       )}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => window.open(`/u/${encodeURIComponent(user.username)}`, "_blank")}
+                      data-testid="dropdown-item-public-profile"
+                    >
+                      <Globe className="w-4 h-4 mr-2" />
+                      Open public profile
                     </DropdownMenuItem>
                     <DropdownMenuItem
                       onClick={() => logout.mutate()}
@@ -3244,9 +3296,12 @@ export default function Home() {
           size="lg"
           scrollable
           footer={
-            <Button type="button" variant="ghost" onClick={() => setShowLocalSuggestionsModal(false)}>
-              Close
-            </Button>
+            <div className="w-full flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs text-muted-foreground">Votes are saved on this device for now.</p>
+              <Button type="button" variant="ghost" onClick={() => setShowLocalSuggestionsModal(false)}>
+                Close
+              </Button>
+            </div>
           }
         >
           <div className="space-y-4">
@@ -3325,7 +3380,6 @@ export default function Home() {
                                 </div>
                               )}
                               {votes.maybe.length > 0 && <span>{votes.maybe.length} maybe</span>}
-                              {votes.down.length > 0 && <span>{votes.down.length} skip</span>}
                             </div>
                           </div>
                         </div>

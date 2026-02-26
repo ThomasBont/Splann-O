@@ -24,6 +24,38 @@ export type PublicEventDetail = ExploreEvent & {
   bannerImageUrl: string | null;
 };
 
+export type PublicProfileEvent = {
+  id: number;
+  title: string;
+  date: string | null;
+  locationName: string | null;
+  city: string | null;
+  countryName: string | null;
+  publicSlug: string;
+  publicMode: "marketing" | "joinable";
+  attendeeCount: number;
+  themeCategory: "party" | "networking" | "meetup" | "workshop" | "conference" | "training" | "sports" | "other";
+};
+
+export type PublicProfilePayload = {
+  profile: {
+    id: number;
+    username: string;
+    displayName: string | null;
+    profileImageUrl: string | null;
+    avatarUrl: string | null;
+    bio: string | null;
+    createdAt: string | null;
+  };
+  viewerIsOwner: boolean;
+  stats: {
+    publicEventsHosted: number;
+    totalAttendees: number;
+    ratioLabel: "Mostly private" | "Balanced" | "Mostly public" | null;
+  };
+  events: PublicProfileEvent[];
+};
+
 export function useBarbecues() {
   return useQuery({
     queryKey: ['/api/barbecues'],
@@ -181,6 +213,22 @@ export function usePublicEvent(slug: string | null) {
       }
       return res.json() as Promise<PublicEventDetail>;
     },
+  });
+}
+
+export function usePublicProfile(username: string | null) {
+  return useQuery({
+    queryKey: ["/api/public-profile", username],
+    enabled: !!username,
+    queryFn: async () => {
+      const res = await fetch(`/api/public-profile/${encodeURIComponent(username!)}`, { credentials: "include" });
+      if (!res.ok) {
+        if (res.status === 404) throw new Error("not_found");
+        throw new Error("fetch_failed");
+      }
+      return res.json() as Promise<PublicProfilePayload>;
+    },
+    staleTime: 60_000,
   });
 }
 

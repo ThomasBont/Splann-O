@@ -225,13 +225,14 @@ export function EventHeader({
             </DropdownMenu>
           </div>
 
-          <div className="hidden md:flex items-center gap-2 flex-shrink-0 min-w-0">
+          <div className="hidden md:flex items-center gap-3 flex-nowrap flex-shrink-0 min-w-0 justify-end">
             <div className="flex items-center shrink-0">
               {showAddExpenseAction && (
                 <Button
-                  size="sm"
+                  size="md"
                   onClick={onAddExpense}
-                  className="btn-interact h-9 bg-primary text-primary-foreground text-xs font-semibold px-3.5"
+                  variant="primary"
+                  className="btn-interact h-10 text-sm font-semibold px-4"
                   data-testid="button-add-expense-header"
                 >
                   <Plus className="w-3.5 h-3.5 mr-1.5" />
@@ -239,7 +240,7 @@ export function EventHeader({
                 </Button>
               )}
             </div>
-            <div className="ml-1 flex items-center gap-1 shrink-0">
+            <div className="flex items-center flex-nowrap gap-1 shrink-0 rounded-lg border border-border/60 bg-muted/15 px-1.5 py-1">
               {utilityActions.map((action) => {
                 if (hidden[action]) return null;
                 if (action === "share" && onShare) {
@@ -247,10 +248,16 @@ export function EventHeader({
                     return (
                       <DropdownMenu key="utility-share">
                         <DropdownMenuTrigger asChild>
-                          <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-8 text-[11px] px-2 md:w-9 md:px-0 lg:w-auto lg:px-2"
+                            aria-label={shareLabel}
+                            title={shareLabel}
+                          >
                             <Link2 className="w-3.5 h-3.5 md:mr-0 lg:mr-1" />
                             <span className="hidden lg:inline">{shareLabel}</span>
-                            <ChevronDown className="w-3.5 h-3.5 ml-1" />
+                            <ChevronDown className="hidden lg:inline w-3.5 h-3.5 ml-1" />
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-56">
@@ -278,9 +285,11 @@ export function EventHeader({
                     <Button
                       key="utility-share"
                       size="sm"
-                      variant="outline"
-                      className="h-7 px-2 text-[11px]"
+                      variant="ghost"
+                      className="h-8 text-[11px] px-2 md:w-9 md:px-0 lg:w-auto lg:px-2"
                       onClick={onShare}
+                      aria-label={shareLabel}
+                      title={shareLabel}
                     >
                       <Link2 className="w-3.5 h-3.5 md:mr-0 lg:mr-1" />
                       <span className="hidden lg:inline">{shareLabel}</span>
@@ -292,12 +301,14 @@ export function EventHeader({
                     <Button
                       key="utility-calendar"
                       size="sm"
-                      variant="outline"
-                      className="h-7 px-2 text-[11px]"
+                      variant="ghost"
+                      className="h-8 text-[11px] px-2 md:w-9 md:px-0 lg:w-auto lg:px-2"
                       onClick={onAddToCalendar}
+                      aria-label="Add to Calendar"
+                      title="Add to Calendar"
                     >
                       <CalendarPlus className="w-3.5 h-3.5 md:mr-0 lg:mr-1" />
-                      <span className="hidden lg:inline">Calendar</span>
+                      <span className="hidden lg:inline">Add to Calendar</span>
                     </Button>
                   );
                 }
@@ -306,9 +317,11 @@ export function EventHeader({
                     <Button
                       key="utility-settings"
                       size="sm"
-                      variant="outline"
-                      className="h-7 px-2 text-[11px]"
+                      variant="ghost"
+                      className="h-8 text-[11px] px-2 md:w-9 md:px-0 lg:w-auto lg:px-2"
                       onClick={onOpenSettings}
+                      aria-label="Settings"
+                      title="Settings"
                     >
                       <Settings className="w-3.5 h-3.5 md:mr-0 lg:mr-1" />
                       <span className="hidden lg:inline">Settings</span>

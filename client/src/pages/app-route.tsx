@@ -170,6 +170,47 @@ function EventRow({
   );
 }
 
+function NewEventMenuButton({
+  className,
+  size = "default",
+  align = "start",
+  onNavigate,
+}: {
+  className?: string;
+  size?: "sm" | "md" | "default" | "lg";
+  align?: "start" | "end" | "center";
+  onNavigate?: () => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button className={className} size={size}>
+          <Plus className="h-4 w-4 mr-1.5" />
+          New event
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align={align} className="w-72">
+        <DropdownMenuItem asChild>
+          <Link href="/app/private?new=private">
+            <a className="flex flex-col items-start py-2" onClick={onNavigate}>
+              <span className="text-sm font-medium">Private event</span>
+              <span className="text-xs text-muted-foreground">Friends + split costs</span>
+            </a>
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link href="/app/public?new=public">
+            <a className="flex flex-col items-start py-2" onClick={onNavigate}>
+              <span className="text-sm font-medium">Public event</span>
+              <span className="text-xs text-muted-foreground">Professional/public listing</span>
+            </a>
+          </Link>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
 function AppSidebar({ section }: { section: AppSection }) {
   const { data: events = [] } = useBarbecues();
   const { user } = useAuth();
@@ -450,12 +491,12 @@ function AppSidebar({ section }: { section: AppSection }) {
 
   return (
     <aside className={`group/sidebar hidden lg:flex ${widthClass} lg:flex-col lg:shrink-0 border-r border-border/60 bg-card/40 backdrop-blur-sm`}>
-      <div className="p-4 border-b border-border/60">
+      <div className="px-4 py-4 border-b border-border/60">
         <Link href="/app/home">
           <span className="text-sm font-semibold tracking-tight cursor-pointer">Splanno</span>
         </Link>
       </div>
-      <nav className="p-3 space-y-1 shrink-0">
+      <nav className="px-3 py-3 space-y-1 shrink-0">
         {items.map((item) => {
           const active = section === item.key || (section === "event" && item.key === "home");
           const Icon = item.icon;
@@ -469,33 +510,8 @@ function AppSidebar({ section }: { section: AppSection }) {
           );
         })}
       </nav>
-      <div className="border-t border-border/60 px-3 pt-3 pb-3 space-y-3 sticky top-0 bg-card/80 backdrop-blur-sm z-10 shrink-0">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button className="w-full justify-start">
-              <Plus className="h-4 w-4 mr-1.5" />
-              New event
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-72">
-            <DropdownMenuItem asChild>
-              <Link href="/app/private?new=private">
-                <a className="flex flex-col items-start py-2">
-                  <span className="text-sm font-medium">Private event</span>
-                  <span className="text-xs text-muted-foreground">Friends + split costs</span>
-                </a>
-              </Link>
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <Link href="/app/public?new=public">
-                <a className="flex flex-col items-start py-2">
-                  <span className="text-sm font-medium">Public event</span>
-                  <span className="text-xs text-muted-foreground">Professional/public listing</span>
-                </a>
-              </Link>
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+      <div className="border-y border-border/60 px-3 py-3 space-y-2 sticky top-0 bg-card/80 backdrop-blur-sm z-10 shrink-0">
+        <NewEventMenuButton className="w-full justify-start" align="start" />
         <div className="space-y-2">
           <p className="text-[11px] uppercase tracking-wide text-muted-foreground px-1">Quick switch</p>
           <Input
@@ -522,7 +538,7 @@ function AppSidebar({ section }: { section: AppSection }) {
           </Button>
         </div>
       </div>
-      <div className="px-3 pb-3 flex-1 min-h-0 overflow-y-auto">
+      <div className="px-3 py-3 flex-1 min-h-0 overflow-y-auto">
         <div className="space-y-2">
           {effectiveLayout.sections.map((sectionConfig) => {
             const sectionTitle =
@@ -858,14 +874,7 @@ function AppDashboardHome() {
 
       <section className="rounded-2xl border border-border/60 bg-card p-4 sm:p-5">
         <h2 className="text-sm font-semibold mb-3">Quick actions</h2>
-        <div className="flex flex-wrap gap-2">
-          <Link href="/app/private?new=private">
-            <Button><Plus className="h-4 w-4 mr-2" />New private event</Button>
-          </Link>
-          <Link href="/app/public?new=public">
-            <Button variant="outline"><Plus className="h-4 w-4 mr-2" />New public event</Button>
-          </Link>
-        </div>
+        <NewEventMenuButton />
       </section>
 
       <section className="rounded-2xl border border-border/60 bg-card p-4 sm:p-5">
@@ -884,8 +893,7 @@ function AppDashboardHome() {
             <p className="text-sm font-medium">No events yet</p>
             <p className="mt-1 text-sm text-muted-foreground">Create your first event to get started.</p>
             <div className="mt-4 flex justify-center gap-2">
-              <Link href="/app/private?new=private"><Button size="sm">Create private event</Button></Link>
-              <Link href="/app/public?new=public"><Button size="sm" variant="outline">Create public event</Button></Link>
+              <NewEventMenuButton size="sm" />
             </div>
           </div>
         ) : (
@@ -941,9 +949,7 @@ function PrivateHomePage({ user }: { user: { id?: number | null; username?: stri
           <h1 className="text-2xl font-semibold tracking-tight">Private events</h1>
           <p className="text-sm text-muted-foreground">Friends, circles, and split-cost plans in one place.</p>
         </div>
-        <Link href="/app/private?new=private">
-          <Button><Plus className="h-4 w-4 mr-2" />New private event</Button>
-        </Link>
+        <NewEventMenuButton />
       </div>
 
       {(pinnedPrivate.length > 0 || fallbackPinned.length > 0) && (
@@ -992,7 +998,7 @@ function PrivateHomePage({ user }: { user: { id?: number | null; username?: stri
             <p className="text-sm font-medium">No private events yet</p>
             <p className="mt-1 text-sm text-muted-foreground">Create a circle for trips, dinners, or housemates.</p>
             <div className="mt-4">
-              <Link href="/app/private?new=private"><Button size="sm">New private event</Button></Link>
+              <NewEventMenuButton size="sm" />
             </div>
           </div>
         ) : (
@@ -1084,9 +1090,7 @@ function PublicHomePage() {
           <h1 className="text-2xl font-semibold tracking-tight">Public events</h1>
           <p className="text-sm text-muted-foreground">Creator workspace for drafts, listings, and share-ready event pages.</p>
         </div>
-        <Link href="/app/public?new=public">
-          <Button><Plus className="h-4 w-4 mr-2" />New public event</Button>
-        </Link>
+        <NewEventMenuButton />
       </div>
 
       <section className="rounded-2xl border border-border/60 bg-card p-4 sm:p-5">
@@ -1129,7 +1133,7 @@ function PublicHomePage() {
                 : "Publish a public event to make it discoverable in Explore."}
             </p>
             <div className="mt-4">
-              <Link href="/app/public?new=public"><Button size="sm">New public event</Button></Link>
+              <NewEventMenuButton size="sm" />
             </div>
           </div>
         ) : (
@@ -1373,33 +1377,8 @@ export default function AppRoute() {
                   );
                 })}
               </nav>
-              <div className="border-t border-border/60 px-3 py-3 space-y-3 shrink-0">
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button className="w-full justify-start">
-                      <Plus className="h-4 w-4 mr-1.5" />
-                      New event
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="start" className="w-72">
-                    <DropdownMenuItem asChild>
-                      <Link href="/app/private?new=private">
-                        <a className="flex flex-col items-start py-2" onClick={() => setIsSidebarOpen(false)}>
-                          <span className="text-sm font-medium">Private event</span>
-                          <span className="text-xs text-muted-foreground">Friends + split costs</span>
-                        </a>
-                      </Link>
-                    </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                      <Link href="/app/public?new=public">
-                        <a className="flex flex-col items-start py-2" onClick={() => setIsSidebarOpen(false)}>
-                          <span className="text-sm font-medium">Public event</span>
-                          <span className="text-xs text-muted-foreground">Professional/public listing</span>
-                        </a>
-                      </Link>
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+              <div className="border-y border-border/60 px-3 py-3 space-y-2 shrink-0">
+                <NewEventMenuButton className="w-full justify-start" align="start" onNavigate={() => setIsSidebarOpen(false)} />
                 <div className="space-y-2">
                   <p className="text-[11px] uppercase tracking-wide text-muted-foreground px-1">Quick switch</p>
                   <Input
@@ -1410,7 +1389,7 @@ export default function AppRoute() {
                   />
                 </div>
               </div>
-              <div className="px-3 pb-3 flex-1 min-h-0 overflow-y-auto">
+              <div className="px-3 py-3 flex-1 min-h-0 overflow-y-auto">
                 <div className="space-y-1 pr-1">
                   {mobileQuickSwitchEvents.length === 0 ? (
                     <p className="text-xs text-muted-foreground px-1 py-1.5">No events found</p>

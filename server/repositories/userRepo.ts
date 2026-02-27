@@ -15,6 +15,11 @@ export const userRepo = {
     return u;
   },
 
+  async findByPublicHandle(handle: string): Promise<User | undefined> {
+    const [u] = await db.select().from(users).where(eq(users.publicHandle, handle));
+    return u;
+  },
+
   async findByEmail(email: string): Promise<User | undefined> {
     const [u] = await db.select().from(users).where(eq(users.email, email.toLowerCase()));
     return u;
@@ -36,6 +41,9 @@ export const userRepo = {
       avatarUrl?: string | null;
       profileImageUrl?: string | null;
       bio?: string | null;
+      publicHandle?: string | null;
+      publicProfileEnabled?: boolean;
+      defaultEventType?: "private" | "public" | null;
       preferredCurrencyCodes?: string | null;
       defaultCurrencyCode?: string | null;
       favoriteCurrencyCodes?: string[] | null;
@@ -46,6 +54,9 @@ export const userRepo = {
     if (updates.avatarUrl !== undefined) set.avatarUrl = updates.avatarUrl;
     if (updates.profileImageUrl !== undefined) set.profileImageUrl = updates.profileImageUrl;
     if (updates.bio !== undefined) set.bio = updates.bio;
+    if (updates.publicHandle !== undefined) set.publicHandle = updates.publicHandle;
+    if (updates.publicProfileEnabled !== undefined) set.publicProfileEnabled = updates.publicProfileEnabled;
+    if (updates.defaultEventType !== undefined) set.defaultEventType = updates.defaultEventType ?? "private";
     if (updates.preferredCurrencyCodes !== undefined)
       set.preferredCurrencyCodes = updates.preferredCurrencyCodes == null ? null : JSON.stringify(updates.preferredCurrencyCodes);
     if (updates.defaultCurrencyCode !== undefined) set.defaultCurrencyCode = updates.defaultCurrencyCode;
@@ -138,11 +149,12 @@ export const userRepo = {
     };
   },
 
-  async getShareablePublicProfile(username: string, viewerUsername?: string): Promise<
+  async getShareablePublicProfile(handleOrUsername: string, viewerUsername?: string): Promise<
     | {
         profile: {
           id: number;
           username: string;
+          handle: string;
           displayName: string | null;
           profileImageUrl: string | null;
           avatarUrl: string | null;
@@ -171,11 +183,12 @@ export const userRepo = {
       }
     | undefined
   > {
-    const user = await this.findByUsername(username);
+    const user = (await this.findByPublicHandle(handleOrUsername)) ?? (await this.findByUsername(handleOrUsername));
     if (!user) return undefined;
     const viewerIsOwner = !!viewerUsername && viewerUsername === user.username;
+    if (!viewerIsOwner && user.publicProfileEnabled === false) return undefined;
 
-    const ownedEvents = await db.select().from(barbecues).where(eq(barbecues.creatorId, username));
+    const ownedEvents = await db.select().from(barbecues).where(eq(barbecues.creatorId, user.username));
     const visiblePublicEvents = ownedEvents
       .filter((e) => e.visibility === "public")
       .filter((e) => e.status !== "draft")
@@ -228,6 +241,7 @@ export const userRepo = {
       profile: {
         id: user.id,
         username: user.username,
+        handle: user.publicHandle ?? user.username,
         displayName: user.displayName ?? null,
         profileImageUrl: user.profileImageUrl ?? null,
         avatarUrl: user.avatarUrl ?? null,

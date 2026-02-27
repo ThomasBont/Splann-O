@@ -1,9 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useLanguage } from "@/hooks/use-language";
+import { useState, useEffect, useMemo } from "react";
+import { useLanguage, SELECTABLE_LANGUAGES, type Language } from "@/hooks/use-language";
 import { useAuth } from "@/hooks/use-auth";
-import { CoreCurrencies } from "@/hooks/use-language";
 import {
   useFriends,
   useFriendRequests,
@@ -14,13 +13,15 @@ import {
 } from "@/hooks/use-friends";
 import { useUserProfile } from "@/hooks/use-user-profile";
 import { usePlan } from "@/hooks/use-plan";
+import { useTheme } from "@/hooks/use-theme";
 import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
+import { loadLocalUserPreferences, saveLocalUserPreferences, type DefaultStartPage } from "@/lib/user-preferences";
 import {
   UserCircle,
   Search,
@@ -35,6 +36,10 @@ import {
   Heart,
   Receipt,
   Mail,
+  Globe,
+  LogOut,
+  Link2,
+  User,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { motionTransition } from "@/lib/motion";
@@ -64,9 +69,10 @@ export interface UserProfileModalProps {
 }
 
 export function UserProfileModal({ open, onOpenChange, username: usernameProp, onViewUser }: UserProfileModalProps) {
-  const { t } = useLanguage();
+  const { t, language, setLanguage } = useLanguage();
+  const { preference: themePreference, setPreference: setThemePreference } = useTheme();
   const { toast } = useToast();
-  const { user: authUser, updateProfile, deleteAccount, resendVerification } = useAuth();
+  const { user: authUser, updateProfile, deleteAccount, resendVerification, logout } = useAuth();
   const isOwnProfile = !usernameProp || usernameProp === authUser?.username;
   const effectiveUsername = usernameProp ?? authUser?.username ?? null;
 
@@ -83,8 +89,18 @@ export function UserProfileModal({ open, onOpenChange, username: usernameProp, o
   const [draftDisplayName, setDraftDisplayName] = useState("");
   const [draftBio, setDraftBio] = useState("");
   const [draftProfileImageUrl, setDraftProfileImageUrl] = useState("");
+  const [draftPublicHandle, setDraftPublicHandle] = useState("");
+  const [draftPublicProfileEnabled, setDraftPublicProfileEnabled] = useState(true);
+  const [draftDefaultEventType, setDraftDefaultEventType] = useState<"private" | "public">("private");
+  const [draftDefaultStartPage, setDraftDefaultStartPage] = useState<DefaultStartPage>("home");
+  const [draftEmailNotifications, setDraftEmailNotifications] = useState(true);
+  const [draftActivityNotifications, setDraftActivityNotifications] = useState(true);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteConfirmUsername, setDeleteConfirmUsername] = useState("");
+  const [handleCheckState, setHandleCheckState] = useState<{
+    status: "idle" | "checking" | "available" | "taken" | "invalid" | "error";
+    normalized?: string;
+  }>({ status: "idle" });
 
   const { data: searchResults = [], isLoading: searchLoading } = useSearchUsers(searchQuery);
 
@@ -96,10 +112,51 @@ export function UserProfileModal({ open, onOpenChange, username: usernameProp, o
       setDraftDisplayName(authUser.displayName || "");
       setDraftBio(authUser.bio || "");
       setDraftProfileImageUrl(authUser.profileImageUrl || authUser.avatarUrl || "");
+      setDraftPublicHandle((authUser.publicHandle || authUser.username || "").toLowerCase());
+      setDraftPublicProfileEnabled(authUser.publicProfileEnabled ?? true);
+      setDraftDefaultEventType(authUser.defaultEventType === "public" ? "public" : "private");
+      const localPrefs = loadLocalUserPreferences(authUser.id);
+      setDraftDefaultStartPage(localPrefs.defaultStartPage);
+      setDraftEmailNotifications(localPrefs.emailNotifications);
+      setDraftActivityNotifications(localPrefs.activityNotifications);
     }
   }, [authUser, isOwnProfile]);
 
   useEffect(() => { setEditMode(false); }, [effectiveUsername]);
+  useEffect(() => { setHandleCheckState({ status: "idle" }); }, [open, effectiveUsername]);
+
+  useEffect(() => {
+    if (!open || !isOwnProfile) return;
+    const raw = draftPublicHandle.trim().toLowerCase();
+    const current = (authUser?.publicHandle || authUser?.username || "").toLowerCase();
+    if (!raw) {
+      setHandleCheckState({ status: "invalid" });
+      return;
+    }
+    if (!/^[a-z0-9][a-z0-9_-]{1,29}$/.test(raw)) {
+      setHandleCheckState({ status: "invalid" });
+      return;
+    }
+    if (raw === current) {
+      setHandleCheckState({ status: "available", normalized: raw });
+      return;
+    }
+    setHandleCheckState({ status: "checking" });
+    const timer = window.setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/users/handle-availability?handle=${encodeURIComponent(raw)}`, { credentials: "include" });
+        const data = await res.json();
+        if (!res.ok) throw new Error("handle_check_failed");
+        setHandleCheckState({
+          status: data?.ok ? "available" : data?.reason === "invalid" ? "invalid" : "taken",
+          normalized: data?.normalized,
+        });
+      } catch {
+        setHandleCheckState({ status: "error" });
+      }
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [draftPublicHandle, authUser?.publicHandle, authUser?.username, isOwnProfile, open]);
 
   const friendUserIds = new Set(friends.map((f: FriendInfo) => f.userId));
   const requestUserIds = new Set(friendRequests.map((f: FriendInfo) => f.userId));
@@ -107,15 +164,57 @@ export function UserProfileModal({ open, onOpenChange, username: usernameProp, o
     (u: { id: number }) => u.id !== authUser?.id && !friendUserIds.has(u.id) && !requestUserIds.has(u.id)
   );
 
+  const publicProfileUrl = useMemo(() => {
+    if (!authUser?.username) return "";
+    const handle = (draftPublicHandle.trim() || authUser.publicHandle || authUser.username).toLowerCase();
+    return `/u/${encodeURIComponent(handle)}`;
+  }, [authUser?.publicHandle, authUser?.username, draftPublicHandle]);
+
+  const canSaveSettings = !updateProfile.isPending
+    && (handleCheckState.status === "idle" || handleCheckState.status === "available" || !draftPublicHandle.trim());
+
+  const saveIdentitySettings = () => {
+    if (!isOwnProfile) return;
+    if (draftPublicHandle.trim() && !(handleCheckState.status === "available" || handleCheckState.status === "idle")) {
+      toast({ variant: "destructive", title: "Choose an available handle" });
+      return;
+    }
+    updateProfile.mutate(
+      {
+        displayName: draftDisplayName.trim() || undefined,
+        profileImageUrl: draftProfileImageUrl.trim() || null,
+        bio: draftBio.trim().slice(0, 160) || null,
+        publicHandle: draftPublicHandle.trim().toLowerCase() || null,
+        publicProfileEnabled: draftPublicProfileEnabled,
+        defaultEventType: draftDefaultEventType,
+      },
+      {
+        onSuccess: () => {
+          saveLocalUserPreferences(authUser?.id, {
+            defaultStartPage: draftDefaultStartPage,
+            emailNotifications: draftEmailNotifications,
+            activityNotifications: draftActivityNotifications,
+          });
+          toast({ variant: "success", message: t.modals.profileSaved });
+          setEditMode(false);
+        },
+        onError: (err) => {
+          const message = err instanceof Error ? err.message : "Could not save profile";
+          toast({ variant: "destructive", title: message === "handle_taken" ? "That handle is already taken." : "Could not save settings." });
+        },
+      }
+    );
+  };
+
   return (
     <Modal
       open={open}
       onClose={() => onOpenChange(false)}
       onOpenChange={onOpenChange}
       title={displayUser ? (isOwnProfile ? t.auth.profile : displayUser.displayName || displayUser.username) : undefined}
-      size="lg"
+      size="2xl"
       scrollable
-      className="sm:max-w-md"
+      className="w-[680px] max-w-[95vw] h-[680px] max-h-[85vh]"
       data-testid="dialog-user-profile"
     >
       {profileLoading && !displayUser ? (
@@ -124,8 +223,8 @@ export function UserProfileModal({ open, onOpenChange, username: usernameProp, o
             <p className="mt-3 text-sm text-muted-foreground">{t.auth.profile}</p>
           </div>
         ) : displayUser ? (
-          <Tabs defaultValue="profile" className="mt-1">
-            <TabsList className="w-full bg-secondary/30 border border-white/5 mb-4">
+          <Tabs defaultValue="profile" className="mt-1 flex h-full min-h-0 flex-col">
+            <TabsList className="w-full shrink-0 bg-secondary/30 border border-white/5 mb-4">
               <TabsTrigger value="profile" className="flex-1" data-testid="tab-profile">
                 {t.profileTabs.profile}
               </TabsTrigger>
@@ -147,7 +246,7 @@ export function UserProfileModal({ open, onOpenChange, username: usernameProp, o
               )}
             </TabsList>
 
-            <TabsContent value="profile" className="mt-0 space-y-4">
+            <TabsContent value="profile" className="mt-0 flex-1 min-h-0 overflow-y-auto pr-1 space-y-4 transition-opacity duration-150">
               <div className="flex flex-col items-center">
                 <div
                   className="relative w-24 h-24 rounded-full flex items-center justify-center text-2xl font-bold text-white shrink-0 overflow-hidden ring-4 ring-white/10"
@@ -270,8 +369,9 @@ export function UserProfileModal({ open, onOpenChange, username: usernameProp, o
                             onChange={(e) => setDraftBio(e.target.value)}
                             placeholder={t.auth.bio}
                             className="flex min-h-[80px] w-full rounded-md border border-input bg-secondary/50 border-white/10 px-3 py-2 text-sm mt-1 resize-none"
-                            maxLength={500}
+                            maxLength={160}
                           />
+                          <p className="mt-1 text-[11px] text-muted-foreground text-right">{draftBio.length}/160</p>
                         </div>
                         <div className="flex gap-2">
                           <Button
@@ -281,7 +381,7 @@ export function UserProfileModal({ open, onOpenChange, username: usernameProp, o
                                 {
                                   displayName: draftDisplayName || undefined,
                                   profileImageUrl: draftProfileImageUrl || null,
-                                  bio: draftBio || null,
+                                  bio: draftBio.trim().slice(0, 160) || null,
                                 },
                                 {
                                   onSuccess: () => {
@@ -341,7 +441,7 @@ export function UserProfileModal({ open, onOpenChange, username: usernameProp, o
               )}
             </TabsContent>
 
-            <TabsContent value="friends" className="mt-0 space-y-4">
+            <TabsContent value="friends" className="mt-0 flex-1 min-h-0 overflow-y-auto pr-1 space-y-4 transition-opacity duration-150">
               {isOwnProfile ? (
                 <>
                   <div className="relative">
@@ -453,40 +553,265 @@ export function UserProfileModal({ open, onOpenChange, username: usernameProp, o
               )}
             </TabsContent>
 
-            <TabsContent value="activity" className="mt-0">
+            <TabsContent value="activity" className="mt-0 flex-1 min-h-0 overflow-y-auto pr-1 transition-opacity duration-150">
               <div className="rounded-xl border border-white/10 bg-secondary/10 p-8 text-center">
                 <p className="text-sm text-muted-foreground">{t.profileActivity.comingSoon}</p>
               </div>
             </TabsContent>
 
             {isOwnProfile && (
-              <TabsContent value="settings" className="mt-0 space-y-4">
-                <div className="rounded-xl border border-white/10 bg-secondary/10 p-4">
-                  <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-2">
-                    <Settings2 className="w-4 h-4" />
-                    {t.user.preferredCurrencies}
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {CoreCurrencies.map((cur) => {
-                      const checked = authUser?.preferredCurrencyCodes?.length ? authUser.preferredCurrencyCodes.includes(cur.code) : true;
-                      return (
-                        <label key={cur.code} className="flex items-center gap-2 cursor-pointer">
-                          <Checkbox
-                            checked={checked}
-                            onCheckedChange={(checkedVal) => {
-                              const next = authUser?.preferredCurrencyCodes?.length ? [...authUser.preferredCurrencyCodes] : CoreCurrencies.map((c) => c.code);
-                              const newList = checkedVal ? (next.includes(cur.code) ? next : [...next, cur.code]) : next.filter((c) => c !== cur.code);
-                              updateProfile.mutate({ preferredCurrencyCodes: newList.length === CoreCurrencies.length ? null : newList });
-                            }}
-                          />
-                          <span className="text-sm">{cur.symbol} {cur.code}</span>
-                        </label>
-                      );
-                    })}
+              <TabsContent value="settings" className="mt-0 flex-1 min-h-0 overflow-y-auto pr-1 space-y-4 transition-opacity duration-150">
+                <div className="rounded-2xl border border-white/10 bg-secondary/10 p-4 sm:p-5 space-y-4">
+                  <div className="flex items-center gap-2">
+                    <User className="w-4 h-4 text-muted-foreground" />
+                    <p className="text-sm font-semibold">Identity</p>
                   </div>
-                  <p className="text-[11px] text-muted-foreground mt-2">
-                    {!authUser?.preferredCurrencyCodes?.length ? "All common currencies shown by default." : "Currencies to display in events."}
-                  </p>
+                  <div className="space-y-3">
+                    <div>
+                      <Label className="text-xs">Display name</Label>
+                      <Input
+                        value={draftDisplayName}
+                        onChange={(e) => setDraftDisplayName(e.target.value)}
+                        placeholder={t.auth.displayNamePlaceholder}
+                        className="mt-1 bg-secondary/50 border-white/10"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Public handle</Label>
+                      <Input
+                        value={draftPublicHandle}
+                        onChange={(e) => setDraftPublicHandle(e.target.value.toLowerCase())}
+                        placeholder={(authUser?.username || "handle").toLowerCase()}
+                        className="mt-1 bg-secondary/50 border-white/10"
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                      />
+                      <div className="mt-1 flex items-center justify-between gap-2 text-[11px]">
+                        <p className="text-muted-foreground truncate">Used for your public profile URL.</p>
+                        <span className={
+                          handleCheckState.status === "available" ? "text-emerald-500" :
+                          handleCheckState.status === "taken" ? "text-rose-500" :
+                          handleCheckState.status === "invalid" ? "text-amber-500" :
+                          "text-muted-foreground"
+                        }>
+                          {handleCheckState.status === "checking" ? "Checking…" :
+                           handleCheckState.status === "available" ? "Available" :
+                           handleCheckState.status === "taken" ? "Already taken" :
+                           handleCheckState.status === "invalid" ? "Use 2–30 lowercase letters, numbers, _ or -" :
+                           handleCheckState.status === "error" ? "Could not check" : ""}
+                        </span>
+                      </div>
+                    </div>
+                    <div>
+                      <Label className="text-xs">Bio</Label>
+                      <textarea
+                        value={draftBio}
+                        onChange={(e) => setDraftBio(e.target.value.slice(0, 160))}
+                        placeholder="A short intro for your public creator profile."
+                        className="flex min-h-[84px] w-full rounded-md border border-input bg-secondary/50 border-white/10 px-3 py-2 text-sm mt-1 resize-none"
+                        maxLength={160}
+                      />
+                      <p className="mt-1 text-[11px] text-muted-foreground text-right">{draftBio.length}/160</p>
+                    </div>
+                    <div>
+                      <Label className="text-xs">Avatar image URL</Label>
+                      <Input
+                        value={draftProfileImageUrl}
+                        onChange={(e) => setDraftProfileImageUrl(e.target.value)}
+                        placeholder="https://..."
+                        className="mt-1 bg-secondary/50 border-white/10"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-secondary/10 p-4 sm:p-5 space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Globe className="w-4 h-4 text-muted-foreground" />
+                    <p className="text-sm font-semibold">Public presence</p>
+                  </div>
+                  <div className="flex items-start justify-between gap-3 rounded-xl border border-white/10 bg-background/30 p-3">
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium">Enable public profile</p>
+                      <p className="text-xs text-muted-foreground">People can view your hosted public events and profile.</p>
+                    </div>
+                    <Switch checked={draftPublicProfileEnabled} onCheckedChange={setDraftPublicProfileEnabled} />
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Link2 className="w-3.5 h-3.5" />
+                    <span className="truncate">{publicProfileUrl || "/u/<handle>"}</span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-6 px-2 text-[11px]"
+                      onClick={() => {
+                        if (!publicProfileUrl) return;
+                        window.open(publicProfileUrl, "_blank");
+                      }}
+                    >
+                      Open
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-secondary/10 p-4 sm:p-5 space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Settings2 className="w-4 h-4 text-muted-foreground" />
+                    <p className="text-sm font-semibold">Defaults</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs">Default start page</Label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {([
+                        { key: "home", label: "Home" },
+                        { key: "private", label: "Private" },
+                        { key: "public", label: "Public" },
+                      ] as const).map((option) => (
+                        <button
+                          key={`profile-start-page-${option.key}`}
+                          type="button"
+                          onClick={() => setDraftDefaultStartPage(option.key)}
+                          className={`rounded-lg border px-2 py-1.5 text-xs font-medium transition ${draftDefaultStartPage === option.key ? "border-primary bg-primary/10" : "border-white/10 bg-background/30 hover:bg-background/50"}`}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs">Default event type</Label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setDraftDefaultEventType("private")}
+                        className={`rounded-xl border px-3 py-2 text-left transition ${draftDefaultEventType === "private" ? "border-primary bg-primary/10" : "border-white/10 bg-background/30 hover:bg-background/50"}`}
+                      >
+                        <p className="text-sm font-medium">Private</p>
+                        <p className="text-[11px] text-muted-foreground">Friends and circles</p>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDraftDefaultEventType("public")}
+                        className={`rounded-xl border px-3 py-2 text-left transition ${draftDefaultEventType === "public" ? "border-primary bg-primary/10" : "border-white/10 bg-background/30 hover:bg-background/50"}`}
+                      >
+                        <p className="text-sm font-medium">Public</p>
+                        <p className="text-[11px] text-muted-foreground">Professional hosting</p>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-secondary/10 p-4 sm:p-5 space-y-4">
+                  <p className="text-sm font-semibold">Preferences</p>
+                  <div className="space-y-2">
+                    <Label className="text-xs">Language</Label>
+                    <div className="grid grid-cols-4 gap-2">
+                      {SELECTABLE_LANGUAGES.map((lang) => (
+                        <button
+                          key={`profile-language-${lang.code}`}
+                          type="button"
+                          onClick={() => setLanguage(lang.code as Language)}
+                          className={`rounded-lg border px-2 py-1.5 text-xs font-medium transition ${language === lang.code ? "border-primary bg-primary/10" : "border-white/10 bg-background/30 hover:bg-background/50"}`}
+                        >
+                          {lang.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs">Theme</Label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { key: "light", label: "Light" },
+                        { key: "dark", label: "Dark" },
+                        { key: "system", label: "System" },
+                      ].map((option) => (
+                        <button
+                          key={`profile-theme-${option.key}`}
+                          type="button"
+                          onClick={() => setThemePreference(option.key as "light" | "dark" | "system")}
+                          className={`rounded-lg border px-2 py-1.5 text-xs font-medium transition ${themePreference === option.key ? "border-primary bg-primary/10" : "border-white/10 bg-background/30 hover:bg-background/50"}`}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-white/10 bg-background/30 p-3 space-y-3">
+                    <p className="text-sm font-medium">Notifications</p>
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm">Email notifications</p>
+                        <p className="text-xs text-muted-foreground">Get updates by email.</p>
+                      </div>
+                      <Switch checked={draftEmailNotifications} onCheckedChange={setDraftEmailNotifications} />
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm">Event activity notifications</p>
+                        <p className="text-xs text-muted-foreground">Receive alerts for mentions and event changes.</p>
+                      </div>
+                      <Switch checked={draftActivityNotifications} onCheckedChange={setDraftActivityNotifications} />
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-white/10 bg-background/30 p-3 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium">Account</p>
+                      <p className="text-xs text-muted-foreground">Change your password in the secure reset flow.</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button size="sm" variant="outline" onClick={() => (window.location.href = "/forgot-password")}>
+                        Change password
+                      </Button>
+                      <Button variant="outline" size="sm" onClick={() => logout.mutate()} disabled={logout.isPending}>
+                        {logout.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <LogOut className="w-4 h-4 mr-2" />}
+                        {t.auth.logout}
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-destructive">Danger zone</p>
+                      <p className="text-xs text-muted-foreground">Delete account permanently.</p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled
+                      title="Coming soon"
+                    >
+                      Delete account (coming soon)
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="sticky bottom-0 -mx-1 px-1 py-2 bg-gradient-to-t from-background via-background/95 to-transparent">
+                  <div className="flex items-center justify-end gap-2 rounded-xl border border-white/10 bg-background/70 backdrop-blur p-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        if (!authUser) return;
+                        setDraftDisplayName(authUser.displayName || "");
+                        setDraftBio((authUser.bio || "").slice(0, 160));
+                        setDraftProfileImageUrl(authUser.profileImageUrl || authUser.avatarUrl || "");
+                        setDraftPublicHandle((authUser.publicHandle || authUser.username || "").toLowerCase());
+                        setDraftPublicProfileEnabled(authUser.publicProfileEnabled ?? true);
+                        setDraftDefaultEventType(authUser.defaultEventType === "public" ? "public" : "private");
+                        const localPrefs = loadLocalUserPreferences(authUser.id);
+                        setDraftDefaultStartPage(localPrefs.defaultStartPage);
+                        setDraftEmailNotifications(localPrefs.emailNotifications);
+                        setDraftActivityNotifications(localPrefs.activityNotifications);
+                        setHandleCheckState({ status: "idle" });
+                      }}
+                    >
+                      Reset
+                    </Button>
+                    <Button size="sm" onClick={saveIdentitySettings} disabled={!canSaveSettings}>
+                      {updateProfile.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                      Save settings
+                    </Button>
+                  </div>
                 </div>
               </TabsContent>
             )}

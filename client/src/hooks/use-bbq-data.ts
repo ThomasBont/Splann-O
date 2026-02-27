@@ -6,6 +6,7 @@ import { UpgradeRequiredError } from "@/lib/upgrade";
 export type ExploreEvent = {
   id: number;
   title: string;
+  subtitle?: string | null;
   date: string | null;
   city: string | null;
   countryName: string | null;
@@ -26,6 +27,7 @@ export type PublicEventDetail = ExploreEvent & {
   locationName: string | null;
   bannerImageUrl: string | null;
   organizer: {
+    handle: string | null;
     username: string | null;
     displayName: string | null;
     avatarUrl: string | null;
@@ -41,6 +43,50 @@ export type PublicEventDetail = ExploreEvent & {
     capacity: number | null;
     isFree: boolean;
   }>;
+};
+
+export type PublicInboxEligibility = {
+  eventId: number;
+  canMessageOrganizer: boolean;
+  isOrganizer: boolean;
+  isApproved: boolean;
+  hasJoinRequest: boolean;
+  requestStatus: string | null;
+  reason: "request_to_join_first" | "invite_only" | null;
+};
+
+export type PublicConversationMessage = {
+  id: string;
+  conversationId: string;
+  senderUserId: number;
+  body: string;
+  createdAt: string | null;
+  readAt: string | null;
+  sender: {
+    id: number;
+    username: string;
+    publicHandle?: string | null;
+    displayName: string | null;
+    avatarUrl: string | null;
+    profileImageUrl: string | null;
+  } | null;
+};
+
+export type PublicConversation = {
+  id: string;
+  barbecueId: number;
+  organizerUserId: number;
+  participantUserId: number | null;
+  participantEmail: string | null;
+  participantLabel: string | null;
+  status: "pending" | "active" | "archived" | "blocked";
+  lastMessageAt: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  event?: { id: number; title: string; bannerImageUrl: string | null; publicSlug: string | null; date: string | null } | null;
+  organizer?: { id: number; username: string; handle: string; displayName: string | null; avatarUrl: string | null; profileImageUrl: string | null } | null;
+  participant?: { id: number; username: string; handle: string; displayName: string | null; avatarUrl: string | null; profileImageUrl: string | null } | null;
+  lastMessage?: { body: string; createdAt: string | null } | null;
 };
 
 export type PublicProfileEvent = {
@@ -61,6 +107,7 @@ export type PublicProfilePayload = {
   profile: {
     id: number;
     username: string;
+    handle: string;
     displayName: string | null;
     profileImageUrl: string | null;
     avatarUrl: string | null;
@@ -242,6 +289,113 @@ export function usePublicEvent(slug: string | null) {
         throw new Error("fetch_failed");
       }
       return res.json() as Promise<PublicEventDetail>;
+    },
+  });
+}
+
+export function usePublicEventMessagingEligibility(eventId: number | null, enabled = true) {
+  return useQuery({
+    queryKey: ["/api/public-events", eventId, "messaging-eligibility"],
+    enabled: !!eventId && enabled,
+    retry: false,
+    queryFn: async () => {
+      const res = await fetch(`/api/public-events/${eventId}/messaging-eligibility`, { credentials: "include" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((body as { message?: string }).message || "eligibility_failed");
+      return body as PublicInboxEligibility;
+    },
+  });
+}
+
+export function useCreatePublicConversation(eventId: number | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      if (!eventId) throw new Error("Missing event");
+      const res = await fetch(`/api/public-events/${eventId}/conversations`, { method: "POST", credentials: "include" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((body as { message?: string }).message || "Failed to open conversation");
+      return body as PublicConversation;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/conversations"] });
+      qc.invalidateQueries({ queryKey: ["/api/public-events", eventId, "messaging-eligibility"] });
+    },
+  });
+}
+
+export function useConversations(eventId?: number | null) {
+  return useQuery({
+    queryKey: ["/api/conversations", eventId ?? null],
+    queryFn: async () => {
+      const url = eventId ? `/api/conversations?eventId=${eventId}` : "/api/conversations";
+      const res = await fetch(url, { credentials: "include" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((body as { message?: string }).message || "Failed to load conversations");
+      const raw = body as { conversations?: unknown; groupedByEvent?: unknown };
+      return {
+        conversations: Array.isArray(raw.conversations) ? (raw.conversations as PublicConversation[]) : [],
+        groupedByEvent: raw.groupedByEvent && typeof raw.groupedByEvent === "object"
+          ? (raw.groupedByEvent as Record<string, PublicConversation[]>)
+          : {},
+      };
+    },
+  });
+}
+
+export function useConversation(conversationId: string | null, enabled = true) {
+  return useQuery({
+    queryKey: ["/api/conversations", conversationId],
+    enabled: !!conversationId && enabled,
+    queryFn: async () => {
+      const res = await fetch(`/api/conversations/${encodeURIComponent(conversationId!)}`, { credentials: "include" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((body as { message?: string }).message || "Failed to load conversation");
+      return body as { conversation: PublicConversation; messages: PublicConversationMessage[] };
+    },
+  });
+}
+
+export function useSendConversationMessage(conversationId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (bodyText: string) => {
+      if (!conversationId) throw new Error("Missing conversation");
+      const res = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}/messages`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body: bodyText }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((body as { message?: string }).message || "Failed to send message");
+      return body as PublicConversationMessage;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/conversations", conversationId] });
+      qc.invalidateQueries({ queryKey: ["/api/conversations"] });
+    },
+  });
+}
+
+export function useUpdateConversationStatus(conversationId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (status: "pending" | "active" | "archived" | "blocked") => {
+      if (!conversationId) throw new Error("Missing conversation");
+      const res = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((body as { message?: string }).message || "Failed to update conversation");
+      return body as PublicConversation;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/conversations", conversationId] });
+      qc.invalidateQueries({ queryKey: ["/api/conversations"] });
     },
   });
 }

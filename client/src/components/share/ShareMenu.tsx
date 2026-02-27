@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
+import { copyText } from "@/lib/copy-text";
 import {
   canSafelyCopyPngToClipboard,
   canNativeShareFile,
@@ -141,11 +142,11 @@ export function ShareMenu({
 
   const handleCopyLink = async () => {
     if (!shareLink) return;
-    try {
-      await navigator.clipboard.writeText(shareLink);
+    const ok = await copyText(shareLink);
+    if (ok) {
       toast({ title: labels.copied, variant: "success" });
       setOpen(false);
-    } catch {
+    } else {
       toast({ title: labels.error, variant: "destructive" });
     }
   };

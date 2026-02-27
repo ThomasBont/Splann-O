@@ -12,6 +12,12 @@
   "db:push": "drizzle-kit push",
   "db:check": "npx tsx script/db-migrate.ts check",
   "db:migrate": "npx tsx script/db-migrate.ts migrate",
+  "db:reset": "npx tsx script/db-reset.ts --yes",
+  "db:seed": "npx tsx script/db-seed.ts",
+  "db:seed:private": "npx tsx script/db-seed.ts --only-seed-private",
+  "db:seed:public": "npx tsx script/db-seed.ts --only-seed-public",
+  "db:reset:seed": "npm run db:reset && npm run db:seed",
+  "db:repair-private-events": "npx tsx script/repair-private-events.ts",
   "db:migrate:plan": "psql \"$DATABASE_URL\" -f migrations/0005_phase3_plan_tiers.sql",
   "split:verify": "npx tsx client/src/lib/split/calc.verify.ts"
 },

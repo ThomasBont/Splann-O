@@ -103,3 +103,44 @@ export function useSetExpenseShare(bbqId: number | null) {
     },
   });
 }
+
+export function useUploadExpenseReceipt(bbqId: number | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ expenseId, dataUrl }: { expenseId: number; dataUrl: string }) => {
+      const res = await fetch(`/api/expenses/${expenseId}/receipt`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ dataUrl }),
+      });
+      if (!res.ok) throw new Error("Failed to upload receipt");
+      return res.json() as Promise<{
+        expenseId: number;
+        receiptUrl: string | null;
+        receiptMime: string | null;
+        receiptUploadedAt: string | null;
+      }>;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/barbecues', bbqId, 'expenses'] });
+    },
+  });
+}
+
+export function useDeleteExpenseReceipt(bbqId: number | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (expenseId: number) => {
+      const res = await fetch(`/api/expenses/${expenseId}/receipt`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to remove receipt");
+      return res.json() as Promise<{ expenseId: number; receiptUrl: null }>;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/barbecues', bbqId, 'expenses'] });
+    },
+  });
+}

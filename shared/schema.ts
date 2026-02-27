@@ -12,6 +12,12 @@ export const users = pgTable("users", {
   avatarUrl: text("avatar_url"),
   profileImageUrl: text("profile_image_url"),
   bio: text("bio"),
+  /** Shareable public creator profile handle (separate from username to avoid username migrations). */
+  publicHandle: text("public_handle").unique(),
+  /** Public creator profile visibility toggle. */
+  publicProfileEnabled: boolean("public_profile_enabled").notNull().default(true),
+  /** Preferred New Event starting mode. */
+  defaultEventType: text("default_event_type").notNull().default("private"),
 
   // (Optional) If this is meant to be a list, consider making it .array()
   preferredCurrencyCodes: text("preferred_currency_codes"),
@@ -147,6 +153,9 @@ export const expenses = pgTable("expenses", {
   category: text("category").notNull(),
   item: text("item").notNull(),
   amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  receiptUrl: text("receipt_url"),
+  receiptMime: text("receipt_mime"),
+  receiptUploadedAt: timestamp("receipt_uploaded_at"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -182,6 +191,30 @@ export const publicEventRsvps = pgTable("public_event_rsvps", {
 }, (table) => ({
   uniquePerUserTier: unique().on(table.barbecueId, table.userId, table.tierId),
 }));
+
+export const publicEventConversations = pgTable("public_event_conversations", {
+  id: text("id").primaryKey(),
+  barbecueId: integer("barbecue_id").references(() => barbecues.id, { onDelete: "cascade" }).notNull(),
+  organizerUserId: integer("organizer_user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  participantUserId: integer("participant_user_id").references(() => users.id, { onDelete: "cascade" }),
+  participantEmail: text("participant_email"),
+  participantLabel: text("participant_label"),
+  status: text("status").notNull().default("pending"), // pending | active | archived | blocked
+  lastMessageAt: timestamp("last_message_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  uniquePerEventParticipant: unique().on(table.barbecueId, table.organizerUserId, table.participantUserId),
+}));
+
+export const publicEventMessages = pgTable("public_event_messages", {
+  id: text("id").primaryKey(),
+  conversationId: text("conversation_id").references(() => publicEventConversations.id, { onDelete: "cascade" }).notNull(),
+  senderUserId: integer("sender_user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  body: text("body").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  readAt: timestamp("read_at"),
+});
 
 export const insertNoteSchema = createInsertSchema(notes)
   .omit({ id: true, createdAt: true, updatedAt: true })
@@ -233,6 +266,8 @@ export type NoteWithAuthor = Note & {
 };
 
 export type PublicEventRsvp = typeof publicEventRsvps.$inferSelect;
+export type PublicEventConversation = typeof publicEventConversations.$inferSelect;
+export type PublicEventMessage = typeof publicEventMessages.$inferSelect;
 
 export type Friendship = typeof friendships.$inferSelect;
 

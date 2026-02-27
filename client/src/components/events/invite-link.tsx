@@ -1,10 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Copy, Share2, QrCode, Loader2 } from "lucide-react";
+import { Copy, Share2, QrCode, Loader2, MessageCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { buildShareMessage, openWhatsAppOrCopy } from "@/lib/share-message";
+import { copyText } from "@/lib/copy-text";
 
 export interface InviteLinkProps {
   /** Full join URL (e.g. https://app.example.com/join/abc123). */
@@ -16,6 +18,8 @@ export interface InviteLinkProps {
   copyLabel?: string;
   copySuccess?: string;
   shareLabel?: string;
+  whatsappLabel?: string;
+  whatsappFallbackCopied?: string;
   className?: string;
 }
 
@@ -29,10 +33,13 @@ export function InviteLink({
   copyLabel = "Copy",
   copySuccess = "Copied!",
   shareLabel = "Share",
+  whatsappLabel = "WhatsApp",
+  whatsappFallbackCopied = "Message copied. Paste it into WhatsApp.",
   className,
 }: InviteLinkProps) {
   const [displayUrl, setDisplayUrl] = useState(url);
   const [ensuring, setEnsuring] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -60,14 +67,24 @@ export function InviteLink({
       if (onEnsureToken) {
         const newUrl = await handleEnsureToken();
         if (newUrl) {
-          await navigator.clipboard.writeText(newUrl);
-          toast({ title: copySuccess });
+          const ok = await copyText(newUrl);
+          if (ok) toast({ title: copySuccess });
+          else {
+            inputRef.current?.focus();
+            inputRef.current?.select();
+            toast({ title: "Copy failed — select and copy manually." });
+          }
         }
       }
       return;
     }
-    await navigator.clipboard.writeText(toCopy);
-    toast({ title: copySuccess });
+    const ok = await copyText(toCopy);
+    if (ok) toast({ title: copySuccess });
+    else {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+      toast({ title: "Copy failed — select and copy manually." });
+    }
   };
 
   const handleShare = async () => {
@@ -81,6 +98,21 @@ export function InviteLink({
     await shareUrl(toShare);
   };
 
+  const handleShareWhatsApp = async () => {
+    const toShare = displayUrl || url;
+    if (!toShare) {
+      const newUrl = await handleEnsureToken();
+      if (!newUrl) return;
+      const message = buildShareMessage({ title: "Join my event on Splanno", url: newUrl });
+      const result = await openWhatsAppOrCopy(message);
+      toast({ title: result === "copied" ? whatsappFallbackCopied : "Opening WhatsApp…" });
+      return;
+    }
+    const message = buildShareMessage({ title: "Join my event on Splanno", url: toShare });
+    const result = await openWhatsAppOrCopy(message);
+    toast({ title: result === "copied" ? whatsappFallbackCopied : "Opening WhatsApp…" });
+  };
+
   async function shareUrl(shareUrl: string) {
     if (typeof navigator !== "undefined" && navigator.share) {
       try {
@@ -92,13 +124,23 @@ export function InviteLink({
         toast({ title: "Shared!" });
       } catch (err) {
         if ((err as Error).name !== "AbortError") {
-          await navigator.clipboard.writeText(shareUrl);
-          toast({ title: copySuccess });
+          const ok = await copyText(shareUrl);
+          if (ok) toast({ title: copySuccess });
+          else {
+            inputRef.current?.focus();
+            inputRef.current?.select();
+            toast({ title: "Copy failed — select and copy manually." });
+          }
         }
       }
     } else {
-      await navigator.clipboard.writeText(shareUrl);
-      toast({ title: copySuccess });
+      const ok = await copyText(shareUrl);
+      if (ok) toast({ title: copySuccess });
+      else {
+        inputRef.current?.focus();
+        inputRef.current?.select();
+        toast({ title: "Copy failed — select and copy manually." });
+      }
     }
   }
 
@@ -111,6 +153,7 @@ export function InviteLink({
       </label>
       <div className="flex gap-2">
         <Input
+          ref={inputRef}
           readOnly
           value={displayUrl}
           className="flex-1 font-mono text-sm bg-muted/30 border-border"
@@ -139,6 +182,27 @@ export function InviteLink({
             <Share2 className="w-4 h-4" />
           </Button>
         )}
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={handleShareWhatsApp}
+          disabled={ensuring}
+          title={whatsappLabel}
+        >
+          <MessageCircle className="w-4 h-4" />
+        </Button>
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={() => {
+            inputRef.current?.focus();
+            inputRef.current?.select();
+          }}
+          disabled={ensuring}
+          title="Select link"
+        >
+          <span className="text-xs font-semibold">Aa</span>
+        </Button>
         {/* Future QR placeholder - small icon for visual hint */}
         <div
           className="flex items-center justify-center w-10 h-10 rounded-md border border-border bg-muted/20 text-muted-foreground/50 cursor-not-allowed"

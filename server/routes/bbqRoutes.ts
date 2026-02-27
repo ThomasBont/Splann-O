@@ -1,16 +1,21 @@
 import { Router, type Request } from "express";
 import { z } from "zod";
-import { eq, and } from "drizzle-orm";
+import { eq, and, or } from "drizzle-orm";
+import { promises as fs } from "fs";
+import path from "path";
+import { randomUUID } from "crypto";
 import { api } from "@shared/routes";
-import { users, expenses, notes, stripeEvents, publicEventRsvps } from "@shared/schema";
+import { users, expenses, notes, stripeEvents, publicEventRsvps, participants } from "@shared/schema";
 import { bbqRepo } from "../repositories/bbqRepo";
 import { participantRepo } from "../repositories/participantRepo";
 import { expenseRepo } from "../repositories/expenseRepo";
 import { userRepo } from "../repositories/userRepo";
+import { publicInboxRepo } from "../repositories/publicInboxRepo";
 import * as bbqService from "../services/bbqService";
 import { inviteByUsername } from "../services/inviteService";
 import { requireAuth } from "../middleware/requireAuth";
 import { publicRateLimit } from "../middleware/publicRateLimit";
+import { checkPublicInboxRateLimit } from "../middleware/publicInboxRateLimit";
 import { db } from "../db";
 import { getLimits } from "../lib/plan";
 import { auditLog, auditSecurity } from "../lib/audit";
@@ -18,6 +23,8 @@ import { badRequest, conflict, forbidden, gone, notFound, unauthorized, upgradeR
 import { createStripeCheckoutSession, verifyStripeWebhookSignature } from "../lib/stripe";
 
 const router = Router();
+const RECEIPT_UPLOAD_DIR = path.resolve(process.cwd(), "public/uploads/receipts");
+const MAX_RECEIPT_SIZE_BYTES = 5 * 1024 * 1024;
 
 function getPublicRsvpTiersFromTemplateData(templateData: unknown) {
   const tpl = templateData && typeof templateData === "object" ? (templateData as Record<string, unknown>) : null;
@@ -49,6 +56,36 @@ function asyncHandler(fn: (req: Request, res: any, next: any) => Promise<void>) 
   return (req: Request, res: any, next: any) => fn(req, res, next).catch(next);
 }
 
+async function getPublicEventForInboxOrThrow(eventId: number) {
+  const bbq = await bbqRepo.getById(eventId);
+  if (!bbq) notFound("Event not found");
+  if ((bbq.visibilityOrigin as string | undefined) === "private") badRequest("EVENT_NOT_PUBLIC");
+  return bbq;
+}
+
+async function getInboxEligibility(eventId: number, userId: number, username?: string) {
+  const bbq = await getPublicEventForInboxOrThrow(eventId);
+  const organizer = bbq.creatorId ? await userRepo.findByUsername(bbq.creatorId) : undefined;
+  if (!organizer) notFound("Organizer not found");
+  const isOrganizer = organizer.id === userId || (username && bbq.creatorId === username);
+  const participantRow = await db.select().from(participants)
+    .where(and(eq(participants.barbecueId, eventId), eq(participants.invitedUserId, userId)));
+  const rsvpRow = (await db.select().from(publicEventRsvps)
+    .where(and(eq(publicEventRsvps.barbecueId, eventId), eq(publicEventRsvps.userId, userId))))[0];
+  const hasJoinRequest = !!rsvpRow;
+  const isApproved = !!participantRow[0] || !!rsvpRow && (rsvpRow.status === "approved" || rsvpRow.status === "going");
+  const canMessageOrganizer = isOrganizer || hasJoinRequest || isApproved;
+  return {
+    bbq,
+    organizer,
+    isOrganizer,
+    isApproved,
+    hasJoinRequest,
+    canMessageOrganizer,
+    requestStatus: rsvpRow?.status ?? null,
+  };
+}
+
 function isAdmin(req: Request): boolean {
   const admins = (process.env.ADMIN_USERNAMES ?? "")
     .split(",")
@@ -61,6 +98,18 @@ function isAdmin(req: Request): boolean {
 async function getBarbecueOr404(req: Request, bbqId: number, message = "Event not found") {
   const bbq = await bbqService.getBarbecueIfAccessible(bbqId, req.session?.userId, req.session?.username);
   if (!bbq) notFound(message);
+  return bbq;
+}
+
+async function ensurePrivateEventParticipantOrCreator(req: Request, bbqId: number) {
+  const bbq = await getBarbecueOr404(req, bbqId);
+  if (bbq.visibility !== "private") forbidden("Receipt uploads are only available for private events");
+  const username = req.session?.username;
+  if (!username) unauthorized("Not authenticated");
+  if (bbq.creatorId === username) return bbq;
+  const accepted = await participantRepo.listByBbq(bbqId, "accepted");
+  const canAccess = accepted.some((p) => p.userId === username);
+  if (!canAccess) forbidden("Not a participant of this event");
   return bbq;
 }
 
@@ -204,6 +253,139 @@ router.post("/public/events/:slug/rsvps", requireAuth, asyncHandler(async (req, 
     row = created;
   }
   res.status(201).json({ id: row.id, tierId: row.tierId, status: row.status });
+}));
+
+router.get("/public-events/:eventId/messaging-eligibility", requireAuth, asyncHandler(async (req, res) => {
+  const eventId = Number(req.params.eventId);
+  if (!Number.isFinite(eventId)) badRequest("Invalid event id");
+  const eligibility = await getInboxEligibility(eventId, req.session!.userId!, req.session!.username);
+  res.json({
+    eventId,
+    canMessageOrganizer: eligibility.canMessageOrganizer,
+    isOrganizer: eligibility.isOrganizer,
+    isApproved: eligibility.isApproved,
+    hasJoinRequest: eligibility.hasJoinRequest,
+    requestStatus: eligibility.requestStatus,
+    reason: eligibility.canMessageOrganizer ? null : (eligibility.bbq.publicMode === "joinable" ? "request_to_join_first" : "invite_only"),
+  });
+}));
+
+router.post("/public-events/:eventId/conversations", requireAuth, asyncHandler(async (req, res) => {
+  const eventId = Number(req.params.eventId);
+  if (!Number.isFinite(eventId)) badRequest("Invalid event id");
+  const userId = req.session!.userId!;
+  const eligibility = await getInboxEligibility(eventId, userId, req.session!.username);
+  if (!eligibility.canMessageOrganizer) forbidden("NOT_AUTHORIZED");
+  if (eligibility.isOrganizer) {
+    badRequest("Organizer cannot create a self conversation");
+  }
+  const existing = await publicInboxRepo.findConversationForParticipant(eventId, eligibility.organizer.id, userId);
+  if (existing) return res.json(existing);
+  const created = await publicInboxRepo.createConversation({
+    eventId,
+    organizerUserId: eligibility.organizer.id,
+    participantUserId: userId,
+    participantLabel: req.session!.username ?? null,
+    status: eligibility.isApproved ? "active" : "pending",
+  });
+  res.status(201).json(created);
+}));
+
+router.get("/conversations", requireAuth, asyncHandler(async (req, res) => {
+  try {
+    const eventIdParam = req.query.eventId ? Number(req.query.eventId) : null;
+    const rows = await publicInboxRepo.listForUser(req.session!.userId!);
+    const filtered = Number.isFinite(eventIdParam as number) ? rows.filter((r) => r.barbecueId === eventIdParam) : rows;
+    const grouped: Record<string, typeof filtered> = {};
+    for (const row of filtered) {
+      const key = String(row.barbecueId);
+      grouped[key] = grouped[key] ?? [];
+      grouped[key].push(row);
+    }
+    res.json({ conversations: Array.isArray(filtered) ? filtered : [], groupedByEvent: grouped ?? {} });
+  } catch (error) {
+    console.error("[/conversations error]", {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      userId: req.session?.userId,
+      requestId: (req as any).requestId,
+    });
+    res.status(200).json({ conversations: [], groupedByEvent: {}, errors: [{ slice: "conversations", code: "SLICE_FAILED" }] });
+  }
+}));
+
+router.get("/conversations/:conversationId", requireAuth, asyncHandler(async (req, res) => {
+  const conversationId = String(req.params.conversationId || "").trim();
+  if (!conversationId) badRequest("Invalid conversation id");
+  const convo = await publicInboxRepo.getConversationById(conversationId);
+  if (!convo) notFound("Conversation not found");
+  const userId = req.session!.userId!;
+  if (convo.organizerUserId !== userId && convo.participantUserId !== userId) forbidden("NOT_AUTHORIZED");
+  const messages = await publicInboxRepo.listMessages(conversationId);
+  await publicInboxRepo.markConversationRead(conversationId, userId);
+  res.json({ conversation: convo, messages });
+}));
+
+router.patch("/conversations/:conversationId", requireAuth, asyncHandler(async (req, res) => {
+  const conversationId = String(req.params.conversationId || "").trim();
+  const body = z.object({ status: z.enum(["pending", "active", "archived", "blocked"]) }).parse(req.body ?? {});
+  const convo = await publicInboxRepo.getConversationById(conversationId);
+  if (!convo) notFound("Conversation not found");
+  if (convo.organizerUserId !== req.session!.userId!) forbidden("NOT_AUTHORIZED");
+  const updated = await publicInboxRepo.updateConversationStatus(conversationId, body.status);
+  res.json(updated);
+}));
+
+router.post("/conversations/:conversationId/messages", requireAuth, asyncHandler(async (req, res) => {
+  const conversationId = String(req.params.conversationId || "").trim();
+  if (!conversationId) badRequest("Invalid conversation id");
+  const body = z.object({ body: z.string().trim().min(1).max(2000) }).parse(req.body ?? {});
+  const convo = await publicInboxRepo.getConversationById(conversationId);
+  if (!convo) notFound("Conversation not found");
+  const userId = req.session!.userId!;
+  const isOrganizer = convo.organizerUserId === userId;
+  const isParticipant = convo.participantUserId === userId;
+  if (!isOrganizer && !isParticipant) forbidden("NOT_AUTHORIZED");
+  const bbq = await getPublicEventForInboxOrThrow(convo.barbecueId);
+  const approvedRsvp = isParticipant && convo.participantUserId
+    ? (await db.select().from(publicEventRsvps).where(and(eq(publicEventRsvps.barbecueId, bbq.id), eq(publicEventRsvps.userId, convo.participantUserId))))[0]
+    : null;
+  const approved = isOrganizer || !!approvedRsvp && (approvedRsvp.status === "approved" || approvedRsvp.status === "going");
+  if (convo.status === "blocked") forbidden("Conversation blocked");
+  const limit = checkPublicInboxRateLimit({ userId, conversationId, approved });
+  if (!limit.ok) {
+    res.setHeader("Retry-After", limit.retryAfterSeconds);
+    return res.status(429).json({ code: "RATE_LIMITED", message: "Too many messages right now. Please try again later." });
+  }
+  try {
+    console.log("[public-inbox send attempt]", { route: "/conversations/:id/messages", requestId: (req as any).requestId, userId, conversationId, eventId: convo.barbecueId });
+    const message = await publicInboxRepo.addMessage({ conversationId, senderUserId: userId, body: body.body });
+    if (!approved && convo.status === "pending" && isOrganizer) {
+      await publicInboxRepo.updateConversationStatus(conversationId, "active");
+    }
+    res.status(201).json(message);
+  } catch (error) {
+    console.error("[public-inbox send failed]", {
+      route: "/conversations/:id/messages",
+      requestId: (req as any).requestId,
+      userId,
+      conversationId,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    throw error;
+  }
+}));
+
+router.post("/conversations/:conversationId/read", requireAuth, asyncHandler(async (req, res) => {
+  const conversationId = String(req.params.conversationId || "").trim();
+  if (!conversationId) badRequest("Invalid conversation id");
+  const convo = await publicInboxRepo.getConversationById(conversationId);
+  if (!convo) notFound("Conversation not found");
+  const userId = req.session!.userId!;
+  if (convo.organizerUserId !== userId && convo.participantUserId !== userId) forbidden("NOT_AUTHORIZED");
+  await publicInboxRepo.markConversationRead(conversationId, userId);
+  res.json({ ok: true });
 }));
 
 router.get("/events/:id/rsvp-requests", requireAuth, asyncHandler(async (req, res) => {
@@ -646,6 +828,84 @@ router.delete(p(api.expenses.delete.path), asyncHandler(async (req, res) => {
   res.status(204).send();
 }));
 
+router.post("/expenses/:expenseId/receipt", requireAuth, asyncHandler(async (req, res) => {
+  const expenseId = Number(req.params.expenseId);
+  if (!Number.isFinite(expenseId)) badRequest("Invalid expense id");
+  const [expense] = await db.select().from(expenses).where(eq(expenses.id, expenseId));
+  if (!expense) notFound("Expense not found");
+  await ensurePrivateEventParticipantOrCreator(req, expense.barbecueId);
+
+  const payload = z.object({
+    dataUrl: z.string().min(1),
+  }).parse(req.body ?? {});
+
+  const match = payload.dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+  if (!match) badRequest("Invalid receipt image");
+  const mime = match[1].toLowerCase();
+  const base64 = match[2];
+  const allowedMime = new Set(["image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"]);
+  if (!allowedMime.has(mime)) badRequest("Unsupported image type");
+
+  const buffer = Buffer.from(base64, "base64");
+  if (!buffer.length) badRequest("Invalid image payload");
+  if (buffer.length > MAX_RECEIPT_SIZE_BYTES) badRequest("Receipt image must be 5MB or smaller");
+
+  const extensionByMime: Record<string, string> = {
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+    "image/gif": "gif",
+  };
+  const ext = extensionByMime[mime] ?? "jpg";
+  const fileName = `expense-${expenseId}-${randomUUID()}.${ext}`;
+  await fs.mkdir(RECEIPT_UPLOAD_DIR, { recursive: true });
+  const filePath = path.join(RECEIPT_UPLOAD_DIR, fileName);
+  await fs.writeFile(filePath, buffer);
+
+  const prevReceiptUrl = expense.receiptUrl ?? null;
+  const receiptUrl = `/uploads/receipts/${fileName}`;
+  const updated = await expenseRepo.update(expenseId, {
+    receiptUrl,
+    receiptMime: mime,
+    receiptUploadedAt: new Date(),
+  });
+  if (!updated) notFound("Expense not found");
+
+  if (prevReceiptUrl?.startsWith("/uploads/receipts/")) {
+    const oldPath = path.join(RECEIPT_UPLOAD_DIR, path.basename(prevReceiptUrl));
+    await fs.unlink(oldPath).catch(() => undefined);
+  }
+
+  res.json({
+    expenseId,
+    receiptUrl: updated.receiptUrl ?? null,
+    receiptMime: updated.receiptMime ?? null,
+    receiptUploadedAt: updated.receiptUploadedAt ?? null,
+  });
+}));
+
+router.delete("/expenses/:expenseId/receipt", requireAuth, asyncHandler(async (req, res) => {
+  const expenseId = Number(req.params.expenseId);
+  if (!Number.isFinite(expenseId)) badRequest("Invalid expense id");
+  const [expense] = await db.select().from(expenses).where(eq(expenses.id, expenseId));
+  if (!expense) notFound("Expense not found");
+  await ensurePrivateEventParticipantOrCreator(req, expense.barbecueId);
+
+  if (expense.receiptUrl?.startsWith("/uploads/receipts/")) {
+    const oldPath = path.join(RECEIPT_UPLOAD_DIR, path.basename(expense.receiptUrl));
+    await fs.unlink(oldPath).catch(() => undefined);
+  }
+
+  const updated = await expenseRepo.update(expenseId, {
+    receiptUrl: null,
+    receiptMime: null,
+    receiptUploadedAt: null,
+  });
+  if (!updated) notFound("Expense not found");
+  res.json({ expenseId, receiptUrl: null });
+}));
+
 router.get("/barbecues/:bbqId/expense-shares", asyncHandler(async (req, res) => {
   const bbq = await getBarbecueOr404(req, Number(req.params.bbqId));
   const shares = await expenseRepo.getExpenseShares(bbq.id);
@@ -711,6 +971,7 @@ router.patch("/barbecues/:bbqId/expenses/:expenseId/share", requireAuth, asyncHa
   const expenseId = Number(req.params.expenseId);
   const bbq = await bbqRepo.getById(bbqId);
   if (!bbq) notFound("BBQ not found");
+  if (bbq.visibility !== "private") badRequest("Opt-in expenses are only available for private events");
   if (!bbq.allowOptInExpenses) badRequest("Opt-in expenses not enabled for this BBQ");
   const participantsList = await participantRepo.listByBbq(bbqId, "accepted");
   const myParticipant = participantsList.find((p) => p.userId === req.session!.username);

@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { usePublicProfile } from "@/hooks/use-bbq-data";
 import { useToast } from "@/hooks/use-toast";
+import { copyText } from "@/lib/copy-text";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -105,8 +106,9 @@ export default function PublicProfilePage() {
         await navigator.share({ title, url: shareUrl });
         return;
       }
-      await navigator.clipboard.writeText(shareUrl);
-      toast({ variant: "success", message: "Link copied" });
+      const ok = await copyText(shareUrl);
+      if (ok) toast({ variant: "success", message: "Link copied" });
+      else toast({ variant: "error", message: "Copy failed — select and copy manually." });
     } catch {
       toast({ variant: "error", message: "Couldn’t share profile link" });
     }
@@ -208,7 +210,7 @@ export default function PublicProfilePage() {
                     <div className="flex flex-wrap items-center gap-2">
                       <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl truncate">{profile.displayName || profile.username}</h1>
                     </div>
-                    <p className="text-sm text-muted-foreground mt-1">@{profile.username}</p>
+                    <p className="text-sm text-muted-foreground mt-1">@{profile.handle}</p>
                     {profile.bio ? (
                       <p className="mt-3 max-w-2xl text-sm leading-6 text-foreground/90">
                         {profile.bio.slice(0, 120)}

@@ -20,6 +20,9 @@ export function serializeUser(user: {
   avatarUrl?: string | null;
   profileImageUrl?: string | null;
   bio?: string | null;
+  publicHandle?: string | null;
+  publicProfileEnabled?: boolean | null;
+  defaultEventType?: string | null;
   preferredCurrencyCodes?: string | null;
   defaultCurrencyCode?: string | null;
   favoriteCurrencyCodes?: string[] | null;
@@ -41,6 +44,9 @@ export function serializeUser(user: {
     avatarUrl: user.avatarUrl ?? undefined,
     profileImageUrl: user.profileImageUrl ?? undefined,
     bio: user.bio ?? undefined,
+    publicHandle: user.publicHandle ?? user.username,
+    publicProfileEnabled: user.publicProfileEnabled ?? true,
+    defaultEventType: (user.defaultEventType === "public" ? "public" : "private") as "private" | "public",
     preferredCurrencyCodes: preferredCurrencyCodes ?? undefined,
     defaultCurrencyCode: user.defaultCurrencyCode ?? "EUR",
     favoriteCurrencyCodes: Array.isArray(user.favoriteCurrencyCodes) ? user.favoriteCurrencyCodes : [],

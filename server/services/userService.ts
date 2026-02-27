@@ -29,6 +29,9 @@ export async function updateProfile(
     avatarUrl?: string | null;
     profileImageUrl?: string | null;
     bio?: string | null;
+    publicHandle?: string | null;
+    publicProfileEnabled?: boolean;
+    defaultEventType?: "private" | "public";
     preferredCurrencyCodes?: string[] | null;
     defaultCurrencyCode?: string;
     favoriteCurrencyCodes?: string[];
@@ -39,6 +42,9 @@ export async function updateProfile(
   if (updates.avatarUrl !== undefined) mapped.avatarUrl = updates.avatarUrl === "" ? null : updates.avatarUrl;
   if (updates.profileImageUrl !== undefined) mapped.profileImageUrl = updates.profileImageUrl === "" ? null : updates.profileImageUrl;
   if (updates.bio !== undefined) mapped.bio = updates.bio;
+  if (updates.publicHandle !== undefined) mapped.publicHandle = updates.publicHandle;
+  if (updates.publicProfileEnabled !== undefined) mapped.publicProfileEnabled = updates.publicProfileEnabled;
+  if (updates.defaultEventType !== undefined) mapped.defaultEventType = updates.defaultEventType;
   if (updates.preferredCurrencyCodes !== undefined)
     mapped.preferredCurrencyCodes = updates.preferredCurrencyCodes === null ? null : JSON.stringify(updates.preferredCurrencyCodes);
   if (updates.defaultCurrencyCode !== undefined) mapped.defaultCurrencyCode = updates.defaultCurrencyCode;

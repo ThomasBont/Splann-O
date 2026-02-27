@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { useLanguage } from "@/hooks/use-language";
-import { useCreateExpense, useUpdateExpense } from "@/hooks/use-expenses";
+import { useCreateExpense, useDeleteExpenseReceipt, useUpdateExpense, useUploadExpenseReceipt } from "@/hooks/use-expenses";
 import { useParticipants } from "@/hooks/use-participants";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Plus } from "lucide-react";
+import { Loader2, Plus, Upload, Trash2, ExternalLink } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { getCategoryDef, getPlaceholderKeyForCategory } from "@/config/expenseCategories";
 import { getExpensePlaceholderKey, getThemeConfig, type ThemeId } from "@/themes/themeRegistry";
@@ -42,16 +42,19 @@ interface AddExpenseDialogProps {
   groupHomeCurrencyCode?: string | null;
   lastExpense?: ExpenseWithParticipant | null;
   privateTone?: boolean;
+  showReceipt?: boolean;
 }
 
 const DEFAULT_CATEGORIES = ["Meat", "Bread", "Drinks", "Charcoal", "Transportation", "Other"];
 
-export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, currencySymbol, categories: categoriesProp, defaultItem: defaultItemProp, defaultCategory: defaultCategoryProp, defaultOptIn: defaultOptInProp, allowOptIn = false, onAddCustomCategory, eventType, eventKind = "party", currentUsername, currencyCode, groupHomeCurrencyCode, lastExpense, privateTone = false }: AddExpenseDialogProps) {
+export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, currencySymbol, categories: categoriesProp, defaultItem: defaultItemProp, defaultCategory: defaultCategoryProp, defaultOptIn: defaultOptInProp, allowOptIn = false, onAddCustomCategory, eventType, eventKind = "party", currentUsername, currencyCode, groupHomeCurrencyCode, lastExpense, privateTone = false, showReceipt = false }: AddExpenseDialogProps) {
   const { t } = useLanguage();
   const { toast } = useToast();
   const participants = useParticipants(bbqId);
   const createExpense = useCreateExpense(bbqId);
   const updateExpense = useUpdateExpense(bbqId);
+  const uploadReceipt = useUploadExpenseReceipt(bbqId);
+  const deleteReceipt = useDeleteExpenseReceipt(bbqId);
 
   const categories = categoriesProp ?? DEFAULT_CATEGORIES;
 
@@ -62,6 +65,9 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
   const [optInByDefault, setOptInByDefault] = useState(false);
   const [showCustomCategoryInput, setShowCustomCategoryInput] = useState(false);
   const [customCategoryName, setCustomCategoryName] = useState("");
+  const [receiptDataUrl, setReceiptDataUrl] = useState<string | null>(null);
+  const [receiptPreviewUrl, setReceiptPreviewUrl] = useState<string | null>(null);
+  const [removeExistingReceipt, setRemoveExistingReceipt] = useState(false);
 
   const participantList = (participants.data ?? []) as Array<{ id: number; userId?: string | null; name: string }>;
   const smartStored = useMemo(() => getSmartDefaultsForGroup(bbqId), [bbqId, open]);
@@ -94,6 +100,9 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
         setItem(editingExpense.item);
         setAmount(editingExpense.amount.toString());
         setOptInByDefault(false);
+        setReceiptDataUrl(null);
+        setReceiptPreviewUrl(editingExpense.receiptUrl ?? null);
+        setRemoveExistingReceipt(false);
       } else {
         if (participantList.length > 0) {
           const suggestedPayerId = resolvedDefaults.payerParticipantId ?? participantList[0].id;
@@ -105,6 +114,9 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
         setItem(defaultItemProp ?? "");
         setAmount("");
         setOptInByDefault(defaultOptInProp ?? false);
+        setReceiptDataUrl(null);
+        setReceiptPreviewUrl(null);
+        setRemoveExistingReceipt(false);
       }
     }
   }, [open, editingExpense, participantList, categories, defaultItemProp, defaultCategoryProp, defaultOptInProp, resolvedDefaults.payerParticipantId, smartStored.defaults?.lastCategory]);
@@ -113,7 +125,7 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
   const placeholderKey = themeId != null ? getExpensePlaceholderKey(category, themeId) : getPlaceholderKeyForCategory(category);
   const itemPlaceholder = (t.placeholders as Record<string, string>)[placeholderKey] ?? "e.g. Miscellaneous";
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!participantId || !item.trim() || !amount || parseFloat(amount) <= 0) return;
 
@@ -125,42 +137,73 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
     };
 
     if (editingExpense) {
-      updateExpense.mutate({ id: editingExpense.id, ...payload }, {
-        onSuccess: () => {
-          toast({ variant: "success", message: t.modals.expenseUpdated });
-          onOpenChange(false);
-        },
-        onError: () => toast({ variant: "error", message: privateTone ? "Couldn’t save that expense. Please try again." : t.modals.expenseAddFailed }),
-      });
-    } else {
-      createExpense.mutate(
-        allowOptIn ? { ...payload, optInByDefault: optInByDefault } : payload,
-        {
-          onSuccess: () => {
-            const payer = participantList.find((p) => String(p.id) === participantId);
-            if (bbqId) {
-              updateSmartDefaultsAfterExpenseCreate({
-                groupId: bbqId,
-                currentUserId: currentUsername,
-                currencyCode,
-                splitMethod: "equally",
-                payerParticipantId: parseInt(participantId),
-                payerUserId: payer?.userId ?? null,
-                participantIds: [parseInt(participantId)],
-                category,
-              });
-            }
-            toast({ variant: "success", message: t.modals.expenseAdded });
-            onOpenChange(false);
-          },
-          onError: () => toast({ variant: "error", message: privateTone ? "Couldn’t add that expense. Please try again." : t.modals.expenseAddFailed }),
+      try {
+        await updateExpense.mutateAsync({ id: editingExpense.id, ...payload });
+        if (showReceipt) {
+          if (removeExistingReceipt && editingExpense.receiptUrl) {
+            await deleteReceipt.mutateAsync(editingExpense.id);
+          }
+          if (receiptDataUrl) {
+            await uploadReceipt.mutateAsync({ expenseId: editingExpense.id, dataUrl: receiptDataUrl });
+          }
         }
-      );
+        toast({ variant: "success", message: t.modals.expenseUpdated });
+        onOpenChange(false);
+      } catch {
+        toast({ variant: "error", message: privateTone ? "Couldn’t save that expense. Please try again." : t.modals.expenseAddFailed });
+      }
+    } else {
+      try {
+        const created = await createExpense.mutateAsync(
+          allowOptIn ? { ...payload, optInByDefault: optInByDefault } : payload,
+        );
+        if (showReceipt && receiptDataUrl && created?.id) {
+          await uploadReceipt.mutateAsync({ expenseId: created.id, dataUrl: receiptDataUrl });
+        }
+        const payer = participantList.find((p) => String(p.id) === participantId);
+        if (bbqId) {
+          updateSmartDefaultsAfterExpenseCreate({
+            groupId: bbqId,
+            currentUserId: currentUsername,
+            currencyCode,
+            splitMethod: "equally",
+            payerParticipantId: parseInt(participantId),
+            payerUserId: payer?.userId ?? null,
+            participantIds: [parseInt(participantId)],
+            category,
+          });
+        }
+        toast({ variant: "success", message: t.modals.expenseAdded });
+        onOpenChange(false);
+      } catch {
+        toast({ variant: "error", message: privateTone ? "Couldn’t add that expense. Please try again." : t.modals.expenseAddFailed });
+      }
     }
   };
 
-  const isPending = createExpense.isPending || updateExpense.isPending;
+  const isPending = createExpense.isPending || updateExpense.isPending || uploadReceipt.isPending || deleteReceipt.isPending;
   const canRepeatLast = !editingExpense && !!lastExpense;
+
+  const onReceiptFileSelected = (file: File | null) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast({ variant: "error", message: "Please choose an image file." });
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast({ variant: "error", message: "Receipt must be 5MB or smaller." });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : null;
+      if (!result) return;
+      setReceiptDataUrl(result);
+      setReceiptPreviewUrl(result);
+      setRemoveExistingReceipt(false);
+    };
+    reader.readAsDataURL(file);
+  };
 
   const applyRepeatLast = () => {
     if (!lastExpense || editingExpense) return;
@@ -385,6 +428,69 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
             data-testid="input-expense-amount"
           />
         </div>
+
+        {showReceipt && (
+          <div className="space-y-2">
+            <Label className="uppercase text-xs tracking-wider text-muted-foreground">Receipt</Label>
+            <div className="rounded-xl border border-border/60 bg-muted/20 p-3 space-y-3">
+              {receiptPreviewUrl ? (
+                <div className="flex items-center gap-3">
+                  <img src={receiptPreviewUrl} alt="Receipt preview" className="h-16 w-16 rounded-lg object-cover border border-border/60" />
+                  <div className="flex flex-wrap gap-2">
+                    <Button type="button" size="sm" variant="outline" onClick={() => window.open(receiptPreviewUrl, "_blank", "noopener,noreferrer")}>
+                      <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
+                      View
+                    </Button>
+                    <Label className="inline-flex">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => onReceiptFileSelected(e.currentTarget.files?.[0] ?? null)}
+                      />
+                      <Button type="button" size="sm" variant="outline" asChild>
+                        <span>
+                          <Upload className="w-3.5 h-3.5 mr-1.5" />
+                          Replace
+                        </span>
+                      </Button>
+                    </Label>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      className="text-destructive hover:text-destructive"
+                      onClick={() => {
+                        setReceiptDataUrl(null);
+                        setReceiptPreviewUrl(null);
+                        setRemoveExistingReceipt(!!editingExpense?.receiptUrl);
+                      }}
+                    >
+                      <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+                      Remove
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <Label className="inline-flex">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => onReceiptFileSelected(e.currentTarget.files?.[0] ?? null)}
+                  />
+                  <Button type="button" size="sm" variant="outline" asChild>
+                    <span>
+                      <Upload className="w-3.5 h-3.5 mr-1.5" />
+                      Upload receipt
+                    </span>
+                  </Button>
+                </Label>
+              )}
+              <p className="text-xs text-muted-foreground">Optional. JPG, PNG, WEBP or GIF up to 5MB.</p>
+            </div>
+          </div>
+        )}
       </form>
     </Modal>
   );

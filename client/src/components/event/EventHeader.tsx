@@ -13,8 +13,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { CurrencyPicker } from "@/components/currency-picker";
-import { Plus, MoreHorizontal, Link2, Sparkles, MapPin } from "lucide-react";
+import { Plus, Link2, MessageCircle, Settings, ChevronDown, CalendarPlus } from "lucide-react";
 
 export interface EventHeaderProps {
   category: EventCategory;
@@ -24,32 +23,21 @@ export interface EventHeaderProps {
   dateStr?: string;
   /** Location display e.g. "Amsterdam, Netherlands" */
   locationDisplay?: string | null;
-  /** Currency symbol for display (e.g. in stats) */
-  currencySymbol: string;
-  displayCurrency: string;
-  onCurrencyChange: (value: string) => void;
-  /** Profile favorites for currency picker (optional) */
-  profileFavorites?: string[];
-  suggestedCurrencyCode?: string | null;
-  suggestedCurrencyNote?: string | null;
-  recentCurrencyStorageKey?: string;
   onAddExpense: () => void;
   addExpenseLabel?: string;
-  /** Creator-only: opt-in toggle + delete */
+  /** Creator-only */
   isCreator?: boolean;
-  allowOptIn?: boolean;
-  onOptInChange?: (checked: boolean) => void;
-  optInPending?: boolean;
-  onDelete?: () => void;
-  /** Optional: invite link for "Copy invite link" in dropdown */
-  inviteLinkUrl?: string;
-  onCopyInviteLink?: () => void;
-  /** Optional: edit trip location (trips only) */
-  onEditLocation?: () => void;
-  /** Event status for pill + Settle up CTA */
+  onOpenSettings?: () => void;
+  onShare?: () => void;
+  onShareWhatsApp?: () => void;
+  onCreateWhatsAppGroup?: () => void;
+  onAddToCalendar?: () => void;
+  shareLabel?: string;
+  shareWhatsAppLabel?: string;
+  createWhatsAppGroupLabel?: string;
+  /** Event status for pill */
   eventStatus?: "draft" | "active" | "settling" | "settled";
-  onSettleUp?: () => void;
-  settleUpPending?: boolean;
+  showStatusPill?: boolean;
   themeCategoryKey?: EventThemeCategory | string | null;
   showAddExpenseAction?: boolean;
 }
@@ -80,26 +68,19 @@ export function EventHeader({
   title,
   dateStr,
   locationDisplay,
-  currencySymbol,
-  displayCurrency,
-  onCurrencyChange,
-  profileFavorites,
-  suggestedCurrencyCode,
-  suggestedCurrencyNote,
-  recentCurrencyStorageKey,
   onAddExpense,
   addExpenseLabel = "Add Expense",
   isCreator,
-  allowOptIn,
-  onOptInChange,
-  optInPending,
-  onDelete,
-  inviteLinkUrl,
-  onCopyInviteLink,
-  onEditLocation,
+  onOpenSettings,
+  onShare,
+  onShareWhatsApp,
+  onCreateWhatsAppGroup,
+  onAddToCalendar,
+  shareLabel = "Share",
+  shareWhatsAppLabel = "Share to WhatsApp",
+  createWhatsAppGroupLabel = "Create WhatsApp group",
   eventStatus = "active",
-  onSettleUp,
-  settleUpPending,
+  showStatusPill = true,
   themeCategoryKey,
   showAddExpenseAction = true,
 }: EventHeaderProps) {
@@ -140,7 +121,7 @@ export function EventHeader({
                     {title}
                   </h1>
                   <EventCategoryBadge category={themeCategoryKey} compact />
-                  <StatusPill status={eventStatus} />
+                  {showStatusPill && <StatusPill status={eventStatus} />}
                 </div>
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {subtitleParts.join(" · ")}
@@ -148,31 +129,51 @@ export function EventHeader({
               </div>
             </div>
           </div>
-          {/* Right: currency + Settle up + Add Expense + overflow */}
+          {/* Right: primary actions + overflow */}
           <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
-            {isCreator && onSettleUp && eventStatus !== "settling" && eventStatus !== "settled" && (
+            {onShare && (onShareWhatsApp || onCreateWhatsAppGroup ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 text-xs"
+                  >
+                    <Link2 className="w-3.5 h-3.5 mr-1.5" />
+                    {shareLabel}
+                    <ChevronDown className="w-3.5 h-3.5 ml-1" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuItem onSelect={onShare}>
+                    <Link2 className="w-4 h-4 mr-2" />
+                    Copy link
+                  </DropdownMenuItem>
+                  {onShareWhatsApp && (
+                    <DropdownMenuItem onSelect={onShareWhatsApp}>
+                      <MessageCircle className="w-4 h-4 mr-2" />
+                      {shareWhatsAppLabel}
+                    </DropdownMenuItem>
+                  )}
+                  {onCreateWhatsAppGroup && (
+                    <DropdownMenuItem onSelect={onCreateWhatsAppGroup}>
+                      <MessageCircle className="w-4 h-4 mr-2" />
+                      {createWhatsAppGroupLabel}
+                    </DropdownMenuItem>
+                  )}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
               <Button
                 size="sm"
-                variant="secondary"
-                onClick={onSettleUp}
-                disabled={settleUpPending}
-                className="h-8 text-xs font-medium"
+                variant="outline"
+                className="h-8 text-xs"
+                onClick={onShare}
               >
-                <Sparkles className="w-3.5 h-3.5 mr-1.5" />
-                {t.settleUp?.ctaShort ?? "Settle up"}
+                <Link2 className="w-3.5 h-3.5 mr-1.5" />
+                {shareLabel}
               </Button>
-            )}
-            <CurrencyPicker
-              value={displayCurrency}
-              onChange={onCurrencyChange}
-              profileFavorites={profileFavorites}
-              suggestedCode={suggestedCurrencyCode}
-              suggestedNote={suggestedCurrencyNote}
-              recentStorageUserKey={recentCurrencyStorageKey}
-              compact
-              triggerClassName="h-8 text-xs"
-              data-testid="select-display-currency"
-            />
+            ))}
             {showAddExpenseAction && (
               <Button
                 size="sm"
@@ -184,51 +185,27 @@ export function EventHeader({
                 {addExpenseLabel}
               </Button>
             )}
-            {isCreator && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button size="icon" variant="ghost" className="w-7 h-7">
-                    <MoreHorizontal className="w-4 h-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56">
-                  {onEditLocation && (
-                    <DropdownMenuItem onClick={onEditLocation}>
-                      <MapPin className="w-4 h-4 mr-2" />
-                      Edit location
-                    </DropdownMenuItem>
-                  )}
-                  {inviteLinkUrl && onCopyInviteLink && import.meta.env.VITE_ENABLE_SHARING !== "false" && (
-                    <DropdownMenuItem onClick={onCopyInviteLink}>
-                      <Link2 className="w-4 h-4 mr-2" />
-                      Copy invite link
-                    </DropdownMenuItem>
-                  )}
-                  {onOptInChange && (
-                    <DropdownMenuItem asChild>
-                      <label className="flex cursor-pointer items-center gap-2 px-2 py-1.5 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={!!allowOptIn}
-                          onChange={(e) => onOptInChange(e.target.checked)}
-                          disabled={optInPending}
-                          className="rounded border-input"
-                        />
-                        <span>Allow opt-in expenses</span>
-                        {optInPending && <span className="text-xs text-muted-foreground">(saving…)</span>}
-                      </label>
-                    </DropdownMenuItem>
-                  )}
-                  {onDelete && (
-                    <DropdownMenuItem
-                      onClick={onDelete}
-                      className="text-destructive focus:text-destructive"
-                    >
-                      Delete event
-                    </DropdownMenuItem>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
+            {onAddToCalendar && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 text-xs"
+                onClick={onAddToCalendar}
+              >
+                <CalendarPlus className="w-3.5 h-3.5 mr-1.5" />
+                Add to Calendar
+              </Button>
+            )}
+            {isCreator && onOpenSettings && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 text-xs"
+                onClick={onOpenSettings}
+              >
+                <Settings className="w-3.5 h-3.5 mr-1.5" />
+                Settings
+              </Button>
             )}
           </div>
         </div>

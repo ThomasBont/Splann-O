@@ -7,8 +7,99 @@ import { auditLog } from "../lib/audit";
 import { resolveTripCurrency } from "../lib/country-currency";
 import { isPublicListingActive, slugifyPublicEvent } from "../lib/public-listing";
 import type { Barbecue } from "@shared/schema";
+import { isPublicEvent as isCanonicalPublicEvent } from "@shared/event-visibility";
 
 const DEFAULT_LISTING_DURATION_DAYS = Number(process.env.PUBLIC_LISTING_DAYS ?? 30);
+const warnedPrivatePollutionIds = new Set<number>();
+
+function hasPublicIntentEvidence(event: Barbecue): boolean {
+  if (event.visibility === "public") return true;
+  if (event.publicSlug) return true;
+  if ((event.status as string | undefined) === "draft") return true;
+  if (event.organizationName || event.publicDescription || event.bannerImageUrl) return true;
+  if ((event.publicTemplate as string | undefined) && event.publicTemplate !== "classic") return true;
+  const tpl = event.templateData && typeof event.templateData === "object" ? (event.templateData as Record<string, unknown>) : null;
+  return !!(tpl && (tpl.publicCategory || tpl.publicRsvpTiers || tpl.publicCapacity || tpl.publicExternalLink));
+}
+
+function shouldTreatAsPollutedPrivate(event: Barbecue): boolean {
+  if (event.visibility === "public") return false;
+  if ((event.visibilityOrigin as string | undefined) !== "public") return false;
+  return !hasPublicIntentEvidence(event);
+}
+
+function privatePublicFieldChanges(event: Barbecue): Array<string> {
+  const changes: string[] = [];
+  if (event.visibility !== "private") changes.push("visibility");
+  if ((event.visibilityOrigin as string | undefined) !== "private") changes.push("visibilityOrigin");
+  if (event.publicListingStatus !== "inactive") changes.push("publicListingStatus");
+  if (event.publicListFromAt) changes.push("publicListFromAt");
+  if (event.publicListUntilAt) changes.push("publicListUntilAt");
+  if (event.publicListingExpiresAt) changes.push("publicListingExpiresAt");
+  if (event.publicSlug) changes.push("publicSlug");
+  if (event.organizationName) changes.push("organizationName");
+  if (event.publicDescription) changes.push("publicDescription");
+  if (event.bannerImageUrl) changes.push("bannerImageUrl");
+  if (event.publicMode !== "marketing") changes.push("publicMode");
+  if (event.publicTemplate !== "classic") changes.push("publicTemplate");
+  if (event.isPublic) changes.push("isPublic");
+  return changes;
+}
+
+export function normalizeEventForClient(event: Barbecue): Barbecue {
+  const privateCanonical = !isCanonicalPublicEvent(event);
+  const suspiciousPollution = shouldTreatAsPollutedPrivate(event);
+  if (!privateCanonical && !suspiciousPollution) return event;
+
+  const normalized: Barbecue = {
+    ...event,
+    visibility: "private",
+    visibilityOrigin: "private",
+    isPublic: false,
+    publicMode: "marketing",
+    publicTemplate: "classic",
+    publicListingStatus: "inactive",
+    publicListFromAt: null,
+    publicListUntilAt: null,
+    publicListingExpiresAt: null,
+    publicSlug: null,
+    organizationName: null,
+    publicDescription: null,
+    bannerImageUrl: null,
+  };
+
+  if (process.env.NODE_ENV !== "production") {
+    const changes = privatePublicFieldChanges(event);
+    if (changes.length > 0 && !warnedPrivatePollutionIds.has(event.id)) {
+      warnedPrivatePollutionIds.add(event.id);
+      console.warn("[invariant] private event has public fields; ignoring + should be repaired", {
+        eventId: event.id,
+        changes,
+        suspiciousOrigin: suspiciousPollution,
+      });
+    }
+  }
+
+  return normalized;
+}
+
+function stripPublicOnlyFieldsForPrivateMutation<T extends Record<string, unknown>>(target: T, privateOrigin: boolean): T {
+  if (!privateOrigin) return target;
+  return {
+    ...target,
+    visibility: "private",
+    visibilityOrigin: "private",
+    publicMode: "marketing",
+    publicTemplate: "classic",
+    publicListingStatus: "inactive",
+    publicListFromAt: null,
+    publicListUntilAt: null,
+    publicListingExpiresAt: null,
+    organizationName: null,
+    publicDescription: null,
+    bannerImageUrl: null,
+  } as T;
+}
 
 export type PublicEventListItem = {
   id: number;
@@ -18,6 +109,7 @@ export type PublicEventListItem = {
   countryName: string | null;
   currencyCode: string;
   organizationName: string | null;
+  subtitle: string | null;
   publicDescription: string | null;
   publicSlug: string;
   publicMode: "marketing" | "joinable";
@@ -33,6 +125,7 @@ export type PublicEventDetail = PublicEventListItem & {
   locationName: string | null;
   bannerImageUrl: string | null;
   organizer: {
+    handle: string | null;
     username: string | null;
     displayName: string | null;
     avatarUrl: string | null;
@@ -105,6 +198,7 @@ function toPublicListItem(event: Barbecue): PublicEventListItem {
     countryName: event.countryName ?? null,
     currencyCode: event.currency ?? "EUR",
     organizationName: event.organizationName ?? null,
+    subtitle: typeof tpl?.publicSubtitle === "string" && tpl.publicSubtitle.trim() ? tpl.publicSubtitle.trim() : null,
     publicDescription: event.publicDescription ?? null,
     publicSlug: event.publicSlug ?? "",
     publicMode: (event.publicMode as "marketing" | "joinable") ?? "marketing",
@@ -141,11 +235,13 @@ function parsePublicRsvpTiers(event: Barbecue): PublicEventDetail["rsvpTiers"] {
 }
 
 export async function listBarbecues(currentUsername?: string, currentUserId?: number): Promise<Barbecue[]> {
-  return bbqRepo.listAccessible(currentUsername, currentUserId);
+  const rows = await bbqRepo.listAccessible(currentUsername, currentUserId);
+  return rows.map(normalizeEventForClient);
 }
 
 export async function listPublicBarbecues(): Promise<Barbecue[]> {
-  return bbqRepo.listPublic();
+  const rows = await bbqRepo.listPublic();
+  return rows.map(normalizeEventForClient);
 }
 
 export async function createBarbecue(
@@ -180,7 +276,7 @@ export async function createBarbecue(
 ): Promise<Barbecue> {
   const creatorId = input.creatorId?.trim() || sessionUsername;
   const requestedVisibility = input.visibility ?? (input.isPublic ? "public" : "private");
-  const visibilityOrigin = input.visibilityOrigin ?? (requestedVisibility === "public" ? "public" : "public");
+  const visibilityOrigin = input.visibilityOrigin ?? (requestedVisibility === "public" ? "public" : "private");
   let creatorUser: Awaited<ReturnType<typeof userRepo.findByUsername>> | undefined;
   if (creatorId) {
     creatorUser = await userRepo.findByUsername(creatorId);
@@ -215,7 +311,7 @@ export async function createBarbecue(
     },
   );
 
-  const created = await bbqRepo.create({
+  const insertValues = stripPublicOnlyFieldsForPrivateMutation({
     ...input,
     date: typeof input.date === "string" ? new Date(input.date) : input.date,
     currency: currency ?? "EUR",
@@ -229,7 +325,9 @@ export async function createBarbecue(
     publicListUntilAt: input.publicListUntilAt ?? null,
     publicListingExpiresAt: input.publicListingExpiresAt ?? null,
     isPublic: requestedVisibility === "public",
-  } as Parameters<typeof bbqRepo.create>[0]);
+    allowOptInExpenses: requestedVisibility === "private" ? input.allowOptInExpenses : false,
+  } as Parameters<typeof bbqRepo.create>[0], visibilityOrigin === "private");
+  const created = await bbqRepo.create(insertValues as Parameters<typeof bbqRepo.create>[0]);
 
   if (creatorId) {
     await participantRepo.create({
@@ -242,16 +340,16 @@ export async function createBarbecue(
   auditLog("barbecue.create", { barbecueId: created.id, username: sessionUsername });
   if (visibilityOrigin === "public") {
     const withSlug = await ensurePublicSlug(created);
-    if (!withSlug) return created;
+    if (!withSlug) return normalizeEventForClient(created);
     if (requestedVisibility === "public" && isPublicListingActive(withSlug)) {
-      return withSlug;
+      return normalizeEventForClient(withSlug);
     }
-    return withSlug;
+    return normalizeEventForClient(withSlug);
   }
   if (requestedVisibility === "public" && isPublicListingActive(created)) {
-    return (await ensurePublicSlug(created)) ?? created;
+    return normalizeEventForClient((await ensurePublicSlug(created)) ?? created);
   }
-  return created;
+  return normalizeEventForClient(created);
 }
 
 export async function updateBarbecue(
@@ -303,8 +401,9 @@ export async function updateBarbecue(
     bbq,
   );
 
+  const targetVisibility = (updates.visibility ?? bbq.visibility) as "private" | "public";
   const set: Parameters<typeof bbqRepo.update>[1] = {
-    allowOptInExpenses: updates.allowOptInExpenses,
+    allowOptInExpenses: targetVisibility === "private" ? updates.allowOptInExpenses : false,
     templateData: updates.templateData,
     status: updates.status,
     settledAt: updates.settledAt,
@@ -339,12 +438,15 @@ export async function updateBarbecue(
     });
   }
 
-  const filtered = Object.fromEntries(Object.entries(set).filter(([, v]) => v !== undefined)) as Parameters<typeof bbqRepo.update>[1];
+  let filtered = Object.fromEntries(Object.entries(set).filter(([, v]) => v !== undefined)) as Parameters<typeof bbqRepo.update>[1];
+  const nextVisibilityOrigin = (filtered.visibilityOrigin ?? (bbq.visibilityOrigin as "private" | "public")) === "private";
+  filtered = stripPublicOnlyFieldsForPrivateMutation(filtered, nextVisibilityOrigin);
   if (filtered.visibility === "public") {
     const withSlug = await ensurePublicSlug({ ...(bbq as Barbecue), ...(filtered as Partial<Barbecue>) } as Barbecue);
     if (withSlug?.publicSlug) filtered.publicSlug = withSlug.publicSlug;
   }
-  return bbqRepo.update(id, filtered);
+  const updated = await bbqRepo.update(id, filtered);
+  return updated ? normalizeEventForClient(updated) : updated;
 }
 
 export async function getBarbecueIfAccessible(
@@ -355,7 +457,7 @@ export async function getBarbecueIfAccessible(
   const bbq = await bbqRepo.getById(bbqId);
   if (!bbq) return null;
   const hasAccess = await bbqRepo.hasAccess(bbq, username, userId);
-  return hasAccess ? bbq : null;
+  return hasAccess ? normalizeEventForClient(bbq) : null;
 }
 
 export async function ensurePublicSlug(event: Barbecue): Promise<Barbecue | undefined> {
@@ -397,6 +499,7 @@ export async function getPublicEventBySlug(slug: string): Promise<PublicEventDet
     locationName: event.locationName ?? (event.city && event.countryName ? `${event.city}, ${event.countryName}` : null),
     bannerImageUrl: event.bannerImageUrl ?? null,
     organizer: creator ? {
+      handle: creator.publicHandle ?? creator.username,
       username: creator.username,
       displayName: creator.displayName ?? null,
       avatarUrl: creator.avatarUrl ?? null,
@@ -430,6 +533,7 @@ export async function getPublicEventBySlugForPublicView(slug: string): Promise<P
         locationName: event.locationName ?? (event.city && event.countryName ? `${event.city}, ${event.countryName}` : null),
         bannerImageUrl: event.bannerImageUrl ?? null,
         organizer: creator ? {
+          handle: creator.publicHandle ?? creator.username,
           username: creator.username,
           displayName: creator.displayName ?? null,
           avatarUrl: creator.avatarUrl ?? null,
@@ -453,8 +557,9 @@ export async function getPublicEventBySlugForPublicView(slug: string): Promise<P
       ...toPublicListItem(event),
       locationName: event.locationName ?? (event.city && event.countryName ? `${event.city}, ${event.countryName}` : null),
       bannerImageUrl: event.bannerImageUrl ?? null,
-      organizer: creator ? {
-        username: creator.username,
+        organizer: creator ? {
+          handle: creator.publicHandle ?? creator.username,
+          username: creator.username,
         displayName: creator.displayName ?? null,
         avatarUrl: creator.avatarUrl ?? null,
         profileImageUrl: creator.profileImageUrl ?? null,

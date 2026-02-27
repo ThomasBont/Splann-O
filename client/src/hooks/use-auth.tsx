@@ -8,6 +8,9 @@ export type AuthUser = {
   avatarUrl?: string;
   profileImageUrl?: string;
   bio?: string;
+  publicHandle?: string;
+  publicProfileEnabled?: boolean;
+  defaultEventType?: "private" | "public";
   preferredCurrencyCodes?: string[];
   defaultCurrencyCode?: string;
   favoriteCurrencyCodes?: string[];
@@ -119,6 +122,9 @@ export function useAuth() {
       avatarUrl?: string | null;
       profileImageUrl?: string | null;
       bio?: string | null;
+      publicHandle?: string | null;
+      publicProfileEnabled?: boolean;
+      defaultEventType?: "private" | "public";
       preferredCurrencyCodes?: string[] | null;
       defaultCurrencyCode?: string;
       favoriteCurrencyCodes?: string[];

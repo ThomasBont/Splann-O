@@ -30,6 +30,11 @@ function Router() {
       <Route path="/join/:token" component={JoinPage} />
       <Route path="/basic" component={Basic} />
       <Route path="/login" component={LoginPage} />
+      <Route path="/app/e/:eventId" component={AppRoute} />
+      <Route path="/app/home" component={AppRoute} />
+      <Route path="/app/private" component={AppRoute} />
+      <Route path="/app/public" component={AppRoute} />
+      <Route path="/app/explore" component={AppRoute} />
       <Route path="/app" component={AppRoute} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/explore" component={ExplorePage} />

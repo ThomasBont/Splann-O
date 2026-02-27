@@ -10,6 +10,7 @@ import { badRequest, forbidden, notFound } from "../lib/errors";
 
 const router = Router();
 const currencyCodeSchema = z.string().regex(/^[A-Z]{3}$/, "Currency code must be 3 uppercase letters");
+const publicHandleSchema = z.string().min(2).max(30).regex(/^[a-z0-9][a-z0-9_-]*$/, "Handle can only use lowercase letters, numbers, _ and -");
 
 /** Build proxy-safe origin: x-forwarded-proto/host → req.protocol/host → localhost:(PORT|5001) */
 function getRequestOrigin(req: Request): string {
@@ -166,6 +167,9 @@ router.patch(
       avatarUrl: z.union([z.string().url(), z.literal("")]).nullable().optional(),
       profileImageUrl: z.union([z.string().url(), z.literal("")]).nullable().optional(),
       bio: z.string().max(500).nullable().optional(),
+      publicHandle: z.union([publicHandleSchema, z.literal("")]).nullable().optional(),
+      publicProfileEnabled: z.boolean().optional(),
+      defaultEventType: z.enum(["private", "public"]).optional(),
       preferredCurrencyCodes: z.array(z.string()).nullable().optional(),
       defaultCurrencyCode: currencyCodeSchema.optional(),
       favoriteCurrencyCodes: z
@@ -175,8 +179,39 @@ router.patch(
         .optional(),
     });
     const body = schema.parse(req.body);
+    if (body.publicHandle !== undefined) {
+      const normalized = (body.publicHandle ?? "").trim().toLowerCase();
+      const nextHandle = normalized || null;
+      if (nextHandle) {
+        const existingByHandle = await userRepo.findByPublicHandle(nextHandle);
+        const me = await userRepo.findById(req.session!.userId!);
+        if (!me) notFound("User not found");
+        if (existingByHandle && existingByHandle.id !== req.session!.userId) {
+          throw badRequest("handle_taken");
+        }
+        body.publicHandle = nextHandle;
+      } else {
+        body.publicHandle = null;
+      }
+    }
     const user = await userService.updateProfile(req.session!.userId!, body);
     res.json(user);
+  })
+);
+
+router.get(
+  "/users/handle-availability",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const raw = String(req.query.handle ?? "").trim().toLowerCase();
+    if (!raw) return res.json({ ok: false, reason: "empty" });
+    const parsed = publicHandleSchema.safeParse(raw);
+    if (!parsed.success) return res.json({ ok: false, reason: "invalid" });
+    const existing = await userRepo.findByPublicHandle(parsed.data);
+    const me = await userRepo.findById(req.session!.userId!);
+    if (!me) notFound("User not found");
+    const available = !existing || existing.id === me.id;
+    res.json({ ok: available, normalized: parsed.data });
   })
 );
 

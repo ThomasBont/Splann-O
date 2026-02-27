@@ -284,7 +284,7 @@ export default function SettingsPage() {
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => window.open(`/u/${encodeURIComponent(user.username)}`, "_blank")}
+                    onClick={() => window.open(`/u/${encodeURIComponent(user.publicHandle || user.username)}`, "_blank")}
                   >
                     <User className="h-4 w-4 mr-2" />
                     Open public profile

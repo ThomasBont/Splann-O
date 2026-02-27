@@ -88,9 +88,14 @@ export const barbecues = pgTable("barbecues", {
   allowOptInExpenses: boolean("allow_opt_in_expenses").notNull().default(false),
   area: text("area").notNull().default("parties"),
   eventType: text("event_type").notNull().default("default"),
+  eventVibe: text("event_vibe").notNull().default("cozy"),
   templateData: json("template_data").$type<unknown | null>().default(null),
   /** Trip location: display string e.g. "Amsterdam, Netherlands" */
   locationName: text("location_name"),
+  /** Human-entered location string used by private/public creation flows. */
+  locationText: text("location_text"),
+  /** Optional structured location info for future maps/place providers. */
+  locationMeta: json("location_meta").$type<{ city?: string; countryCode?: string; countryName?: string; lat?: number; lng?: number } | null>().default(null),
   city: text("city"),
   countryCode: text("country_code"),
   countryName: text("country_name"),

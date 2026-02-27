@@ -1,7 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, buildUrl } from "@shared/routes";
 import type { Barbecue } from "@shared/schema";
-import { UpgradeRequiredError } from "@/lib/upgrade";
+import { normalizeCountryCode } from "@shared/lib/country-code";
+import { UpgradeRequiredError, type UpgradeRequiredPayload } from "@/lib/upgrade";
 
 export type ExploreEvent = {
   id: number;
@@ -167,8 +168,11 @@ export function useCreateBarbecue() {
       latitude?: number | null;
       longitude?: number | null;
       placeId?: string | null;
+      locationText?: string | null;
+      locationMeta?: unknown;
       visibility?: "private" | "public";
       visibilityOrigin?: "private" | "public";
+      eventVibe?: string;
       publicMode?: "marketing" | "joinable";
       publicTemplate?: "classic" | "keynote" | "workshop" | "nightlife" | "meetup";
       publicListingStatus?: "inactive" | "active" | "expired" | "paused";
@@ -180,20 +184,32 @@ export function useCreateBarbecue() {
       publicDescription?: string | null;
       bannerImageUrl?: string | null;
     }) => {
+      const requestBody: Record<string, unknown> = { ...data };
+      const normalizedCountryCode = normalizeCountryCode(data.countryCode);
+      if (normalizedCountryCode) requestBody.countryCode = normalizedCountryCode;
+      else delete requestBody.countryCode;
+      if (data.locationMeta && typeof data.locationMeta === "object") {
+        const meta = { ...(data.locationMeta as Record<string, unknown>) };
+        const normalizedMetaCountryCode = normalizeCountryCode(meta.countryCode);
+        if (normalizedMetaCountryCode) meta.countryCode = normalizedMetaCountryCode;
+        else delete meta.countryCode;
+        requestBody.locationMeta = meta;
+      }
+
       const res = await fetch(api.barbecues.create.path, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify(data),
+        body: JSON.stringify(requestBody),
       });
-      const body = await res.json().catch(() => ({}));
-      if (res.status === 402 && (body as { code?: string }).code === "UPGRADE_REQUIRED") {
-        throw new UpgradeRequiredError(body);
+      const responseBody = await res.json().catch(() => ({}));
+      if (res.status === 402 && (responseBody as { code?: string }).code === "UPGRADE_REQUIRED") {
+        throw new UpgradeRequiredError(responseBody as UpgradeRequiredPayload);
       }
       if (!res.ok) {
-        throw new Error((body as { message?: string }).message || "Failed to create barbecue");
+        throw new Error((responseBody as { message?: string }).message || "Failed to create barbecue");
       }
-      return body as Barbecue;
+      return responseBody as Barbecue;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/barbecues'] });
@@ -216,8 +232,12 @@ export function useUpdateBarbecue() {
       latitude?: number | null;
       longitude?: number | null;
       placeId?: string | null;
+      locationText?: string | null;
+      locationMeta?: unknown;
       currency?: string;
       currencySource?: "auto" | "manual";
+      eventType?: string;
+      eventVibe?: string;
       visibility?: "private" | "public";
       visibilityOrigin?: "private" | "public";
       publicMode?: "marketing" | "joinable";
@@ -238,13 +258,30 @@ export function useUpdateBarbecue() {
       if (rest.status !== undefined) body.status = rest.status;
       if (rest.locationName !== undefined) body.locationName = rest.locationName;
       if (rest.city !== undefined) body.city = rest.city;
-      if (rest.countryCode !== undefined) body.countryCode = rest.countryCode;
+      if (rest.countryCode !== undefined) {
+        const normalizedCountryCode = normalizeCountryCode(rest.countryCode);
+        body.countryCode = normalizedCountryCode ?? null;
+      }
       if (rest.countryName !== undefined) body.countryName = rest.countryName;
       if (rest.latitude !== undefined) body.latitude = rest.latitude;
       if (rest.longitude !== undefined) body.longitude = rest.longitude;
       if (rest.placeId !== undefined) body.placeId = rest.placeId;
+      if (rest.locationText !== undefined) body.locationText = rest.locationText;
+      if (rest.locationMeta !== undefined) {
+        if (rest.locationMeta && typeof rest.locationMeta === "object") {
+          const meta = { ...(rest.locationMeta as Record<string, unknown>) };
+          const normalizedMetaCountryCode = normalizeCountryCode(meta.countryCode);
+          if (normalizedMetaCountryCode) meta.countryCode = normalizedMetaCountryCode;
+          else delete meta.countryCode;
+          body.locationMeta = meta;
+        } else {
+          body.locationMeta = rest.locationMeta;
+        }
+      }
       if (rest.currency !== undefined) body.currency = rest.currency;
       if (rest.currencySource !== undefined) body.currencySource = rest.currencySource;
+      if (rest.eventType !== undefined) body.eventType = rest.eventType;
+      if (rest.eventVibe !== undefined) body.eventVibe = rest.eventVibe;
       if (rest.visibility !== undefined) body.visibility = rest.visibility;
       if (rest.visibilityOrigin !== undefined) body.visibilityOrigin = rest.visibilityOrigin;
       if (rest.publicMode !== undefined) body.publicMode = rest.publicMode;

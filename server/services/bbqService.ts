@@ -8,6 +8,7 @@ import { resolveTripCurrency } from "../lib/country-currency";
 import { isPublicListingActive, slugifyPublicEvent } from "../lib/public-listing";
 import type { Barbecue } from "@shared/schema";
 import { isPublicEvent as isCanonicalPublicEvent } from "@shared/event-visibility";
+import { normalizeCountryCode } from "@shared/lib/country-code";
 
 const DEFAULT_LISTING_DURATION_DAYS = Number(process.env.PUBLIC_LISTING_DAYS ?? 30);
 const warnedPrivatePollutionIds = new Set<number>();
@@ -99,6 +100,19 @@ function stripPublicOnlyFieldsForPrivateMutation<T extends Record<string, unknow
     publicDescription: null,
     bannerImageUrl: null,
   } as T;
+}
+
+function sanitizeLocationMeta(input: unknown): { city?: string; countryCode?: string; countryName?: string; lat?: number; lng?: number } | null {
+  if (!input || typeof input !== "object") return null;
+  const raw = input as Record<string, unknown>;
+  const out: { city?: string; countryCode?: string; countryName?: string; lat?: number; lng?: number } = {};
+  if (typeof raw.city === "string" && raw.city.trim()) out.city = raw.city.trim();
+  const countryCode = normalizeCountryCode(raw.countryCode);
+  if (countryCode) out.countryCode = countryCode;
+  if (typeof raw.countryName === "string" && raw.countryName.trim()) out.countryName = raw.countryName.trim();
+  if (typeof raw.lat === "number" && Number.isFinite(raw.lat)) out.lat = raw.lat;
+  if (typeof raw.lng === "number" && Number.isFinite(raw.lng)) out.lng = raw.lng;
+  return Object.keys(out).length > 0 ? out : null;
 }
 
 export type PublicEventListItem = {
@@ -258,7 +272,10 @@ export async function createBarbecue(
     allowOptInExpenses?: boolean;
     area?: string;
     eventType?: string;
+    eventVibe?: string;
     locationName?: string | null;
+    locationText?: string | null;
+    locationMeta?: unknown | null;
     city?: string | null;
     countryCode?: string | null;
     countryName?: string | null;
@@ -294,11 +311,12 @@ export async function createBarbecue(
   }
 
   const currencySource = input.currencySource ?? "auto";
+  const normalizedCountryCode = normalizeCountryCode(input.countryCode);
   let currency = input.currency?.trim()?.toUpperCase();
 
   if (currencySource !== "manual" || !currency) {
     currency = resolveTripCurrency({
-      countryCode: input.countryCode,
+      countryCode: normalizedCountryCode,
       userDefaultCurrency: creatorUser?.defaultCurrencyCode,
     });
   }
@@ -320,6 +338,10 @@ export async function createBarbecue(
   const insertValues = stripPublicOnlyFieldsForPrivateMutation({
     ...input,
     date: typeof input.date === "string" ? new Date(input.date) : input.date,
+    locationName: input.locationName ?? input.locationText ?? null,
+    locationText: input.locationText ?? input.locationName ?? null,
+    countryCode: normalizedCountryCode ?? null,
+    locationMeta: sanitizeLocationMeta(input.locationMeta),
     currency: currency ?? "EUR",
     currencySource,
     visibility: requestedVisibility,
@@ -372,8 +394,12 @@ export async function updateBarbecue(
     latitude?: number | null;
     longitude?: number | null;
     placeId?: string | null;
+    locationText?: string | null;
+    locationMeta?: unknown | null;
     currency?: string;
     currencySource?: "auto" | "manual";
+    eventType?: string;
+    eventVibe?: string;
     visibility?: "private" | "public";
     visibilityOrigin?: "private" | "public";
     publicMode?: "marketing" | "joinable";
@@ -410,18 +436,23 @@ export async function updateBarbecue(
   );
 
   const targetVisibility = (updates.visibility ?? bbq.visibility) as "private" | "public";
+  const normalizedCountryCode = updates.countryCode !== undefined ? normalizeCountryCode(updates.countryCode) : undefined;
   const set: Parameters<typeof bbqRepo.update>[1] = {
     allowOptInExpenses: targetVisibility === "private" ? updates.allowOptInExpenses : false,
     templateData: updates.templateData,
     status: updates.status,
     settledAt: updates.settledAt,
-    locationName: updates.locationName,
+    locationName: updates.locationName ?? updates.locationText,
     city: updates.city,
-    countryCode: updates.countryCode,
+    countryCode: normalizedCountryCode,
     countryName: updates.countryName,
     latitude: updates.latitude,
     longitude: updates.longitude,
     placeId: updates.placeId,
+    locationText: updates.locationText ?? updates.locationName,
+    locationMeta: sanitizeLocationMeta(updates.locationMeta),
+    eventType: updates.eventType,
+    eventVibe: updates.eventVibe,
     visibility: updates.visibility,
     visibilityOrigin: updates.visibilityOrigin,
     publicMode: updates.publicMode,
@@ -443,7 +474,7 @@ export async function updateBarbecue(
   } else if (updates.countryCode !== undefined && bbq.currencySource === "auto") {
     const creatorUser = sessionUsername ? await userRepo.findByUsername(sessionUsername) : undefined;
     set.currency = resolveTripCurrency({
-      countryCode: updates.countryCode,
+      countryCode: normalizedCountryCode,
       userDefaultCurrency: creatorUser?.defaultCurrencyCode,
     });
   }

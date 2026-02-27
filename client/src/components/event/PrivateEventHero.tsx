@@ -5,6 +5,8 @@ import { EventHeader } from "@/components/event/EventHeader";
 import type { PrivateTemplateDef } from "@/lib/private-event-templates";
 import { EventBanner } from "@/components/events/EventBanner";
 import type { EventBannerPresetId } from "@/lib/event-banner";
+import { VIBE_THEME, type PrivateEventVibeId } from "@/lib/event-types";
+import { useLanguage } from "@/hooks/use-language";
 
 export function PrivateEventHero({
   event,
@@ -27,13 +29,21 @@ export function PrivateEventHero({
   onSelectBannerPreset?: (presetId: EventBannerPresetId) => Promise<void>;
   onResetBanner?: () => Promise<void>;
 }) {
+  const templateData = (event.templateData && typeof event.templateData === "object")
+    ? (event.templateData as Record<string, unknown>)
+    : {};
+  const { t } = useLanguage();
+  const vibe = (typeof templateData.privateEventVibeId === "string" ? templateData.privateEventVibeId : event.eventVibe) as PrivateEventVibeId | undefined;
+  const vibeTheme = vibe ? VIBE_THEME[vibe] : null;
+  const vibeHelperCopy = vibe ? (t.privateWizard.vibeHelperCopy[vibe] ?? vibeTheme?.helperCopy) : null;
+
   return (
     <div className="space-y-3">
       <EventBanner
         event={event}
         editable={canEditBanner}
         variant="private"
-        templateFallbackClassName={template.bannerClassName}
+        templateFallbackClassName={vibeTheme?.gradientClass ?? template.bannerClassName}
         templateLabel={template.label}
         templateEmoji={template.emoji}
         onUpload={onUploadBanner}
@@ -59,6 +69,9 @@ export function PrivateEventHero({
               {participantCount} {participantCount === 1 ? "person" : "people"} in this circle
             </p>
           </div>
+          {vibeTheme ? (
+            <p className="text-[11px] text-muted-foreground hidden sm:block">{vibeHelperCopy}</p>
+          ) : null}
         </div>
       </div>
 

@@ -3,7 +3,7 @@ import { db } from "../db";
 import { barbecues, participants, eventNotifications } from "@shared/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { desc } from "drizzle-orm";
-import type { Barbecue, InsertBarbecue } from "@shared/schema";
+import type { Barbecue } from "@shared/schema";
 
 export const bbqRepo = {
   async listAccessible(currentUsername?: string, currentUserId?: number): Promise<Barbecue[]> {
@@ -70,9 +70,9 @@ export const bbqRepo = {
     return b;
   },
 
-  async create(b: InsertBarbecue): Promise<Barbecue> {
+  async create(b: typeof barbecues.$inferInsert): Promise<Barbecue> {
     const inviteToken = crypto.randomBytes(32).toString("hex");
-    const [bbq] = await db.insert(barbecues).values({ ...b, inviteToken } as InsertBarbecue & { inviteToken: string }).returning();
+    const [bbq] = await db.insert(barbecues).values({ ...b, inviteToken }).returning();
     return bbq;
   },
 
@@ -99,8 +99,12 @@ export const bbqRepo = {
       latitude?: number | null;
       longitude?: number | null;
       placeId?: string | null;
+      locationText?: string | null;
+      locationMeta?: unknown | null;
       currency?: string;
       currencySource?: "auto" | "manual";
+      eventType?: string;
+      eventVibe?: string;
       visibility?: "private" | "public";
       visibilityOrigin?: "private" | "public";
       publicMode?: "marketing" | "joinable";
@@ -128,8 +132,12 @@ export const bbqRepo = {
     if (updates.latitude !== undefined) set.latitude = updates.latitude;
     if (updates.longitude !== undefined) set.longitude = updates.longitude;
     if (updates.placeId !== undefined) set.placeId = updates.placeId;
+    if (updates.locationText !== undefined) set.locationText = updates.locationText;
+    if (updates.locationMeta !== undefined) set.locationMeta = updates.locationMeta;
     if (updates.currency !== undefined) set.currency = updates.currency;
     if (updates.currencySource !== undefined) set.currencySource = updates.currencySource;
+    if (updates.eventType !== undefined) set.eventType = updates.eventType;
+    if (updates.eventVibe !== undefined) set.eventVibe = updates.eventVibe;
     if (updates.visibility !== undefined) {
       set.visibility = updates.visibility;
       set.isPublic = updates.visibility === "public";

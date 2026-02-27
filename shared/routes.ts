@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { insertBarbecueSchema, insertParticipantSchema, insertExpenseSchema } from './schema';
 import type { Barbecue, Participant, ExpenseWithParticipant, NoteWithAuthor, Membership } from './schema';
+import { optionalCountryCodeSchema } from './lib/country-code-schema';
 
 export const errorSchemas = {
   validation: z.object({
@@ -50,13 +51,17 @@ export const api = {
         status: z.enum(["draft", "active", "settling", "settled"]).optional(),
         locationName: z.string().nullable().optional(),
         city: z.string().nullable().optional(),
-        countryCode: z.string().length(2).nullable().optional(),
+        countryCode: optionalCountryCodeSchema.nullable().optional(),
         countryName: z.string().nullable().optional(),
         latitude: z.number().nullable().optional(),
         longitude: z.number().nullable().optional(),
         placeId: z.string().nullable().optional(),
+        locationText: z.string().nullable().optional(),
+        locationMeta: z.unknown().nullable().optional(),
         currency: z.string().length(3).optional(),
         currencySource: z.enum(["auto", "manual"]).optional(),
+        eventType: z.string().optional(),
+        eventVibe: z.string().optional(),
         visibility: z.enum(["private", "public"]).optional(),
         visibilityOrigin: z.enum(["private", "public"]).optional(),
         publicMode: z.enum(["marketing", "joinable"]).optional(),

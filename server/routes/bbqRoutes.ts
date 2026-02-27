@@ -6,6 +6,7 @@ import path from "path";
 import { randomUUID } from "crypto";
 import { api } from "@shared/routes";
 import { users, expenses, notes, stripeEvents, publicEventRsvps, participants } from "@shared/schema";
+import { optionalCountryCodeSchema } from "@shared/lib/country-code-schema";
 import { bbqRepo } from "../repositories/bbqRepo";
 import { participantRepo } from "../repositories/participantRepo";
 import { expenseRepo } from "../repositories/expenseRepo";
@@ -128,7 +129,6 @@ router.get(p(api.barbecues.listPublic.path), asyncHandler(async (_req, res) => {
   res.json(items);
 }));
 
-const countryCodeSchema = z.string().length(2, "countryCode must be ISO-3166-1 alpha-2 (2 chars)").transform((s) => s.toUpperCase());
 const currencyCodeSchema = z.string().length(3, "currency must be ISO-4217 (3 chars)").transform((s) => s.toUpperCase());
 const visibilitySchema = z.enum(["private", "public"]);
 const visibilityOriginSchema = z.enum(["private", "public"]);
@@ -139,7 +139,11 @@ const listingStatusSchema = z.enum(["inactive", "active", "expired", "paused"]);
 router.post(p(api.barbecues.create.path), asyncHandler(async (req, res) => {
   const bodySchema = api.barbecues.create.input.extend({
     date: z.coerce.date(),
-    countryCode: countryCodeSchema.optional().nullable(),
+    eventType: z.string().optional(),
+    eventVibe: z.string().optional(),
+    locationText: z.string().nullable().optional(),
+    locationMeta: z.unknown().nullable().optional(),
+    countryCode: optionalCountryCodeSchema.nullable().optional(),
     latitude: z.coerce.number().finite().optional().nullable(),
     longitude: z.coerce.number().finite().optional().nullable(),
     currency: currencyCodeSchema.optional(),
@@ -490,13 +494,17 @@ router.patch(p(api.barbecues.update.path), requireAuth, asyncHandler(async (req,
     status: z.enum(["draft", "active", "settling", "settled"]).optional(),
     locationName: z.string().nullable().optional(),
     city: z.string().nullable().optional(),
-    countryCode: z.string().length(2).transform((s) => s.toUpperCase()).nullable().optional(),
+    countryCode: optionalCountryCodeSchema.nullable().optional(),
     countryName: z.string().nullable().optional(),
     latitude: z.coerce.number().finite().nullable().optional(),
     longitude: z.coerce.number().finite().nullable().optional(),
     placeId: z.string().nullable().optional(),
+    locationText: z.string().nullable().optional(),
+    locationMeta: z.unknown().nullable().optional(),
     currency: z.string().length(3).transform((s) => s.toUpperCase()).optional(),
     currencySource: z.enum(["auto", "manual"]).optional(),
+    eventType: z.string().optional(),
+    eventVibe: z.string().optional(),
     visibility: visibilitySchema.optional(),
     visibilityOrigin: visibilityOriginSchema.optional(),
     publicMode: publicModeSchema.optional(),

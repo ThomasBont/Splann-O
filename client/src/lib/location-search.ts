@@ -1,4 +1,5 @@
 import { searchLocations, type LocationOption } from "@/lib/locations-data";
+import { normalizeCountryCode } from "@shared/lib/country-code";
 
 type MapboxFeature = {
   place_name?: string;
@@ -13,11 +14,6 @@ type MapboxFeature = {
 
 const CACHE = new Map<string, LocationOption[]>();
 
-function normalizeCountryCode(code?: string | null): string {
-  if (!code) return "";
-  return code.replace(/^country\./i, "").toUpperCase();
-}
-
 function mapFeatureToLocation(feature: MapboxFeature): LocationOption | null {
   const context = Array.isArray(feature.context) ? feature.context : [];
   const countryCtx = context.find((c) => c.id?.startsWith("country"));
@@ -29,7 +25,7 @@ function mapFeatureToLocation(feature: MapboxFeature): LocationOption | null {
   const locationName = feature.place_name?.trim() || feature.text?.trim();
   if (!locationName) return null;
 
-  const countryCode = normalizeCountryCode(countryCtx?.short_code ?? null);
+  const countryCode = normalizeCountryCode(countryCtx?.short_code ?? null) ?? "";
   const countryName = (countryCtx?.text ?? "").trim();
   const city = (placeCtx?.text ?? localityCtx?.text ?? feature.text ?? regionCtx?.text ?? "").trim();
 
@@ -90,4 +86,3 @@ export async function searchLocationsGlobal(
   CACHE.set(cacheKey, mapped);
   return mapped;
 }
-

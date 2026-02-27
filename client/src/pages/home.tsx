@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { Link, useLocation } from "wouter";
+import { normalizeCountryCode } from "@shared/lib/country-code";
 import { useLanguage, getCurrency, SELECTABLE_LANGUAGES, type CurrencyCode, convertCurrency } from "@/hooks/use-language";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -22,9 +23,6 @@ import { EventTabsContent } from "@/components/event/EventTabs";
 import { EventPageTabsRouter } from "@/components/event/pages/EventPageTabsRouter";
 import { Modal, ModalSection } from "@/components/ui/modal";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
-import {
   Accordion,
   AccordionContent,
   AccordionItem,
@@ -44,6 +42,7 @@ import { AddPersonDialog } from "@/components/add-person-dialog";
 import { AddExpenseDialog } from "@/components/add-expense-dialog";
 import { CurrencyPicker } from "@/components/currency-picker";
 import { LocationCombobox } from "@/components/location-combobox";
+import { PrivateLocationTypeahead } from "@/components/event/PrivateLocationTypeahead";
 import { type LocationOption, currencyForCountry } from "@/lib/locations-data";
 import { EventHeader } from "@/components/event/EventHeader";
 import { PrivateEventHero } from "@/components/event/PrivateEventHero";
@@ -101,19 +100,26 @@ import { useExpenseReactions } from "@/hooks/use-expense-reactions";
 import { getEventTheme } from "@/theme/useEventTheme";
 import { EventThemeProvider } from "@/themes/ThemeProvider";
 import { SignatureEffect } from "@/themes/SignatureEffect";
-import { TRIP_THEME_KEYS, PARTY_THEME_KEYS } from "@/theme/eventThemes";
 import { normalizeEvent, getEventArea } from "@/utils/eventUtils";
 import { computeSplit, getFairShareForParticipant } from "@/lib/split/calc";
 import { getEventCategoryFromData, getEventTheme as getCategoryTheme, getEventThemeStyle } from "@/lib/eventTheme";
 import { EventCategoryBadge } from "@/components/event/EventCategoryBadge";
 import { getCircleMoodTokens, getCirclePersonalityFromEvent, getDefaultCirclePersonality } from "@/lib/circlePersonality";
 import {
-  PRIVATE_TEMPLATE_ORDER,
   getPrivateTemplateById,
   getPrivateTemplateForEvent,
-  inferPrivateTemplateIdFromEvent,
   type PrivateTemplateId,
 } from "@/lib/private-event-templates";
+import {
+  PRIVATE_EVENT_TYPES,
+  PRIVATE_EVENT_VIBES_BY_TYPE,
+  VIBE_THEME,
+  getDefaultVibeForType,
+  getPrivateEventTypeById,
+  inferPrivateEventTypeFromEventType,
+  type PrivateEventTypeId,
+  type PrivateEventVibeId,
+} from "@/lib/event-types";
 import { buildWhatsAppMessage, buildWhatsAppShareUrl } from "@/lib/share-message";
 import { copyText } from "@/lib/copy-text";
 import { buildIcs, downloadIcs, inferEventDateRange } from "@/lib/calendar-ics";
@@ -501,6 +507,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
   const [isNewBbqOpen, setIsNewBbqOpen] = useState(false);
   const [newBbqName, setNewBbqName] = useState("");
   const [newBbqDate, setNewBbqDate] = useState(new Date().toISOString().split('T')[0]);
+  const [newBbqTime, setNewBbqTime] = useState("");
   const [newBbqCurrency, setNewBbqCurrency] = useState<CurrencyCode>("EUR");
   const [newBbqIsPublic, setNewBbqIsPublic] = useState(true);
   const [newBbqVisibilityOrigin, setNewBbqVisibilityOrigin] = useState<"private" | "public">("public");
@@ -509,11 +516,14 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
   const [newEventPublicCategory, setNewEventPublicCategory] = useState<PublicCreateCategoryKey>("networking");
   const [newEventWizardStep, setNewEventWizardStep] = useState<1 | 2 | 3>(1);
   const [newPublicCreateStep, setNewPublicCreateStep] = useState<1 | 2 | 3 | 4>(1);
+  const [newPrivateCreateStep, setNewPrivateCreateStep] = useState<1 | 2 | 3>(1);
   const [newEventWizardGoal, setNewEventWizardGoal] = useState<"private" | "public" | null>(null);
   const [newEventPrivateAck, setNewEventPrivateAck] = useState(false);
   const [newEventPublicAck, setNewEventPublicAck] = useState(false);
   const [newEventArea, setNewEventArea] = useState<"parties" | "trips">("parties");
   const [newEventType, setNewEventType] = useState<string>("barbecue");
+  const [newPrivateEventTypeId, setNewPrivateEventTypeId] = useState<PrivateEventTypeId>("generic");
+  const [newPrivateEventVibeId, setNewPrivateEventVibeId] = useState<PrivateEventVibeId>("cozy");
   const [newPrivateTemplateId, setNewPrivateTemplateId] = useState<PrivateTemplateId>("generic");
   const [newEventLocation, setNewEventLocation] = useState<LocationOption | null>(null);
   const [newPublicDescription, setNewPublicDescription] = useState("");
@@ -601,8 +611,10 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
   const [allEventsSearch, setAllEventsSearch] = useState("");
   const [pinnedEventIds, setPinnedEventIds] = useState<number[]>([]);
   const [recentEventIds, setRecentEventIds] = useState<number[]>([]);
+  const [recentLocationOptions, setRecentLocationOptions] = useState<LocationOption[]>([]);
   const pinnedEventsStorageKey = useMemo(() => `splanno_pinned_events_${user?.id ?? user?.username ?? "anon"}`, [user?.id, user?.username]);
   const recentEventsStorageKey = useMemo(() => `splanno_recent_events_${user?.id ?? user?.username ?? "anon"}`, [user?.id, user?.username]);
+  const recentLocationsStorageKey = useMemo(() => `splanno_recent_locations_${user?.id ?? user?.username ?? "anon"}`, [user?.id, user?.username]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -653,6 +665,31 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
     if (typeof window === "undefined") return;
     localStorage.setItem(recentEventsStorageKey, JSON.stringify(recentEventIds.slice(0, 20)));
   }, [recentEventIds, recentEventsStorageKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const parsed = JSON.parse(localStorage.getItem(recentLocationsStorageKey) ?? "[]");
+      const valid = Array.isArray(parsed)
+        ? parsed.filter((entry): entry is LocationOption => (
+          !!entry &&
+          typeof entry === "object" &&
+          typeof (entry as LocationOption).locationName === "string" &&
+          typeof (entry as LocationOption).city === "string" &&
+          typeof (entry as LocationOption).countryCode === "string" &&
+          typeof (entry as LocationOption).countryName === "string"
+        ))
+        : [];
+      setRecentLocationOptions(valid.slice(0, 12));
+    } catch {
+      setRecentLocationOptions([]);
+    }
+  }, [recentLocationsStorageKey]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(recentLocationsStorageKey, JSON.stringify(recentLocationOptions.slice(0, 12)));
+  }, [recentLocationOptions, recentLocationsStorageKey]);
 
   useEffect(() => {
     if (user) {
@@ -716,11 +753,37 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
   }, [queryClient, toast]);
 
   const { data: barbecues = [], isLoading: isLoadingBbqs } = useBarbecues();
-  const eventTypeOptions = newEventArea === "trips" ? TRIP_THEME_KEYS : PARTY_THEME_KEYS;
-  const isValidEventType = (v: string) =>
-    newEventArea === "trips"
-      ? (TRIP_THEME_KEYS as readonly string[]).includes(v)
-      : (PARTY_THEME_KEYS as readonly string[]).includes(v);
+  const privateSuggestedLocations = useMemo(() => {
+    const items = barbecues
+      .map((event: Barbecue) => {
+        const locationName = (event.locationText ?? event.locationName ?? "").trim();
+        if (!locationName) return null;
+        return {
+          locationName,
+          city: (event.city ?? locationName).trim(),
+          countryCode: (event.countryCode ?? "").trim(),
+          countryName: (event.countryName ?? "").trim(),
+          lat: event.latitude ?? undefined,
+          lng: event.longitude ?? undefined,
+        } as LocationOption;
+      })
+      .filter((item): item is LocationOption => !!item);
+    const unique = new Map<string, LocationOption>();
+    for (const item of items) {
+      const key = item.locationName.toLowerCase();
+      if (!unique.has(key)) unique.set(key, item);
+    }
+    return Array.from(unique.values()).slice(0, 20);
+  }, [barbecues]);
+  const privateLocationUiText = useMemo(() => ({
+    recent: t.privateWizard.locationRecent,
+    suggested: t.privateWizard.locationSuggested,
+    popular: t.privateWizard.locationPopular,
+    clear: t.privateWizard.locationClear,
+    noResults: t.privateWizard.locationNoResults,
+    useTyped: t.privateWizard.locationUseTyped,
+    placeholder: t.privateWizard.locationPlaceholder,
+  }), [t.privateWizard]);
   const barbecuesForArea = useMemo(() => barbecues.filter((b: Barbecue) => getEventArea(b) === area), [barbecues, area]);
   const getEventSortTime = (b: Barbecue) => {
     const raw = (b.updatedAt as unknown) ?? (b.date as unknown);
@@ -1192,13 +1255,15 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
       templateData = {
         ...baseTemplate,
         personality: getDefaultCirclePersonality({ area: newEventArea, eventType: newEventType }),
+        privateEventTypeId: newPrivateEventTypeId,
+        privateEventVibeId: newPrivateEventVibeId,
         privateTemplateId: newPrivateTemplateId,
         emoji: selectedCreatePrivateTemplate.emoji,
       };
     }
     const payload: Parameters<typeof createBbq.mutate>[0] & { currencySource?: "auto" | "manual" } = {
       name: newBbqName.trim(),
-      date: new Date(newBbqDate).toISOString(),
+      date: new Date(`${newBbqDate}T${newBbqTime || "19:00"}`).toISOString(),
       creatorId: username || undefined,
       isPublic: false,
       visibility: "private",
@@ -1208,6 +1273,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
       allowOptInExpenses: newBbqAllowOptIn,
       area: newEventArea,
       eventType: newEventType,
+      eventVibe: requestedVisibilityOriginOnCreate === "private" ? newPrivateEventVibeId : undefined,
       templateData,
       status: requestedVisibilityOriginOnCreate === "public" ? "draft" : undefined,
       organizationName: requestedVisibilityOriginOnCreate === "public" ? (newPublicOrganizationName.trim() || null) : undefined,
@@ -1217,13 +1283,22 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
       publicListUntilAt: requestedVisibilityOriginOnCreate === "public" && newPublicListUntilAt ? new Date(newPublicListUntilAt).toISOString() : undefined,
     };
     if (newEventLocation) {
+      const normalizedCountryCode = normalizeCountryCode(newEventLocation.countryCode);
       payload.locationName = newEventLocation.locationName;
+      payload.locationText = newEventLocation.locationName;
       payload.city = newEventLocation.city;
-      payload.countryCode = newEventLocation.countryCode;
+      if (normalizedCountryCode) payload.countryCode = normalizedCountryCode;
       payload.countryName = newEventLocation.countryName;
       payload.latitude = newEventLocation.lat ?? undefined;
       payload.longitude = newEventLocation.lng ?? undefined;
-      const autoCurrency = currencyForCountry(newEventLocation.countryCode);
+      payload.locationMeta = {
+        city: newEventLocation.city || undefined,
+        countryCode: normalizedCountryCode,
+        countryName: newEventLocation.countryName || undefined,
+        lat: newEventLocation.lat,
+        lng: newEventLocation.lng,
+      };
+      const autoCurrency = currencyForCountry(normalizedCountryCode ?? "");
       if (newBbqCurrency !== autoCurrency) {
         payload.currency = newBbqCurrency;
         payload.currencySource = "manual";
@@ -1236,6 +1311,9 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
     }
     createBbq.mutate(payload, {
       onSuccess: (data: Barbecue) => {
+        if (newEventLocation) {
+          rememberRecentLocation(newEventLocation);
+        }
         setSelectedBbqId(data.id);
         setArea(getEventArea(data));
         setEventVisibilityTab("private");
@@ -1245,6 +1323,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
           resetNewEventWizard();
           setNewBbqName("");
           setNewBbqDate(new Date().toISOString().split('T')[0]);
+          setNewBbqTime("");
           setNewBbqAllowOptIn(false);
           setNewBbqCurrency(((user?.defaultCurrencyCode as CurrencyCode | undefined) ?? "EUR"));
           if (slug) {
@@ -1253,7 +1332,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
           }
           toast({ title: "Public page created", variant: "success" });
         } else {
-          setNewBbqName(""); setNewBbqDate(new Date().toISOString().split('T')[0]); setNewBbqAllowOptIn(false);
+          setNewBbqName(""); setNewBbqDate(new Date().toISOString().split('T')[0]); setNewBbqTime(""); setNewBbqAllowOptIn(false);
           setNewEventArea("parties"); setNewEventType("barbecue"); setNewEventLocation(null); setNewBbqPublicMode("marketing");
           resetNewEventWizard();
           setNewBbqCurrency(((user?.defaultCurrencyCode as CurrencyCode | undefined) ?? "EUR"));
@@ -1275,6 +1354,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
   const resetNewEventWizard = () => {
     setNewEventWizardStep(1);
     setNewPublicCreateStep(1);
+    setNewPrivateCreateStep(1);
     setNewEventWizardGoal(null);
     setNewEventPrivateAck(false);
     setNewEventPublicAck(false);
@@ -1291,6 +1371,8 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
     setNewPublicRsvpTiers([{ id: "general", name: "General Admission", description: "", priceLabel: "", capacity: "", isFree: true }]);
     setNewPublicListOnExplore(false);
     setNewPrivateTemplateId("generic");
+    setNewPrivateEventTypeId("generic");
+    setNewPrivateEventVibeId("cozy");
     setNewBbqVisibilityOrigin("public");
     setNewBbqIsPublic(true);
   };
@@ -1300,7 +1382,9 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
     if (goal === "private") {
       setNewBbqVisibilityOrigin("private");
       setNewBbqIsPublic(false);
-      setNewPrivateTemplateId(inferPrivateTemplateIdFromEvent({ eventType: newEventType } as Partial<Barbecue>));
+      const inferredType = inferPrivateEventTypeFromEventType(newEventType);
+      applyPrivateEventType(inferredType);
+      setNewPrivateCreateStep(1);
     } else {
       setNewBbqVisibilityOrigin("public");
       setNewBbqIsPublic(true);
@@ -1330,6 +1414,23 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
 
   const removePublicRsvpTier = (id: string) => {
     setNewPublicRsvpTiers((prev) => (prev.length <= 1 ? prev : prev.filter((tier) => tier.id !== id)));
+  };
+
+  const rememberRecentLocation = (location: LocationOption | null) => {
+    if (!location?.locationName?.trim()) return;
+    setRecentLocationOptions((prev) => {
+      const next = [location, ...prev.filter((item) => item.locationName.toLowerCase() !== location.locationName.toLowerCase())];
+      return next.slice(0, 12);
+    });
+  };
+
+  const applyPrivateEventType = (typeId: PrivateEventTypeId) => {
+    const typeDef = getPrivateEventTypeById(typeId);
+    setNewPrivateEventTypeId(typeId);
+    setNewEventArea(typeDef.area);
+    setNewEventType(typeDef.eventTypeValue);
+    setNewPrivateTemplateId(typeDef.privateTemplateId);
+    setNewPrivateEventVibeId(getDefaultVibeForType(typeId));
   };
 
   const markEventRecent = (eventId: number) => {
@@ -1402,6 +1503,15 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
   const allBalancesZero = balances.every((b: { balance: number }) => Math.abs(b.balance) < 0.01);
   const selectedPrivateTemplate = getPrivateTemplateForEvent(selectedBbq);
   const selectedCreatePrivateTemplate = getPrivateTemplateById(newPrivateTemplateId);
+  const selectedCreatePrivateType = getPrivateEventTypeById(newPrivateEventTypeId);
+  const selectedCreatePrivateVibes = PRIVATE_EVENT_VIBES_BY_TYPE[newPrivateEventTypeId] ?? [];
+  const selectedCreatePrivateVibeTheme = VIBE_THEME[newPrivateEventVibeId] ?? VIBE_THEME.cozy;
+  const privateTypeLabel = (typeId: string, fallback: string) => t.privateWizard.typeLabels[typeId] ?? fallback;
+  const privateTypeDescription = (typeId: string, fallback: string) => t.privateWizard.typeDescriptions[typeId] ?? fallback;
+  const privateVibeLabel = (vibeId: string, fallback: string) => t.privateWizard.vibeLabels[vibeId] ?? fallback;
+  const privateVibeDescription = (vibeId: string, fallback: string) => t.privateWizard.vibeDescriptions[vibeId] ?? fallback;
+  const privateVibeHelperCopy = (vibeId: string, fallback: string) => t.privateWizard.vibeHelperCopy[vibeId] ?? fallback;
+  const isPrivateBasicsValid = !!newBbqName.trim() && !!newBbqDate;
   const headerPrimaryActionLabel = !isPublicBuilderContext && activeEventTab === "people" ? "Invite people" : t.addExpense;
   const headerPrimaryActionVisible = !isPublicBuilderContext && (activeEventTab === "expenses" || activeEventTab === "people");
   const handleHeaderPrimaryAction = () => {
@@ -3332,6 +3442,10 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                     setNewPublicCreateStep((s) => (s > 1 ? ((s - 1) as 1 | 2 | 3) : s));
                     return;
                   }
+                  if (newEventWizardStep === 3 && newBbqVisibilityOrigin === "private" && newPrivateCreateStep > 1) {
+                    setNewPrivateCreateStep((s) => (s > 1 ? ((s - 1) as 1 | 2) : s));
+                    return;
+                  }
                   if (newEventWizardStep > 1) {
                     setNewEventWizardStep((s) => (s > 1 ? ((s - 1) as 1 | 2) : s));
                     return;
@@ -3378,6 +3492,18 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                 >
                   Next
                 </Button>
+              ) : newBbqVisibilityOrigin === "private" && newPrivateCreateStep < 3 ? (
+                <Button
+                  onClick={() => setNewPrivateCreateStep((s) => ((s + 1) as 2 | 3))}
+                  disabled={
+                    (newPrivateCreateStep === 1 && !isPrivateBasicsValid) ||
+                    (newPrivateCreateStep === 2 && !newPrivateEventTypeId)
+                  }
+                  className="w-full sm:w-auto bg-primary text-primary-foreground font-semibold transition-all duration-150 order-1 sm:order-2"
+                  data-testid="button-private-builder-next"
+                >
+                  Next
+                </Button>
               ) : newBbqVisibilityOrigin === "public" && newPublicCreateStep === 4 ? (
                 <Button
                   onClick={() => handleCreateBbq()}
@@ -3390,7 +3516,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
               ) : (
                 <Button
                   onClick={() => handleCreateBbq()}
-                  disabled={!newBbqName.trim() || createBbq.isPending}
+                  disabled={!isPrivateBasicsValid || createBbq.isPending}
                   className="w-full sm:w-auto bg-primary text-primary-foreground font-semibold shadow-lg shadow-primary/20 hover:shadow-primary/30 hover:-translate-y-0.5 transition-all duration-150 order-1 sm:order-2"
                   data-testid="button-create-bbq"
                 >
@@ -3761,132 +3887,126 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
               </div>
             ) : (
               <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label className="text-muted-foreground">{t.nav.parties} / {t.nav.trips}</Label>
-                  <div className="flex rounded-lg border border-border overflow-hidden">
-                    <button
-                      type="button"
-                      onClick={() => { setNewEventArea("parties"); setNewEventType("barbecue"); }}
-                      className={`flex-1 py-2.5 text-sm font-semibold transition-colors ${newEventArea === "parties" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted/50"}`}
-                    >
-                      {t.nav.parties}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setNewEventArea("trips"); setNewEventType("city_trip"); }}
-                      className={`flex-1 py-2.5 text-sm font-semibold transition-colors ${newEventArea === "trips" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted/50"}`}
-                    >
-                      {t.nav.trips}
-                    </button>
-                  </div>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span className={`px-2 py-0.5 rounded-full border ${newPrivateCreateStep === 1 ? "border-primary/40 text-primary bg-primary/5" : "border-border"}`}>{t.privateWizard.stepBasics}</span>
+                  <span className={`px-2 py-0.5 rounded-full border ${newPrivateCreateStep === 2 ? "border-primary/40 text-primary bg-primary/5" : "border-border"}`}>{t.privateWizard.stepType}</span>
+                  <span className={`px-2 py-0.5 rounded-full border ${newPrivateCreateStep === 3 ? "border-primary/40 text-primary bg-primary/5" : "border-border"}`}>{t.privateWizard.stepVibe}</span>
                 </div>
-                <div className="space-y-2">
-                  <Label className="text-muted-foreground">Event type</Label>
-                  <Select
-                    value={isValidEventType(newEventType) ? newEventType : (eventTypeOptions[0] ?? "barbecue")}
-                    onValueChange={setNewEventType}
-                  >
-                    <SelectTrigger data-testid="select-event-type" className="focus-visible:ring-2 focus-visible:ring-primary/40">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {newEventArea === "trips"
-                        ? TRIP_THEME_KEYS.map((key) => {
-                            const theme = getEventTheme("trip", key);
-                            const label = (t.eventTypes as Record<string, string>)[theme.labelKey] ?? theme.copy.tagline;
-                            return (
-                              <SelectItem key={key} value={key}>
-                                <span className="flex items-center gap-2">
-                                  <span className="text-base leading-none" aria-hidden>{theme.icon}</span>
-                                  {label}
-                                </span>
-                              </SelectItem>
-                            );
-                          })
-                        : PARTY_THEME_KEYS.map((key) => {
-                            const theme = getEventTheme("party", key);
-                            const label = (t.eventTypes as Record<string, string>)[theme.labelKey] ?? theme.copy.tagline;
-                            return (
-                              <SelectItem key={key} value={key}>
-                                <span className="flex items-center gap-2">
-                                  <span className="text-base leading-none" aria-hidden>{theme.icon}</span>
-                                  {label}
-                                </span>
-                              </SelectItem>
-                            );
-                          })}
-                    </SelectContent>
-                  </Select>
-                  {isValidEventType(newEventType) && (
-                    <div className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2 flex items-center gap-2">
-                      <span className="text-lg" aria-hidden>{getEventTheme(newEventArea === "trips" ? "trip" : "party", newEventType).icon}</span>
-                      <p className="text-xs text-muted-foreground">{getEventTheme(newEventArea === "trips" ? "trip" : "party", newEventType).copy.tagline}</p>
+
+                {newPrivateCreateStep === 1 && (
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label className="text-muted-foreground">{t.bbq.bbqName}</Label>
+                      <Input
+                        placeholder={t.events.event}
+                        value={newBbqName}
+                        onChange={(e) => setNewBbqName(e.target.value)}
+                        autoFocus
+                        data-testid="input-bbq-name"
+                        className="focus-visible:ring-2 focus-visible:ring-primary/40"
+                      />
+                      {!newBbqName.trim() ? <p className="text-xs text-muted-foreground">{t.privateWizard.basicsNameHint}</p> : null}
                     </div>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-muted-foreground">Choose a vibe</Label>
-                  <div className="grid gap-2 sm:grid-cols-3">
-                    {PRIVATE_TEMPLATE_ORDER.map((templateId) => {
-                      const template = getPrivateTemplateById(templateId);
-                      return (
+                    <div className="space-y-2">
+                      <Label className="text-muted-foreground">{t.privateWizard.basicsLocationLabel}</Label>
+                      <PrivateLocationTypeahead
+                        value={newEventLocation}
+                        onChange={(next) => {
+                          setNewEventLocation(next);
+                          rememberRecentLocation(next);
+                        }}
+                        recent={recentLocationOptions}
+                        suggested={privateSuggestedLocations}
+                        uiText={privateLocationUiText}
+                        data-testid="input-event-location-private"
+                      />
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label className="text-muted-foreground">{t.bbq.date}</Label>
+                        <Input
+                          type="date"
+                          value={newBbqDate}
+                          onChange={(e) => setNewBbqDate(e.target.value)}
+                          data-testid="input-bbq-date"
+                          className="focus-visible:ring-2 focus-visible:ring-primary/40"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-muted-foreground">{t.privateWizard.basicsTimeLabel}</Label>
+                        <Input
+                          type="time"
+                          value={newBbqTime}
+                          onChange={(e) => setNewBbqTime(e.target.value)}
+                          data-testid="input-bbq-time"
+                          className="focus-visible:ring-2 focus-visible:ring-primary/40"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {newPrivateCreateStep === 2 && (
+                  <div className="space-y-3">
+                    <div>
+                      <h4 className="text-sm font-semibold">{t.privateWizard.typeTitle}</h4>
+                      <p className="text-xs text-muted-foreground mt-1">{t.privateWizard.typeSubtitle}</p>
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {PRIVATE_EVENT_TYPES.map((type) => (
                         <button
-                          key={`private-template-${template.id}`}
+                          key={`private-event-type-${type.id}`}
                           type="button"
-                          onClick={() => setNewPrivateTemplateId(template.id)}
+                          onClick={() => applyPrivateEventType(type.id)}
                           className={`rounded-xl border p-3 text-left transition-colors ${
-                            newPrivateTemplateId === template.id
-                              ? "border-primary bg-primary/5"
-                              : "border-border hover:bg-muted/20"
+                            newPrivateEventTypeId === type.id ? "border-primary bg-primary/5" : "border-border hover:bg-muted/20"
                           }`}
                         >
                           <p className="text-sm font-semibold flex items-center gap-1.5">
-                            <span aria-hidden>{template.emoji}</span>
-                            {template.label}
+                            <span aria-hidden>{type.emoji}</span>
+                            {privateTypeLabel(type.id, type.label)}
                           </p>
-                          <p className="text-xs text-muted-foreground mt-1">{template.description}</p>
+                          <p className="text-xs text-muted-foreground mt-1">{privateTypeDescription(type.id, type.description)}</p>
                         </button>
-                      );
-                    })}
+                      ))}
+                    </div>
                   </div>
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-muted-foreground">Location</Label>
-                  <LocationCombobox
-                    value={newEventLocation}
-                    onChange={setNewEventLocation}
-                    placeholder={newEventArea === "trips" ? "Search city or country…" : "Optional — e.g. Amsterdam"}
-                    data-testid="input-event-location"
-                  />
-                  {newEventArea === "trips" && (
-                    <p className="text-xs text-muted-foreground">Currency will be set automatically from the country.</p>
-                  )}
-                  {newEventArea === "parties" && newEventLocation && (
-                    <p className="text-xs text-muted-foreground">Currency set from country. Override in Advanced below.</p>
-                  )}
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-muted-foreground">{t.bbq.bbqName}</Label>
-                  <Input
-                    placeholder={t.events.event}
-                    value={newBbqName}
-                    onChange={e => setNewBbqName(e.target.value)}
-                    onKeyDown={e => e.key === "Enter" && handleCreateBbq()}
-                    autoFocus
-                    data-testid="input-bbq-name"
-                    className="focus-visible:ring-2 focus-visible:ring-primary/40"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-muted-foreground">{t.bbq.date}</Label>
-                  <Input
-                    type="date"
-                    value={newBbqDate}
-                    onChange={e => setNewBbqDate(e.target.value)}
-                    data-testid="input-bbq-date"
-                    className="focus-visible:ring-2 focus-visible:ring-primary/40"
-                  />
-                </div>
+                )}
+
+                {newPrivateCreateStep === 3 && (
+                  <div className="space-y-3">
+                    <div className={`rounded-xl border border-border/60 p-3 ${selectedCreatePrivateVibeTheme.gradientClass}`}>
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">{t.privateWizard.vibePreview}</p>
+                      <p className="text-sm font-semibold mt-1 flex items-center gap-1.5">
+                        <span aria-hidden>{selectedCreatePrivateType.emoji}</span>
+                        {privateTypeLabel(selectedCreatePrivateType.id, selectedCreatePrivateType.label)} · {privateVibeLabel(newPrivateEventVibeId, (selectedCreatePrivateVibes.find((v) => v.id === newPrivateEventVibeId)?.label) ?? newPrivateEventVibeId)}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">{privateVibeHelperCopy(newPrivateEventVibeId, selectedCreatePrivateVibeTheme.helperCopy)}</p>
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-semibold">{t.privateWizard.vibeTitle}</h4>
+                      <p className="text-xs text-muted-foreground mt-1">{t.privateWizard.vibeSubtitle}</p>
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {selectedCreatePrivateVibes.map((vibe) => (
+                        <button
+                          key={`private-event-vibe-${vibe.id}`}
+                          type="button"
+                          onClick={() => setNewPrivateEventVibeId(vibe.id)}
+                          className={`rounded-xl border p-3 text-left transition-colors ${
+                            newPrivateEventVibeId === vibe.id ? "border-primary bg-primary/5" : "border-border hover:bg-muted/20"
+                          }`}
+                        >
+                          <p className="text-sm font-semibold flex items-center gap-1.5">
+                            <span aria-hidden>{vibe.emoji}</span>
+                            {privateVibeLabel(vibe.id, vibe.label)}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">{privateVibeDescription(vibe.id, vibe.description)}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </ModalSection>

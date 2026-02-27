@@ -4,10 +4,16 @@ import { useAuth } from "@/hooks/use-auth";
 import { useBarbecues, useCheckoutPublicListing, useUpdateBarbecue } from "@/hooks/use-bbq-data";
 import Home from "@/pages/home";
 import ExplorePage from "@/pages/explore";
-import { Loader2, Home as HomeIcon, Lock, Globe, Compass, Plus, Copy, Pin, PinOff, ExternalLink, Megaphone } from "lucide-react";
+import { Loader2, Home as HomeIcon, Lock, Globe, Compass, Plus, Copy, Pin, PinOff, ExternalLink, Megaphone, Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 import { loadLocalUserPreferences } from "@/lib/user-preferences";
 import { copyText } from "@/lib/copy-text";
@@ -158,7 +164,7 @@ function AppSidebar({ section }: { section: AppSection }) {
           <span className="text-sm font-semibold tracking-tight cursor-pointer">Splanno</span>
         </Link>
       </div>
-      <nav className="p-3 space-y-1">
+      <nav className="p-3 space-y-1 shrink-0">
         {items.map((item) => {
           const active = section === item.key || (section === "event" && item.key === "home");
           const Icon = item.icon;
@@ -172,8 +178,34 @@ function AppSidebar({ section }: { section: AppSection }) {
           );
         })}
       </nav>
-      <div className="px-3 pb-3 space-y-3 border-t border-border/60 mt-auto">
-        <div className="pt-3 space-y-2">
+      <div className="border-t border-border/60 px-3 pt-3 pb-3 space-y-3 sticky top-0 bg-card/80 backdrop-blur-sm z-10 shrink-0">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button className="w-full justify-start">
+              <Plus className="h-4 w-4 mr-1.5" />
+              New event
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-72">
+            <DropdownMenuItem asChild>
+              <Link href="/app/private?new=private">
+                <a className="flex flex-col items-start py-2">
+                  <span className="text-sm font-medium">Private event</span>
+                  <span className="text-xs text-muted-foreground">Friends + split costs</span>
+                </a>
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link href="/app/public?new=public">
+                <a className="flex flex-col items-start py-2">
+                  <span className="text-sm font-medium">Public event</span>
+                  <span className="text-xs text-muted-foreground">Professional/public listing</span>
+                </a>
+              </Link>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <div className="space-y-2">
           <p className="text-[11px] uppercase tracking-wide text-muted-foreground px-1">Quick switch</p>
           <Input
             value={search}
@@ -181,36 +213,24 @@ function AppSidebar({ section }: { section: AppSection }) {
             placeholder="Search events..."
             className="h-8 text-xs"
           />
-          <div className="max-h-56 overflow-y-auto space-y-1 pr-1">
-            {filtered.length === 0 ? (
-              <p className="text-xs text-muted-foreground px-1 py-1.5">No events found</p>
-            ) : (
-              filtered.map((event) => (
-                <Link key={`sidebar-event-${event.id}`} href={`/app/e/${event.id}`}>
-                  <a className="block rounded-md border border-transparent px-2 py-1.5 text-xs hover:border-border/60 hover:bg-muted/30">
-                    <p className="truncate font-medium">{event.name}</p>
-                    <p className="truncate text-[10px] text-muted-foreground">
-                      {isPublicEvent(event) ? "Public" : "Private"} · {formatEventLocation(event)}
-                    </p>
-                  </a>
-                </Link>
-              ))
-            )}
-          </div>
         </div>
-        <div className="grid grid-cols-1 gap-2 pb-1">
-          <Link href="/app/private?new=private">
-            <Button size="sm" className="w-full justify-start">
-              <Plus className="h-4 w-4 mr-1.5" />
-              New private event
-            </Button>
-          </Link>
-          <Link href="/app/public?new=public">
-            <Button size="sm" variant="outline" className="w-full justify-start">
-              <Plus className="h-4 w-4 mr-1.5" />
-              New public event
-            </Button>
-          </Link>
+      </div>
+      <div className="px-3 pb-3 flex-1 min-h-0 overflow-y-auto">
+        <div className="space-y-1 pr-1">
+          {filtered.length === 0 ? (
+            <p className="text-xs text-muted-foreground px-1 py-1.5">No events found</p>
+          ) : (
+            filtered.map((event) => (
+              <Link key={`sidebar-event-${event.id}`} href={`/app/e/${event.id}`}>
+                <a className="block rounded-md border border-transparent px-2 py-1.5 text-xs hover:border-border/60 hover:bg-muted/30">
+                  <p className="truncate font-medium">{event.name}</p>
+                  <p className="truncate text-[10px] text-muted-foreground">
+                    {isPublicEvent(event) ? "Public" : "Private"} · {formatEventLocation(event)}
+                  </p>
+                </a>
+              </Link>
+            ))
+          )}
         </div>
       </div>
     </aside>
@@ -576,6 +596,9 @@ function PublicHomePage() {
 export default function AppRoute() {
   const [location, setLocation] = useLocation();
   const { user, isLoading: isAuthLoading } = useAuth();
+  const { data: appEvents = [] } = useBarbecues();
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [mobileQuickSwitchSearch, setMobileQuickSwitchSearch] = useState("");
 
   const pathname = typeof window !== "undefined" ? window.location.pathname : (location.split("?")[0] || "/app");
   const search = typeof window !== "undefined" ? window.location.search : "";
@@ -633,8 +656,171 @@ export default function AppRoute() {
     (section === "private" && newFlow === "private") ||
     (section === "public" && newFlow === "public");
 
+  useEffect(() => {
+    setIsSidebarOpen(false);
+  }, [pathname, search]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsSidebarOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const prev = document.body.style.overflow;
+    if (isSidebarOpen) document.body.style.overflow = "hidden";
+    else document.body.style.overflow = prev || "";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [isSidebarOpen]);
+
+  const mobileQuickSwitchEvents = useMemo(() => {
+    const q = mobileQuickSwitchSearch.trim().toLowerCase();
+    const sorted = [...appEvents].sort((a, b) => getEventDateMs(b) - getEventDateMs(a));
+    if (!q) return sorted.slice(0, 12);
+    return sorted.filter((event) => {
+      const locationText = `${event.city ?? ""} ${event.countryName ?? ""} ${event.locationName ?? ""}`;
+      return event.name.toLowerCase().includes(q) || locationText.toLowerCase().includes(q);
+    }).slice(0, 12);
+  }, [appEvents, mobileQuickSwitchSearch]);
+
+  const currentEventName = useMemo(() => {
+    if (section !== "event" || !routeEventId) return null;
+    return appEvents.find((e) => e.id === routeEventId)?.name ?? null;
+  }, [section, routeEventId, appEvents]);
+
+  const mobileSectionLabel = section === "event"
+    ? (currentEventName ?? "Event")
+    : section === "private"
+      ? "Private"
+      : section === "public"
+        ? "Public"
+        : section === "explore"
+          ? "Explore"
+          : "Home";
+
   return (
     <div className="min-h-screen bg-background lg:flex">
+      <header className="lg:hidden sticky top-0 z-40 h-14 border-b border-border/60 bg-background/95 backdrop-blur-sm">
+        <div className="h-full px-3 flex items-center justify-between">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-9 w-9"
+            onClick={() => setIsSidebarOpen(true)}
+            aria-label="Open navigation"
+          >
+            <Menu className="h-5 w-5" />
+          </Button>
+          <p className="text-sm font-semibold truncate px-2">{mobileSectionLabel}</p>
+          <div className="w-9" />
+        </div>
+      </header>
+
+      {isSidebarOpen && (
+        <div className="lg:hidden fixed inset-0 z-50">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/45"
+            aria-label="Close navigation drawer"
+            onClick={() => setIsSidebarOpen(false)}
+          />
+          <aside className="absolute left-0 top-0 h-full w-[86vw] max-w-xs bg-background border-r border-border/60 shadow-xl flex flex-col">
+            <div className="h-14 px-4 border-b border-border/60 flex items-center justify-between">
+              <span className="text-sm font-semibold tracking-tight">Splanno</span>
+              <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setIsSidebarOpen(false)} aria-label="Close drawer">
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <nav className="p-3 space-y-1 shrink-0">
+              {[
+                { href: "/app/home", label: "Home", icon: HomeIcon, key: "home" as AppSection },
+                { href: "/app/private", label: "Private", icon: Lock, key: "private" as AppSection },
+                { href: "/app/public", label: "Public", icon: Globe, key: "public" as AppSection },
+                { href: "/app/explore", label: "Explore", icon: Compass, key: "explore" as AppSection },
+              ].map((item) => {
+                const Icon = item.icon;
+                const active = section === item.key || (section === "event" && item.key === "home");
+                return (
+                  <Link key={`mobile-nav-${item.href}`} href={item.href}>
+                    <a
+                      onClick={() => setIsSidebarOpen(false)}
+                      className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition ${active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
+                    >
+                      <Icon className="h-4 w-4" />
+                      <span>{item.label}</span>
+                    </a>
+                  </Link>
+                );
+              })}
+            </nav>
+            <div className="border-t border-border/60 px-3 py-3 space-y-3 shrink-0">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button className="w-full justify-start">
+                    <Plus className="h-4 w-4 mr-1.5" />
+                    New event
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="w-72">
+                  <DropdownMenuItem asChild>
+                    <Link href="/app/private?new=private">
+                      <a className="flex flex-col items-start py-2" onClick={() => setIsSidebarOpen(false)}>
+                        <span className="text-sm font-medium">Private event</span>
+                        <span className="text-xs text-muted-foreground">Friends + split costs</span>
+                      </a>
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/app/public?new=public">
+                      <a className="flex flex-col items-start py-2" onClick={() => setIsSidebarOpen(false)}>
+                        <span className="text-sm font-medium">Public event</span>
+                        <span className="text-xs text-muted-foreground">Professional/public listing</span>
+                      </a>
+                    </Link>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+              <div className="space-y-2">
+                <p className="text-[11px] uppercase tracking-wide text-muted-foreground px-1">Quick switch</p>
+                <Input
+                  value={mobileQuickSwitchSearch}
+                  onChange={(e) => setMobileQuickSwitchSearch(e.target.value)}
+                  placeholder="Search events..."
+                  className="h-8 text-xs"
+                />
+              </div>
+            </div>
+            <div className="px-3 pb-3 flex-1 min-h-0 overflow-y-auto">
+              <div className="space-y-1 pr-1">
+                {mobileQuickSwitchEvents.length === 0 ? (
+                  <p className="text-xs text-muted-foreground px-1 py-1.5">No events found</p>
+                ) : (
+                  mobileQuickSwitchEvents.map((event) => (
+                    <Link key={`mobile-event-${event.id}`} href={`/app/e/${event.id}`}>
+                      <a
+                        onClick={() => setIsSidebarOpen(false)}
+                        className="block rounded-md border border-transparent px-2 py-1.5 text-xs hover:border-border/60 hover:bg-muted/30"
+                      >
+                        <p className="truncate font-medium">{event.name}</p>
+                        <p className="truncate text-[10px] text-muted-foreground">
+                          {isPublicEvent(event) ? "Public" : "Private"} · {formatEventLocation(event)}
+                        </p>
+                      </a>
+                    </Link>
+                  ))
+                )}
+              </div>
+            </div>
+          </aside>
+        </div>
+      )}
+
       <AppSidebar section={section} />
       <main className="min-w-0 flex-1">
         {section === "home" && <AppDashboardHome />}

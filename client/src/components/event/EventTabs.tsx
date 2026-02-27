@@ -14,7 +14,8 @@ const EventTabsList = React.forwardRef<
   <TabsPrimitive.List
     ref={ref}
     className={cn(
-      "inline-flex w-full items-center gap-6 border-b border-[hsl(var(--border-subtle))] bg-transparent px-0 pb-0 pt-0 text-muted-foreground",
+      "inline-flex w-full items-center justify-start gap-4 border-b border-[hsl(var(--border-subtle))] bg-transparent px-0 pb-0 pt-0 text-muted-foreground",
+      "overflow-x-auto whitespace-nowrap [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
       className
     )}
     {...props}

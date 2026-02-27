@@ -13,7 +13,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Plus, Link2, MessageCircle, Settings, ChevronDown, CalendarPlus } from "lucide-react";
+import { Plus, Link2, MessageCircle, Settings, ChevronDown, CalendarPlus, MoreHorizontal } from "lucide-react";
 
 export interface EventHeaderProps {
   category: EventCategory;
@@ -130,7 +130,77 @@ export function EventHeader({
             </div>
           </div>
           {/* Right: primary actions + overflow */}
-          <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+          <div className="md:hidden flex items-center gap-2 flex-shrink-0 flex-wrap">
+            {showAddExpenseAction && (
+              <Button
+                size="sm"
+                onClick={onAddExpense}
+                className="btn-interact h-8 bg-primary text-primary-foreground text-xs font-medium px-3"
+                data-testid="button-add-expense-header-mobile"
+              >
+                <Plus className="w-3.5 h-3.5 mr-1.5" />
+                {addExpenseLabel}
+              </Button>
+            )}
+            {onShare && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 text-xs"
+                onClick={onShare}
+              >
+                <Link2 className="w-3.5 h-3.5 mr-1.5" />
+                Share
+              </Button>
+            )}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="outline" className="h-8 w-8 p-0" aria-label="More actions">
+                  <MoreHorizontal className="w-4 h-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                {!showAddExpenseAction && (
+                  <DropdownMenuItem onSelect={onAddExpense}>
+                    <Plus className="w-4 h-4 mr-2" />
+                    {addExpenseLabel}
+                  </DropdownMenuItem>
+                )}
+                {onShare && (
+                  <DropdownMenuItem onSelect={onShare}>
+                    <Link2 className="w-4 h-4 mr-2" />
+                    Copy link
+                  </DropdownMenuItem>
+                )}
+                {onShareWhatsApp && (
+                  <DropdownMenuItem onSelect={onShareWhatsApp}>
+                    <MessageCircle className="w-4 h-4 mr-2" />
+                    {shareWhatsAppLabel}
+                  </DropdownMenuItem>
+                )}
+                {onCreateWhatsAppGroup && (
+                  <DropdownMenuItem onSelect={onCreateWhatsAppGroup}>
+                    <MessageCircle className="w-4 h-4 mr-2" />
+                    {createWhatsAppGroupLabel}
+                  </DropdownMenuItem>
+                )}
+                {onAddToCalendar && (
+                  <DropdownMenuItem onSelect={onAddToCalendar}>
+                    <CalendarPlus className="w-4 h-4 mr-2" />
+                    Add to Calendar
+                  </DropdownMenuItem>
+                )}
+                {isCreator && onOpenSettings && (
+                  <DropdownMenuItem onSelect={onOpenSettings}>
+                    <Settings className="w-4 h-4 mr-2" />
+                    Settings
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+
+          <div className="hidden md:flex items-center gap-2 flex-shrink-0 flex-wrap">
             {onShare && (onShareWhatsApp || onCreateWhatsAppGroup ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>

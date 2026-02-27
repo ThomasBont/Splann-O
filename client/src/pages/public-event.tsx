@@ -15,6 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { copyText } from "@/lib/copy-text";
 import { buildIcs, downloadIcs, inferEventDateRange } from "@/lib/calendar-ics";
 import { buildMapsUrl, openMaps } from "@/lib/maps";
+import { EMPTY_COPY, UI_COPY } from "@/lib/emotional-copy";
 
 export default function PublicEventPage() {
   const [, params] = useRoute("/events/:slug");
@@ -27,6 +28,7 @@ export default function PublicEventPage() {
   const [messageOpen, setMessageOpen] = useState(false);
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [draftMessage, setDraftMessage] = useState("");
+  const [bannerLoaded, setBannerLoaded] = useState(false);
   const messagingEligibility = usePublicEventMessagingEligibility(data?.id ?? null, !!data && !!user);
   const createConversation = useCreatePublicConversation(data?.id ?? null);
   const conversation = useConversation(conversationId, messageOpen && !!conversationId);
@@ -35,6 +37,10 @@ export default function PublicEventPage() {
   const isExpired = errorCode === "gone";
   const isUnavailable = errorCode === "not_found" || errorCode === "gone";
   const shareUrl = useMemo(() => (slug && typeof window !== "undefined" ? `${window.location.origin}/events/${slug}` : ""), [slug]);
+
+  useEffect(() => {
+    setBannerLoaded(false);
+  }, [data?.bannerImageUrl, data?.id]);
 
   useEffect(() => {
     if (!data || typeof document === "undefined") return;
@@ -68,7 +74,7 @@ export default function PublicEventPage() {
         if (!shareUrl) return;
         const ok = await copyText(shareUrl);
         if (ok) {
-          toast({ variant: "success", message: "Link copied" });
+          toast({ variant: "success", message: UI_COPY.toasts.copied });
         } else {
           toast({ variant: "default", message: "Press Ctrl/Cmd+C to copy the link" });
         }
@@ -94,10 +100,10 @@ export default function PublicEventPage() {
         return;
       }
       const ok = await copyText(shareUrl);
-      if (ok) toast({ variant: "success", message: "Link copied" });
+      if (ok) toast({ variant: "success", message: UI_COPY.toasts.copied });
       else toast({ variant: "default", message: "Copy failed — select and copy manually." });
     } catch {
-      toast({ variant: "error", message: "Couldn’t share event link" });
+      toast({ variant: "error", message: "Couldn’t share event link. Try again." });
     }
   };
 
@@ -183,7 +189,7 @@ export default function PublicEventPage() {
             )}
             <Button variant="outline" onClick={handleShare} disabled={!data}>
               <Share2 className="h-4 w-4 mr-1.5" />
-              Share
+              {UI_COPY.actions.share}
             </Button>
           </div>
         </div>
@@ -234,9 +240,17 @@ export default function PublicEventPage() {
 
         {data && (
           <div className="space-y-5">
-            <div className={`h-48 sm:h-60 rounded-2xl border bg-gradient-to-br from-muted to-muted/40 flex items-center justify-center text-muted-foreground overflow-hidden ${data.publicTemplate === "keynote" ? "shadow-lg" : ""}`}>
+            <div className={`relative h-48 sm:h-60 rounded-2xl border bg-gradient-to-br from-muted to-muted/40 flex items-center justify-center text-muted-foreground overflow-hidden ${data.publicTemplate === "keynote" ? "shadow-lg" : ""}`}>
               {data.bannerImageUrl ? (
-                <img src={data.bannerImageUrl} alt={data.title} className="h-full w-full object-cover rounded-2xl" />
+                <>
+                  <img
+                    src={data.bannerImageUrl}
+                    alt={data.title}
+                    onLoad={() => setBannerLoaded(true)}
+                    className={`h-full w-full object-cover rounded-2xl transition-opacity duration-200 ${bannerLoaded ? "opacity-100" : "opacity-0"}`}
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/35 via-black/10 to-transparent pointer-events-none" />
+                </>
               ) : (
                 <span>Banner placeholder</span>
               )}
@@ -289,9 +303,9 @@ export default function PublicEventPage() {
                   </p>
                 </div>
 
-                {data.publicDescription && (
-                  <p className="text-sm leading-6 whitespace-pre-wrap">{data.publicDescription}</p>
-                )}
+                <p className="text-sm leading-6 whitespace-pre-wrap text-foreground/90">
+                  {data.publicDescription || EMPTY_COPY.publicNoDetails}
+                </p>
 
                 {data.organizer && (
                   <div className="rounded-xl border bg-muted/15 p-4 flex items-center justify-between gap-3">
@@ -358,7 +372,7 @@ export default function PublicEventPage() {
                       <p className="text-sm text-muted-foreground">Choose a tier above to send a request. Organizers can review requests before approving.</p>
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <Users className="h-3.5 w-3.5" />
-                        {rsvpSummary.data?.myRsvp ? `Your RSVP: ${rsvpSummary.data.myRsvp.status}` : "No RSVP yet"}
+                        {rsvpSummary.data?.myRsvp ? `Your RSVP: ${rsvpSummary.data.myRsvp.status}` : EMPTY_COPY.publicNoRsvp}
                       </div>
                     </div>
                   ) : (
@@ -433,7 +447,7 @@ export default function PublicEventPage() {
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1">
               {conversation.data.messages.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-8 text-center">No messages yet. Start the conversation.</p>
+                <p className="text-sm text-muted-foreground py-8 text-center">{EMPTY_COPY.publicNoMessages}</p>
               ) : (
                 conversation.data.messages.map((msg) => {
                   const mine = !!user && msg.senderUserId === user.id;

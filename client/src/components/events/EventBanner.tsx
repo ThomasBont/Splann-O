@@ -59,6 +59,7 @@ export function EventBanner({
   const [pending, setPending] = useState(false);
   const [localPreviewUrl, setLocalPreviewUrl] = useState<string | null>(null);
   const [localPresetId, setLocalPresetId] = useState<EventBannerPresetId | null>(null);
+  const [imageLoaded, setImageLoaded] = useState(false);
 
   useEffect(() => {
     if (!pending) {
@@ -70,6 +71,10 @@ export function EventBanner({
   const { uploadedUrl, presetId: persistedPresetId } = getEventBanner(event);
   const activePresetId = localPresetId ?? persistedPresetId;
   const presetClass = getBannerPresetClass(activePresetId);
+
+  useEffect(() => {
+    setImageLoaded(false);
+  }, [uploadedUrl, localPreviewUrl, event.id]);
 
   const renderMode = useMemo(() => {
     if (localPreviewUrl || uploadedUrl) return "image" as const;
@@ -127,8 +132,13 @@ export function EventBanner({
     <div className={`relative rounded-2xl border border-border/60 overflow-hidden shadow-sm ${className ?? ""}`}>
       {renderMode === "image" && imageSrc ? (
         <div className="relative h-36 sm:h-44 transition-opacity duration-[240ms]">
-          <img src={imageSrc} alt={event.name} className="h-full w-full object-cover" />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/35 via-transparent to-transparent" />
+          <img
+            src={imageSrc}
+            alt={event.name}
+            onLoad={() => setImageLoaded(true)}
+            className={`h-full w-full object-cover transition-opacity duration-200 ${imageLoaded ? "opacity-100" : "opacity-0"}`}
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-black/10 to-transparent pointer-events-none" />
         </div>
       ) : (
         <div className={`h-36 sm:h-44 px-5 py-4 flex items-end justify-between transition-colors duration-[240ms] ${presetClass ?? templateFallbackClassName}`}>

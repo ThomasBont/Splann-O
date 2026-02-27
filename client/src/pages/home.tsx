@@ -74,6 +74,7 @@ import { useTheme } from "@/hooks/use-theme";
 import { useEventHeaderPreferences } from "@/hooks/use-event-header-preferences";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
+import { useAppToast } from "@/hooks/use-app-toast";
 import { useUpgrade } from "@/contexts/UpgradeContext";
 import { UpgradeRequiredError } from "@/lib/upgrade";
 import {
@@ -124,6 +125,8 @@ import { buildWhatsAppMessage, buildWhatsAppShareUrl } from "@/lib/share-message
 import { copyText } from "@/lib/copy-text";
 import { buildIcs, downloadIcs, inferEventDateRange } from "@/lib/calendar-ics";
 import { buildMapsUrl, openMaps } from "@/lib/maps";
+import { InlineQueryError, SkeletonAvatar, SkeletonCard, SkeletonLine } from "@/components/ui/load-states";
+import { EMPTY_COPY, UI_COPY } from "@/lib/emotional-copy";
 import type { EventBannerPresetId } from "@/lib/event-banner";
 import {
   defaultPrivateSuggestionState,
@@ -495,6 +498,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
   const [, setLocation] = useLocation();
   const username = user?.username ?? null;
   const { toast } = useToast();
+  const { toastSuccess, toastError, toastInfo, toastWarning } = useAppToast();
   const { showUpgrade } = useUpgrade();
   const shouldReduceMotion = useReducedMotion();
   const isManagedAppRoute = appRouteMode !== "legacy";
@@ -736,7 +740,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
     if (!listing) return;
 
     if (listing === "success") {
-      toast({ title: "Listing activated", variant: "success" });
+      toastSuccess("Listing activated");
       queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] });
       queryClient.invalidateQueries({ queryKey: ["/api/explore/events"] });
       if (Number.isFinite(eventIdParam)) {
@@ -744,7 +748,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
         setEventVisibilityTab("public");
       }
     } else if (listing === "cancel") {
-      toast({ title: "Payment cancelled", variant: "warning" });
+      toastWarning("Payment cancelled");
     }
 
     url.searchParams.delete("listing");
@@ -752,7 +756,12 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
     window.history.replaceState({}, "", url.toString());
   }, [queryClient, toast]);
 
-  const { data: barbecues = [], isLoading: isLoadingBbqs } = useBarbecues();
+  const {
+    data: barbecues = [],
+    isLoading: isLoadingBbqs,
+    error: barbecuesError,
+    refetch: refetchBarbecues,
+  } = useBarbecues();
   const privateSuggestedLocations = useMemo(() => {
     const items = barbecues
       .map((event: Barbecue) => {
@@ -926,7 +935,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
       if (activeEventTab === "split") {
         setActiveEventTab("overview");
         if (publicSplitGuardedEventRef.current !== selectedBbq.id) {
-          toast({ title: "Split Check is available only for private events.", variant: "default" });
+          toastInfo("Split Check is available only for private events.");
           publicSplitGuardedEventRef.current = selectedBbq.id;
         }
         return;
@@ -1179,13 +1188,13 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
   const handleJoin = (bbqId: number) => {
     if (!username) return;
     joinBbq.mutate({ bbqId, name: username, userId: username }, {
-      onSuccess: () => toast({ title: t.user.joinBbq, description: `${t.user.pending}...` }),
+      onSuccess: () => toastInfo(`${t.user.joinBbq}. ${t.user.pending}...`),
       onError: (err: unknown) => {
         if (err instanceof UpgradeRequiredError) { showUpgrade(err.payload); return; }
         const msg = (err as Error).message;
-        if (msg === "already_joined") toast({ title: t.user.joined });
-        else if (msg === "already_pending") toast({ title: t.user.pending });
-        else toast({ title: msg, variant: "destructive" });
+        if (msg === "already_joined") toastInfo(t.user.joined);
+        else if (msg === "already_pending") toastInfo(t.user.pending);
+        else toastError("Couldn’t join event. Try again.");
       },
     });
   };
@@ -1196,7 +1205,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
       { bbqId: bbq.id, name: username, userId: username },
       {
         onSuccess: () => {
-          toast({ title: t.user.joinBbq, description: `${t.user.pending}...` });
+          toastInfo(`${t.user.joinBbq}. ${t.user.pending}...`);
           queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] });
           queryClient.invalidateQueries({ queryKey: ["/api/barbecues/public"] });
           setSelectedBbqId(bbq.id);
@@ -1206,9 +1215,9 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
         onError: (err: unknown) => {
           if (err instanceof UpgradeRequiredError) { showUpgrade(err.payload); return; }
           const msg = (err as Error).message;
-          if (msg === "already_joined") toast({ title: t.user.joined });
-          else if (msg === "already_pending") toast({ title: t.user.pending });
-          else toast({ title: msg, variant: "destructive" });
+          if (msg === "already_joined") toastInfo(t.user.joined);
+          else if (msg === "already_pending") toastInfo(t.user.pending);
+          else toastError("Couldn’t join event. Try again.");
         },
       }
     );
@@ -1217,7 +1226,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
   const handleCreateBbq = () => {
     if (!newBbqName.trim()) return;
     if (newBbqVisibilityOrigin === "public" && !newEventLocation) {
-      toast({ title: "Location is required for public events.", variant: "destructive" });
+      toastError("Location is required for public events.");
       return;
     }
     const requestedPublicOnCreate = newBbqIsPublic;
@@ -1330,7 +1339,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
             setLocation(`/events/${slug}?created=1`);
             return;
           }
-          toast({ title: "Public page created", variant: "success" });
+          toastSuccess("Public page created");
         } else {
           setNewBbqName(""); setNewBbqDate(new Date().toISOString().split('T')[0]); setNewBbqTime(""); setNewBbqAllowOptIn(false);
           setNewEventArea("parties"); setNewEventType("barbecue"); setNewEventLocation(null); setNewBbqPublicMode("marketing");
@@ -1341,7 +1350,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
       },
       onError: (err: unknown) => {
         if (err instanceof UpgradeRequiredError) { showUpgrade(err.payload); return; }
-        toast({ title: t.bbq.create, description: (err as Error).message || "Failed to create barbecue", variant: "destructive" });
+        toastError("Couldn’t create event. Try again.");
       },
     });
   };
@@ -1459,12 +1468,12 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
     inviteParticipant.mutate(inviteUsername.trim(), {
       onSuccess: () => {
         setInviteUsername("");
-        toast({ variant: "success", title: t.bbq.inviteSent });
+        toastSuccess(t.bbq.inviteSent);
       },
       onError: (err: unknown) => {
         if (err instanceof UpgradeRequiredError) { showUpgrade(err.payload); return; }
         const msg = (err as Error).message;
-        toast({ title: msg === "already_member" ? t.bbq.alreadyMember : msg, variant: "destructive" });
+        toastError(msg === "already_member" ? t.bbq.alreadyMember : "Couldn’t send invite. Try again.");
       },
     });
   };
@@ -1490,9 +1499,9 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
     settleUp.mutate(selectedBbqId, {
       onSuccess: () => {
         setSettleUpModalOpen(false);
-        toast({ title: `${t.settleUp.toastSuccess} 💸`, variant: "success" });
+        toastSuccess(`${t.settleUp.toastSuccess} 💸`);
       },
-      onError: (err) => toast({ title: (err as Error).message, variant: "destructive" }),
+      onError: () => toastError("Couldn’t settle up. Try again."),
     });
   };
 
@@ -1512,7 +1521,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
   const privateVibeDescription = (vibeId: string, fallback: string) => t.privateWizard.vibeDescriptions[vibeId] ?? fallback;
   const privateVibeHelperCopy = (vibeId: string, fallback: string) => t.privateWizard.vibeHelperCopy[vibeId] ?? fallback;
   const isPrivateBasicsValid = !!newBbqName.trim() && !!newBbqDate;
-  const headerPrimaryActionLabel = !isPublicBuilderContext && activeEventTab === "people" ? "Invite people" : t.addExpense;
+  const headerPrimaryActionLabel = !isPublicBuilderContext && activeEventTab === "people" ? "Invite" : UI_COPY.actions.addExpense;
   const headerPrimaryActionVisible = !isPublicBuilderContext && (activeEventTab === "expenses" || activeEventTab === "people");
   const handleHeaderPrimaryAction = () => {
     if (isPublicBuilderContext) return;
@@ -1792,8 +1801,8 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
             variant="outline"
             className="border-amber-500/50 text-amber-700 dark:text-amber-300 hover:bg-amber-500/20"
             onClick={() => resendVerification.mutate(undefined, {
-              onSuccess: (data) => toast({ title: data?.sent ? "Verification email sent" : "Check your profile", variant: "default" }),
-              onError: () => toast({ title: "Could not send. Try again later.", variant: "destructive" }),
+              onSuccess: (data) => toastInfo(data?.sent ? "Verification email sent" : "Check your profile"),
+              onError: () => toastError("Couldn’t send verification email. Try again."),
             })}
             disabled={resendVerification.isPending}
           >
@@ -1965,7 +1974,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                 <Loader2 className="w-4 h-4 animate-spin text-muted-foreground mx-2" />
               ) : pinnedBarbecuesForArea.length === 0 ? (
                 <span className="text-xs text-muted-foreground px-2 py-1.5 italic">
-                  {eventVisibilityTab === "private" ? "No pinned private events yet" : "No pinned public events yet"}
+                  {eventVisibilityTab === "private" ? "No pinned plans yet" : "No pinned events yet"}
                 </span>
               ) : (
                 pinnedBarbecuesForArea.map((bbq: Barbecue) => {
@@ -2130,7 +2139,31 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
         )}
 
         {/* Main Content */}
-        {selectedBbqId ? (() => {
+        {selectedBbqId && isLoadingBbqs ? (
+          <div className="rounded-2xl border border-border/60 bg-card p-5 sm:p-6 space-y-5">
+            <SkeletonCard className="h-44 rounded-2xl" />
+            <div className="flex items-start gap-3">
+              <SkeletonAvatar className="h-12 w-12 rounded-xl" />
+              <div className="flex-1 space-y-2">
+                <SkeletonLine className="h-6 w-1/2" />
+                <SkeletonLine className="h-4 w-1/3" />
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <SkeletonCard className="h-9 w-24 rounded-lg" />
+              <SkeletonCard className="h-9 w-28 rounded-lg" />
+              <SkeletonCard className="h-9 w-20 rounded-lg" />
+            </div>
+            <SkeletonCard className="h-64 rounded-xl" />
+          </div>
+        ) : selectedBbqId && barbecuesError ? (
+          <InlineQueryError
+            message="Couldn’t load this event. Try again."
+            onRetry={() => {
+              void refetchBarbecues();
+            }}
+          />
+        ) : selectedBbqId ? (() => {
           const eventTemplate = getEventTemplate(selectedBbq?.eventType);
           const eventCategory = normalizeEvent(selectedBbq ?? {}).category;
           const eventKind = eventCategory === "trip" ? "trip" : "party";
@@ -2161,7 +2194,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                 ? () => {
                     const range = inferEventDateRange(selectedBbq.date as unknown as string);
                     if (!range) {
-                      toast({ title: "Event date is missing or invalid.", variant: "default" });
+                      toastInfo("Event date is missing or invalid.");
                       return;
                     }
                     const location =
@@ -2193,7 +2226,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                       .replace(/^-+|-+$/g, "")
                       .slice(0, 64) || "event";
                     downloadIcs(`${safeName}.ics`, ics);
-                    toast({ title: "Calendar file downloaded", variant: "success" });
+                    toastSuccess("Calendar file downloaded");
                   }
                 : undefined,
             onOpenInMaps:
@@ -2222,17 +2255,17 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                         ? `${typeof window !== "undefined" ? window.location.origin : ""}/join/${inviteToken}`
                         : null;
                     if (!url) {
-                      toast({ title: "Link not ready yet. Open Event Settings to generate an invite link.", variant: "default" });
+                      toastInfo("Link not ready yet. Open Event Settings to generate an invite link.");
                       return;
                     }
                     const ok = await copyText(url);
                     if (ok) {
-                      toast({ title: t.bbq.copySuccess, variant: "success" });
+                      toastSuccess(t.bbq.copySuccess);
                       return;
                     }
                     setManualCopyValue(url);
                     setManualCopyOpen(true);
-                    toast({ title: "Copy failed — select and copy manually.", variant: "default" });
+                    toastInfo("Copy failed — select and copy manually.");
                   }
                 : undefined,
             onShareWhatsApp:
@@ -2259,7 +2292,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                     });
                     const shareUrl = buildWhatsAppShareUrl(message);
                     window.open(shareUrl, "_blank", "noopener,noreferrer");
-                    toast({ title: "Opening WhatsApp…" });
+                    toastInfo("Opening WhatsApp…");
                   }
                 : undefined,
             onCreateWhatsAppGroup:
@@ -2289,7 +2322,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                     setWhatsAppStarterOpen(true);
                   }
                 : undefined,
-            shareLabel: isPublicBuilderContext ? "Copy link" : "Share",
+            shareLabel: isPublicBuilderContext ? "Copy link" : UI_COPY.actions.share,
             shareWhatsAppLabel: "Share to WhatsApp",
             createWhatsAppGroupLabel: "Create WhatsApp group",
             utilityPreferences: eventHeaderPrefs,
@@ -2332,7 +2365,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                           },
                         },
                       });
-                      toast({ title: "Banner updated", variant: "success" });
+                      toastSuccess("Banner updated");
                     } : undefined}
                     onSelectBannerPreset={isCreator ? async (presetId: EventBannerPresetId) => {
                       const currentTemplate = (selectedBbq.templateData && typeof selectedBbq.templateData === "object")
@@ -2354,7 +2387,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                           },
                         },
                       });
-                      toast({ title: "Banner preset applied", variant: "success" });
+                      toastSuccess("Banner preset applied");
                     } : undefined}
                     onResetBanner={isCreator ? async () => {
                       const currentTemplate = (selectedBbq.templateData && typeof selectedBbq.templateData === "object")
@@ -2369,7 +2402,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                         bannerImageUrl: null,
                         templateData: restTemplate,
                       });
-                      toast({ title: "Banner reset", variant: "success" });
+                      toastSuccess("Banner reset");
                     } : undefined}
                   />
                 ) : (
@@ -2388,7 +2421,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                 onUpdate={(updates) => {
                   if (!selectedBbq) return;
                   updateBbq.mutate({ id: selectedBbq.id, ...updates }, {
-                    onError: (err) => toast({ title: (err as Error).message, variant: "destructive" }),
+                    onError: () => toastError("Couldn’t update event settings. Try again."),
                   });
                 }}
                 onDelete={selectedBbq ? () => handleDeleteBbq(selectedBbq.id) : undefined}
@@ -2397,8 +2430,8 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                     ? async () => {
                         const url = `${typeof window !== "undefined" ? window.location.origin : ""}/join/${selectedBbq.inviteToken}`;
                         const ok = await copyText(url);
-                        if (ok) toast({ title: t.bbq.copySuccess, variant: "success" });
-                        else toast({ title: "Copy failed — select and copy manually.", variant: "default" });
+                        if (ok) toastSuccess(t.bbq.copySuccess);
+                        else toastInfo("Copy failed — select and copy manually.");
                       }
                     : selectedBbq && isCreator
                       ? async () => {
@@ -2406,8 +2439,8 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                           if (!ensured?.inviteToken) return;
                           const url = `${typeof window !== "undefined" ? window.location.origin : ""}/join/${ensured.inviteToken}`;
                           const ok = await copyText(url);
-                          if (ok) toast({ title: t.bbq.copySuccess, variant: "success" });
-                          else toast({ title: "Copy failed — select and copy manually.", variant: "default" });
+                          if (ok) toastSuccess(t.bbq.copySuccess);
+                          else toastInfo("Copy failed — select and copy manually.");
                         }
                       : undefined
                 }
@@ -2420,15 +2453,15 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                       onError: (err) => {
                         const msg = (err as Error).message || "";
                         if (/APP_URL/i.test(msg)) return;
-                        toast({ title: msg, variant: "destructive" });
+                        toastError("Couldn’t activate listing. Try again.");
                       },
                     },
                   );
                 } : undefined}
                 onDeactivateListing={selectedBbq ? () => {
                   deactivateListing.mutate(selectedBbq.id, {
-                    onSuccess: () => toast({ title: "Listing deactivated", variant: "success" }),
-                    onError: (err) => toast({ title: (err as Error).message, variant: "destructive" }),
+                    onSuccess: () => toastSuccess("Listing deactivated"),
+                    onError: () => toastError("Couldn’t deactivate listing. Try again."),
                   });
                 } : undefined}
                 allowOptInExpenses={selectedBbq?.allowOptInExpenses ?? false}
@@ -2703,7 +2736,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                               Messages unavailable.
                             </div>
                           ) : publicInboxConversations.length === 0 ? (
-                            <div className="rounded-lg border border-border/50 bg-muted/15 p-4 text-sm text-muted-foreground">No messages yet.</div>
+                            <div className="rounded-lg border border-border/50 bg-muted/15 p-4 text-sm text-muted-foreground">{EMPTY_COPY.publicNoMessages}</div>
                           ) : (
                             <div className="space-y-2">
                               {publicInboxConversations.map((convo) => {
@@ -2720,7 +2753,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                                       <p className="text-sm font-medium truncate">{title}</p>
                                       <span className={`text-[10px] uppercase tracking-wide ${convo.status === "pending" ? "text-amber-600 dark:text-amber-300" : "text-muted-foreground"}`}>{convo.status}</span>
                                     </div>
-                                    <p className="mt-1 text-xs text-muted-foreground line-clamp-2">{convo.lastMessage?.body || "No messages yet"}</p>
+                                    <p className="mt-1 text-xs text-muted-foreground line-clamp-2">{convo.lastMessage?.body || EMPTY_COPY.publicNoMessages}</p>
                                   </button>
                                 );
                               })}
@@ -2752,7 +2785,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                               </div>
                               <div className="flex-1 min-h-0 overflow-y-auto py-3 space-y-2">
                                 {publicInboxThread.data.messages.length === 0 ? (
-                                  <p className="text-sm text-muted-foreground">No messages yet.</p>
+                                  <p className="text-sm text-muted-foreground">{EMPTY_COPY.publicNoMessages}</p>
                                 ) : (
                                   publicInboxThread.data.messages.map((msg) => {
                                     const mine = !!user && msg.senderUserId === user.id;
@@ -2775,7 +2808,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                                     if (!next) return;
                                     sendPublicInboxMessage.mutate(next, {
                                       onSuccess: () => setPublicInboxDraft(""),
-                                      onError: (err) => toast({ title: (err as Error).message, variant: "destructive" }),
+                                      onError: () => toastError("Couldn’t update request status. Try again."),
                                     });
                                   }
                                 }} />
@@ -2784,13 +2817,13 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                                   if (!next) return;
                                   sendPublicInboxMessage.mutate(next, {
                                     onSuccess: () => setPublicInboxDraft(""),
-                                    onError: (err) => toast({ title: (err as Error).message, variant: "destructive" }),
+                                    onError: () => toastError("Couldn’t update request status. Try again."),
                                   });
                                 }}>Send</Button>
                               </div>
                             </>
                           ) : (
-                            <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">Couldn’t load this conversation.</div>
+                            <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">This conversation is unavailable right now.</div>
                           )}
                         </div>
                       </div>
@@ -2801,7 +2834,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                       <EmptyState
                         icon="🗂️"
                         title="No content yet"
-                        description="Add event updates and resources when they are ready."
+                        description="Post updates when you’re ready — your attendees will see them here."
                       />
                     </div>
                   </EventTabsContent>
@@ -2819,7 +2852,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                       </div>
                     </div>
                     {publicRsvpRequests.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">No RSVP requests yet.</p>
+                      <p className="text-sm text-muted-foreground">No requests yet — approvals will appear here.</p>
                     ) : (
                       <div className="space-y-2">
                         {publicRsvpRequests.map((req) => (
@@ -2895,7 +2928,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                           inviteParticipant.mutate(username, {
                             onError: (err: unknown) => {
                               if (err instanceof UpgradeRequiredError) showUpgrade(err.payload);
-                              else toast({ title: (err as Error).message, variant: "destructive" });
+                              else toastError("Couldn’t save attendee update. Try again.");
                             },
                           })
                         }
@@ -3061,8 +3094,8 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                           return (
                             <EmptyState
                               icon={theme.icon}
-                              title={isPrivateContext ? "This circle is quiet for now" : theme.copy.emptyExpensesTitle}
-                              description={isPrivateContext ? selectedPrivateTemplate.emptyStates.expenses : theme.copy.emptyExpensesBody}
+                              title={isPrivateContext ? EMPTY_COPY.privateExpensesTitle : theme.copy.emptyExpensesTitle}
+                              description={isPrivateContext ? EMPTY_COPY.privateExpensesBody : theme.copy.emptyExpensesBody}
                               iconClassName={theme.accent.bg}
                               className={isPrivateContext ? "py-20" : undefined}
                               primaryAction={
@@ -3411,7 +3444,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
         })() : (
           <div className="text-center py-16 text-muted-foreground">
             <Receipt className="w-12 h-12 mx-auto mb-4 opacity-20" />
-            <p className="text-lg font-medium">{t.bbq.selectBbq}</p>
+            <p className="text-lg font-medium">Pick an event to get started</p>
           </div>
         )}
         </>
@@ -3426,6 +3459,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
         title={t.events.newEvent}
         subtitle={t.subtitle}
         size="2xl"
+        className="sm:max-w-[760px] min-h-[620px] max-h-[86vh]"
         scrollable
         footer={
           <div className="w-full space-y-2">
@@ -3508,19 +3542,21 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                 <Button
                   onClick={() => handleCreateBbq()}
                   disabled={!newBbqName.trim() || !newEventLocation || createBbq.isPending}
-                  className="w-full sm:w-auto bg-primary text-primary-foreground font-semibold shadow-lg shadow-primary/20 hover:shadow-primary/30 hover:-translate-y-0.5 transition-all duration-150 order-1 sm:order-2"
+                  className="w-full sm:w-auto min-w-[188px] bg-primary text-primary-foreground font-semibold shadow-lg shadow-primary/20 hover:shadow-primary/30 hover:-translate-y-0.5 transition-all duration-150 order-1 sm:order-2"
                   data-testid="button-create-public-event"
                 >
-                  {createBbq.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Create public event"}
+                  {createBbq.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <span className="w-4 h-4 inline-block" aria-hidden />}
+                  <span>{createBbq.isPending ? "Creating event..." : "Create public event"}</span>
                 </Button>
               ) : (
                 <Button
                   onClick={() => handleCreateBbq()}
                   disabled={!isPrivateBasicsValid || createBbq.isPending}
-                  className="w-full sm:w-auto bg-primary text-primary-foreground font-semibold shadow-lg shadow-primary/20 hover:shadow-primary/30 hover:-translate-y-0.5 transition-all duration-150 order-1 sm:order-2"
+                  className="w-full sm:w-auto min-w-[188px] bg-primary text-primary-foreground font-semibold shadow-lg shadow-primary/20 hover:shadow-primary/30 hover:-translate-y-0.5 transition-all duration-150 order-1 sm:order-2"
                   data-testid="button-create-bbq"
                 >
-                  {createBbq.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : t.bbq.create}
+                  {createBbq.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <span className="w-4 h-4 inline-block" aria-hidden />}
+                  <span>{createBbq.isPending ? "Creating event..." : t.bbq.create}</span>
                 </Button>
               )}
             </div>
@@ -3528,7 +3564,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
         }
         data-testid="dialog-new-bbq"
       >
-        <div className="space-y-8">
+        <div className="space-y-8 min-h-[460px]">
           {newEventWizardStep < 3 && (
             <div className="space-y-5">
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -4044,7 +4080,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
               onClick={() => {
                 const shareUrl = buildWhatsAppShareUrl(whatsAppStarterMessage);
                 window.open(shareUrl, "_blank", "noopener,noreferrer");
-                toast({ title: "Opening WhatsApp…" });
+                toastInfo("Opening WhatsApp…");
               }}
             >
               Open WhatsApp
@@ -4054,7 +4090,8 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
               variant="outline"
               onClick={async () => {
                 const ok = await copyText(whatsAppStarterMessage);
-                toast({ title: ok ? "Message copied" : "Copy failed — select and copy manually." });
+                if (ok) toastSuccess("Message copied");
+                else toastInfo("Copy failed — select and copy manually.");
               }}
             >
               Copy message
@@ -4064,7 +4101,8 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
               variant="outline"
               onClick={async () => {
                 const ok = await copyText(whatsAppStarterLink);
-                toast({ title: ok ? "Link copied" : "Copy failed — select and copy manually." });
+                if (ok) toastSuccess("Link copied");
+                else toastInfo("Copy failed — select and copy manually.");
               }}
             >
               Copy event link

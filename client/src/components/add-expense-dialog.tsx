@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Plus, Upload, Trash2, ExternalLink } from "lucide-react";
+import { Loader2, Plus, Upload, Trash2, ExternalLink, Check } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { getCategoryDef, getPlaceholderKeyForCategory } from "@/config/expenseCategories";
 import { getExpensePlaceholderKey, getThemeConfig, type ThemeId } from "@/themes/themeRegistry";
@@ -68,6 +68,7 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
   const [receiptDataUrl, setReceiptDataUrl] = useState<string | null>(null);
   const [receiptPreviewUrl, setReceiptPreviewUrl] = useState<string | null>(null);
   const [removeExistingReceipt, setRemoveExistingReceipt] = useState(false);
+  const [savedPulse, setSavedPulse] = useState(false);
 
   const participantList = (participants.data ?? []) as Array<{ id: number; userId?: string | null; name: string }>;
   const smartStored = useMemo(() => getSmartDefaultsForGroup(bbqId), [bbqId, open]);
@@ -148,6 +149,8 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
           }
         }
         toast({ variant: "success", message: t.modals.expenseUpdated });
+        setSavedPulse(true);
+        globalThis.setTimeout(() => setSavedPulse(false), 450);
         onOpenChange(false);
       } catch {
         toast({ variant: "error", message: privateTone ? "Couldn’t save that expense. Please try again." : t.modals.expenseAddFailed });
@@ -174,6 +177,8 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
           });
         }
         toast({ variant: "success", message: t.modals.expenseAdded });
+        setSavedPulse(true);
+        globalThis.setTimeout(() => setSavedPulse(false), 450);
         onOpenChange(false);
       } catch {
         toast({ variant: "error", message: privateTone ? "Couldn’t add that expense. Please try again." : t.modals.expenseAddFailed });
@@ -236,11 +241,17 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
               type="submit"
               form="add-expense-form"
               disabled={isPending || !participantId || !item.trim() || !amount}
-              className="w-full sm:w-auto bg-accent text-accent-foreground font-semibold shadow-lg shadow-accent/20 hover:shadow-accent/30"
+              className={`w-full sm:w-auto min-w-[132px] bg-accent text-accent-foreground font-semibold shadow-lg shadow-accent/20 hover:shadow-accent/30 transition-transform duration-150 ${savedPulse ? "scale-[1.03]" : "scale-100"}`}
               data-testid="button-submit-expense"
             >
-            {isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-            {editingExpense ? t.modals.save : t.modals.add}
+            {isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin mr-2" />
+            ) : savedPulse ? (
+              <Check className="h-4 w-4 mr-2" />
+            ) : (
+              <span className="inline-block h-4 w-4 mr-2" aria-hidden />
+            )}
+            {isPending ? "Saving..." : savedPulse ? "Saved" : (editingExpense ? t.modals.save : t.modals.add)}
           </Button>
           </PremiumPressable>
         </>

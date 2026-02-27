@@ -52,13 +52,13 @@ export function AddPersonDialog({ open, onOpenChange, bbqId }: AddPersonDialogPr
             type="submit"
             form="add-person-form"
             disabled={createParticipant.isPending || !name.trim()}
-            className="bg-primary text-primary-foreground font-bold"
+            className="min-w-[118px] bg-primary text-primary-foreground font-bold"
             data-testid="button-submit-person"
           >
             {createParticipant.isPending ? (
               <Loader2 className="h-4 w-4 animate-spin mr-2" />
-            ) : null}
-            {t.modals.add}
+            ) : <span className="inline-block h-4 w-4 mr-2" aria-hidden />}
+            {createParticipant.isPending ? "Adding..." : t.modals.add}
           </Button>
         </>
       }

@@ -14,7 +14,9 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Plus, Link2, MessageCircle, Settings, ChevronDown, CalendarPlus, MoreHorizontal, MapPin } from "lucide-react";
+import { UI_COPY } from "@/lib/emotional-copy";
 
 export interface EventHeaderProps {
   category: EventCategory;
@@ -72,7 +74,7 @@ export function EventHeader({
   dateStr,
   locationDisplay,
   onAddExpense,
-  addExpenseLabel = "Add Expense",
+  addExpenseLabel = UI_COPY.actions.addExpense,
   isCreator,
   onOpenSettings,
   onShare,
@@ -80,7 +82,7 @@ export function EventHeader({
   onCreateWhatsAppGroup,
   onAddToCalendar,
   onOpenInMaps,
-  shareLabel = "Share",
+  shareLabel = UI_COPY.actions.share,
   shareWhatsAppLabel = "Share to WhatsApp",
   createWhatsAppGroupLabel = "Create WhatsApp group",
   utilityPreferences,
@@ -212,27 +214,27 @@ export function EventHeader({
                 {onAddToCalendar && (
                   <DropdownMenuItem onSelect={onAddToCalendar}>
                     <CalendarPlus className="w-4 h-4 mr-2" />
-                    Add to Calendar
+                    {UI_COPY.actions.addToCalendar}
                   </DropdownMenuItem>
                 )}
                 {isCreator && onOpenSettings && (
                   <DropdownMenuItem onSelect={onOpenSettings}>
                     <Settings className="w-4 h-4 mr-2" />
-                    Settings
+                    {UI_COPY.actions.settings}
                   </DropdownMenuItem>
                 )}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
 
-          <div className="hidden md:flex items-center gap-3 flex-nowrap flex-shrink-0 min-w-0 justify-end">
-            <div className="flex items-center shrink-0">
+          <div className="hidden md:flex items-center gap-3 flex-nowrap flex-shrink-0 min-w-0 justify-end min-h-10">
+            <div className="flex items-center shrink-0 min-h-10">
               {showAddExpenseAction && (
                 <Button
                   size="md"
                   onClick={onAddExpense}
                   variant="primary"
-                  className="btn-interact h-10 text-sm font-semibold px-4"
+                  className="btn-interact h-10 min-w-[152px] text-sm font-semibold px-4 justify-center"
                   data-testid="button-add-expense-header"
                 >
                   <Plus className="w-3.5 h-3.5 mr-1.5" />
@@ -240,26 +242,32 @@ export function EventHeader({
                 </Button>
               )}
             </div>
-            <div className="flex items-center flex-nowrap gap-1 shrink-0 rounded-lg border border-border/60 bg-muted/15 px-1.5 py-1">
+            <TooltipProvider delayDuration={200}>
+            <div className="flex items-center flex-nowrap gap-1 shrink-0 rounded-lg border border-border/60 bg-muted/15 px-1.5 py-1 min-h-10 min-w-[128px]">
               {utilityActions.map((action) => {
                 if (hidden[action]) return null;
                 if (action === "share" && onShare) {
                   if (onShareWhatsApp || onCreateWhatsAppGroup) {
                     return (
                       <DropdownMenu key="utility-share">
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-8 text-[11px] px-2 md:w-9 md:px-0 lg:w-auto lg:px-2"
-                            aria-label={shareLabel}
-                            title={shareLabel}
-                          >
-                            <Link2 className="w-3.5 h-3.5 md:mr-0 lg:mr-1" />
-                            <span className="hidden lg:inline">{shareLabel}</span>
-                            <ChevronDown className="hidden lg:inline w-3.5 h-3.5 ml-1" />
-                          </Button>
-                        </DropdownMenuTrigger>
+                        <Tooltip>
+                          <DropdownMenuTrigger asChild>
+                            <TooltipTrigger asChild>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-8 md:h-10 lg:h-8 text-[11px] px-2 md:w-10 md:px-0 lg:w-auto lg:px-2"
+                                aria-label={shareLabel}
+                                title={shareLabel}
+                              >
+                                <Link2 className="w-3.5 h-3.5 md:mr-0 lg:mr-1" />
+                                <span className="hidden lg:inline">{shareLabel}</span>
+                                <ChevronDown className="hidden lg:inline w-3.5 h-3.5 ml-1" />
+                              </Button>
+                            </TooltipTrigger>
+                          </DropdownMenuTrigger>
+                          <TooltipContent side="bottom" className="lg:hidden">{shareLabel}</TooltipContent>
+                        </Tooltip>
                         <DropdownMenuContent align="end" className="w-56">
                           <DropdownMenuItem onSelect={onShare}>
                             <Link2 className="w-4 h-4 mr-2" />
@@ -282,55 +290,68 @@ export function EventHeader({
                     );
                   }
                   return (
-                    <Button
-                      key="utility-share"
-                      size="sm"
-                      variant="ghost"
-                      className="h-8 text-[11px] px-2 md:w-9 md:px-0 lg:w-auto lg:px-2"
-                      onClick={onShare}
-                      aria-label={shareLabel}
-                      title={shareLabel}
-                    >
-                      <Link2 className="w-3.5 h-3.5 md:mr-0 lg:mr-1" />
-                      <span className="hidden lg:inline">{shareLabel}</span>
-                    </Button>
+                    <Tooltip key="utility-share">
+                      <TooltipTrigger asChild>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 md:h-10 lg:h-8 text-[11px] px-2 md:w-10 md:px-0 lg:w-auto lg:px-2"
+                          onClick={onShare}
+                          aria-label={shareLabel}
+                          title={shareLabel}
+                        >
+                          <Link2 className="w-3.5 h-3.5 md:mr-0 lg:mr-1" />
+                          <span className="hidden lg:inline">{shareLabel}</span>
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" className="lg:hidden">{shareLabel}</TooltipContent>
+                    </Tooltip>
                   );
                 }
                 if (action === "calendar" && onAddToCalendar) {
                   return (
-                    <Button
-                      key="utility-calendar"
-                      size="sm"
-                      variant="ghost"
-                      className="h-8 text-[11px] px-2 md:w-9 md:px-0 lg:w-auto lg:px-2"
-                      onClick={onAddToCalendar}
-                      aria-label="Add to Calendar"
-                      title="Add to Calendar"
-                    >
-                      <CalendarPlus className="w-3.5 h-3.5 md:mr-0 lg:mr-1" />
-                      <span className="hidden lg:inline">Add to Calendar</span>
-                    </Button>
+                    <Tooltip key="utility-calendar">
+                      <TooltipTrigger asChild>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 md:h-10 lg:h-8 text-[11px] px-2 md:w-10 md:px-0 lg:w-auto lg:px-2"
+                          onClick={onAddToCalendar}
+                          aria-label={UI_COPY.actions.addToCalendar}
+                          title={UI_COPY.actions.addToCalendar}
+                        >
+                          <CalendarPlus className="w-3.5 h-3.5 md:mr-0 lg:mr-1" />
+                          <span className="hidden lg:inline">{UI_COPY.actions.addToCalendar}</span>
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" className="lg:hidden">{UI_COPY.actions.addToCalendar}</TooltipContent>
+                    </Tooltip>
                   );
                 }
                 if (action === "settings" && isCreator && onOpenSettings) {
                   return (
-                    <Button
-                      key="utility-settings"
-                      size="sm"
-                      variant="ghost"
-                      className="h-8 text-[11px] px-2 md:w-9 md:px-0 lg:w-auto lg:px-2"
-                      onClick={onOpenSettings}
-                      aria-label="Settings"
-                      title="Settings"
-                    >
-                      <Settings className="w-3.5 h-3.5 md:mr-0 lg:mr-1" />
-                      <span className="hidden lg:inline">Settings</span>
-                    </Button>
+                    <Tooltip key="utility-settings">
+                      <TooltipTrigger asChild>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8 md:h-10 lg:h-8 text-[11px] px-2 md:w-10 md:px-0 lg:w-auto lg:px-2"
+                          onClick={onOpenSettings}
+                          aria-label={UI_COPY.actions.settings}
+                          title={UI_COPY.actions.settings}
+                        >
+                          <Settings className="w-3.5 h-3.5 md:mr-0 lg:mr-1" />
+                          <span className="hidden lg:inline">{UI_COPY.actions.settings}</span>
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="bottom" className="lg:hidden">{UI_COPY.actions.settings}</TooltipContent>
+                    </Tooltip>
                   );
                 }
                 return null;
               })}
             </div>
+            </TooltipProvider>
           </div>
         </div>
       </div>

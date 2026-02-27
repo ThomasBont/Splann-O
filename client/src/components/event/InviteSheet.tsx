@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { UserPlus, UserPlus2, UserCircle, Heart, Loader2, X } from "lucide-react";
 import type { Participant } from "@shared/schema";
 import type { FriendInfo } from "@shared/schema";
+import { EMPTY_COPY } from "@/lib/emotional-copy";
 
 export interface InviteSheetProps {
   trigger: React.ReactNode;
@@ -179,7 +180,7 @@ export function InviteSheet({
 
           {friends.length === 0 && invitedParticipants.length === 0 && inviteUsername === "" && (
             <p className="text-sm text-muted-foreground">
-              Enter a username to invite, or add friends from your profile to invite them here.
+              {EMPTY_COPY.privatePeopleBody}
             </p>
           )}
         </div>

@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { EventCategoryBadge } from "@/components/event/EventCategoryBadge";
 import { getEventTheme, getEventThemeStyle } from "@/lib/eventTheme";
+import { InlineQueryError, SkeletonCard, SkeletonLine } from "@/components/ui/load-states";
+import { EMPTY_COPY } from "@/lib/emotional-copy";
 
 type ExploreSort = "soonest" | "newest" | "most-people";
 
@@ -106,24 +108,24 @@ function ExploreCardSkeleton() {
     <Card className="h-full border-border/60">
       <CardHeader className="pb-3 space-y-2">
         <div className="flex gap-2">
-          <div className="h-5 w-20 rounded-full bg-muted animate-pulse" />
-          <div className="h-5 w-16 rounded-full bg-muted animate-pulse" />
+          <SkeletonLine className="h-5 w-20 rounded-full" />
+          <SkeletonLine className="h-5 w-16 rounded-full" />
         </div>
-        <div className="h-5 w-3/4 rounded bg-muted animate-pulse" />
-        <div className="h-4 w-1/2 rounded bg-muted animate-pulse" />
+        <SkeletonLine className="h-5 w-3/4" />
+        <SkeletonLine className="h-4 w-1/2" />
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="h-4 w-full rounded bg-muted animate-pulse" />
-        <div className="h-4 w-2/3 rounded bg-muted animate-pulse" />
-        <div className="h-12 w-full rounded bg-muted animate-pulse" />
-        <div className="h-9 w-full rounded bg-muted animate-pulse" />
+        <SkeletonLine className="h-4 w-full" />
+        <SkeletonLine className="h-4 w-2/3" />
+        <SkeletonCard className="h-12" />
+        <SkeletonCard className="h-9" />
       </CardContent>
     </Card>
   );
 }
 
 export default function ExplorePage() {
-  const { data: events = [], isLoading, error } = useExploreEvents();
+  const { data: events = [], isLoading, error, refetch } = useExploreEvents();
   const reducedMotion = useReducedMotion();
   const [search, setSearch] = React.useState("");
   const [sortBy, setSortBy] = React.useState<ExploreSort>("soonest");
@@ -215,9 +217,12 @@ export default function ExplorePage() {
         )}
 
         {error && !isLoading && (
-          <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-6 text-sm text-destructive">
-            Failed to load explore events.
-          </div>
+          <InlineQueryError
+            message="Couldn’t load explore events. Try again."
+            onRetry={() => {
+              void refetch();
+            }}
+          />
         )}
 
         {!isLoading && !error && (
@@ -248,8 +253,8 @@ export default function ExplorePage() {
 
               {filtered.length === 0 ? (
                 <div className="rounded-2xl border border-border/60 bg-card/50 p-8 text-center">
-                  <p className="text-sm font-medium">No events match your search</p>
-                  <p className="mt-1 text-sm text-muted-foreground">Try a different city, country, or organizer.</p>
+                  <p className="text-sm font-medium">{EMPTY_COPY.exploreNoResultsTitle}</p>
+                  <p className="mt-1 text-sm text-muted-foreground">{EMPTY_COPY.exploreNoResultsBody}</p>
                   <Link href="/app">
                     <Button variant="outline" className="mt-4">Back to app</Button>
                   </Link>

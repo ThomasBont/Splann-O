@@ -49,7 +49,7 @@ const EventTabsContent = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <TabsPrimitive.Content
     ref={ref}
-    className={cn("mt-4 focus-visible:outline-none", className)}
+    className={cn("mt-4 min-h-[280px] focus-visible:outline-none", className)}
     {...props}
   />
 ));

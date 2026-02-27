@@ -34,7 +34,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Modal } from "@/components/ui/modal";
 import { Switch } from "@/components/ui/switch";
-import { useToast } from "@/hooks/use-toast";
+import { useAppToast } from "@/hooks/use-app-toast";
 import { loadLocalUserPreferences } from "@/lib/user-preferences";
 import { copyText } from "@/lib/copy-text";
 import { EventHeaderPreferencesProvider, useEventHeaderPreferences } from "@/hooks/use-event-header-preferences";
@@ -52,6 +52,8 @@ import {
 } from "@/lib/sidebar-layout";
 import type { Barbecue } from "@shared/schema";
 import { isPrivateEvent, isPublicEvent } from "@shared/event-visibility";
+import { InlineQueryError, SkeletonCard } from "@/components/ui/load-states";
+import { EMPTY_COPY, UI_COPY } from "@/lib/emotional-copy";
 
 type AppSection = "home" | "private" | "public" | "explore" | "event";
 
@@ -212,30 +214,19 @@ function NewEventMenuButton({
 }
 
 function AppSidebar({ section }: { section: AppSection }) {
-  const { data: events = [] } = useBarbecues();
+  const { data: events = [], isLoading: eventsLoading, error: eventsError, refetch: refetchEvents } = useBarbecues();
   const { user } = useAuth();
-  const {
-    effectivePrefs: effectiveHeaderPrefs,
-    beginDraft: beginHeaderPrefsDraft,
-    updateDraft: updateHeaderPrefsDraft,
-    cancelDraft: cancelHeaderPrefsDraft,
-    saveDraft: saveHeaderPrefsDraft,
-  } = useEventHeaderPreferences();
   const [search, setSearch] = useState("");
+  const [recentCollapsed, setRecentCollapsed] = useState(false);
   const [customizeOpen, setCustomizeOpen] = useState(false);
-  const [layout, setLayout] = useState<SidebarLayout>(() => defaultSidebarLayout());
-  const [draftLayout, setDraftLayout] = useState<SidebarLayout | null>(null);
   const [pinGroups, setPinGroups] = useState<PinGroup[]>(() => defaultPinGroups());
-  const [draggingSectionId, setDraggingSectionId] = useState<string | null>(null);
-  const [addSmartKind, setAddSmartKind] = useState<SmartSectionKind>("UPCOMING");
-  const resizeState = useRef<{ sectionId: string; startY: number; startHeight: number } | null>(null);
-  const rafIdRef = useRef<number | null>(null);
-  const loadedRef = useRef(false);
+  const [advanced, setAdvanced] = useState({
+    showDrafts: false,
+    showUnsettled: false,
+    showUpcoming: false,
+    showPinGroups: false,
+  });
 
-  const layoutKey = useMemo(
-    () => `splanno.sidebar.layout.v1:${user?.id ?? user?.username ?? "anon"}`,
-    [user?.id, user?.username],
-  );
   const pinGroupsKey = useMemo(
     () => `splanno.sidebar.pin-groups.v1:${user?.id ?? user?.username ?? "anon"}`,
     [user?.id, user?.username],
@@ -244,35 +235,50 @@ function AppSidebar({ section }: { section: AppSection }) {
     () => `splanno.sidebar.recent-opened.v1:${user?.id ?? user?.username ?? "anon"}`,
     [user?.id, user?.username],
   );
+  const advancedKey = useMemo(
+    () => `splanno.sidebar.advanced.v1:${user?.id ?? user?.username ?? "anon"}`,
+    [user?.id, user?.username],
+  );
+  const recentCollapsedKey = "splanno.sidebar.recentCollapsed";
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const rawLayout = localStorage.getItem(layoutKey);
-    const rawGroups = localStorage.getItem(pinGroupsKey);
-    setLayout(sanitizeSidebarLayout(rawLayout ? JSON.parse(rawLayout) : null));
-    setPinGroups(sanitizePinGroups(rawGroups ? JSON.parse(rawGroups) : null));
-    loadedRef.current = true;
-  }, [layoutKey, pinGroupsKey]);
+    try {
+      const rawGroups = localStorage.getItem(pinGroupsKey);
+      const rawAdvanced = localStorage.getItem(advancedKey);
+      const rawRecentCollapsed = localStorage.getItem(recentCollapsedKey);
+      setPinGroups(sanitizePinGroups(rawGroups ? JSON.parse(rawGroups) : null));
+      if (rawAdvanced) {
+        const parsed = JSON.parse(rawAdvanced) as Partial<typeof advanced>;
+        setAdvanced((prev) => ({ ...prev, ...parsed }));
+      }
+      if (rawRecentCollapsed != null) {
+        setRecentCollapsed(rawRecentCollapsed === "true");
+      }
+    } catch {
+      setPinGroups(defaultPinGroups());
+      setAdvanced({
+        showDrafts: false,
+        showUnsettled: false,
+        showUpcoming: false,
+        showPinGroups: false,
+      });
+      setRecentCollapsed(false);
+    }
+  }, [pinGroupsKey, advancedKey]);
 
   useEffect(() => {
-    if (!loadedRef.current || typeof window === "undefined") return;
+    if (typeof window === "undefined") return;
     const timeout = window.setTimeout(() => {
-      localStorage.setItem(layoutKey, JSON.stringify(layout));
       localStorage.setItem(pinGroupsKey, JSON.stringify(pinGroups));
-    }, 500);
+      localStorage.setItem(advancedKey, JSON.stringify(advanced));
+      localStorage.setItem(recentCollapsedKey, String(recentCollapsed));
+    }, 300);
     return () => window.clearTimeout(timeout);
-  }, [layout, pinGroups, layoutKey, pinGroupsKey]);
+  }, [pinGroups, advanced, recentCollapsed, pinGroupsKey, advancedKey]);
 
   const eventById = useMemo(() => new Map(events.map((event) => [event.id, event])), [events]);
   const allSortedEvents = useMemo(() => [...events].sort((a, b) => getEventDateMs(b) - getEventDateMs(a)), [events]);
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return allSortedEvents.slice(0, 40);
-    return allSortedEvents.filter((event) => {
-      const location = `${event.city ?? ""} ${event.countryName ?? ""} ${event.locationName ?? ""}`;
-      return event.name.toLowerCase().includes(q) || location.toLowerCase().includes(q);
-    }).slice(0, 40);
-  }, [allSortedEvents, search]);
 
   const recentOpenedIds = useMemo(() => {
     if (typeof window === "undefined") return [] as number[];
@@ -284,10 +290,56 @@ function AppSidebar({ section }: { section: AppSection }) {
     }
   }, [recentOpenedKey, events.length]);
 
-  // IMPORTANT: Sidebar previews draft changes live while modal is open.
-  // effectiveLayout = draftLayout ?? layout
-  const effectiveLayout = draftLayout ?? layout;
-  const widthClass = effectiveLayout.width === "compact" ? "w-56" : effectiveLayout.width === "wide" ? "w-80" : "w-64";
+  const recentEvents = useMemo(() => {
+    if (recentOpenedIds.length === 0) return allSortedEvents.slice(0, 12);
+    const byId = new Map(allSortedEvents.map((event) => [event.id, event]));
+    const fromHistory = recentOpenedIds.map((id) => byId.get(id)).filter((event): event is Barbecue => !!event);
+    if (fromHistory.length >= 8) return fromHistory.slice(0, 12);
+    const existingIds = new Set(fromHistory.map((e) => e.id));
+    return [...fromHistory, ...allSortedEvents.filter((e) => !existingIds.has(e.id))].slice(0, 12);
+  }, [allSortedEvents, recentOpenedIds]);
+
+  const searchedEvents = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return recentEvents;
+    return allSortedEvents
+      .filter((event) => {
+        const location = `${event.city ?? ""} ${event.countryName ?? ""} ${event.locationName ?? ""}`;
+        return event.name.toLowerCase().includes(q) || location.toLowerCase().includes(q);
+      })
+      .slice(0, 12);
+  }, [allSortedEvents, recentEvents, search]);
+
+  const pinnedEventIds = useMemo(() => {
+    const ids = new Set<number>();
+    pinGroups.forEach((group) => group.eventIds.forEach((id) => ids.add(id)));
+    return Array.from(ids);
+  }, [pinGroups]);
+  const pinnedEvents = useMemo(
+    () => pinnedEventIds.map((id) => eventById.get(id)).filter((event): event is Barbecue => !!event).slice(0, 8),
+    [pinnedEventIds, eventById],
+  );
+
+  const advancedDrafts = useMemo(
+    () => allSortedEvents.filter((event) => isPublicEvent(event) && !isPublicListed(event)).slice(0, 8),
+    [allSortedEvents],
+  );
+  const advancedUnsettled = useMemo(
+    () => allSortedEvents.filter((event) => isPrivateEvent(event) && event.status !== "settled").slice(0, 8),
+    [allSortedEvents],
+  );
+  const advancedUpcoming = useMemo(() => {
+    const now = new Date();
+    const upper = new Date(now);
+    upper.setDate(upper.getDate() + 14);
+    return allSortedEvents
+      .filter((event) => {
+        if (!event.date) return false;
+        const d = new Date(event.date as unknown as string);
+        return d >= now && d <= upper;
+      })
+      .slice(0, 8);
+  }, [allSortedEvents]);
 
   const items: Array<{ href: string; label: string; icon: ComponentType<{ className?: string }> ; key: AppSection | "explore" }> = [
     { href: "/app/home", label: "Home", icon: HomeIcon, key: "home" },
@@ -296,201 +348,45 @@ function AppSidebar({ section }: { section: AppSection }) {
     { href: "/app/explore", label: "Explore", icon: Compass, key: "explore" },
   ];
 
-  const mutateLayout = (updater: (prev: SidebarLayout) => SidebarLayout) => {
-    if (draftLayout) {
-      setDraftLayout((prev) => sanitizeSidebarLayout(updater(prev ?? layout)));
-      return;
-    }
-    setLayout((prev) => sanitizeSidebarLayout(updater(prev)));
-  };
-
-  const moveSection = (fromId: string, toId: string) => {
-    if (fromId === toId) return;
-    mutateLayout((prev) => {
-      const list = [...prev.sections];
-      const fromIdx = list.findIndex((s) => s.id === fromId);
-      const toIdx = list.findIndex((s) => s.id === toId);
-      if (fromIdx < 0 || toIdx < 0) return prev;
-      const [moved] = list.splice(fromIdx, 1);
-      list.splice(toIdx, 0, moved);
-      return { ...prev, sections: list };
-    });
-  };
-
-  const updateSection = (sectionId: string, patch: Partial<SidebarSectionConfig>) => {
-    mutateLayout((prev) => ({
-      ...prev,
-      sections: prev.sections.map((section) => (section.id === sectionId ? { ...section, ...patch } : section)),
-    }));
-  };
-
-  const removeSection = (sectionId: string) => {
-    mutateLayout((prev) => ({
-      ...prev,
-      sections: prev.sections.filter((section) => section.id !== sectionId),
-    }));
-  };
-
-  const addSmartSection = (kind: SmartSectionKind) => {
-    const id = `smart-${kind.toLowerCase()}-${Date.now()}`;
-    mutateLayout((prev) => ({
-      ...prev,
-      sections: [...prev.sections, { id, type: "SMART", title: kind[0] + kind.slice(1).toLowerCase(), collapsed: false, heightPx: 180, props: { kind } }],
-    }));
-  };
-
-  const pinEventToGroup = (eventId: number, groupId: string) => {
-    setPinGroups((prev) =>
-      prev.map((group) => {
-        const without = group.eventIds.filter((id) => id !== eventId);
-        if (group.id !== groupId) return { ...group, eventIds: without };
-        return { ...group, eventIds: [...without, eventId] };
-      }),
-    );
-  };
-
-  const removePinnedEvent = (eventId: number) => {
-    setPinGroups((prev) => prev.map((group) => ({ ...group, eventIds: group.eventIds.filter((id) => id !== eventId) })));
-  };
-
-  const createPinGroup = () => {
-    const name = window.prompt("Group name", "New group");
-    if (!name?.trim()) return;
-    const id = `group-${Date.now()}`;
-    setPinGroups((prev) => [...prev, { id, name: name.trim(), collapsed: false, eventIds: [] }]);
-  };
-
-  const renamePinGroup = (groupId: string) => {
-    const current = pinGroups.find((group) => group.id === groupId);
-    if (!current) return;
-    const name = window.prompt("Rename group", current.name);
-    if (!name?.trim()) return;
-    setPinGroups((prev) => prev.map((group) => (group.id === groupId ? { ...group, name: name.trim() } : group)));
-  };
-
-  const deletePinGroup = (groupId: string) => {
-    if (pinGroups.length <= 1) return;
-    setPinGroups((prev) => prev.filter((group) => group.id !== groupId));
-  };
-
-  const smartEventsByKind = (kind: SmartSectionKind): Barbecue[] => {
-    const now = new Date();
-    if (kind === "RECENT") {
-      const byId = new Map(allSortedEvents.map((event) => [event.id, event]));
-      return recentOpenedIds.map((id) => byId.get(id)).filter((event): event is Barbecue => !!event).slice(0, 12);
-    }
-    if (kind === "UPCOMING") {
-      const upper = new Date(now);
-      upper.setDate(upper.getDate() + 14);
-      return allSortedEvents.filter((event) => {
-        if (!event.date) return false;
-        const d = new Date(event.date as unknown as string);
-        return d >= now && d <= upper;
-      }).slice(0, 12);
-    }
-    if (kind === "DRAFTS") {
-      return allSortedEvents.filter((event) => isPublicEvent(event) && event.visibility !== "public").slice(0, 12);
-    }
-    return allSortedEvents.filter((event) => isPrivateEvent(event) && event.status !== "settled").slice(0, 12);
-  };
-
-  const headerUtilityOrder = effectiveHeaderPrefs.utilityOrder;
-  const headerUtilityHidden = effectiveHeaderPrefs.utilityHidden ?? {};
-  const visibleHeaderCount = (["share", "calendar", "settings"] as UtilityAction[]).filter((action) => !headerUtilityHidden[action]).length;
-
-  const moveHeaderUtility = (from: UtilityAction, to: UtilityAction) => {
-    if (from === to) return;
-    updateHeaderPrefsDraft((prev) => {
-      const next = [...prev.utilityOrder];
-      const fromIdx = next.indexOf(from);
-      const toIdx = next.indexOf(to);
-      if (fromIdx < 0 || toIdx < 0) return prev;
-      next.splice(fromIdx, 1);
-      next.splice(toIdx, 0, from);
-      return { ...prev, utilityOrder: next };
-    });
-  };
-
-  const toggleHeaderUtilityVisibility = (action: UtilityAction, checked: boolean) => {
-    updateHeaderPrefsDraft((prev) => ({
-      ...prev,
-      utilityHidden: {
-        ...(prev.utilityHidden ?? {}),
-        [action]: !checked,
-      },
-    }));
-  };
-
-  const beginResize = (sectionId: string, startHeight: number, clientY: number) => {
-    resizeState.current = { sectionId, startHeight, startY: clientY };
-    const onMove = (ev: PointerEvent) => {
-      const state = resizeState.current;
-      if (!state) return;
-      const nextHeight = Math.max(120, Math.min(520, state.startHeight + (ev.clientY - state.startY)));
-      if (rafIdRef.current != null) cancelAnimationFrame(rafIdRef.current);
-      rafIdRef.current = requestAnimationFrame(() => {
-        updateSection(state.sectionId, { heightPx: nextHeight, collapsed: false });
-      });
-    };
-    const onUp = () => {
-      if (rafIdRef.current != null) cancelAnimationFrame(rafIdRef.current);
-      rafIdRef.current = null;
-      resizeState.current = null;
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-    };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
-  };
-
-  const renderEventList = (list: Barbecue[], withPin = false) => (
+  const renderEventList = (list: Barbecue[], emptyMessage: string, limit = 12) => (
     <div className="space-y-1 pr-1">
-      {list.length === 0 ? (
-        <p className="text-xs text-muted-foreground px-1 py-1.5">No events found</p>
+      {eventsLoading ? (
+        <div className="space-y-2 py-1">
+          <SkeletonCard className="h-10 rounded-md" />
+          <SkeletonCard className="h-10 rounded-md" />
+          <SkeletonCard className="h-10 rounded-md" />
+        </div>
+      ) : eventsError ? (
+        <InlineQueryError
+          message="Couldn’t load events."
+          onRetry={() => {
+            void refetchEvents();
+          }}
+        />
+      ) : list.length === 0 ? (
+        <p className="text-xs text-muted-foreground px-1 py-1.5">{emptyMessage}</p>
       ) : (
-        list.map((event) => (
-          <div
-            key={`sidebar-event-${event.id}`}
-            draggable
-            onDragStart={(ev) => {
-              ev.dataTransfer.setData("application/x-splanno-event-id", String(event.id));
-            }}
-            className="rounded-md border border-transparent hover:border-border/60 hover:bg-muted/30"
-          >
-            <Link href={`/app/e/${event.id}`}>
-              <a className="block px-2 py-1.5 text-xs">
+        list.slice(0, limit).map((event) => (
+          <Link key={`sidebar-event-${event.id}`} href={`/app/e/${event.id}`}>
+            <a className="block rounded-md border border-transparent px-2 py-1.5 text-xs hover:border-border/60 hover:bg-muted/30">
+              <div className="flex items-center justify-between gap-2">
                 <p className="truncate font-medium">{event.name}</p>
-                <p className="truncate text-[10px] text-muted-foreground">
-                  {isPublicEvent(event) ? "Public" : "Private"} · {formatEventLocation(event)}
-                </p>
-              </a>
-            </Link>
-            {withPin && (
-              <div className="px-2 pb-1.5 flex items-center gap-1">
-                <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => removePinnedEvent(event.id)}>
-                  <PinOff className="h-3.5 w-3.5" />
-                </Button>
-                {pinGroups.map((group) => (
-                  <Button
-                    key={`pin-target-${group.id}-${event.id}`}
-                    size="sm"
-                    variant="ghost"
-                    className="h-6 px-2 text-[10px]"
-                    onClick={() => pinEventToGroup(event.id, group.id)}
-                  >
-                    {group.name}
-                  </Button>
-                ))}
+                <span className="shrink-0 rounded-full border border-border/60 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                  {isPublicEvent(event) ? "Public" : "Private"}
+                </span>
               </div>
-            )}
-          </div>
+              <p className="truncate text-[10px] text-muted-foreground">
+                {formatEventLocation(event)}
+              </p>
+            </a>
+          </Link>
         ))
       )}
     </div>
   );
 
   return (
-    <aside className={`group/sidebar hidden lg:flex ${widthClass} lg:flex-col lg:shrink-0 border-r border-border/60 bg-card/40 backdrop-blur-sm`}>
+    <aside className="group/sidebar hidden lg:flex w-64 lg:flex-col lg:shrink-0 border-r border-border/60 bg-card/40 backdrop-blur-sm">
       <div className="px-4 py-4 border-b border-border/60">
         <Link href="/app/home">
           <span className="text-sm font-semibold tracking-tight cursor-pointer">Splanno</span>
@@ -510,341 +406,137 @@ function AppSidebar({ section }: { section: AppSection }) {
           );
         })}
       </nav>
-      <div className="border-y border-border/60 px-3 py-3 space-y-2 sticky top-0 bg-card/80 backdrop-blur-sm z-10 shrink-0">
+
+      <div className="border-t border-border/60 px-3 pt-3 pb-2 shrink-0">
         <NewEventMenuButton className="w-full justify-start" align="start" />
-        <div className="space-y-2">
-          <p className="text-[11px] uppercase tracking-wide text-muted-foreground px-1">Quick switch</p>
-          <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search events..."
-            className="h-8 text-xs"
-          />
-        </div>
-        <div className="flex justify-end">
-          <Button
-            size="sm"
-            variant="ghost"
-            title="Customize sidebar"
-            className="h-7 px-2 text-xs opacity-0 transition-opacity group-hover/sidebar:opacity-100 focus-visible:opacity-100"
-            onClick={() => {
-              setDraftLayout(structuredClone(layout));
-              beginHeaderPrefsDraft();
-              setCustomizeOpen(true);
-            }}
-          >
-            <Settings2 className="h-3.5 w-3.5 mr-1.5" />
-            Customize
-          </Button>
-        </div>
       </div>
-      <div className="px-3 py-3 flex-1 min-h-0 overflow-y-auto">
-        <div className="space-y-2">
-          {effectiveLayout.sections.map((sectionConfig) => {
-            const sectionTitle =
-              sectionConfig.title ??
-              (sectionConfig.type === "PIN_GROUPS"
-                ? "Pin groups"
-                : sectionConfig.type === "QUICK_SWITCH"
-                  ? "Quick switch"
-                  : sectionConfig.props?.kind === "UPCOMING"
-                    ? "Upcoming"
-                    : sectionConfig.props?.kind === "DRAFTS"
-                      ? "Drafts"
-                      : sectionConfig.props?.kind === "UNSETTLED"
-                        ? "Unsettled"
-                        : "Recent");
-            const collapsed = !!sectionConfig.collapsed;
-            const height = sectionConfig.heightPx ?? (sectionConfig.type === "PIN_GROUPS" ? 160 : 280);
-            return (
-              <section
-                key={sectionConfig.id}
-                className="rounded-xl border border-border/60 bg-card/70"
-                draggable
-                onDragStart={() => setDraggingSectionId(sectionConfig.id)}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={() => {
-                  if (!draggingSectionId) return;
-                  moveSection(draggingSectionId, sectionConfig.id);
-                }}
-              >
-                <div className="flex items-center justify-between px-2 py-2 border-b border-border/50">
-                  <div className="flex items-center gap-1">
-                    <GripVertical className="h-3.5 w-3.5 text-muted-foreground cursor-grab" />
-                    <p className="text-xs font-semibold truncate">{sectionTitle}</p>
-                  </div>
-                  <Button
+
+      <div className="px-3 pb-3 flex-1 min-h-0 overflow-y-auto">
+        <section className="rounded-xl border border-border/60 bg-card/70">
+          <div className="px-3 py-2 border-b border-border/50">
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Your events</p>
+          </div>
+          <div className="p-2 space-y-2">
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search events..."
+              className="h-8 text-xs"
+            />
+            {pinnedEvents.length > 0 && (
+              <div className="space-y-1">
+                <p className="px-1 text-[11px] font-medium text-muted-foreground">Pinned</p>
+                {renderEventList(pinnedEvents, "No pinned events", 5)}
+              </div>
+            )}
+            <div className="space-y-1">
+              <div className="flex items-center justify-between px-1">
+                <p className="text-[11px] font-medium text-muted-foreground">Recent</p>
+                <div className="flex items-center gap-1">
+                  <span className="text-[10px] text-muted-foreground">{searchedEvents.length}</span>
+                  <button
                     type="button"
-                    size="icon"
-                    variant="ghost"
-                    className="h-6 w-6"
-                    onClick={() => updateSection(sectionConfig.id, { collapsed: !collapsed })}
+                    className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                    aria-label={recentCollapsed ? "Expand recent events" : "Collapse recent events"}
+                    aria-expanded={!recentCollapsed}
+                    aria-controls="sidebar-recent-events-list"
+                    onClick={() => setRecentCollapsed((v) => !v)}
                   >
-                    <ChevronDown className={`h-3.5 w-3.5 transition-transform ${collapsed ? "" : "rotate-180"}`} />
-                  </Button>
+                    <ChevronDown className={`h-3.5 w-3.5 transition-transform ${recentCollapsed ? "" : "rotate-180"}`} />
+                  </button>
                 </div>
-                {!collapsed && (
-                  <div style={{ height }} className="overflow-y-auto p-2">
-                    {sectionConfig.type === "QUICK_SWITCH" && renderEventList(filtered, true)}
-                    {sectionConfig.type === "SMART" && renderEventList(smartEventsByKind(sectionConfig.props?.kind ?? "RECENT"))}
-                    {sectionConfig.type === "PIN_GROUPS" && (
-                      <div className="space-y-2">
-                        {pinGroups.map((group) => {
-                          const groupEvents = group.eventIds.map((id) => eventById.get(id)).filter((event): event is Barbecue => !!event);
-                          return (
-                            <div
-                              key={group.id}
-                              className="rounded-lg border border-border/50 p-2"
-                              onDragOver={(e) => e.preventDefault()}
-                              onDrop={(e) => {
-                                const data = e.dataTransfer.getData("application/x-splanno-event-id");
-                                const eventId = Number(data);
-                                if (Number.isFinite(eventId)) pinEventToGroup(eventId, group.id);
-                              }}
-                            >
-                              <div className="flex items-center justify-between gap-1">
-                                <button
-                                  type="button"
-                                  className="text-xs font-medium truncate text-left"
-                                  onClick={() =>
-                                    setPinGroups((prev) =>
-                                      prev.map((item) => (item.id === group.id ? { ...item, collapsed: !item.collapsed } : item)),
-                                    )
-                                  }
-                                >
-                                  {group.name} <span className="text-muted-foreground">({groupEvents.length})</span>
-                                </button>
-                                <div className="flex items-center">
-                                  <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => renamePinGroup(group.id)}>
-                                    <Settings2 className="h-3.5 w-3.5" />
-                                  </Button>
-                                  <Button
-                                    size="icon"
-                                    variant="ghost"
-                                    className="h-6 w-6 text-destructive"
-                                    disabled={pinGroups.length <= 1}
-                                    onClick={() => deletePinGroup(group.id)}
-                                  >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </Button>
-                                </div>
-                              </div>
-                              {!group.collapsed && (
-                                <div className="mt-2 space-y-1">
-                                  {groupEvents.length === 0 ? (
-                                    <p className="text-[11px] text-muted-foreground">Drag events here</p>
-                                  ) : (
-                                    groupEvents.map((event) => (
-                                      <div key={`${group.id}-${event.id}`} className="rounded-md border border-transparent hover:border-border/60 hover:bg-muted/30">
-                                        <Link href={`/app/e/${event.id}`}>
-                                          <a className="block px-2 py-1.5 text-xs">
-                                            <p className="truncate font-medium">{event.name}</p>
-                                            <p className="truncate text-[10px] text-muted-foreground">
-                                              {isPublicEvent(event) ? "Public" : "Private"}
-                                            </p>
-                                          </a>
-                                        </Link>
-                                      </div>
-                                    ))
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                        <Button size="sm" variant="outline" className="w-full" onClick={createPinGroup}>
-                          <Plus className="h-3.5 w-3.5 mr-1.5" />
-                          New group
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                )}
-                <div
-                  className="h-2 cursor-row-resize hover:bg-muted/40"
-                  onDoubleClick={() => updateSection(sectionConfig.id, { heightPx: sectionConfig.type === "PIN_GROUPS" ? 160 : 280 })}
-                  onPointerDown={(e) => beginResize(sectionConfig.id, height, e.clientY)}
-                />
-              </section>
-            );
-          })}
-        </div>
-      </div>
-      <Modal
-        open={customizeOpen}
-        onClose={() => {
-          setDraftLayout(null);
-          cancelHeaderPrefsDraft();
-          setCustomizeOpen(false);
-        }}
-        onOpenChange={(open) => {
-          setCustomizeOpen(open);
-          if (!open) {
-            setDraftLayout(null);
-            cancelHeaderPrefsDraft();
-          }
-        }}
-        title="Customize sidebar"
-        size="md"
-        scrollable
-      >
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <p className="text-sm font-medium">Sidebar width</p>
-            <div className="grid grid-cols-3 gap-2">
-              {(["compact", "default", "wide"] as SidebarWidth[]).map((width) => (
-                <Button
-                  key={`sidebar-width-${width}`}
-                  size="sm"
-                  variant={effectiveLayout.width === width ? "default" : "outline"}
-                  onClick={() => mutateLayout((prev) => ({ ...prev, width }))}
-                >
-                  {width}
-                </Button>
-              ))}
-            </div>
-          </div>
-          <div className="space-y-2">
-            <p className="text-sm font-medium">Sections</p>
-            <div className="space-y-2">
-              {effectiveLayout.sections.map((sectionConfig) => (
-                <div key={`customize-${sectionConfig.id}`} className="rounded-lg border border-border/60 p-2 flex items-center justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium truncate">{sectionConfig.title ?? sectionConfig.type}</p>
-                    <p className="text-xs text-muted-foreground">Height: {sectionConfig.heightPx ?? 180}px</p>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <Button size="icon" variant="ghost" className="h-7 w-7" disabled={effectiveLayout.sections[0]?.id === sectionConfig.id} onClick={() => {
-                      const idx = effectiveLayout.sections.findIndex((s) => s.id === sectionConfig.id);
-                      if (idx <= 0) return;
-                      const next = [...effectiveLayout.sections];
-                      const [moved] = next.splice(idx, 1);
-                      next.splice(idx - 1, 0, moved);
-                      mutateLayout((prev) => ({ ...prev, sections: next }));
-                    }}>
-                      <ChevronDown className="h-3.5 w-3.5 rotate-180" />
-                    </Button>
-                    <Button size="icon" variant="ghost" className="h-7 w-7" disabled={effectiveLayout.sections[effectiveLayout.sections.length - 1]?.id === sectionConfig.id} onClick={() => {
-                      const idx = effectiveLayout.sections.findIndex((s) => s.id === sectionConfig.id);
-                      if (idx < 0 || idx === effectiveLayout.sections.length - 1) return;
-                      const next = [...effectiveLayout.sections];
-                      const [moved] = next.splice(idx, 1);
-                      next.splice(idx + 1, 0, moved);
-                      mutateLayout((prev) => ({ ...prev, sections: next }));
-                    }}>
-                      <ChevronDown className="h-3.5 w-3.5" />
-                    </Button>
-                    {sectionConfig.type === "SMART" && (
-                      <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => removeSection(sectionConfig.id)}>
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    )}
-                  </div>
+              </div>
+              {recentCollapsed ? (
+                <p className="px-1 py-1 text-[11px] text-muted-foreground">Recent hidden</p>
+              ) : (
+                <div id="sidebar-recent-events-list">
+                  {renderEventList(searchedEvents, "No events found")}
                 </div>
-              ))}
+              )}
             </div>
-          </div>
-          <div className="rounded-lg border border-border/60 p-3 space-y-2">
-            <p className="text-sm font-medium">Add smart section</p>
-            <div className="flex gap-2">
-              <select
-                className="h-8 rounded-md border border-border/60 bg-background px-2 text-sm"
-                value={addSmartKind}
-                onChange={(e) => setAddSmartKind(e.target.value as SmartSectionKind)}
+            <div className="pt-1">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 text-xs"
+                onClick={() => setCustomizeOpen(true)}
               >
-                <option value="UPCOMING">Upcoming</option>
-                <option value="RECENT">Recent</option>
-                <option value="DRAFTS">Drafts</option>
-                <option value="UNSETTLED">Unsettled</option>
-              </select>
-              <Button size="sm" onClick={() => addSmartSection(addSmartKind)}>
-                <Plus className="h-3.5 w-3.5 mr-1.5" />
-                Add
+                <Settings2 className="h-3.5 w-3.5 mr-1.5" />
+                Customize
               </Button>
             </div>
           </div>
-          <div className="rounded-lg border border-border/60 p-3 space-y-2">
-            <p className="text-sm font-medium">Event header actions</p>
-            <p className="text-xs text-muted-foreground">
-              Reorder and choose which quick actions appear on event headers.
-            </p>
-            <div className="space-y-2">
-              {headerUtilityOrder.map((action) => {
-                const idx = headerUtilityOrder.indexOf(action);
-                const isVisible = !headerUtilityHidden[action];
-                const disableHide = isVisible && visibleHeaderCount <= 1;
-                const label =
-                  action === "share" ? "Share" : action === "calendar" ? "Add to Calendar" : "Settings";
-                return (
-                  <div
-                    key={`header-utility-${action}`}
-                    className="rounded-lg border border-border/60 p-2 flex items-center justify-between gap-2"
-                  >
-                    <div className="min-w-0 flex items-center gap-2">
-                      <GripVertical className="h-3.5 w-3.5 text-muted-foreground" />
-                      <p className="text-sm font-medium truncate">{label}</p>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-7 w-7"
-                        disabled={idx <= 0}
-                        onClick={() => moveHeaderUtility(action, headerUtilityOrder[idx - 1] as UtilityAction)}
-                      >
-                        <ChevronDown className="h-3.5 w-3.5 rotate-180" />
-                      </Button>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-7 w-7"
-                        disabled={idx === headerUtilityOrder.length - 1}
-                        onClick={() => moveHeaderUtility(action, headerUtilityOrder[idx + 1] as UtilityAction)}
-                      >
-                        <ChevronDown className="h-3.5 w-3.5" />
-                      </Button>
-                      <Switch
-                        checked={isVisible}
-                        disabled={disableHide}
-                        onCheckedChange={(checked) => toggleHeaderUtilityVisibility(action, checked)}
-                        aria-label={`Toggle ${label} visibility`}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
+        </section>
+
+        {(advanced.showUpcoming || advanced.showDrafts || advanced.showUnsettled || advanced.showPinGroups) && (
+          <div className="mt-3 space-y-2">
+            {advanced.showUpcoming && (
+              <section className="rounded-xl border border-border/60 bg-card/70 p-2">
+                <p className="px-1 pb-1 text-[11px] uppercase tracking-wide text-muted-foreground">Upcoming</p>
+                {renderEventList(advancedUpcoming, "No upcoming events", 6)}
+              </section>
+            )}
+            {advanced.showDrafts && (
+              <section className="rounded-xl border border-border/60 bg-card/70 p-2">
+                <p className="px-1 pb-1 text-[11px] uppercase tracking-wide text-muted-foreground">Drafts</p>
+                {renderEventList(advancedDrafts, "No drafts", 6)}
+              </section>
+            )}
+            {advanced.showUnsettled && (
+              <section className="rounded-xl border border-border/60 bg-card/70 p-2">
+                <p className="px-1 pb-1 text-[11px] uppercase tracking-wide text-muted-foreground">Unsettled</p>
+                {renderEventList(advancedUnsettled, "Everything is settled", 6)}
+              </section>
+            )}
+            {advanced.showPinGroups && (
+              <section className="rounded-xl border border-border/60 bg-card/70 p-2">
+                <p className="px-1 pb-1 text-[11px] uppercase tracking-wide text-muted-foreground">Pin groups</p>
+                <div className="space-y-2">
+                  {pinGroups.map((group) => {
+                    const groupEvents = group.eventIds.map((id) => eventById.get(id)).filter((event): event is Barbecue => !!event);
+                    return (
+                      <div key={group.id} className="rounded-lg border border-border/50 p-2">
+                        <p className="text-xs font-medium mb-1">{group.name}</p>
+                        {renderEventList(groupEvents, "No events in this group", 4)}
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+          </div>
+        )}
+      </div>
+
+      <Modal
+        open={customizeOpen}
+        onClose={() => setCustomizeOpen(false)}
+        onOpenChange={setCustomizeOpen}
+        title="Customize sidebar"
+        size="sm"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-muted-foreground">Choose which advanced sections appear in your sidebar.</p>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm">Show Drafts</p>
+              <Switch checked={advanced.showDrafts} onCheckedChange={(checked) => setAdvanced((prev) => ({ ...prev, showDrafts: checked }))} />
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm">Show Unsettled</p>
+              <Switch checked={advanced.showUnsettled} onCheckedChange={(checked) => setAdvanced((prev) => ({ ...prev, showUnsettled: checked }))} />
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm">Show Upcoming</p>
+              <Switch checked={advanced.showUpcoming} onCheckedChange={(checked) => setAdvanced((prev) => ({ ...prev, showUpcoming: checked }))} />
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm">Show Pin Groups section</p>
+              <Switch checked={advanced.showPinGroups} onCheckedChange={(checked) => setAdvanced((prev) => ({ ...prev, showPinGroups: checked }))} />
             </div>
           </div>
-          <div className="flex justify-end gap-2">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setDraftLayout(defaultSidebarLayout());
-                updateHeaderPrefsDraft(() => DEFAULT_EVENT_HEADER_PREFERENCES);
-              }}
-            >
-              Reset
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setDraftLayout(null);
-                cancelHeaderPrefsDraft();
-                setCustomizeOpen(false);
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={() => {
-                if (draftLayout) setLayout(sanitizeSidebarLayout(draftLayout));
-                saveHeaderPrefsDraft();
-                setDraftLayout(null);
-                setCustomizeOpen(false);
-              }}
-            >
-              Save
-            </Button>
+          <div className="flex justify-end">
+            <Button size="sm" onClick={() => setCustomizeOpen(false)}>Done</Button>
           </div>
         </div>
       </Modal>
@@ -853,7 +545,7 @@ function AppSidebar({ section }: { section: AppSection }) {
 }
 
 function AppDashboardHome() {
-  const { data: events = [], isLoading } = useBarbecues();
+  const { data: events = [], isLoading, error, refetch } = useBarbecues();
   const recent = useMemo(() => {
     const sorted = [...events].sort((a, b) => {
       const at = new Date((a.updatedAt as unknown as string) || (a.date as unknown as string) || 0).getTime();
@@ -884,14 +576,21 @@ function AppDashboardHome() {
         </div>
         {isLoading ? (
           <div className="space-y-2">
-            <div className="h-12 rounded-lg bg-muted animate-pulse" />
-            <div className="h-12 rounded-lg bg-muted animate-pulse" />
-            <div className="h-12 rounded-lg bg-muted animate-pulse" />
+            <SkeletonCard className="h-12" />
+            <SkeletonCard className="h-12" />
+            <SkeletonCard className="h-12" />
           </div>
+        ) : error ? (
+          <InlineQueryError
+            message="Couldn’t load recent events. Try again."
+            onRetry={() => {
+              void refetch();
+            }}
+          />
         ) : recent.length === 0 ? (
           <div className="rounded-xl border border-border/50 bg-muted/20 p-6 text-center">
-            <p className="text-sm font-medium">No events yet</p>
-            <p className="mt-1 text-sm text-muted-foreground">Create your first event to get started.</p>
+            <p className="text-sm font-medium">{EMPTY_COPY.recentEventsTitle}</p>
+            <p className="mt-1 text-sm text-muted-foreground">{EMPTY_COPY.recentEventsBody}</p>
             <div className="mt-4 flex justify-center gap-2">
               <NewEventMenuButton size="sm" />
             </div>
@@ -921,7 +620,7 @@ function AppDashboardHome() {
 }
 
 function PrivateHomePage({ user }: { user: { id?: number | null; username?: string | null } | null }) {
-  const { data: events = [], isLoading } = useBarbecues();
+  const { data: events = [], isLoading, error, refetch } = useBarbecues();
   const { pinnedEventIds, setPinnedEventIds, recentEventIds } = useEventLocalLists(user);
   const privateEvents = useMemo(
     () => events.filter((e) => isPrivateEvent(e)).sort((a, b) => getEventDateMs(b) - getEventDateMs(a)),
@@ -989,14 +688,21 @@ function PrivateHomePage({ user }: { user: { id?: number | null; username?: stri
         </div>
         {isLoading ? (
           <div className="space-y-2">
-            <div className="h-14 rounded-xl bg-muted animate-pulse" />
-            <div className="h-14 rounded-xl bg-muted animate-pulse" />
-            <div className="h-14 rounded-xl bg-muted animate-pulse" />
+            <SkeletonCard className="h-14" />
+            <SkeletonCard className="h-14" />
+            <SkeletonCard className="h-14" />
           </div>
+        ) : error ? (
+          <InlineQueryError
+            message="Couldn’t load private events. Try again."
+            onRetry={() => {
+              void refetch();
+            }}
+          />
         ) : privateEvents.length === 0 ? (
           <div className="rounded-xl border border-border/50 bg-muted/20 p-6 text-center">
-            <p className="text-sm font-medium">No private events yet</p>
-            <p className="mt-1 text-sm text-muted-foreground">Create a circle for trips, dinners, or housemates.</p>
+            <p className="text-sm font-medium">{EMPTY_COPY.privateListTitle}</p>
+            <p className="mt-1 text-sm text-muted-foreground">{EMPTY_COPY.privateListBody}</p>
             <div className="mt-4">
               <NewEventMenuButton size="sm" />
             </div>
@@ -1030,8 +736,8 @@ function PrivateHomePage({ user }: { user: { id?: number | null; username?: stri
 }
 
 function PublicHomePage() {
-  const { data: events = [], isLoading } = useBarbecues();
-  const { toast } = useToast();
+  const { data: events = [], isLoading, error, refetch } = useBarbecues();
+  const { toastError, toastInfo, toastSuccess } = useAppToast();
   const updateBbq = useUpdateBarbecue();
   const checkoutPublicListing = useCheckoutPublicListing();
   const [publicListTab, setPublicListTab] = useState<"drafts" | "listed">("drafts");
@@ -1046,15 +752,15 @@ function PublicHomePage() {
 
   const copyLink = async (event: Barbecue) => {
     if (!event.publicSlug) {
-      toast({ title: "Public link is not ready yet.", variant: "default" });
+      toastInfo("Public link is not ready yet.");
       return;
     }
     const url = `${typeof window !== "undefined" ? window.location.origin : ""}/events/${event.publicSlug}`;
     const ok = await copyText(url);
     if (ok) {
-      toast({ title: "Link copied", variant: "success" });
+      toastSuccess(UI_COPY.toasts.copied);
     } else {
-      toast({ title: "Couldn’t copy link", variant: "destructive" });
+      toastError(UI_COPY.toasts.copiedManual);
     }
   };
 
@@ -1063,8 +769,8 @@ function PublicHomePage() {
       updateBbq.mutate(
         { id: event.id, visibility: "public", publicMode: (event.publicMode === "joinable" ? "joinable" : "marketing") },
         {
-          onSuccess: () => toast({ title: "Event published", variant: "success" }),
-          onError: (err) => toast({ title: (err as Error).message, variant: "destructive" }),
+          onSuccess: () => toastSuccess("Event published"),
+          onError: () => toastError("Couldn’t publish event. Try again."),
         },
       );
       return;
@@ -1077,7 +783,7 @@ function PublicHomePage() {
         },
         onError: (err) => {
           const msg = (err as Error).message || "Failed to start checkout";
-          if (!/APP_URL/i.test(msg)) toast({ title: msg, variant: "destructive" });
+          if (!/APP_URL/i.test(msg)) toastError("Couldn’t start listing checkout. Try again.");
         },
       },
     );
@@ -1120,17 +826,24 @@ function PublicHomePage() {
       <section className="rounded-2xl border border-border/60 bg-card p-4 sm:p-5">
         {isLoading ? (
           <div className="space-y-3">
-            <div className="h-24 rounded-xl bg-muted animate-pulse" />
-            <div className="h-24 rounded-xl bg-muted animate-pulse" />
-            <div className="h-24 rounded-xl bg-muted animate-pulse" />
+            <SkeletonCard />
+            <SkeletonCard />
+            <SkeletonCard />
           </div>
+        ) : error ? (
+          <InlineQueryError
+            message="Couldn’t load public events. Try again."
+            onRetry={() => {
+              void refetch();
+            }}
+          />
         ) : activeList.length === 0 ? (
           <div className="rounded-xl border border-border/50 bg-muted/20 p-6 text-center">
-            <p className="text-sm font-medium">{publicListTab === "drafts" ? "No drafts yet" : "No listed events yet"}</p>
+            <p className="text-sm font-medium">{publicListTab === "drafts" ? EMPTY_COPY.publicListDraftTitle : EMPTY_COPY.publicListListedTitle}</p>
             <p className="mt-1 text-sm text-muted-foreground">
               {publicListTab === "drafts"
-                ? "Create a public event to start your next listing."
-                : "Publish a public event to make it discoverable in Explore."}
+                ? EMPTY_COPY.publicListDraftBody
+                : EMPTY_COPY.publicListListedBody}
             </p>
             <div className="mt-4">
               <NewEventMenuButton size="sm" />
@@ -1179,8 +892,16 @@ function PublicHomePage() {
                             size="sm"
                             onClick={() => handlePublish(event)}
                             disabled={checkoutPublicListing.isPending || updateBbq.isPending}
+                            className="min-w-[92px]"
                           >
-                            Publish
+                            {checkoutPublicListing.isPending || updateBbq.isPending ? (
+                              <>
+                                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                                Publishing
+                              </>
+                            ) : (
+                              "Publish"
+                            )}
                           </Button>
                         )}
                       </div>
@@ -1202,6 +923,7 @@ export default function AppRoute() {
   const { data: appEvents = [] } = useBarbecues();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [mobileQuickSwitchSearch, setMobileQuickSwitchSearch] = useState("");
+  const [mobileRecentCollapsed, setMobileRecentCollapsed] = useState(false);
 
   const pathname = typeof window !== "undefined" ? window.location.pathname : (location.split("?")[0] || "/app");
   const search = typeof window !== "undefined" ? window.location.search : "";
@@ -1273,14 +995,25 @@ export default function AppRoute() {
     };
   }, [isSidebarOpen]);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const raw = localStorage.getItem("splanno.sidebar.recentCollapsed");
+    if (raw != null) setMobileRecentCollapsed(raw === "true");
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem("splanno.sidebar.recentCollapsed", String(mobileRecentCollapsed));
+  }, [mobileRecentCollapsed]);
+
   const mobileQuickSwitchEvents = useMemo(() => {
     const q = mobileQuickSwitchSearch.trim().toLowerCase();
     const sorted = [...appEvents].sort((a, b) => getEventDateMs(b) - getEventDateMs(a));
-    if (!q) return sorted.slice(0, 12);
+    if (!q) return sorted.slice(0, 8);
     return sorted.filter((event) => {
       const locationText = `${event.city ?? ""} ${event.countryName ?? ""} ${event.locationName ?? ""}`;
       return event.name.toLowerCase().includes(q) || locationText.toLowerCase().includes(q);
-    }).slice(0, 12);
+    }).slice(0, 8);
   }, [appEvents, mobileQuickSwitchSearch]);
 
   const currentEventName = useMemo(() => {
@@ -1380,7 +1113,7 @@ export default function AppRoute() {
               <div className="border-y border-border/60 px-3 py-3 space-y-2 shrink-0">
                 <NewEventMenuButton className="w-full justify-start" align="start" onNavigate={() => setIsSidebarOpen(false)} />
                 <div className="space-y-2">
-                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground px-1">Quick switch</p>
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground px-1">Your events</p>
                   <Input
                     value={mobileQuickSwitchSearch}
                     onChange={(e) => setMobileQuickSwitchSearch(e.target.value)}
@@ -1391,22 +1124,39 @@ export default function AppRoute() {
               </div>
               <div className="px-3 py-3 flex-1 min-h-0 overflow-y-auto">
                 <div className="space-y-1 pr-1">
-                  {mobileQuickSwitchEvents.length === 0 ? (
+                  <div className="flex items-center justify-between px-1">
+                    <p className="text-[11px] font-medium text-muted-foreground">Recent</p>
+                    <button
+                      type="button"
+                      className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                      aria-label={mobileRecentCollapsed ? "Expand recent events" : "Collapse recent events"}
+                      aria-expanded={!mobileRecentCollapsed}
+                      aria-controls="mobile-recent-events-list"
+                      onClick={() => setMobileRecentCollapsed((v) => !v)}
+                    >
+                      <ChevronDown className={`h-3.5 w-3.5 transition-transform ${mobileRecentCollapsed ? "" : "rotate-180"}`} />
+                    </button>
+                  </div>
+                  {mobileRecentCollapsed ? (
+                    <p className="text-xs text-muted-foreground px-1 py-1.5">Recent hidden</p>
+                  ) : mobileQuickSwitchEvents.length === 0 ? (
                     <p className="text-xs text-muted-foreground px-1 py-1.5">No events found</p>
                   ) : (
-                    mobileQuickSwitchEvents.map((event) => (
-                      <Link key={`mobile-event-${event.id}`} href={`/app/e/${event.id}`}>
-                        <a
-                          onClick={() => setIsSidebarOpen(false)}
-                          className="block rounded-md border border-transparent px-2 py-1.5 text-xs hover:border-border/60 hover:bg-muted/30"
-                        >
-                          <p className="truncate font-medium">{event.name}</p>
-                          <p className="truncate text-[10px] text-muted-foreground">
-                            {isPublicEvent(event) ? "Public" : "Private"} · {formatEventLocation(event)}
-                          </p>
-                        </a>
-                      </Link>
-                    ))
+                    <div id="mobile-recent-events-list" className="space-y-1">
+                      {mobileQuickSwitchEvents.map((event) => (
+                        <Link key={`mobile-event-${event.id}`} href={`/app/e/${event.id}`}>
+                          <a
+                            onClick={() => setIsSidebarOpen(false)}
+                            className="block rounded-md border border-transparent px-2 py-1.5 text-xs hover:border-border/60 hover:bg-muted/30"
+                          >
+                            <p className="truncate font-medium">{event.name}</p>
+                            <p className="truncate text-[10px] text-muted-foreground">
+                              {isPublicEvent(event) ? "Public" : "Private"} · {formatEventLocation(event)}
+                            </p>
+                          </a>
+                        </Link>
+                      ))}
+                    </div>
                   )}
                 </div>
               </div>

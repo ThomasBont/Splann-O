@@ -51,7 +51,7 @@ export function EmptyState({
     >
       <div
         className={cn(
-          "flex items-center justify-center w-16 h-16 rounded-xl mb-5 text-4xl",
+          "flex items-center justify-center w-16 h-16 rounded-xl mb-5 text-4xl transition-transform duration-200 ease-out hover:scale-105",
           iconClassName
         )}
         aria-hidden

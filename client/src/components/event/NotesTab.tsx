@@ -13,6 +13,7 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { StickyNote, Plus, Edit2, Trash2, Pin } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { EMPTY_COPY } from "@/lib/emotional-copy";
 import type { NoteWithAuthor } from "@shared/schema";
 
 function formatRelativeTime(date: Date | string, t: { justNow: string; minutesAgo: string; hoursAgo: string; daysAgo: string }) {
@@ -169,7 +170,7 @@ export function NotesTab({ eventId, myParticipantId, canAddNote, emptySubtitleOv
               <StickyNote className="w-6 h-6 text-primary" />
             </div>
             <p className="text-sm font-medium text-foreground">{t.notes.emptyTitle}</p>
-            <p className="text-xs text-muted-foreground mt-1">{emptySubtitleOverride ?? t.notes.emptySubtitle}</p>
+            <p className="text-xs text-muted-foreground mt-1">{emptySubtitleOverride ?? EMPTY_COPY.privateNotesBody}</p>
             {canAddNote && myParticipantId && (
               <Button onClick={openAdd} className="mt-5" size="sm">
                 <Plus className="w-4 h-4 mr-2" />

@@ -13,6 +13,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import {
+  PRIVATE_TEMPLATE_ORDER,
+  getPrivateTemplateById,
+  inferPrivateTemplateIdFromEvent,
+  type PrivateTemplateId,
+} from "@/lib/private-event-templates";
 
 type UpdatePayload = {
   name?: string;
@@ -76,6 +82,7 @@ export function EventSettingsModal({
   const [bio, setBio] = useState("");
   const [orgName, setOrgName] = useState("");
   const [bannerUrl, setBannerUrl] = useState("");
+  const [privateTemplateId, setPrivateTemplateId] = useState<PrivateTemplateId>("generic");
   const [muteNotifications, setMuteNotifications] = useState(false);
   const [publicInboxEnabled, setPublicInboxEnabled] = useState(true);
 
@@ -90,6 +97,7 @@ export function EventSettingsModal({
     setBio(event.publicDescription ?? "");
     setOrgName(event.organizationName ?? "");
     setBannerUrl(event.bannerImageUrl ?? "");
+    setPrivateTemplateId(inferPrivateTemplateIdFromEvent(event));
     setMuteNotifications(Boolean(templateData.muteNotifications));
     setPublicInboxEnabled(templateData.publicInboxEnabled !== false);
   }, [event, open]);
@@ -99,10 +107,11 @@ export function EventSettingsModal({
     return {
       ...base,
       ...(emoji ? { emoji } : {}),
+      privateTemplateId,
       muteNotifications,
       publicInboxEnabled,
     };
-  }, [event?.templateData, emoji, muteNotifications, publicInboxEnabled]);
+  }, [event?.templateData, emoji, privateTemplateId, muteNotifications, publicInboxEnabled]);
 
   if (!event) return null;
 
@@ -344,6 +353,57 @@ export function EventSettingsModal({
                     <p className="text-xs text-muted-foreground">Archiving is planned for a future update.</p>
                   </div>
                   <Button size="sm" variant="outline" disabled>Archive</Button>
+                </div>
+              </section>
+              <section className="rounded-xl border border-border/60 bg-card p-4 space-y-4">
+                <h3 className="text-sm font-semibold">Private look & feel</h3>
+                <div className="space-y-2">
+                  <Label>Template</Label>
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    {PRIVATE_TEMPLATE_ORDER.map((id) => {
+                      const template = getPrivateTemplateById(id);
+                      return (
+                        <button
+                          key={`settings-private-template-${id}`}
+                          type="button"
+                          onClick={() => setPrivateTemplateId(id)}
+                          className={`rounded-lg border p-2.5 text-left transition-colors ${
+                            privateTemplateId === id ? "border-primary bg-primary/5" : "border-border hover:bg-muted/20"
+                          }`}
+                        >
+                          <p className="text-sm font-semibold flex items-center gap-1.5">
+                            <span aria-hidden>{template.emoji}</span>
+                            {template.label}
+                          </p>
+                          <p className="text-[11px] text-muted-foreground mt-1">{template.description}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="evt-settings-private-banner">Banner image URL</Label>
+                  <Input
+                    id="evt-settings-private-banner"
+                    value={bannerUrl}
+                    onChange={(e) => setBannerUrl(e.target.value)}
+                    placeholder="https://…"
+                  />
+                </div>
+                <div className="flex justify-end">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      onUpdate({
+                        bannerImageUrl: bannerUrl.trim() || null,
+                        templateData: templateDataDraft,
+                      })
+                    }
+                    disabled={updating}
+                  >
+                    Save appearance
+                  </Button>
                 </div>
               </section>
             </>

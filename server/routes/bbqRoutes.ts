@@ -25,6 +25,8 @@ import { createStripeCheckoutSession, verifyStripeWebhookSignature } from "../li
 const router = Router();
 const RECEIPT_UPLOAD_DIR = path.resolve(process.cwd(), "public/uploads/receipts");
 const MAX_RECEIPT_SIZE_BYTES = 5 * 1024 * 1024;
+const EVENT_BANNER_UPLOAD_DIR = path.resolve(process.cwd(), "public/uploads/event-banners");
+const MAX_EVENT_BANNER_SIZE_BYTES = 5 * 1024 * 1024;
 
 function getPublicRsvpTiersFromTemplateData(templateData: unknown) {
   const tpl = templateData && typeof templateData === "object" ? (templateData as Record<string, unknown>) : null;
@@ -138,6 +140,8 @@ router.post(p(api.barbecues.create.path), asyncHandler(async (req, res) => {
   const bodySchema = api.barbecues.create.input.extend({
     date: z.coerce.date(),
     countryCode: countryCodeSchema.optional().nullable(),
+    latitude: z.coerce.number().finite().optional().nullable(),
+    longitude: z.coerce.number().finite().optional().nullable(),
     currency: currencyCodeSchema.optional(),
     currencySource: z.enum(["auto", "manual"]).optional(),
     visibility: visibilitySchema.optional(),
@@ -488,6 +492,8 @@ router.patch(p(api.barbecues.update.path), requireAuth, asyncHandler(async (req,
     city: z.string().nullable().optional(),
     countryCode: z.string().length(2).transform((s) => s.toUpperCase()).nullable().optional(),
     countryName: z.string().nullable().optional(),
+    latitude: z.coerce.number().finite().nullable().optional(),
+    longitude: z.coerce.number().finite().nullable().optional(),
     placeId: z.string().nullable().optional(),
     currency: z.string().length(3).transform((s) => s.toUpperCase()).optional(),
     currencySource: z.enum(["auto", "manual"]).optional(),
@@ -904,6 +910,75 @@ router.delete("/expenses/:expenseId/receipt", requireAuth, asyncHandler(async (r
   });
   if (!updated) notFound("Expense not found");
   res.json({ expenseId, receiptUrl: null });
+}));
+
+router.post("/barbecues/:bbqId/banner", requireAuth, asyncHandler(async (req, res) => {
+  const bbqId = Number(req.params.bbqId);
+  if (!Number.isFinite(bbqId)) badRequest("Invalid event id");
+  const bbq = await getBarbecueOr404(req, bbqId);
+  if (bbq.visibilityOrigin !== "private") forbidden("Banner editing via this action is available for private events only");
+  const username = req.session?.username;
+  if (!username) unauthorized("Not authenticated");
+  if (!isAdmin(req) && bbq.creatorId !== username) forbidden("Only the organizer can change this banner");
+
+  const payload = z.object({ dataUrl: z.string().min(1) }).parse(req.body ?? {});
+  const match = payload.dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+  if (!match) badRequest("Invalid banner image");
+
+  const mime = match[1].toLowerCase();
+  const base64 = match[2];
+  const allowedMime = new Set(["image/jpeg", "image/jpg", "image/png", "image/webp"]);
+  if (!allowedMime.has(mime)) badRequest("Unsupported image type");
+
+  const buffer = Buffer.from(base64, "base64");
+  if (!buffer.length) badRequest("Invalid image payload");
+  if (buffer.length > MAX_EVENT_BANNER_SIZE_BYTES) badRequest("Banner image must be 5MB or smaller");
+
+  const extensionByMime: Record<string, string> = {
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+  };
+  const ext = extensionByMime[mime] ?? "jpg";
+  const fileName = `event-${bbqId}-${randomUUID()}.${ext}`;
+  await fs.mkdir(EVENT_BANNER_UPLOAD_DIR, { recursive: true });
+  const filePath = path.join(EVENT_BANNER_UPLOAD_DIR, fileName);
+  await fs.writeFile(filePath, buffer);
+
+  const prevBannerUrl = bbq.bannerImageUrl ?? null;
+  const bannerImageUrl = `/uploads/event-banners/${fileName}`;
+  const updated = await bbqRepo.update(bbqId, { bannerImageUrl });
+  if (!updated) notFound("Event not found");
+
+  if (prevBannerUrl?.startsWith("/uploads/event-banners/")) {
+    const oldPath = path.join(EVENT_BANNER_UPLOAD_DIR, path.basename(prevBannerUrl));
+    await fs.unlink(oldPath).catch(() => undefined);
+  }
+
+  res.json({
+    bbqId,
+    bannerImageUrl: updated.bannerImageUrl ?? null,
+  });
+}));
+
+router.delete("/barbecues/:bbqId/banner", requireAuth, asyncHandler(async (req, res) => {
+  const bbqId = Number(req.params.bbqId);
+  if (!Number.isFinite(bbqId)) badRequest("Invalid event id");
+  const bbq = await getBarbecueOr404(req, bbqId);
+  if (bbq.visibilityOrigin !== "private") forbidden("Banner editing via this action is available for private events only");
+  const username = req.session?.username;
+  if (!username) unauthorized("Not authenticated");
+  if (!isAdmin(req) && bbq.creatorId !== username) forbidden("Only the organizer can change this banner");
+
+  if (bbq.bannerImageUrl?.startsWith("/uploads/event-banners/")) {
+    const oldPath = path.join(EVENT_BANNER_UPLOAD_DIR, path.basename(bbq.bannerImageUrl));
+    await fs.unlink(oldPath).catch(() => undefined);
+  }
+
+  const updated = await bbqRepo.update(bbqId, { bannerImageUrl: null });
+  if (!updated) notFound("Event not found");
+  res.json({ bbqId, bannerImageUrl: null });
 }));
 
 router.get("/barbecues/:bbqId/expense-shares", asyncHandler(async (req, res) => {

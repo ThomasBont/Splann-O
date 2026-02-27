@@ -10,6 +10,8 @@ export type ExploreEvent = {
   date: string | null;
   city: string | null;
   countryName: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
   currencyCode: string;
   organizationName: string | null;
   publicDescription: string | null;
@@ -162,6 +164,8 @@ export function useCreateBarbecue() {
       city?: string | null;
       countryCode?: string | null;
       countryName?: string | null;
+      latitude?: number | null;
+      longitude?: number | null;
       placeId?: string | null;
       visibility?: "private" | "public";
       visibilityOrigin?: "private" | "public";
@@ -209,6 +213,8 @@ export function useUpdateBarbecue() {
       city?: string | null;
       countryCode?: string | null;
       countryName?: string | null;
+      latitude?: number | null;
+      longitude?: number | null;
       placeId?: string | null;
       currency?: string;
       currencySource?: "auto" | "manual";
@@ -234,6 +240,8 @@ export function useUpdateBarbecue() {
       if (rest.city !== undefined) body.city = rest.city;
       if (rest.countryCode !== undefined) body.countryCode = rest.countryCode;
       if (rest.countryName !== undefined) body.countryName = rest.countryName;
+      if (rest.latitude !== undefined) body.latitude = rest.latitude;
+      if (rest.longitude !== undefined) body.longitude = rest.longitude;
       if (rest.placeId !== undefined) body.placeId = rest.placeId;
       if (rest.currency !== undefined) body.currency = rest.currency;
       if (rest.currencySource !== undefined) body.currencySource = rest.currencySource;
@@ -260,6 +268,46 @@ export function useUpdateBarbecue() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/barbecues'] });
+    },
+  });
+}
+
+export function useUploadEventBanner(bbqId: number | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (dataUrl: string) => {
+      if (!bbqId) throw new Error("No event selected");
+      const res = await fetch(`/api/barbecues/${bbqId}/banner`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ dataUrl }),
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((payload as { message?: string }).message || "Failed to upload banner");
+      return payload as { bbqId: number; bannerImageUrl: string | null };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] });
+    },
+  });
+}
+
+export function useDeleteEventBanner(bbqId: number | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      if (!bbqId) throw new Error("No event selected");
+      const res = await fetch(`/api/barbecues/${bbqId}/banner`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((payload as { message?: string }).message || "Failed to remove banner");
+      return payload as { bbqId: number; bannerImageUrl: null };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] });
     },
   });
 }

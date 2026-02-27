@@ -14,6 +14,7 @@ import { Modal } from "@/components/ui/modal";
 import { Textarea } from "@/components/ui/textarea";
 import { copyText } from "@/lib/copy-text";
 import { buildIcs, downloadIcs, inferEventDateRange } from "@/lib/calendar-ics";
+import { buildMapsUrl, openMaps } from "@/lib/maps";
 
 export default function PublicEventPage() {
   const [, params] = useRoute("/events/:slug");
@@ -128,6 +129,19 @@ export default function PublicEventPage() {
       .slice(0, 64) || "public-event";
     downloadIcs(`${safeName}.ics`, ics);
     toast({ variant: "success", message: "Calendar file downloaded" });
+  };
+
+  const handleOpenInMaps = () => {
+    if (!data) return;
+    const query = data.locationName ?? [data.city, data.countryName].filter(Boolean).join(", ");
+    if (!query) return;
+    const url = buildMapsUrl({
+      query,
+      label: data.title,
+      lat: data.latitude ?? undefined,
+      lng: data.longitude ?? undefined,
+    });
+    openMaps(url);
   };
 
   const openMessaging = async () => {
@@ -250,10 +264,25 @@ export default function PublicEventPage() {
                 </div>
 
                 <div className="space-y-2 text-sm text-muted-foreground">
-                  <p className="flex items-center gap-2">
-                    <MapPin className="h-4 w-4" />
-                    {(data.locationName ?? [data.city, data.countryName].filter(Boolean).join(", ")) || "Location TBA"}
-                  </p>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="flex items-center gap-2 min-w-0">
+                      <MapPin className="h-4 w-4 shrink-0" />
+                      <span className="truncate">
+                        {(data.locationName ?? [data.city, data.countryName].filter(Boolean).join(", ")) || "Location TBA"}
+                      </span>
+                    </p>
+                    {(data.locationName || data.city || data.countryName) && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 px-2 text-[11px] shrink-0"
+                        onClick={handleOpenInMaps}
+                        aria-label="Open location in Maps"
+                      >
+                        Open in Maps
+                      </Button>
+                    )}
+                  </div>
                   <p className="flex items-center gap-2">
                     <CalendarDays className="h-4 w-4" />
                     {data.date ? new Date(data.date).toLocaleString() : "Date TBA"}

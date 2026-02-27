@@ -6,6 +6,7 @@ import type { EventCategory } from "@/theme/eventThemes";
 import { cnTheme } from "@/theme/eventThemes";
 import { EventCategoryBadge } from "@/components/event/EventCategoryBadge";
 import { getEventTheme as getCategoryTheme, getEventThemeStyle, type EventThemeCategory } from "@/lib/eventTheme";
+import type { EventHeaderPreferences, UtilityAction } from "@/lib/event-header-preferences";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -13,7 +14,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Plus, Link2, MessageCircle, Settings, ChevronDown, CalendarPlus, MoreHorizontal } from "lucide-react";
+import { Plus, Link2, MessageCircle, Settings, ChevronDown, CalendarPlus, MoreHorizontal, MapPin } from "lucide-react";
 
 export interface EventHeaderProps {
   category: EventCategory;
@@ -32,9 +33,11 @@ export interface EventHeaderProps {
   onShareWhatsApp?: () => void;
   onCreateWhatsAppGroup?: () => void;
   onAddToCalendar?: () => void;
+  onOpenInMaps?: () => void;
   shareLabel?: string;
   shareWhatsAppLabel?: string;
   createWhatsAppGroupLabel?: string;
+  utilityPreferences?: EventHeaderPreferences;
   /** Event status for pill */
   eventStatus?: "draft" | "active" | "settling" | "settled";
   showStatusPill?: boolean;
@@ -76,9 +79,11 @@ export function EventHeader({
   onShareWhatsApp,
   onCreateWhatsAppGroup,
   onAddToCalendar,
+  onOpenInMaps,
   shareLabel = "Share",
   shareWhatsAppLabel = "Share to WhatsApp",
   createWhatsAppGroupLabel = "Create WhatsApp group",
+  utilityPreferences,
   eventStatus = "active",
   showStatusPill = true,
   themeCategoryKey,
@@ -92,6 +97,11 @@ export function EventHeader({
   const subtitleParts = [eventTypeLabel];
   if (dateStr) subtitleParts.push(dateStr);
   if (locationDisplay) subtitleParts.push(locationDisplay);
+  const baseOrder: UtilityAction[] = utilityPreferences?.utilityOrder?.length
+    ? utilityPreferences.utilityOrder
+    : ["share", "calendar", "settings"];
+  const utilityActions: UtilityAction[] = baseOrder.filter((action, idx, arr) => arr.indexOf(action) === idx);
+  const hidden = utilityPreferences?.utilityHidden ?? {};
 
   return (
     <div
@@ -126,6 +136,21 @@ export function EventHeader({
                 <p className="text-xs text-muted-foreground mt-0.5">
                   {subtitleParts.join(" · ")}
                 </p>
+                {locationDisplay && onOpenInMaps && (
+                  <div className="mt-1.5">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2 text-[11px]"
+                      onClick={onOpenInMaps}
+                      aria-label="Open location in Maps"
+                    >
+                      <MapPin className="w-3.5 h-3.5 mr-1.5" />
+                      Open in Maps
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -200,83 +225,99 @@ export function EventHeader({
             </DropdownMenu>
           </div>
 
-          <div className="hidden md:flex items-center gap-2 flex-shrink-0 flex-wrap">
-            {onShare && (onShareWhatsApp || onCreateWhatsAppGroup ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-8 text-xs"
-                  >
-                    <Link2 className="w-3.5 h-3.5 mr-1.5" />
-                    {shareLabel}
-                    <ChevronDown className="w-3.5 h-3.5 ml-1" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56">
-                  <DropdownMenuItem onSelect={onShare}>
-                    <Link2 className="w-4 h-4 mr-2" />
-                    Copy link
-                  </DropdownMenuItem>
-                  {onShareWhatsApp && (
-                    <DropdownMenuItem onSelect={onShareWhatsApp}>
-                      <MessageCircle className="w-4 h-4 mr-2" />
-                      {shareWhatsAppLabel}
-                    </DropdownMenuItem>
-                  )}
-                  {onCreateWhatsAppGroup && (
-                    <DropdownMenuItem onSelect={onCreateWhatsAppGroup}>
-                      <MessageCircle className="w-4 h-4 mr-2" />
-                      {createWhatsAppGroupLabel}
-                    </DropdownMenuItem>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : (
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8 text-xs"
-                onClick={onShare}
-              >
-                <Link2 className="w-3.5 h-3.5 mr-1.5" />
-                {shareLabel}
-              </Button>
-            ))}
-            {showAddExpenseAction && (
-              <Button
-                size="sm"
-                onClick={onAddExpense}
-                className="btn-interact h-8 bg-primary text-primary-foreground text-xs font-medium px-3"
-                data-testid="button-add-expense-header"
-              >
-                <Plus className="w-3.5 h-3.5 mr-1.5" />
-                {addExpenseLabel}
-              </Button>
-            )}
-            {onAddToCalendar && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8 text-xs"
-                onClick={onAddToCalendar}
-              >
-                <CalendarPlus className="w-3.5 h-3.5 mr-1.5" />
-                Add to Calendar
-              </Button>
-            )}
-            {isCreator && onOpenSettings && (
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8 text-xs"
-                onClick={onOpenSettings}
-              >
-                <Settings className="w-3.5 h-3.5 mr-1.5" />
-                Settings
-              </Button>
-            )}
+          <div className="hidden md:flex items-center gap-2 flex-shrink-0 min-w-0">
+            <div className="flex items-center shrink-0">
+              {showAddExpenseAction && (
+                <Button
+                  size="sm"
+                  onClick={onAddExpense}
+                  className="btn-interact h-9 bg-primary text-primary-foreground text-xs font-semibold px-3.5"
+                  data-testid="button-add-expense-header"
+                >
+                  <Plus className="w-3.5 h-3.5 mr-1.5" />
+                  {addExpenseLabel}
+                </Button>
+              )}
+            </div>
+            <div className="ml-1 flex items-center gap-1 shrink-0">
+              {utilityActions.map((action) => {
+                if (hidden[action]) return null;
+                if (action === "share" && onShare) {
+                  if (onShareWhatsApp || onCreateWhatsAppGroup) {
+                    return (
+                      <DropdownMenu key="utility-share">
+                        <DropdownMenuTrigger asChild>
+                          <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]">
+                            <Link2 className="w-3.5 h-3.5 md:mr-0 lg:mr-1" />
+                            <span className="hidden lg:inline">{shareLabel}</span>
+                            <ChevronDown className="w-3.5 h-3.5 ml-1" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-56">
+                          <DropdownMenuItem onSelect={onShare}>
+                            <Link2 className="w-4 h-4 mr-2" />
+                            Copy link
+                          </DropdownMenuItem>
+                          {onShareWhatsApp && (
+                            <DropdownMenuItem onSelect={onShareWhatsApp}>
+                              <MessageCircle className="w-4 h-4 mr-2" />
+                              {shareWhatsAppLabel}
+                            </DropdownMenuItem>
+                          )}
+                          {onCreateWhatsAppGroup && (
+                            <DropdownMenuItem onSelect={onCreateWhatsAppGroup}>
+                              <MessageCircle className="w-4 h-4 mr-2" />
+                              {createWhatsAppGroupLabel}
+                            </DropdownMenuItem>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    );
+                  }
+                  return (
+                    <Button
+                      key="utility-share"
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2 text-[11px]"
+                      onClick={onShare}
+                    >
+                      <Link2 className="w-3.5 h-3.5 md:mr-0 lg:mr-1" />
+                      <span className="hidden lg:inline">{shareLabel}</span>
+                    </Button>
+                  );
+                }
+                if (action === "calendar" && onAddToCalendar) {
+                  return (
+                    <Button
+                      key="utility-calendar"
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2 text-[11px]"
+                      onClick={onAddToCalendar}
+                    >
+                      <CalendarPlus className="w-3.5 h-3.5 md:mr-0 lg:mr-1" />
+                      <span className="hidden lg:inline">Calendar</span>
+                    </Button>
+                  );
+                }
+                if (action === "settings" && isCreator && onOpenSettings) {
+                  return (
+                    <Button
+                      key="utility-settings"
+                      size="sm"
+                      variant="outline"
+                      className="h-7 px-2 text-[11px]"
+                      onClick={onOpenSettings}
+                    >
+                      <Settings className="w-3.5 h-3.5 md:mr-0 lg:mr-1" />
+                      <span className="hidden lg:inline">Settings</span>
+                    </Button>
+                  );
+                }
+                return null;
+              })}
+            </div>
           </div>
         </div>
       </div>

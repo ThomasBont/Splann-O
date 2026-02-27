@@ -10,7 +10,7 @@ import {
   useAcceptInvite, useDeclineInvite,
 } from "@/hooks/use-participants";
 import { useExpenses, useDeleteExpense, useExpenseShares, useSetExpenseShare } from "@/hooks/use-expenses";
-import { useBarbecues, useCreateBarbecue, useDeleteBarbecue, useUpdateBarbecue, useEnsureInviteToken, useSettleUp, useEventNotifications, useMarkEventNotificationRead, useCheckoutPublicListing, useDeactivateListing, useExploreEvents, usePublicEventRsvpRequests, useUpdatePublicEventRsvpRequest, useConversations, useConversation, useSendConversationMessage, useUpdateConversationStatus, type EventNotification, type ExploreEvent } from "@/hooks/use-bbq-data";
+import { useBarbecues, useCreateBarbecue, useDeleteBarbecue, useUpdateBarbecue, useEnsureInviteToken, useSettleUp, useEventNotifications, useMarkEventNotificationRead, useCheckoutPublicListing, useDeactivateListing, useExploreEvents, usePublicEventRsvpRequests, useUpdatePublicEventRsvpRequest, useConversations, useConversation, useSendConversationMessage, useUpdateConversationStatus, useUploadEventBanner, useDeleteEventBanner, type EventNotification, type ExploreEvent } from "@/hooks/use-bbq-data";
 import { useQueryClient } from "@tanstack/react-query";
 import { useFriends, useFriendRequests, useAllPendingRequests, useAcceptFriendRequest, useRemoveFriend } from "@/hooks/use-friends";
 import { UserProfileModal } from "@/components/user-profile-modal";
@@ -18,7 +18,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { EventTabs, EventTabsContent, EventTabsList, EventTabsTrigger } from "@/components/event/EventTabs";
+import { EventTabsContent } from "@/components/event/EventTabs";
+import { EventPageTabsRouter } from "@/components/event/pages/EventPageTabsRouter";
 import { Modal, ModalSection } from "@/components/ui/modal";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -45,6 +46,7 @@ import { CurrencyPicker } from "@/components/currency-picker";
 import { LocationCombobox } from "@/components/location-combobox";
 import { type LocationOption, currencyForCountry } from "@/lib/locations-data";
 import { EventHeader } from "@/components/event/EventHeader";
+import { PrivateEventHero } from "@/components/event/PrivateEventHero";
 import EventSettingsModal from "@/components/event/EventSettingsModal";
 import { EditTripLocationModal } from "@/components/event/EditTripLocationModal";
 import { SettleUpModal } from "@/components/event/SettleUpModal";
@@ -70,6 +72,7 @@ import {
   Bell, UserPlus2, Search, Heart, Sun, Moon, MessageCircle, Star,
 } from "lucide-react";
 import { useTheme } from "@/hooks/use-theme";
+import { useEventHeaderPreferences } from "@/hooks/use-event-header-preferences";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 import { useUpgrade } from "@/contexts/UpgradeContext";
@@ -104,9 +107,18 @@ import { computeSplit, getFairShareForParticipant } from "@/lib/split/calc";
 import { getEventCategoryFromData, getEventTheme as getCategoryTheme, getEventThemeStyle } from "@/lib/eventTheme";
 import { EventCategoryBadge } from "@/components/event/EventCategoryBadge";
 import { getCircleMoodTokens, getCirclePersonalityFromEvent, getDefaultCirclePersonality } from "@/lib/circlePersonality";
+import {
+  PRIVATE_TEMPLATE_ORDER,
+  getPrivateTemplateById,
+  getPrivateTemplateForEvent,
+  inferPrivateTemplateIdFromEvent,
+  type PrivateTemplateId,
+} from "@/lib/private-event-templates";
 import { buildWhatsAppMessage, buildWhatsAppShareUrl } from "@/lib/share-message";
 import { copyText } from "@/lib/copy-text";
 import { buildIcs, downloadIcs, inferEventDateRange } from "@/lib/calendar-ics";
+import { buildMapsUrl, openMaps } from "@/lib/maps";
+import type { EventBannerPresetId } from "@/lib/event-banner";
 import {
   defaultPrivateSuggestionState,
   getNearbyPublicEvents,
@@ -472,6 +484,7 @@ type HomeProps = {
 export default function Home({ appRouteMode = "legacy", routeEventId = null }: HomeProps) {
   const { language, setLanguage, t } = useLanguage();
   const { theme, setPreference } = useTheme();
+  const { effectivePrefs: eventHeaderPrefs } = useEventHeaderPreferences();
   const { user, isLoading: isAuthLoading, logout, resendVerification } = useAuth();
   const [, setLocation] = useLocation();
   const username = user?.username ?? null;
@@ -501,6 +514,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
   const [newEventPublicAck, setNewEventPublicAck] = useState(false);
   const [newEventArea, setNewEventArea] = useState<"parties" | "trips">("parties");
   const [newEventType, setNewEventType] = useState<string>("barbecue");
+  const [newPrivateTemplateId, setNewPrivateTemplateId] = useState<PrivateTemplateId>("generic");
   const [newEventLocation, setNewEventLocation] = useState<LocationOption | null>(null);
   const [newPublicDescription, setNewPublicDescription] = useState("");
   const [newPublicSubtitle, setNewPublicSubtitle] = useState("");
@@ -758,12 +772,15 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
   const createBbq = useCreateBarbecue();
   const deleteBbq = useDeleteBarbecue();
   const updateBbq = useUpdateBarbecue();
+  const uploadEventBanner = useUploadEventBanner(selectedBbqId);
+  const deleteEventBanner = useDeleteEventBanner(selectedBbqId);
   const ensureInviteToken = useEnsureInviteToken();
   const settleUp = useSettleUp();
   const checkoutPublicListing = useCheckoutPublicListing();
   const deactivateListing = useDeactivateListing();
 
   const selectedBbq = barbecuesForArea.find((b: Barbecue) => b.id === selectedBbqId) ?? (barbecues.find((b: Barbecue) => b.id === selectedBbqId) || null);
+  const eventViewRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!isManagedAppRoute || appRouteMode !== "event" || !routeEventId) return;
@@ -873,6 +890,32 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
     if (!selectedBbqId) return;
     savePrivateSuggestionState(selectedBbqId, privateSuggestionState);
   }, [selectedBbqId, privateSuggestionState]);
+
+  useEffect(() => {
+    if (import.meta.env.PROD) return;
+    if (!selectedBbq || !eventViewRef.current) return;
+    const text = eventViewRef.current.textContent ?? "";
+    const has = (needle: string) => text.includes(needle);
+    if (isPrivateContext) {
+      const leaks = ["Pending publish", "Public mode", "Open public page"].filter(has);
+      if (leaks.length > 0) {
+        console.error("[private-event-ui-invariant] Public-only copy leaked into private event UI", {
+          eventId: selectedBbq.id,
+          leaks,
+        });
+      }
+      return;
+    }
+    if (isPublicBuilderContext) {
+      const leaks = ["Split Check", "Settle up"].filter(has);
+      if (leaks.length > 0) {
+        console.error("[public-event-ui-invariant] Private-only copy leaked into public event UI", {
+          eventId: selectedBbq.id,
+          leaks,
+        });
+      }
+    }
+  }, [selectedBbq?.id, isPrivateContext, isPublicBuilderContext, activeEventTab]);
 
   const getMembershipStatus = (bbqId: number): { status: string; participantId: number } | null => {
     const m = memberships.find(m => m.bbqId === bbqId);
@@ -1149,6 +1192,8 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
       templateData = {
         ...baseTemplate,
         personality: getDefaultCirclePersonality({ area: newEventArea, eventType: newEventType }),
+        privateTemplateId: newPrivateTemplateId,
+        emoji: selectedCreatePrivateTemplate.emoji,
       };
     }
     const payload: Parameters<typeof createBbq.mutate>[0] & { currencySource?: "auto" | "manual" } = {
@@ -1176,6 +1221,8 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
       payload.city = newEventLocation.city;
       payload.countryCode = newEventLocation.countryCode;
       payload.countryName = newEventLocation.countryName;
+      payload.latitude = newEventLocation.lat ?? undefined;
+      payload.longitude = newEventLocation.lng ?? undefined;
       const autoCurrency = currencyForCountry(newEventLocation.countryCode);
       if (newBbqCurrency !== autoCurrency) {
         payload.currency = newBbqCurrency;
@@ -1243,6 +1290,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
     setNewPublicListUntilAt("");
     setNewPublicRsvpTiers([{ id: "general", name: "General Admission", description: "", priceLabel: "", capacity: "", isFree: true }]);
     setNewPublicListOnExplore(false);
+    setNewPrivateTemplateId("generic");
     setNewBbqVisibilityOrigin("public");
     setNewBbqIsPublic(true);
   };
@@ -1252,6 +1300,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
     if (goal === "private") {
       setNewBbqVisibilityOrigin("private");
       setNewBbqIsPublic(false);
+      setNewPrivateTemplateId(inferPrivateTemplateIdFromEvent({ eventType: newEventType } as Partial<Barbecue>));
     } else {
       setNewBbqVisibilityOrigin("public");
       setNewBbqIsPublic(true);
@@ -1351,6 +1400,8 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
     totalSpent !== settleSnapshot.total || expenses.length !== settleSnapshot.expenseCount
   );
   const allBalancesZero = balances.every((b: { balance: number }) => Math.abs(b.balance) < 0.01);
+  const selectedPrivateTemplate = getPrivateTemplateForEvent(selectedBbq);
+  const selectedCreatePrivateTemplate = getPrivateTemplateById(newPrivateTemplateId);
   const headerPrimaryActionLabel = !isPublicBuilderContext && activeEventTab === "people" ? "Invite people" : t.addExpense;
   const headerPrimaryActionVisible = !isPublicBuilderContext && (activeEventTab === "expenses" || activeEventTab === "people");
   const handleHeaderPrimaryAction = () => {
@@ -1973,8 +2024,169 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
           const eventTemplate = getEventTemplate(selectedBbq?.eventType);
           const eventCategory = normalizeEvent(selectedBbq ?? {}).category;
           const eventKind = eventCategory === "trip" ? "trip" : "party";
+          const headerProps = {
+            category: normalizeEvent(selectedBbq ?? {}).category,
+            type: normalizeEvent(selectedBbq ?? {}).type,
+            themeCategoryKey: getEventCategoryFromData({
+              eventType: selectedBbq?.eventType,
+              templateData: selectedBbq?.templateData,
+              visibilityOrigin: selectedBbq?.visibilityOrigin,
+            }),
+            title: selectedBbq?.name ?? "",
+            dateStr: selectedBbq?.date ? new Date(selectedBbq.date).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : undefined,
+            locationDisplay:
+              selectedBbq?.locationName ??
+              (selectedBbq?.city && selectedBbq?.countryName
+                ? `${selectedBbq.city}, ${selectedBbq.countryName}`
+                : selectedBbq?.countryName ?? null),
+            onAddExpense: handleHeaderPrimaryAction,
+            addExpenseLabel: headerPrimaryActionLabel,
+            isCreator: isCreator,
+            eventStatus: eventStatus,
+            showStatusPill: showEventStatusPill,
+            showAddExpenseAction: headerPrimaryActionVisible,
+            onOpenSettings: isCreator ? () => setEventSettingsOpen(true) : undefined,
+            onAddToCalendar:
+              selectedBbq?.date && isPrivateContext
+                ? () => {
+                    const range = inferEventDateRange(selectedBbq.date as unknown as string);
+                    if (!range) {
+                      toast({ title: "Event date is missing or invalid.", variant: "default" });
+                      return;
+                    }
+                    const location =
+                      selectedBbq.locationName ??
+                      (selectedBbq.city && selectedBbq.countryName
+                        ? `${selectedBbq.city}, ${selectedBbq.countryName}`
+                        : selectedBbq.countryName ?? selectedBbq.city ?? null);
+                    const origin = typeof window !== "undefined" ? window.location.origin : "";
+                    const url = isPublicBuilderContext && selectedBbq.publicSlug
+                      ? `${origin}/events/${selectedBbq.publicSlug}`
+                      : selectedBbq.inviteToken
+                        ? `${origin}/join/${selectedBbq.inviteToken}`
+                        : `${origin}/app/e/${selectedBbq.id}`;
+                    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+                    const ics = buildIcs({
+                      uid: `event-${selectedBbq.id}@splanno`,
+                      title: selectedBbq.name ?? "Splanno event",
+                      start: range.start,
+                      end: range.end,
+                      allDay: range.allDay,
+                      location,
+                      description: selectedBbq.publicDescription ?? null,
+                      url,
+                      timezone,
+                    });
+                    const safeName = (selectedBbq.name ?? "event")
+                      .toLowerCase()
+                      .replace(/[^a-z0-9]+/g, "-")
+                      .replace(/^-+|-+$/g, "")
+                      .slice(0, 64) || "event";
+                    downloadIcs(`${safeName}.ics`, ics);
+                    toast({ title: "Calendar file downloaded", variant: "success" });
+                  }
+                : undefined,
+            onOpenInMaps:
+              selectedBbq &&
+              (selectedBbq.locationName || selectedBbq.city || selectedBbq.countryName)
+                ? () => {
+                    const query = selectedBbq.locationName
+                      ?? [selectedBbq.city, selectedBbq.countryName].filter(Boolean).join(", ");
+                    if (!query) return;
+                    const url = buildMapsUrl({
+                      query,
+                      label: selectedBbq.name ?? query,
+                      lat: selectedBbq.latitude ?? undefined,
+                      lng: selectedBbq.longitude ?? undefined,
+                    });
+                    openMaps(url);
+                  }
+                : undefined,
+            onShare:
+              selectedBbq
+                ? async () => {
+                    const inviteToken = selectedBbq.inviteToken ?? null;
+                    const url = isPublicBuilderContext && selectedBbq.publicSlug
+                      ? `${typeof window !== "undefined" ? window.location.origin : ""}/events/${selectedBbq.publicSlug}`
+                      : inviteToken
+                        ? `${typeof window !== "undefined" ? window.location.origin : ""}/join/${inviteToken}`
+                        : null;
+                    if (!url) {
+                      toast({ title: "Link not ready yet. Open Event Settings to generate an invite link.", variant: "default" });
+                      return;
+                    }
+                    const ok = await copyText(url);
+                    if (ok) {
+                      toast({ title: t.bbq.copySuccess, variant: "success" });
+                      return;
+                    }
+                    setManualCopyValue(url);
+                    setManualCopyOpen(true);
+                    toast({ title: "Copy failed — select and copy manually.", variant: "default" });
+                  }
+                : undefined,
+            onShareWhatsApp:
+              selectedBbq && !isPublicBuilderContext
+                ? async () => {
+                    const inviteToken = selectedBbq.inviteToken
+                      ? selectedBbq.inviteToken
+                      : (isCreator ? (await ensureInviteToken.mutateAsync(selectedBbq.id))?.inviteToken : null);
+                    const url = inviteToken
+                      ? `${typeof window !== "undefined" ? window.location.origin : ""}/join/${inviteToken}`
+                      : null;
+                    if (!url) return;
+                    const rawTemplateData = (selectedBbq.templateData && typeof selectedBbq.templateData === "object")
+                      ? selectedBbq.templateData as Record<string, unknown>
+                      : null;
+                    const emoji = typeof rawTemplateData?.emoji === "string" ? rawTemplateData.emoji : undefined;
+                    const fallbackLocation = [selectedBbq.city, selectedBbq.countryName].filter(Boolean).join(", ");
+                    const message = buildWhatsAppMessage({
+                      title: selectedBbq.name,
+                      emoji,
+                      url,
+                      location: selectedBbq.locationName ?? (fallbackLocation || null),
+                      date: selectedBbq.date ?? null,
+                    });
+                    const shareUrl = buildWhatsAppShareUrl(message);
+                    window.open(shareUrl, "_blank", "noopener,noreferrer");
+                    toast({ title: "Opening WhatsApp…" });
+                  }
+                : undefined,
+            onCreateWhatsAppGroup:
+              selectedBbq && !isPublicBuilderContext
+                ? async () => {
+                    const inviteToken = selectedBbq.inviteToken
+                      ? selectedBbq.inviteToken
+                      : (isCreator ? (await ensureInviteToken.mutateAsync(selectedBbq.id))?.inviteToken : null);
+                    const url = inviteToken
+                      ? `${typeof window !== "undefined" ? window.location.origin : ""}/join/${inviteToken}`
+                      : null;
+                    if (!url) return;
+                    const rawTemplateData = (selectedBbq.templateData && typeof selectedBbq.templateData === "object")
+                      ? selectedBbq.templateData as Record<string, unknown>
+                      : null;
+                    const emoji = typeof rawTemplateData?.emoji === "string" ? rawTemplateData.emoji : undefined;
+                    const fallbackLocation = [selectedBbq.city, selectedBbq.countryName].filter(Boolean).join(", ");
+                    const message = buildWhatsAppMessage({
+                      title: selectedBbq.name,
+                      emoji,
+                      url,
+                      location: selectedBbq.locationName ?? (fallbackLocation || null),
+                      date: selectedBbq.date ?? null,
+                    });
+                    setWhatsAppStarterLink(url);
+                    setWhatsAppStarterMessage(message);
+                    setWhatsAppStarterOpen(true);
+                  }
+                : undefined,
+            shareLabel: isPublicBuilderContext ? "Copy link" : "Share",
+            shareWhatsAppLabel: "Share to WhatsApp",
+            createWhatsAppGroupLabel: "Create WhatsApp group",
+            utilityPreferences: eventHeaderPrefs,
+          };
           return (
             <EventThemeProvider kind={eventKind} eventType={selectedBbq?.eventType}>
+            <div ref={eventViewRef}>
             <EventTemplateWrapper
               template={eventTemplate}
               decorationClass={isPartyEventType(selectedBbq?.eventType) ? getPartyTemplate(selectedBbq?.eventType).decorationClass : undefined}
@@ -1983,154 +2195,76 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
               {/* Event header with signature effect overlay */}
               <div className="relative">
                 <SignatureEffect />
-                <EventHeader
-                category={normalizeEvent(selectedBbq ?? {}).category}
-                type={normalizeEvent(selectedBbq ?? {}).type}
-                themeCategoryKey={getEventCategoryFromData({
-                  eventType: selectedBbq?.eventType,
-                  templateData: selectedBbq?.templateData,
-                  visibilityOrigin: selectedBbq?.visibilityOrigin,
-                })}
-                title={selectedBbq?.name ?? ""}
-                dateStr={selectedBbq?.date ? new Date(selectedBbq.date).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : undefined}
-                locationDisplay={
-                  selectedBbq?.locationName ??
-                  (selectedBbq?.city && selectedBbq?.countryName
-                    ? `${selectedBbq.city}, ${selectedBbq.countryName}`
-                    : selectedBbq?.countryName ?? null)
-                }
-                onAddExpense={handleHeaderPrimaryAction}
-                addExpenseLabel={headerPrimaryActionLabel}
-                isCreator={isCreator}
-                eventStatus={eventStatus}
-                showStatusPill={showEventStatusPill}
-                showAddExpenseAction={headerPrimaryActionVisible}
-                onOpenSettings={isCreator ? () => setEventSettingsOpen(true) : undefined}
-                onAddToCalendar={
-                  selectedBbq?.date && isPrivateContext
-                    ? () => {
-                        const range = inferEventDateRange(selectedBbq.date as unknown as string);
-                        if (!range) {
-                          toast({ title: "Event date is missing or invalid.", variant: "default" });
-                          return;
-                        }
-                        const location =
-                          selectedBbq.locationName ??
-                          (selectedBbq.city && selectedBbq.countryName
-                            ? `${selectedBbq.city}, ${selectedBbq.countryName}`
-                            : selectedBbq.countryName ?? selectedBbq.city ?? null);
-                        const origin = typeof window !== "undefined" ? window.location.origin : "";
-                        const url = isPublicBuilderContext && selectedBbq.publicSlug
-                          ? `${origin}/events/${selectedBbq.publicSlug}`
-                          : selectedBbq.inviteToken
-                            ? `${origin}/join/${selectedBbq.inviteToken}`
-                            : `${origin}/app/e/${selectedBbq.id}`;
-                        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-                        const ics = buildIcs({
-                          uid: `event-${selectedBbq.id}@splanno`,
-                          title: selectedBbq.name ?? "Splanno event",
-                          start: range.start,
-                          end: range.end,
-                          allDay: range.allDay,
-                          location,
-                          description: selectedBbq.publicDescription ?? null,
-                          url,
-                          timezone,
-                        });
-                        const safeName = (selectedBbq.name ?? "event")
-                          .toLowerCase()
-                          .replace(/[^a-z0-9]+/g, "-")
-                          .replace(/^-+|-+$/g, "")
-                          .slice(0, 64) || "event";
-                        downloadIcs(`${safeName}.ics`, ics);
-                        toast({ title: "Calendar file downloaded", variant: "success" });
+                {isPrivateContext && selectedBbq ? (
+                  <PrivateEventHero
+                    event={selectedBbq}
+                    template={selectedPrivateTemplate}
+                    participantNames={participants.map((p: Participant) => p.name)}
+                    participantCount={participantCount}
+                    headerProps={headerProps}
+                    canEditBanner={isCreator}
+                    onUploadBanner={isCreator ? async (dataUrl) => {
+                      await uploadEventBanner.mutateAsync(dataUrl);
+                      const currentTemplate = (selectedBbq.templateData && typeof selectedBbq.templateData === "object")
+                        ? (selectedBbq.templateData as Record<string, unknown>)
+                        : {};
+                      const currentBanner = (currentTemplate.banner && typeof currentTemplate.banner === "object")
+                        ? (currentTemplate.banner as Record<string, unknown>)
+                        : {};
+                      await updateBbq.mutateAsync({
+                        id: selectedBbq.id,
+                        templateData: {
+                          ...currentTemplate,
+                          banner: {
+                            ...currentBanner,
+                            type: "upload",
+                            presetId: null,
+                          },
+                        },
+                      });
+                      toast({ title: "Banner updated", variant: "success" });
+                    } : undefined}
+                    onSelectBannerPreset={isCreator ? async (presetId: EventBannerPresetId) => {
+                      const currentTemplate = (selectedBbq.templateData && typeof selectedBbq.templateData === "object")
+                        ? (selectedBbq.templateData as Record<string, unknown>)
+                        : {};
+                      const currentBanner = (currentTemplate.banner && typeof currentTemplate.banner === "object")
+                        ? (currentTemplate.banner as Record<string, unknown>)
+                        : {};
+                      await updateBbq.mutateAsync({
+                        id: selectedBbq.id,
+                        bannerImageUrl: null,
+                        templateData: {
+                          ...currentTemplate,
+                          privateBannerPreset: presetId,
+                          banner: {
+                            ...currentBanner,
+                            type: "preset",
+                            presetId,
+                          },
+                        },
+                      });
+                      toast({ title: "Banner preset applied", variant: "success" });
+                    } : undefined}
+                    onResetBanner={isCreator ? async () => {
+                      const currentTemplate = (selectedBbq.templateData && typeof selectedBbq.templateData === "object")
+                        ? (selectedBbq.templateData as Record<string, unknown>)
+                        : {};
+                      const { privateBannerPreset: _privateBannerPreset, banner: _banner, ...restTemplate } = currentTemplate;
+                      if (selectedBbq.bannerImageUrl) {
+                        await deleteEventBanner.mutateAsync();
                       }
-                    : undefined
-                }
-                onShare={
-                  selectedBbq
-                    ? async () => {
-                        const inviteToken = selectedBbq.inviteToken ?? null;
-                        const url = isPublicBuilderContext && selectedBbq.publicSlug
-                          ? `${typeof window !== "undefined" ? window.location.origin : ""}/events/${selectedBbq.publicSlug}`
-                          : inviteToken
-                            ? `${typeof window !== "undefined" ? window.location.origin : ""}/join/${inviteToken}`
-                            : null;
-                        if (!url) {
-                          toast({ title: "Link not ready yet. Open Event Settings to generate an invite link.", variant: "default" });
-                          return;
-                        }
-                        const ok = await copyText(url);
-                        if (ok) {
-                          toast({ title: t.bbq.copySuccess, variant: "success" });
-                          return;
-                        }
-                        setManualCopyValue(url);
-                        setManualCopyOpen(true);
-                        toast({ title: "Copy failed — select and copy manually.", variant: "default" });
-                      }
-                    : undefined
-                }
-                onShareWhatsApp={
-                  selectedBbq && !isPublicBuilderContext
-                    ? async () => {
-                        const inviteToken = selectedBbq.inviteToken
-                          ? selectedBbq.inviteToken
-                          : (isCreator ? (await ensureInviteToken.mutateAsync(selectedBbq.id))?.inviteToken : null);
-                        const url = inviteToken
-                          ? `${typeof window !== "undefined" ? window.location.origin : ""}/join/${inviteToken}`
-                          : null;
-                        if (!url) return;
-                        const rawTemplateData = (selectedBbq.templateData && typeof selectedBbq.templateData === "object")
-                          ? selectedBbq.templateData as Record<string, unknown>
-                          : null;
-                        const emoji = typeof rawTemplateData?.emoji === "string" ? rawTemplateData.emoji : undefined;
-                        const fallbackLocation = [selectedBbq.city, selectedBbq.countryName].filter(Boolean).join(", ");
-                        const message = buildWhatsAppMessage({
-                          title: selectedBbq.name,
-                          emoji,
-                          url,
-                          location: selectedBbq.locationName ?? (fallbackLocation || null),
-                          date: selectedBbq.date ?? null,
-                        });
-                        const shareUrl = buildWhatsAppShareUrl(message);
-                        window.open(shareUrl, "_blank", "noopener,noreferrer");
-                        toast({ title: "Opening WhatsApp…" });
-                      }
-                    : undefined
-                }
-                onCreateWhatsAppGroup={
-                  selectedBbq && !isPublicBuilderContext
-                    ? async () => {
-                        const inviteToken = selectedBbq.inviteToken
-                          ? selectedBbq.inviteToken
-                          : (isCreator ? (await ensureInviteToken.mutateAsync(selectedBbq.id))?.inviteToken : null);
-                        const url = inviteToken
-                          ? `${typeof window !== "undefined" ? window.location.origin : ""}/join/${inviteToken}`
-                          : null;
-                        if (!url) return;
-                        const rawTemplateData = (selectedBbq.templateData && typeof selectedBbq.templateData === "object")
-                          ? selectedBbq.templateData as Record<string, unknown>
-                          : null;
-                        const emoji = typeof rawTemplateData?.emoji === "string" ? rawTemplateData.emoji : undefined;
-                        const fallbackLocation = [selectedBbq.city, selectedBbq.countryName].filter(Boolean).join(", ");
-                        const message = buildWhatsAppMessage({
-                          title: selectedBbq.name,
-                          emoji,
-                          url,
-                          location: selectedBbq.locationName ?? (fallbackLocation || null),
-                          date: selectedBbq.date ?? null,
-                        });
-                        setWhatsAppStarterLink(url);
-                        setWhatsAppStarterMessage(message);
-                        setWhatsAppStarterOpen(true);
-                      }
-                    : undefined
-                }
-                shareLabel={isPublicBuilderContext ? "Copy link" : "Share"}
-                shareWhatsAppLabel="Share to WhatsApp"
-                createWhatsAppGroupLabel="Create WhatsApp group"
-                />
+                      await updateBbq.mutateAsync({
+                        id: selectedBbq.id,
+                        bannerImageUrl: null,
+                        templateData: restTemplate,
+                      });
+                      toast({ title: "Banner reset", variant: "success" });
+                    } : undefined}
+                  />
+                ) : (
+                  <EventHeader {...headerProps} />
+                )}
               </div>
 
               <EventSettingsModal
@@ -2397,25 +2531,20 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
 
             {/* Row C: Tabs */}
             <div className="mt-4">
-            <EventTabs value={activeEventTab} onValueChange={setActiveEventTab}>
-              <EventTabsList>
-                {isPublicBuilderContext ? (
-                  <>
-                    <EventTabsTrigger value="overview" data-testid="tab-overview">Overview</EventTabsTrigger>
-                    <EventTabsTrigger value="attendees" data-testid="tab-attendees">Attendees</EventTabsTrigger>
-                    {isCreator && <EventTabsTrigger value="inbox" data-testid="tab-inbox">Inbox</EventTabsTrigger>}
-                    <EventTabsTrigger value="content" data-testid="tab-content">Content</EventTabsTrigger>
-                  </>
-                ) : (
-                  <>
-                    <EventTabsTrigger value="expenses" data-testid="tab-expenses">{t.tabs.expenses}</EventTabsTrigger>
-                    <EventTabsTrigger value="people" data-testid="tab-people">{t.tabs.people}</EventTabsTrigger>
-                    <EventTabsTrigger value="split" data-testid="tab-split">{t.tabs.split}</EventTabsTrigger>
-                    <EventTabsTrigger value="notes" data-testid="tab-notes">{t.tabs.notes}</EventTabsTrigger>
-                    {showPrivateChatTab && <EventTabsTrigger value="chat" data-testid="tab-chat">{t.tabs.chat}</EventTabsTrigger>}
-                  </>
-                )}
-              </EventTabsList>
+            <EventPageTabsRouter
+              isPublicEvent={isPublicBuilderContext}
+              activeTab={activeEventTab}
+              onTabChange={setActiveEventTab}
+              isCreator={isCreator}
+              showPrivateChatTab={showPrivateChatTab}
+              labels={{
+                expenses: t.tabs.expenses,
+                people: t.tabs.people,
+                split: t.tabs.split,
+                notes: t.tabs.notes,
+                chat: t.tabs.chat,
+              }}
+            >
 
               {isPublicBuilderContext && selectedBbq && (
                 <>
@@ -2788,7 +2917,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                       <span className="text-[11px] text-muted-foreground">Quick add:</span>
                       <QuickAddChips
                         theme={getEventTheme(category, type)}
-                        presets={getExpenseTemplates(category, type)}
+                        presets={isPrivateContext ? selectedPrivateTemplate.defaultQuickAdds : getExpenseTemplates(category, type)}
                         onAdd={(p) => {
                           setRecommendedExpenseTemplate({ item: p.item, category: p.category, optInDefault: p.optInDefault });
                           setEditingExpense(null);
@@ -2823,7 +2952,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                             <EmptyState
                               icon={theme.icon}
                               title={isPrivateContext ? "This circle is quiet for now" : theme.copy.emptyExpensesTitle}
-                              description={isPrivateContext ? "Add the first expense when you’re ready. Splanno will remember how your circle usually works." : theme.copy.emptyExpensesBody}
+                              description={isPrivateContext ? selectedPrivateTemplate.emptyStates.expenses : theme.copy.emptyExpensesBody}
                               iconClassName={theme.accent.bg}
                               className={isPrivateContext ? "py-20" : undefined}
                               primaryAction={
@@ -3028,7 +3157,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                   balances={balances}
                   totalSpent={totalSpent}
                   formatMoney={formatMoney}
-                  emptyLabel={isPrivateContext ? "No contributions yet — this circle is just getting started." : t.emptyState.title}
+                  emptyLabel={isPrivateContext ? selectedPrivateTemplate.emptyStates.splitCheck : t.emptyState.title}
                   contributionsLabel={t.split.contributions}
                   reducedMotion={!!shouldReduceMotion}
                   warm={isPrivateContext}
@@ -3129,6 +3258,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                   eventId={selectedBbqId}
                   myParticipantId={myParticipant?.id ?? null}
                   canAddNote={!!myParticipant}
+                  emptySubtitleOverride={isPrivateContext ? selectedPrivateTemplate.emptyStates.notes : undefined}
                 />
               </EventTabsContent>}
 
@@ -3162,9 +3292,10 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                   </Button>
                 </div>
               </EventTabsContent>}
-            </EventTabs>
+            </EventPageTabsRouter>
             </div>
             </EventTemplateWrapper>
+            </div>
             </EventThemeProvider>
           );
         })() : (
@@ -3694,6 +3825,32 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                   )}
                 </div>
                 <div className="space-y-2">
+                  <Label className="text-muted-foreground">Choose a vibe</Label>
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    {PRIVATE_TEMPLATE_ORDER.map((templateId) => {
+                      const template = getPrivateTemplateById(templateId);
+                      return (
+                        <button
+                          key={`private-template-${template.id}`}
+                          type="button"
+                          onClick={() => setNewPrivateTemplateId(template.id)}
+                          className={`rounded-xl border p-3 text-left transition-colors ${
+                            newPrivateTemplateId === template.id
+                              ? "border-primary bg-primary/5"
+                              : "border-border hover:bg-muted/20"
+                          }`}
+                        >
+                          <p className="text-sm font-semibold flex items-center gap-1.5">
+                            <span aria-hidden>{template.emoji}</span>
+                            {template.label}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">{template.description}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="space-y-2">
                   <Label className="text-muted-foreground">Location</Label>
                   <LocationCombobox
                     value={newEventLocation}
@@ -3857,6 +4014,8 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                   city: selectedBbq.city ?? "",
                   countryCode: selectedBbq.countryCode ?? "",
                   countryName: selectedBbq.countryName ?? "",
+                  lat: selectedBbq.latitude ?? undefined,
+                  lng: selectedBbq.longitude ?? undefined,
                 }
               : null
           }
@@ -3870,6 +4029,8 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
               city: opts.city,
               countryCode: opts.countryCode,
               countryName: opts.countryName,
+              latitude: opts.latitude ?? null,
+              longitude: opts.longitude ?? null,
             };
             if (opts.switchCurrency && opts.newCurrency) {
               payload.currency = opts.newCurrency;

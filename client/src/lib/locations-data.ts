@@ -9,6 +9,8 @@ export type LocationOption = {
   city: string;
   countryCode: string;
   countryName: string;
+  lat?: number;
+  lng?: number;
 };
 
 /** Minimal countryCode → currencyCode for Create Trip currency preview. Backend is source of truth. */

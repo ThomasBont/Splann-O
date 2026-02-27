@@ -20,6 +20,8 @@ export interface EditTripLocationModalProps {
     city: string;
     countryCode: string;
     countryName: string;
+    latitude?: number | null;
+    longitude?: number | null;
     /** When true, also update currency to the new country's currency */
     switchCurrency?: boolean;
     newCurrency?: string;
@@ -64,6 +66,8 @@ export function EditTripLocationModal({
       city: pendingLocation.city,
       countryCode: pendingLocation.countryCode,
       countryName: pendingLocation.countryName,
+      latitude: pendingLocation.lat ?? null,
+      longitude: pendingLocation.lng ?? null,
     });
     setPendingLocation(null);
     onOpenChange(false);
@@ -76,6 +80,8 @@ export function EditTripLocationModal({
       city: pendingLocation.city,
       countryCode: pendingLocation.countryCode,
       countryName: pendingLocation.countryName,
+      latitude: pendingLocation.lat ?? null,
+      longitude: pendingLocation.lng ?? null,
       switchCurrency: false,
     });
     setPendingLocation(null);
@@ -91,6 +97,8 @@ export function EditTripLocationModal({
       city: pendingLocation.city,
       countryCode: pendingLocation.countryCode,
       countryName: pendingLocation.countryName,
+      latitude: pendingLocation.lat ?? null,
+      longitude: pendingLocation.lng ?? null,
       switchCurrency: true,
       newCurrency: curr,
     });

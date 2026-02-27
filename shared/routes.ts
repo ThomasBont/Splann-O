@@ -52,6 +52,8 @@ export const api = {
         city: z.string().nullable().optional(),
         countryCode: z.string().length(2).nullable().optional(),
         countryName: z.string().nullable().optional(),
+        latitude: z.number().nullable().optional(),
+        longitude: z.number().nullable().optional(),
         placeId: z.string().nullable().optional(),
         currency: z.string().length(3).optional(),
         currencySource: z.enum(["auto", "manual"]).optional(),

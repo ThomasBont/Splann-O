@@ -35,9 +35,10 @@ export interface NotesTabProps {
   /** Current user's participantId — required to add notes */
   myParticipantId: number | null;
   canAddNote: boolean;
+  emptySubtitleOverride?: string;
 }
 
-export function NotesTab({ eventId, myParticipantId, canAddNote }: NotesTabProps) {
+export function NotesTab({ eventId, myParticipantId, canAddNote, emptySubtitleOverride }: NotesTabProps) {
   const { t } = useLanguage();
   const { toast } = useToast();
   const { data: notes = [], isLoading } = useNotes(eventId);
@@ -168,7 +169,7 @@ export function NotesTab({ eventId, myParticipantId, canAddNote }: NotesTabProps
               <StickyNote className="w-6 h-6 text-primary" />
             </div>
             <p className="text-sm font-medium text-foreground">{t.notes.emptyTitle}</p>
-            <p className="text-xs text-muted-foreground mt-1">{t.notes.emptySubtitle}</p>
+            <p className="text-xs text-muted-foreground mt-1">{emptySubtitleOverride ?? t.notes.emptySubtitle}</p>
             {canAddNote && myParticipantId && (
               <Button onClick={openAdd} className="mt-5" size="sm">
                 <Plus className="w-4 h-4 mr-2" />

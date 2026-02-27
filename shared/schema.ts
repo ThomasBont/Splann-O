@@ -1,4 +1,4 @@
-import { pgTable, text, serial, numeric, integer, timestamp, boolean, unique, json } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, numeric, integer, timestamp, boolean, unique, json, real } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { sql } from "drizzle-orm";
@@ -94,6 +94,8 @@ export const barbecues = pgTable("barbecues", {
   city: text("city"),
   countryCode: text("country_code"),
   countryName: text("country_name"),
+  latitude: real("latitude"),
+  longitude: real("longitude"),
   placeId: text("place_id"),
   /** "auto" = derived from location; "manual" = user override */
   currencySource: text("currency_source").notNull().default("auto"),

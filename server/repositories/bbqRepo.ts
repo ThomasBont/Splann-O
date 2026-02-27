@@ -96,6 +96,8 @@ export const bbqRepo = {
       city?: string | null;
       countryCode?: string | null;
       countryName?: string | null;
+      latitude?: number | null;
+      longitude?: number | null;
       placeId?: string | null;
       currency?: string;
       currencySource?: "auto" | "manual";
@@ -123,6 +125,8 @@ export const bbqRepo = {
     if (updates.city !== undefined) set.city = updates.city;
     if (updates.countryCode !== undefined) set.countryCode = updates.countryCode;
     if (updates.countryName !== undefined) set.countryName = updates.countryName;
+    if (updates.latitude !== undefined) set.latitude = updates.latitude;
+    if (updates.longitude !== undefined) set.longitude = updates.longitude;
     if (updates.placeId !== undefined) set.placeId = updates.placeId;
     if (updates.currency !== undefined) set.currency = updates.currency;
     if (updates.currencySource !== undefined) set.currencySource = updates.currencySource;

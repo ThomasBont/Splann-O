@@ -107,6 +107,8 @@ export type PublicEventListItem = {
   date: string | null;
   city: string | null;
   countryName: string | null;
+  latitude: number | null;
+  longitude: number | null;
   currencyCode: string;
   organizationName: string | null;
   subtitle: string | null;
@@ -196,6 +198,8 @@ function toPublicListItem(event: Barbecue): PublicEventListItem {
     date: event.date ? event.date.toISOString() : null,
     city: event.city ?? null,
     countryName: event.countryName ?? null,
+    latitude: event.latitude ?? null,
+    longitude: event.longitude ?? null,
     currencyCode: event.currency ?? "EUR",
     organizationName: event.organizationName ?? null,
     subtitle: typeof tpl?.publicSubtitle === "string" && tpl.publicSubtitle.trim() ? tpl.publicSubtitle.trim() : null,
@@ -258,6 +262,8 @@ export async function createBarbecue(
     city?: string | null;
     countryCode?: string | null;
     countryName?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
     placeId?: string | null;
     currencySource?: "auto" | "manual";
     visibility?: "private" | "public";
@@ -363,6 +369,8 @@ export async function updateBarbecue(
     city?: string | null;
     countryCode?: string | null;
     countryName?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
     placeId?: string | null;
     currency?: string;
     currencySource?: "auto" | "manual";
@@ -411,6 +419,8 @@ export async function updateBarbecue(
     city: updates.city,
     countryCode: updates.countryCode,
     countryName: updates.countryName,
+    latitude: updates.latitude,
+    longitude: updates.longitude,
     placeId: updates.placeId,
     visibility: updates.visibility,
     visibilityOrigin: updates.visibilityOrigin,

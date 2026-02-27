@@ -17,6 +17,9 @@
   "db:seed:private": "npx tsx script/db-seed.ts --only-seed-private",
   "db:seed:public": "npx tsx script/db-seed.ts --only-seed-public",
   "db:reset:seed": "npm run db:reset && npm run db:seed",
+  "db:reset:dev": "NODE_ENV=development npx tsx script/db-reset-dev.ts",
+  "db:seed:dev": "NODE_ENV=development npx tsx script/db-seed-dev.ts",
+  "db:refresh:dev": "npm run db:migrate && npm run db:reset:dev && npm run db:seed:dev",
   "db:repair-private-events": "npx tsx script/repair-private-events.ts",
   "db:migrate:plan": "psql \"$DATABASE_URL\" -f migrations/0005_phase3_plan_tiers.sql",
   "split:verify": "npx tsx client/src/lib/split/calc.verify.ts"

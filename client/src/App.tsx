@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Switch, Route } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -53,6 +54,89 @@ function Router() {
 }
 
 function App() {
+  useEffect(() => {
+    if (!import.meta.env.DEV || typeof window === "undefined") return;
+
+    const points = () => ([
+      { name: "top-left", x: 12, y: 12 },
+      { name: "top-right", x: window.innerWidth - 12, y: 12 },
+      { name: "center", x: Math.floor(window.innerWidth / 2), y: Math.floor(window.innerHeight / 2) },
+      { name: "bottom-left", x: 12, y: window.innerHeight - 12 },
+      { name: "bottom-right", x: window.innerWidth - 12, y: window.innerHeight - 12 },
+    ]);
+
+    const logHitTest = (label: string) => {
+      try {
+        console.group(`[ui-hit-test] ${label}`);
+        points().forEach((p) => {
+          const el = document.elementFromPoint(p.x, p.y) as HTMLElement | null;
+          if (!el) {
+            console.log(p.name, "no element");
+            return;
+          }
+          const style = window.getComputedStyle(el);
+          console.log(p.name, {
+            tagName: el.tagName,
+            id: el.id || null,
+            className: el.className || null,
+            zIndex: style.zIndex,
+            pointerEvents: style.pointerEvents,
+            position: style.position,
+          });
+        });
+        console.groupEnd();
+      } catch {
+        // dev-only debug; swallow
+      }
+    };
+
+    const ensureOutlineStyle = () => {
+      if (document.getElementById("__splanno-outline-style")) return;
+      const style = document.createElement("style");
+      style.id = "__splanno-outline-style";
+      style.textContent = `html.__splanno-debug-outline * { outline: 1px solid rgba(255, 0, 0, 0.15) !important; }`;
+      document.head.appendChild(style);
+    };
+
+    const toggleOutlineDebug = () => {
+      ensureOutlineStyle();
+      document.documentElement.classList.add("__splanno-debug-outline");
+      window.setTimeout(() => {
+        document.documentElement.classList.remove("__splanno-debug-outline");
+      }, 2000);
+    };
+
+    const healPointerEvents = () => {
+      const bodyPointer = window.getComputedStyle(document.body).pointerEvents;
+      const openDialog = document.querySelector("[data-state='open'][role='dialog']");
+      const openOverlay = document.querySelector("[data-state='open'][data-radix-dialog-overlay]");
+      if (!openDialog && !openOverlay && bodyPointer === "none") {
+        document.body.style.pointerEvents = "auto";
+        console.warn("[ui-heal] reset body pointer-events to auto");
+      }
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "\\") {
+        toggleOutlineDebug();
+        logHitTest("keyboard-shortcut");
+      }
+    };
+
+    logHitTest("app-mount");
+    healPointerEvents();
+    window.addEventListener("keydown", onKeyDown);
+    const observer = new MutationObserver(() => {
+      healPointerEvents();
+    });
+    observer.observe(document.body, { attributes: true, childList: true, subtree: true });
+
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      observer.disconnect();
+    };
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>

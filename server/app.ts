@@ -8,6 +8,7 @@ import { requestContext } from "./middleware/requestContext";
 import { errorHandler } from "./middleware/errorHandler";
 import authRoutes from "./routes/authRoutes";
 import bbqRoutes from "./routes/bbqRoutes";
+import eventsRoutes from "./routes/eventsRoutes";
 import healthRoutes from "./routes/healthRoutes";
 import { bbqRepo } from "./repositories/bbqRepo";
 import { participantRepo } from "./repositories/participantRepo";
@@ -179,8 +180,19 @@ export function createApp() {
   });
 
   app.use("/api", authRoutes);
+  app.use("/api/events", eventsRoutes);
   app.use("/api", bbqRoutes);
   app.use("/api", healthRoutes);
+
+  if (!isProd) {
+    app.use((req, res, next) => {
+      if (req.originalUrl.startsWith("/api/")) {
+        console.warn("[404]", req.method, req.originalUrl);
+        return res.status(404).json({ code: "NOT_FOUND", message: "Not found" });
+      }
+      next();
+    });
+  }
 
   app.use(errorHandler);
 

@@ -35,10 +35,9 @@ import { serveStatic } from "./static";
 import { log } from "./lib/logger";
 import { db, pool } from "./db";
 import { WebSocketServer, WebSocket, type RawData } from "ws";
-import { eq } from "drizzle-orm";
-import { session as sessionTable } from "@shared/schema";
+import { and, eq } from "drizzle-orm";
+import { barbecues, eventMembers, users, session as sessionTable } from "@shared/schema";
 import { createHmac, timingSafeEqual } from "crypto";
-import * as bbqService from "./services/bbqService";
 import { appendEventChatMessage } from "./lib/eventChatStore";
 import { broadcastEventRealtime, registerEventSocket, unregisterEventSocket } from "./lib/eventRealtime";
 
@@ -50,6 +49,7 @@ type WsClientMeta = {
   eventId: number;
   userId: number;
   username: string;
+  subscribed: boolean;
 };
 
 function parseCookieHeader(raw: string): Record<string, string> {
@@ -96,17 +96,55 @@ async function resolveUserFromRequest(req: import("http").IncomingMessage): Prom
   return { id: userId, username };
 }
 
+async function canAccessEventChat(eventId: number, user: { id: number; username: string }): Promise<boolean> {
+  const [eventRow] = await db.select({ creatorId: barbecues.creatorId }).from(barbecues).where(eq(barbecues.id, eventId)).limit(1);
+  if (!eventRow) return false;
+  if (eventRow.creatorId === user.username) {
+    await db.insert(eventMembers).values({
+      eventId,
+      userId: user.id,
+      role: "owner",
+      joinedAt: new Date(),
+    }).onConflictDoNothing({ target: [eventMembers.eventId, eventMembers.userId] });
+    return true;
+  }
+
+  const [memberRow] = await db
+    .select({ id: eventMembers.id })
+    .from(eventMembers)
+    .where(and(eq(eventMembers.eventId, eventId), eq(eventMembers.userId, user.id)))
+    .limit(1);
+  if (memberRow) return true;
+
+  // Heal legacy owner rows where username exists but session may be stale.
+  if (!eventRow.creatorId) return false;
+  const [ownerUser] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.username, eventRow.creatorId))
+    .limit(1);
+  if (ownerUser && ownerUser.id === user.id) {
+    await db.insert(eventMembers).values({
+      eventId,
+      userId: user.id,
+      role: "owner",
+      joinedAt: new Date(),
+    }).onConflictDoNothing({ target: [eventMembers.eventId, eventMembers.userId] });
+    return true;
+  }
+  return false;
+}
+
 chatWss.on("connection", (ws, req) => {
   const meta = (req as import("http").IncomingMessage & { chatMeta?: WsClientMeta }).chatMeta;
   if (!meta) {
     ws.close(1008, "unauthorized");
     return;
   }
-  registerEventSocket(meta.eventId, ws);
-  ws.send(JSON.stringify({ type: "hello" }));
+  ws.send(JSON.stringify({ type: "hello", eventId: meta.eventId }));
 
   ws.on("message", (raw: RawData) => {
-    let parsed: { type?: string; text?: string } | null = null;
+    let parsed: { type?: string; text?: string; eventId?: number } | null = null;
     try {
       parsed = JSON.parse(String(raw));
     } catch {
@@ -115,9 +153,33 @@ chatWss.on("connection", (ws, req) => {
     }
 
     if (parsed?.type === "event:subscribe") {
+      const requestedEventId = Number(parsed.eventId ?? meta.eventId);
+      if (!Number.isFinite(requestedEventId) || requestedEventId !== meta.eventId) {
+        ws.send(JSON.stringify({ type: "event:error", code: "CHAT_LOCKED", eventId: meta.eventId }));
+        return;
+      }
+      canAccessEventChat(meta.eventId, { id: meta.userId, username: meta.username })
+        .then((allowed) => {
+          if (!allowed) {
+            ws.send(JSON.stringify({ type: "event:error", code: "CHAT_LOCKED", eventId: meta.eventId }));
+            return;
+          }
+          if (!meta.subscribed) {
+            registerEventSocket(meta.eventId, ws);
+            meta.subscribed = true;
+          }
+          ws.send(JSON.stringify({ type: "event:subscribed", eventId: meta.eventId }));
+        })
+        .catch(() => {
+          ws.send(JSON.stringify({ type: "event:error", code: "INTERNAL_ERROR", eventId: meta.eventId }));
+        });
       return;
     }
     if (parsed?.type !== "send") return;
+    if (!meta.subscribed) {
+      ws.send(JSON.stringify({ type: "event:error", code: "CHAT_LOCKED", eventId: meta.eventId }));
+      return;
+    }
     const text = typeof parsed.text === "string" ? parsed.text.trim() : "";
     if (!text) return;
     if (text.length > 4000) {
@@ -125,16 +187,29 @@ chatWss.on("connection", (ws, req) => {
       return;
     }
 
-    const message = appendEventChatMessage(meta.eventId, {
-      type: "user",
-      text,
-      user: { id: String(meta.userId), name: meta.username },
-    });
-    broadcastEventRealtime(meta.eventId, { type: "message", message });
+    canAccessEventChat(meta.eventId, { id: meta.userId, username: meta.username })
+      .then((allowed) => {
+        if (!allowed) {
+          ws.send(JSON.stringify({ type: "error", code: "NOT_AUTHORIZED", message: "Membership required" }));
+          return;
+        }
+        const message = appendEventChatMessage(meta.eventId, {
+          type: "user",
+          text,
+          user: { id: String(meta.userId), name: meta.username },
+        });
+        broadcastEventRealtime(meta.eventId, { type: "message", message });
+      })
+      .catch(() => {
+        ws.send(JSON.stringify({ type: "error", code: "INTERNAL_ERROR", message: "Message failed" }));
+      });
   });
 
   ws.on("close", () => {
-    unregisterEventSocket(meta.eventId, ws);
+    if (meta.subscribed) {
+      unregisterEventSocket(meta.eventId, ws);
+      meta.subscribed = false;
+    }
   });
 });
 
@@ -156,15 +231,11 @@ httpServer.on("upgrade", async (req, socket, head) => {
       socket.destroy();
       return;
     }
-    const access = await bbqService.getBarbecueIfAccessible(eventId, user.id, user.username);
-    if (!access) {
-      socket.destroy();
-      return;
-    }
     (req as import("http").IncomingMessage & { chatMeta?: WsClientMeta }).chatMeta = {
       eventId,
       userId: user.id,
       username: user.username,
+      subscribed: false,
     };
     chatWss.handleUpgrade(req, socket, head, (ws) => {
       chatWss.emit("connection", ws, req);

@@ -53,6 +53,5 @@ export function sanitizeEventHeaderPreferences(input: unknown): EventHeaderPrefe
 }
 
 export function eventHeaderPrefsStorageKey(userIdOrName: string) {
-  return `splanno.eventHeaderPrefs.v${EVENT_HEADER_PREFS_VERSION}:${userIdOrName}`;
+  return `splanno:eventHeaderPrefs:${userIdOrName}`;
 }
-

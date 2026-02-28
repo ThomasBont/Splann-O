@@ -18,10 +18,18 @@ export function unregisterEventSocket(eventId: number, ws: WebSocket) {
 export function broadcastEventRealtime(eventId: number, payload: object) {
   const room = eventRooms.get(eventId);
   if (!room) return;
-  const serialized = JSON.stringify(payload);
+  let serialized = "";
+  try {
+    serialized = JSON.stringify(payload, (_key, value) => (typeof value === "bigint" ? value.toString() : value));
+  } catch {
+    return;
+  }
   room.forEach((ws) => {
-    if (ws.readyState === WebSocket.OPEN) {
+    if (ws.readyState !== WebSocket.OPEN) return;
+    try {
       ws.send(serialized);
+    } catch {
+      // Ignore per-socket send failures to prevent room-wide broadcast crashes.
     }
   });
 }

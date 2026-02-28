@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { Loader2, MessageCircle } from "lucide-react";
 import { InlineQueryError, SkeletonLine } from "@/components/ui/load-states";
 import { useEventChat } from "@/hooks/use-event-chat";
 import { useAppToast } from "@/hooks/use-app-toast";
 import { useEventMembers } from "@/hooks/use-participants";
+import type { SendMessageResult } from "@/hooks/use-event-chat";
 
 type ChatSidebarProps = {
   eventId: number | null;
@@ -21,16 +21,20 @@ function formatMessageTime(value: string) {
 }
 
 export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }: ChatSidebarProps) {
-  const { toastError } = useAppToast();
+  const { toastError, toastInfo } = useAppToast();
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const listRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const [isNearBottom, setIsNearBottom] = useState(true);
   const {
     messages,
     historyLoading,
     historyError,
     connectionStatus,
+    isLocked,
+    isSubscribed,
+    wsReadyState,
     sendMessage,
     retry,
   } = useEventChat(eventId, enabled && !!eventId);
@@ -44,30 +48,89 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }:
   }, [messages, isNearBottom]);
 
   const liveLabel = useMemo(() => {
+    if (isLocked) return { text: "Locked", cls: "bg-rose-500" };
     if (connectionStatus === "connected") return { text: "Live", cls: "bg-emerald-500" };
     if (connectionStatus === "reconnecting" || connectionStatus === "connecting") return { text: "Reconnecting…", cls: "bg-amber-500" };
     return { text: "Offline", cls: "bg-slate-400" };
-  }, [connectionStatus]);
+  }, [connectionStatus, isLocked]);
 
   const handleSubmit = async () => {
     const text = draft.trim();
-    if (!text || !eventId || sending) return;
+    if (import.meta.env.DEV) {
+      console.log("[chat-send]", { textLen: text.length, isLocked, eventId, transport: "ws", wsState: wsReadyState, isSubscribed, sending });
+    }
+    if (sending) return;
+
+    if (!text) {
+      if (import.meta.env.DEV) console.log("[chat-send] blocked: empty");
+      return;
+    }
+    if (isLocked) {
+      if (import.meta.env.DEV) console.log("[chat-send] blocked: locked");
+      toastError("Chat is locked for this event.");
+      return;
+    }
+    if (!eventId) {
+      if (import.meta.env.DEV) console.log("[chat-send] blocked: no-eventId");
+      toastError("Event not loaded yet.");
+      return;
+    }
+
     setSending(true);
-    const ok = await sendMessage(text, {
-      id: currentUser?.id ?? null,
-      name: currentUser?.username ?? "You",
-      avatarUrl: currentUser?.avatarUrl ?? null,
-    });
+    let result: SendMessageResult;
+    try {
+      result = await sendMessage(text, {
+        id: currentUser?.id ?? null,
+        name: currentUser?.username ?? "You",
+        avatarUrl: currentUser?.avatarUrl ?? null,
+      });
+    } catch (error) {
+      setSending(false);
+      const message = error instanceof Error ? error.message : "Unknown error";
+      toastError(`Couldn’t send message (${message}). Try again.`);
+      return;
+    }
     setSending(false);
-    if (!ok) {
-      toastError("Couldn’t send message. Try again.");
+    if (!result.ok) {
+      if (import.meta.env.DEV) {
+        console.log(`[chat-send] blocked: ${result.reason ?? "unknown"}`, {
+          eventId,
+          wsReadyState: result.wsReadyState,
+          isSubscribed: result.isSubscribed,
+        });
+      }
+      if (result.reason === "not-subscribed" || result.reason === "not-open" || result.reason === "no-ws") {
+        toastInfo("Connecting… try again.");
+        return;
+      }
+      toastError(`Couldn’t send message (${result.reason ?? "unknown"}). Try again.`);
       return;
     }
     setDraft("");
   };
 
+  const debugFocusBlock = useCallback(() => {
+    if (!import.meta.env.DEV) return;
+    window.setTimeout(() => {
+      const input = inputRef.current;
+      if (!input) return;
+      if (document.activeElement === input) return;
+      const inputStyle = window.getComputedStyle(input);
+      const parent = input.parentElement;
+      const parentStyle = parent ? window.getComputedStyle(parent) : null;
+      const overlay = document.querySelector("[data-radix-dialog-overlay]");
+      console.warn("[chat-focus-debug]", {
+        eventId,
+        inputPointerEvents: inputStyle.pointerEvents,
+        inputOpacity: inputStyle.opacity,
+        parentPointerEvents: parentStyle?.pointerEvents,
+        overlayPresent: !!overlay,
+      });
+    }, 0);
+  }, [eventId]);
+
   return (
-    <aside className="h-full min-h-[380px] rounded-lg border border-slate-200 bg-white flex flex-col overflow-hidden">
+    <aside className="pointer-events-auto h-full min-h-[380px] rounded-lg border border-slate-200 bg-white flex flex-col overflow-hidden">
       <header className="px-4 py-3 border-b border-slate-200 bg-slate-50/80">
         <div className="flex items-center justify-between gap-2">
           <div>
@@ -98,6 +161,13 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }:
             <SkeletonLine className="h-10 w-3/4 rounded-xl" />
             <SkeletonLine className="h-10 w-2/3 rounded-xl ml-auto" />
             <SkeletonLine className="h-10 w-4/5 rounded-xl" />
+          </div>
+        ) : isLocked ? (
+          <div className="h-full min-h-[180px] flex items-center justify-center text-center px-4">
+            <div className="space-y-1 text-slate-500">
+              <MessageCircle className="h-4 w-4 mx-auto" />
+              <p className="text-sm">Chat is locked for this event.</p>
+            </div>
           </div>
         ) : historyError ? (
           <InlineQueryError message="Messages unavailable." onRetry={retry} />
@@ -136,20 +206,32 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }:
 
       <div className="border-t border-slate-200 bg-white p-3">
         <div className="flex items-end gap-2">
-          <Textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="Message the event room…"
-            className="min-h-[44px] max-h-[120px] resize-none"
-            rows={1}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                void handleSubmit();
-              }
+          <div
+            className="min-h-[44px] max-h-[120px] flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2"
+            onMouseDown={(e) => {
+              if (isLocked) return;
+              e.preventDefault();
+              inputRef.current?.focus();
+              debugFocusBlock();
             }}
-          />
-          <Button type="button" size="sm" onClick={() => void handleSubmit()} disabled={sending || !draft.trim() || !eventId}>
+          >
+            <textarea
+              ref={inputRef}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder="Message…"
+              className="w-full min-h-[28px] max-h-[104px] resize-none bg-transparent text-sm text-slate-900 caret-primary outline-none pointer-events-auto placeholder:text-slate-500 disabled:cursor-not-allowed disabled:text-slate-400 dark:text-neutral-100 dark:placeholder:text-neutral-500"
+              rows={1}
+              disabled={isLocked}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void handleSubmit();
+                }
+              }}
+            />
+          </div>
+          <Button type="button" size="sm" onClick={() => void handleSubmit()} disabled={isLocked || sending || !draft.trim() || !eventId}>
             {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Send"}
           </Button>
         </div>

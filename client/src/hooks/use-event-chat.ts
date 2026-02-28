@@ -9,7 +9,15 @@ export type ChatMessage = {
   user?: { id: string; name: string; avatarUrl?: string | null };
 };
 
-type ConnectionStatus = "idle" | "connecting" | "connected" | "reconnecting" | "error";
+type ConnectionStatus = "idle" | "connecting" | "connected" | "reconnecting" | "error" | "locked";
+type SendBlockReason = "empty" | "locked" | "no-eventId" | "no-ws" | "not-open" | "not-subscribed" | "send-failed";
+
+export type SendMessageResult = {
+  ok: boolean;
+  reason?: SendBlockReason;
+  wsReadyState: number;
+  isSubscribed: boolean;
+};
 
 function getWsUrl(eventId: number): string {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
@@ -26,11 +34,14 @@ export function useEventChat(eventId: number | null, enabled = true) {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("idle");
+  const [isLocked, setIsLocked] = useState(false);
+  const [isSubscribed, setIsSubscribed] = useState(false);
   const [retryTick, setRetryTick] = useState(0);
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
   const reconnectAttemptRef = useRef(0);
+  const isLockedRef = useRef(false);
 
   const fetchHistory = useCallback(async () => {
     if (!eventId || !enabled) {
@@ -63,6 +74,8 @@ export function useEventChat(eventId: number | null, enabled = true) {
   useEffect(() => {
     if (!enabled || !eventId) {
       setConnectionStatus("idle");
+      setIsLocked(false);
+      setIsSubscribed(false);
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
@@ -71,10 +84,14 @@ export function useEventChat(eventId: number | null, enabled = true) {
         window.clearTimeout(reconnectTimerRef.current);
         reconnectTimerRef.current = null;
       }
+      isLockedRef.current = false;
       return;
     }
 
     let closedByCleanup = false;
+    setIsLocked(false);
+    isLockedRef.current = false;
+    setIsSubscribed(false);
     setConnectionStatus(reconnectAttemptRef.current > 0 ? "reconnecting" : "connecting");
 
     const ws = new WebSocket(getWsUrl(eventId));
@@ -82,14 +99,38 @@ export function useEventChat(eventId: number | null, enabled = true) {
 
     ws.onopen = () => {
       reconnectAttemptRef.current = 0;
-      setConnectionStatus("connected");
+      ws.send(JSON.stringify({ type: "event:subscribe", eventId }));
     };
 
     ws.onmessage = (ev) => {
-      let payload: { type?: string; message?: ChatMessage } | null = null;
+      let payload: { type?: string; message?: ChatMessage; eventId?: number; code?: string; text?: string } | null = null;
       try {
         payload = JSON.parse(ev.data as string);
       } catch {
+        return;
+      }
+      if (payload?.type === "event:subscribed") {
+        setIsLocked(false);
+        setIsSubscribed(true);
+        setConnectionStatus("connected");
+        return;
+      }
+      if (payload?.type === "event:error" && payload.code === "CHAT_LOCKED") {
+        setIsLocked(true);
+        setIsSubscribed(false);
+        isLockedRef.current = true;
+        setConnectionStatus("locked");
+        return;
+      }
+      if (payload?.type === "chat:system" && payload.text) {
+        const systemText = payload.text;
+        setMessages((prev) => [...prev, {
+          id: `system-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+          eventId: String(payload.eventId ?? eventId ?? ""),
+          type: "system",
+          text: systemText,
+          createdAt: new Date().toISOString(),
+        }]);
         return;
       }
       if (payload?.type !== "message" || !payload.message) return;
@@ -101,6 +142,8 @@ export function useEventChat(eventId: number | null, enabled = true) {
 
     ws.onclose = () => {
       if (closedByCleanup) return;
+      setIsSubscribed(false);
+      if (isLockedRef.current) return;
       setConnectionStatus("reconnecting");
       reconnectAttemptRef.current += 1;
       const delay = Math.min(2000 * reconnectAttemptRef.current, 10000);
@@ -126,11 +169,16 @@ export function useEventChat(eventId: number | null, enabled = true) {
     };
   }, [enabled, eventId, retryTick]);
 
-  const sendMessage = useCallback(async (text: string, actor?: { id?: string | number | null; name?: string | null; avatarUrl?: string | null }) => {
+  const sendMessage = useCallback(async (text: string, actor?: { id?: string | number | null; name?: string | null; avatarUrl?: string | null }): Promise<SendMessageResult> => {
     const trimmed = text.trim();
-    if (!trimmed) return false;
     const ws = wsRef.current;
-    if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+    const wsReadyState = ws?.readyState ?? -1;
+    if (!trimmed) return { ok: false, reason: "empty", wsReadyState, isSubscribed };
+    if (!eventId) return { ok: false, reason: "no-eventId", wsReadyState, isSubscribed };
+    if (isLocked) return { ok: false, reason: "locked", wsReadyState, isSubscribed };
+    if (!ws) return { ok: false, reason: "no-ws", wsReadyState, isSubscribed };
+    if (ws.readyState !== WebSocket.OPEN) return { ok: false, reason: "not-open", wsReadyState, isSubscribed };
+    if (!isSubscribed) return { ok: false, reason: "not-subscribed", wsReadyState, isSubscribed };
 
     const optimistic: ChatMessage = {
       id: `temp-${Date.now()}-${Math.random().toString(16).slice(2)}`,
@@ -146,9 +194,14 @@ export function useEventChat(eventId: number | null, enabled = true) {
     };
 
     setMessages((prev) => [...prev, optimistic]);
-    ws.send(JSON.stringify({ type: "send", text: trimmed }));
-    return true;
-  }, [eventId]);
+    try {
+      ws.send(JSON.stringify({ type: "send", text: trimmed }));
+      return { ok: true, wsReadyState: ws.readyState, isSubscribed };
+    } catch {
+      setMessages((prev) => prev.filter((message) => message.id !== optimistic.id));
+      return { ok: false, reason: "send-failed", wsReadyState: ws.readyState, isSubscribed };
+    }
+  }, [eventId, isLocked, isSubscribed]);
 
   const retry = useCallback(() => {
     reconnectAttemptRef.current = 0;
@@ -160,7 +213,10 @@ export function useEventChat(eventId: number | null, enabled = true) {
     historyLoading,
     historyError,
     connectionStatus,
+    isLocked,
+    isSubscribed,
+    wsReadyState: wsRef.current?.readyState ?? -1,
     sendMessage,
     retry,
-  }), [messages, historyLoading, historyError, connectionStatus, sendMessage, retry]);
+  }), [messages, historyLoading, historyError, connectionStatus, isLocked, isSubscribed, sendMessage, retry]);
 }

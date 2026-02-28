@@ -4,6 +4,11 @@ import type { InsertParticipant } from "@shared/routes";
 import type { Membership } from "@shared/schema";
 import { UpgradeRequiredError } from "@/lib/upgrade";
 
+type ApiRequestError = Error & {
+  status?: number;
+  code?: string;
+};
+
 export function useParticipants(bbqId: number | null) {
   return useQuery({
     queryKey: ['/api/barbecues', bbqId, 'participants'],
@@ -304,7 +309,12 @@ export function useAddEventMember(eventId: number | null) {
         credentials: "include",
       });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error((body as { message?: string }).message || "Failed to add member");
+      if (!res.ok) {
+        const err = new Error((body as { message?: string }).message || "Failed to add member") as ApiRequestError;
+        err.status = res.status;
+        err.code = (body as { code?: string }).code;
+        throw err;
+      }
       return body as EventMemberView;
     },
     onSuccess: () => {

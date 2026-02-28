@@ -37,8 +37,7 @@ import { Switch } from "@/components/ui/switch";
 import { useAppToast } from "@/hooks/use-app-toast";
 import { loadLocalUserPreferences } from "@/lib/user-preferences";
 import { copyText } from "@/lib/copy-text";
-import { EventHeaderPreferencesProvider, useEventHeaderPreferences } from "@/hooks/use-event-header-preferences";
-import { DEFAULT_EVENT_HEADER_PREFERENCES, type UtilityAction } from "@/lib/event-header-preferences";
+import { EventHeaderPreferencesProvider } from "@/hooks/use-event-header-preferences";
 import {
   defaultPinGroups,
   defaultSidebarLayout,
@@ -56,6 +55,30 @@ import { InlineQueryError, SkeletonCard } from "@/components/ui/load-states";
 import { EMPTY_COPY, UI_COPY } from "@/lib/emotional-copy";
 
 type AppSection = "home" | "private" | "public" | "explore" | "event";
+type DevDisableFlags = {
+  headerPrefs: boolean;
+  discoverModal: boolean;
+  homeEffects: boolean;
+};
+
+const DEV_DISABLE_DEFAULT: DevDisableFlags = {
+  headerPrefs: false,
+  discoverModal: false,
+  homeEffects: false,
+};
+
+function parseDevDisableFlags(search: string): DevDisableFlags {
+  if (!import.meta.env.DEV) return DEV_DISABLE_DEFAULT;
+  const params = new URLSearchParams(search);
+  const kill = params.get("kill");
+  if (!kill) return DEV_DISABLE_DEFAULT;
+  const set = new Set(kill.split(",").map((token) => token.trim().toLowerCase()).filter(Boolean));
+  return {
+    headerPrefs: set.has("headerprefs"),
+    discoverModal: set.has("discovermodal"),
+    homeEffects: set.has("home"),
+  };
+}
 
 function getEventDateMs(event: Barbecue): number {
   const raw = (event.updatedAt as unknown as string) || (event.date as unknown as string) || "";
@@ -929,6 +952,7 @@ export default function AppRoute() {
   const pathname = typeof window !== "undefined" ? window.location.pathname : (location.split("?")[0] || "/app");
   const search = typeof window !== "undefined" ? window.location.search : "";
   const searchParams = useMemo(() => new URLSearchParams(search), [search]);
+  const devDisable = useMemo(() => parseDevDisableFlags(search), [search]);
   const newFlow = searchParams.get("new");
   useEffect(() => {
     if (!isAuthLoading && !user) setLocation("/login");
@@ -1046,6 +1070,14 @@ export default function AppRoute() {
     }
   }, [section, routeEventId, user?.id, user?.username]);
 
+  useEffect(() => {
+    if (!import.meta.env.DEV || typeof window === "undefined") return;
+    (window as Window & { __splannoDebug?: unknown }).__splannoDebug = {
+      activeKills: devDisable,
+      lastRenderAt: new Date().toISOString(),
+    };
+  }, [devDisable]);
+
   if (isAuthLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background">
@@ -1055,9 +1087,9 @@ export default function AppRoute() {
   }
   if (!user) return null;
 
-  return (
-    <EventHeaderPreferencesProvider userKey={`${user?.id ?? user?.username ?? "anon"}`}>
-      <div className="min-h-screen bg-background lg:flex">
+  const anyKillActive = devDisable.headerPrefs || devDisable.discoverModal || devDisable.homeEffects;
+  const mainContent = (
+    <div className="min-h-screen bg-background lg:flex">
         <header className="lg:hidden sticky top-0 z-40 h-14 border-b border-border/60 bg-background/95 backdrop-blur-sm">
           <div className="h-full px-3 flex items-center justify-between">
             <Button
@@ -1169,11 +1201,47 @@ export default function AppRoute() {
         <main className="min-w-0 flex-1">
           {section === "home" && <AppDashboardHome />}
           {section === "explore" && <ExplorePage />}
-          {section === "private" && (shouldUseLegacyHomeForCreate ? <Home appRouteMode="private" /> : <PrivateHomePage user={user} />)}
-          {section === "public" && (shouldUseLegacyHomeForCreate ? <Home appRouteMode="public" /> : <PublicHomePage />)}
-          {section === "event" && <Home appRouteMode="event" routeEventId={routeEventId} />}
+          {section === "private" && (shouldUseLegacyHomeForCreate
+            ? (
+              devDisable.homeEffects
+                ? <div className="p-6 text-sm text-muted-foreground">Home effects disabled via kill switch.</div>
+                : <Home appRouteMode="private" debugDisableDiscoverModal={devDisable.discoverModal} />
+            )
+            : <PrivateHomePage user={user} />
+          )}
+          {section === "public" && (shouldUseLegacyHomeForCreate
+            ? (
+              devDisable.homeEffects
+                ? <div className="p-6 text-sm text-muted-foreground">Home effects disabled via kill switch.</div>
+                : <Home appRouteMode="public" debugDisableDiscoverModal={devDisable.discoverModal} />
+            )
+            : <PublicHomePage />
+          )}
+          {section === "event" && (
+            devDisable.homeEffects
+              ? <div className="p-6 text-sm text-muted-foreground">Home effects disabled via kill switch.</div>
+              : (
+                <Home
+                  appRouteMode="event"
+                  routeEventId={routeEventId}
+                  debugDisableDiscoverModal={devDisable.discoverModal}
+                />
+              )
+          )}
         </main>
+        {import.meta.env.DEV && anyKillActive && (
+          <div className="fixed bottom-3 left-3 z-[100] rounded-md border border-amber-300 bg-amber-100/95 px-2 py-1 text-[11px] text-amber-900 shadow-sm">
+            kill: {Object.entries(devDisable).filter(([, enabled]) => enabled).map(([name]) => name).join(", ")}
+          </div>
+        )}
       </div>
-    </EventHeaderPreferencesProvider>
   );
+
+  return devDisable.headerPrefs
+    ? mainContent
+    : (
+      <EventHeaderPreferencesProvider userKey={`${user?.id ?? user?.username ?? "anon"}`}>
+        {mainContent}
+      </EventHeaderPreferencesProvider>
+    );
 }

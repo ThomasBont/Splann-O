@@ -20,8 +20,9 @@ import { checkPublicInboxRateLimit } from "../middleware/publicInboxRateLimit";
 import { db } from "../db";
 import { getLimits } from "../lib/plan";
 import { broadcastEventRealtime } from "../lib/eventRealtime";
+import { log } from "../lib/logger";
 import { auditLog, auditSecurity } from "../lib/audit";
-import { badRequest, conflict, forbidden, gone, notFound, unauthorized, upgradeRequired } from "../lib/errors";
+import { AppError, badRequest, conflict, forbidden, gone, notFound, unauthorized, upgradeRequired } from "../lib/errors";
 import { createStripeCheckoutSession, verifyStripeWebhookSignature } from "../lib/stripe";
 
 const router = Router();
@@ -120,42 +121,71 @@ async function ensurePrivateEventParticipantOrCreator(req: Request, bbqId: numbe
 async function isEventMemberUser(eventId: number, userId: number, username?: string | null): Promise<boolean> {
   const bbq = await bbqRepo.getById(eventId);
   if (!bbq) return false;
-  if (username && bbq.creatorId === username) return true;
+  if (bbq.creatorId) {
+    const owner = await userRepo.findByUsername(bbq.creatorId);
+    if (owner) {
+      await db.insert(eventMembers).values({
+        eventId,
+        userId: owner.id,
+        role: "owner",
+        joinedAt: new Date(),
+      }).onConflictDoNothing({ target: [eventMembers.eventId, eventMembers.userId] });
+    }
+  }
+  if (username && bbq.creatorId === username) {
+    await db.insert(eventMembers).values({
+      eventId,
+      userId,
+      role: "owner",
+      joinedAt: new Date(),
+    }).onConflictDoNothing({ target: [eventMembers.eventId, eventMembers.userId] });
+    return true;
+  }
 
   const rows = await db
     .select({ id: eventMembers.id })
     .from(eventMembers)
     .where(and(eq(eventMembers.eventId, eventId), eq(eventMembers.userId, userId)))
     .limit(1);
-  if (rows[0]) return true;
-
-  const acceptedLegacy = await db
-    .select({ id: participants.id })
-    .from(participants)
-    .where(
-      and(
-        eq(participants.barbecueId, eventId),
-        eq(participants.status, "accepted"),
-        or(
-          eq(participants.invitedUserId, userId),
-          username ? eq(participants.userId, username) : eq(participants.userId, "__no_user__"),
-        ),
-      ),
-    )
-    .limit(1);
-  return !!acceptedLegacy[0];
+  return !!rows[0];
 }
 
-async function assertEventMemberOrThrow(req: Request, eventId: number) {
+async function assertEventAccessOrThrow(req: Request, eventId: number) {
   const userId = req.session?.userId;
   const username = req.session?.username;
   if (!userId || !username) unauthorized("Not authenticated");
   const ok = await isEventMemberUser(eventId, userId, username);
-  if (!ok) forbidden("NOT_AUTHORIZED");
+  if (!ok) forbidden("Not a member of this event");
 }
 
 function getAppOrigin(req: Request) {
   return (process.env.APP_URL ?? process.env.APP_BASE_URL ?? "").replace(/\/$/, "") || `${req.protocol}://${req.get("host")}`;
+}
+
+function isMissingSchemaError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err ?? "");
+  return message.includes("does not exist") || message.includes("relation") || message.includes("column");
+}
+
+function handleGuestRouteError(route: string, req: Request, err: unknown, res: { status: (code: number) => { json: (payload: object) => unknown } }): void {
+  const status = err instanceof AppError ? err.status : 500;
+  const code = err instanceof AppError ? err.code : "INTERNAL_ERROR";
+  log("error", "Guests route failed", {
+    route,
+    reqId: (req as Request & { requestId?: string }).requestId,
+    userId: req.session?.userId,
+    status,
+    code,
+    errorMessage: err instanceof Error ? err.message : String(err),
+  });
+  if (isMissingSchemaError(err)) {
+    res.status(500).json({
+      code: "DB_SCHEMA_NOT_MIGRATED",
+      message: process.env.NODE_ENV === "production" ? "Internal Server Error" : "DB schema not migrated",
+    });
+    return;
+  }
+  throw err;
 }
 
 // Barbecues
@@ -208,10 +238,11 @@ router.post(p(api.barbecues.create.path), asyncHandler(async (req, res) => {
     currencySource: (parsed.currencySource as "auto" | "manual" | undefined) ?? "auto",
   };
   const created = await bbqService.createBarbecue(input, req.session?.username);
-  if (req.session?.userId) {
+  const ownerUserId = req.session?.userId ?? (req.session?.username ? (await userRepo.findByUsername(req.session.username))?.id : undefined);
+  if (ownerUserId) {
     await db.insert(eventMembers).values({
       eventId: created.id,
-      userId: req.session.userId,
+      userId: ownerUserId,
       role: "owner",
       joinedAt: new Date(),
     }).onConflictDoNothing({ target: [eventMembers.eventId, eventMembers.userId] });
@@ -548,204 +579,236 @@ router.get("/invites/:token", asyncHandler(async (req, res) => {
 }));
 
 router.post("/invites/:token/accept", requireAuth, asyncHandler(async (req, res) => {
-  const token = String(req.params.token ?? "").trim();
-  if (!token) badRequest("Invalid invite token");
-  const userId = req.session!.userId!;
-  const username = req.session!.username!;
-  const rows = await db.select().from(eventInvites).where(eq(eventInvites.token, token)).limit(1);
-  const invite = rows[0];
-  if (!invite) notFound("Invite not found");
-  if (invite.status !== "pending") conflict("Invite already handled");
-  if (invite.expiresAt.getTime() <= Date.now()) gone("Invite expired");
+  try {
+    const token = String(req.params.token ?? "").trim();
+    if (!token) badRequest("Invalid invite token");
+    const userId = req.session!.userId!;
+    const username = req.session!.username!;
+    const rows = await db.select().from(eventInvites).where(eq(eventInvites.token, token)).limit(1);
+    const invite = rows[0];
+    if (!invite) notFound("Invite not found");
+    if (invite.status !== "pending") conflict("Invite already handled");
+    if (invite.expiresAt.getTime() <= Date.now()) gone("Invite expired");
 
-  const eventId = invite.eventId;
-  const now = new Date();
-  const [member] = await db.insert(eventMembers).values({
-    eventId,
-    userId,
-    role: "member",
-    joinedAt: now,
-  }).onConflictDoNothing({ target: [eventMembers.eventId, eventMembers.userId] }).returning();
-  if (!member) {
-    const existing = await db.select().from(eventMembers).where(and(eq(eventMembers.eventId, eventId), eq(eventMembers.userId, userId))).limit(1);
-    if (!existing[0]) conflict("Could not join event");
-  }
-
-  const existingParticipant = await db
-    .select()
-    .from(participants)
-    .where(and(eq(participants.barbecueId, eventId), eq(participants.status, "accepted"), or(eq(participants.invitedUserId, userId), eq(participants.userId, username))))
-    .limit(1);
-  if (!existingParticipant[0]) {
-    await participantRepo.create({
-      barbecueId: eventId,
-      name: username,
-      userId: username,
-      invitedUserId: userId,
-      status: "accepted",
-    });
-  }
-
-  await db.update(eventInvites).set({
-    status: "accepted",
-    acceptedByUserId: userId,
-    acceptedAt: now,
-  }).where(eq(eventInvites.id, invite.id));
-
-  const me = await userRepo.findById(userId);
-  broadcastEventRealtime(eventId, {
-    type: "event:member_joined",
-    eventId,
-    member: {
+    const eventId = invite.eventId;
+    const now = new Date();
+    const [member] = await db.insert(eventMembers).values({
+      eventId,
       userId,
-      name: me?.displayName || me?.username || username,
-      avatarUrl: me?.avatarUrl ?? null,
       role: "member",
-      joinedAt: now.toISOString(),
-    },
-  });
+      joinedAt: now,
+    }).onConflictDoNothing({ target: [eventMembers.eventId, eventMembers.userId] }).returning();
+    if (!member) {
+      const existing = await db.select().from(eventMembers).where(and(eq(eventMembers.eventId, eventId), eq(eventMembers.userId, userId))).limit(1);
+      if (!existing[0]) conflict("Could not join event");
+    }
 
-  res.json({ eventId });
+    const existingParticipant = await db
+      .select()
+      .from(participants)
+      .where(and(eq(participants.barbecueId, eventId), eq(participants.status, "accepted"), or(eq(participants.invitedUserId, userId), eq(participants.userId, username))))
+      .limit(1);
+    if (!existingParticipant[0]) {
+      await participantRepo.create({
+        barbecueId: eventId,
+        name: username,
+        userId: username,
+        invitedUserId: userId,
+        status: "accepted",
+      });
+    }
+
+    await db.update(eventInvites).set({
+      status: "accepted",
+      acceptedByUserId: userId,
+      acceptedAt: now,
+    }).where(eq(eventInvites.id, invite.id));
+
+    const me = await userRepo.findById(userId);
+    broadcastEventRealtime(eventId, {
+      type: "event:member_joined",
+      eventId,
+      member: {
+        userId: Number(userId),
+        name: me?.displayName || me?.username || username,
+        avatarUrl: me?.avatarUrl ?? null,
+        role: "member",
+        joinedAt: now.toISOString(),
+      },
+    });
+    broadcastEventRealtime(eventId, {
+      type: "chat:system",
+      eventId: Number(eventId),
+      text: `${me?.displayName || me?.username || username} joined the event`,
+    });
+
+    res.json({ eventId: Number(eventId) });
+  } catch (err) {
+    return handleGuestRouteError("POST /api/invites/:token/accept", req, err, res);
+  }
 }));
 
 router.get("/events/:eventId/members", requireAuth, asyncHandler(async (req, res) => {
-  const eventId = Number(req.params.eventId);
-  if (!Number.isFinite(eventId)) badRequest("Invalid event id");
-  await assertEventMemberOrThrow(req, eventId);
-  const rows = await db
-    .select({
-      userId: eventMembers.userId,
-      role: eventMembers.role,
-      joinedAt: eventMembers.joinedAt,
-      username: users.username,
-      displayName: users.displayName,
-      avatarUrl: users.avatarUrl,
-      profileImageUrl: users.profileImageUrl,
-    })
-    .from(eventMembers)
-    .innerJoin(users, eq(users.id, eventMembers.userId))
-    .where(eq(eventMembers.eventId, eventId))
-    .orderBy(desc(eventMembers.joinedAt));
-  res.json(rows.map((r) => ({
-    userId: r.userId,
-    name: r.displayName || r.username,
-    username: r.username,
-    avatarUrl: r.avatarUrl ?? r.profileImageUrl ?? null,
-    role: r.role,
-    joinedAt: r.joinedAt ? r.joinedAt.toISOString() : null,
-  })));
+  try {
+    const eventId = Number(req.params.eventId);
+    if (!Number.isFinite(eventId)) badRequest("Invalid event id");
+    await assertEventAccessOrThrow(req, eventId);
+    const rows = await db
+      .select({
+        userId: eventMembers.userId,
+        role: eventMembers.role,
+        joinedAt: eventMembers.joinedAt,
+        username: users.username,
+        displayName: users.displayName,
+        avatarUrl: users.avatarUrl,
+        profileImageUrl: users.profileImageUrl,
+      })
+      .from(eventMembers)
+      .innerJoin(users, eq(users.id, eventMembers.userId))
+      .where(eq(eventMembers.eventId, eventId))
+      .orderBy(desc(eventMembers.joinedAt));
+    res.json(rows.map((r) => ({
+      userId: Number(r.userId),
+      name: r.displayName || r.username,
+      username: r.username,
+      avatarUrl: r.avatarUrl ?? r.profileImageUrl ?? null,
+      role: r.role,
+      joinedAt: r.joinedAt ? r.joinedAt.toISOString() : null,
+    })));
+  } catch (err) {
+    return handleGuestRouteError("GET /api/events/:eventId/members", req, err, res);
+  }
 }));
 
 router.post("/events/:eventId/members", requireAuth, asyncHandler(async (req, res) => {
-  const eventId = Number(req.params.eventId);
-  if (!Number.isFinite(eventId)) badRequest("Invalid event id");
-  await assertEventMemberOrThrow(req, eventId);
+  try {
+    const eventId = Number(req.params.eventId);
+    if (!Number.isFinite(eventId)) badRequest("Invalid event id");
+    await assertEventAccessOrThrow(req, eventId);
 
-  const parsed = z.object({ userId: z.coerce.number().int().positive() }).parse(req.body ?? {});
-  const targetUser = await userRepo.findById(parsed.userId);
-  if (!targetUser) notFound("User not found");
+    const parsed = z.object({ userId: z.coerce.number().int().positive() }).parse(req.body ?? {});
+    const targetUser = await userRepo.findById(parsed.userId);
+    if (!targetUser) notFound("User not found");
 
-  const now = new Date();
-  await db.insert(eventMembers).values({
-    eventId,
-    userId: targetUser.id,
-    role: "member",
-    joinedAt: now,
-  }).onConflictDoNothing({ target: [eventMembers.eventId, eventMembers.userId] });
+    const now = new Date();
+    const inserted = await db.insert(eventMembers).values({
+      eventId,
+      userId: targetUser.id,
+      role: "member",
+      joinedAt: now,
+    }).onConflictDoNothing({ target: [eventMembers.eventId, eventMembers.userId] }).returning();
 
-  await db.insert(participants).values({
-    barbecueId: eventId,
-    name: targetUser.displayName || targetUser.username,
-    userId: targetUser.username,
-    invitedUserId: targetUser.id,
-    status: "accepted",
-  }).onConflictDoNothing();
+    await db.insert(participants).values({
+      barbecueId: eventId,
+      name: targetUser.displayName || targetUser.username,
+      userId: targetUser.username,
+      invitedUserId: targetUser.id,
+      status: "accepted",
+    }).onConflictDoNothing();
 
-  const memberPayload = {
-    userId: targetUser.id,
-    name: targetUser.displayName || targetUser.username,
-    username: targetUser.username,
-    avatarUrl: targetUser.avatarUrl ?? targetUser.profileImageUrl ?? null,
-    role: "member" as const,
-    joinedAt: now.toISOString(),
-  };
-  broadcastEventRealtime(eventId, {
-    type: "event:member_joined",
-    eventId,
-    member: memberPayload,
-  });
+    const memberPayload = {
+      userId: Number(targetUser.id),
+      name: targetUser.displayName || targetUser.username,
+      username: targetUser.username,
+      avatarUrl: targetUser.avatarUrl ?? targetUser.profileImageUrl ?? null,
+      role: (inserted[0]?.role ?? "member") as "member" | "owner",
+      joinedAt: (inserted[0]?.joinedAt ?? now).toISOString(),
+    };
+    if (inserted[0]) {
+      broadcastEventRealtime(eventId, {
+        type: "event:member_joined",
+        eventId: Number(eventId),
+        member: memberPayload,
+      });
+      broadcastEventRealtime(eventId, {
+        type: "chat:system",
+        eventId: Number(eventId),
+        text: `${memberPayload.name} joined the event`,
+      });
+    }
 
-  res.status(201).json(memberPayload);
+    res.status(200).json(memberPayload);
+  } catch (err) {
+    return handleGuestRouteError("POST /api/events/:eventId/members", req, err, res);
+  }
 }));
 
 router.get("/events/:eventId/invites", requireAuth, asyncHandler(async (req, res) => {
-  const eventId = Number(req.params.eventId);
-  if (!Number.isFinite(eventId)) badRequest("Invalid event id");
-  await assertEventMemberOrThrow(req, eventId);
-  const status = String(req.query.status ?? "pending");
-  const rows = await db.select().from(eventInvites)
-    .where(and(eq(eventInvites.eventId, eventId), eq(eventInvites.status, status)))
-    .orderBy(desc(eventInvites.createdAt));
-  const appOrigin = getAppOrigin(req);
-  res.json(rows.map((row) => ({
-    id: row.id,
-    email: row.email,
-    token: row.token,
-    inviteUrl: `${appOrigin}/invite/${row.token}`,
-    status: row.status,
-    createdAt: row.createdAt ? row.createdAt.toISOString() : null,
-    expiresAt: row.expiresAt.toISOString(),
-  })));
+  try {
+    const eventId = Number(req.params.eventId);
+    if (!Number.isFinite(eventId)) badRequest("Invalid event id");
+    await assertEventAccessOrThrow(req, eventId);
+    const status = String(req.query.status ?? "pending");
+    const rows = await db.select().from(eventInvites)
+      .where(and(eq(eventInvites.eventId, eventId), eq(eventInvites.status, status)))
+      .orderBy(desc(eventInvites.createdAt));
+    const appOrigin = getAppOrigin(req);
+    res.json(rows.map((row) => ({
+      id: row.id,
+      email: row.email,
+      token: row.token,
+      inviteUrl: `${appOrigin}/invite/${row.token}`,
+      status: row.status,
+      createdAt: row.createdAt ? row.createdAt.toISOString() : null,
+      expiresAt: row.expiresAt.toISOString(),
+    })));
+  } catch (err) {
+    return handleGuestRouteError("GET /api/events/:eventId/invites", req, err, res);
+  }
 }));
 
 router.post("/events/:eventId/invites", requireAuth, asyncHandler(async (req, res) => {
-  const eventId = Number(req.params.eventId);
-  if (!Number.isFinite(eventId)) badRequest("Invalid event id");
-  await assertEventMemberOrThrow(req, eventId);
+  try {
+    const eventId = Number(req.params.eventId);
+    if (!Number.isFinite(eventId)) badRequest("Invalid event id");
+    await assertEventAccessOrThrow(req, eventId);
 
-  const parsed = z.object({ email: z.string().email().optional() }).parse(req.body ?? {});
-  const token = randomBytes(32).toString("base64url");
-  const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
-  const [invite] = await db.insert(eventInvites).values({
-    eventId,
-    inviterUserId: req.session!.userId!,
-    email: parsed.email ?? null,
-    token,
-    status: "pending",
-    expiresAt,
-  }).returning();
+    const parsed = z.object({ email: z.string().email().optional() }).parse(req.body ?? {});
+    const token = randomBytes(32).toString("base64url");
+    const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+    const [invite] = await db.insert(eventInvites).values({
+      eventId,
+      inviterUserId: req.session!.userId!,
+      email: parsed.email ?? null,
+      token,
+      status: "pending",
+      expiresAt,
+    }).returning();
 
-  const appOrigin = getAppOrigin(req);
-  const inviteUrl = `${appOrigin}/invite/${token}`;
-  if (parsed.email) {
-    console.log("[event-invite] email invite placeholder", { eventId, email: parsed.email, inviteUrl });
-  }
+    const appOrigin = getAppOrigin(req);
+    const inviteUrl = `${appOrigin}/invite/${token}`;
+    if (parsed.email) {
+      console.log("[event-invite] email invite placeholder", { eventId, email: parsed.email, inviteUrl });
+    }
 
-  broadcastEventRealtime(eventId, {
-    type: "event:invite_created",
-    eventId,
-    invite: {
-      id: invite.id,
-      email: invite.email,
-      status: invite.status,
-      createdAt: invite.createdAt ? invite.createdAt.toISOString() : null,
-      expiresAt: invite.expiresAt.toISOString(),
-      token: invite.token,
+    broadcastEventRealtime(eventId, {
+      type: "event:invite_created",
+      eventId: Number(eventId),
+      invite: {
+        id: invite.id,
+        email: invite.email,
+        status: invite.status,
+        createdAt: invite.createdAt ? invite.createdAt.toISOString() : null,
+        expiresAt: invite.expiresAt.toISOString(),
+        token: invite.token,
+        inviteUrl,
+      },
+    });
+
+    res.status(201).json({
+      inviteId: invite.id,
+      token,
       inviteUrl,
-    },
-  });
-
-  res.status(201).json({
-    inviteId: invite.id,
-    token,
-    inviteUrl,
-  });
+    });
+  } catch (err) {
+    return handleGuestRouteError("POST /api/events/:eventId/invites", req, err, res);
+  }
 }));
 
 router.post("/events/:eventId/invites/:inviteId/revoke", requireAuth, asyncHandler(async (req, res) => {
   const eventId = Number(req.params.eventId);
   if (!Number.isFinite(eventId)) badRequest("Invalid event id");
-  await assertEventMemberOrThrow(req, eventId);
+  await assertEventAccessOrThrow(req, eventId);
   const inviteId = String(req.params.inviteId ?? "").trim();
   if (!inviteId) badRequest("Invalid invite id");
 
@@ -780,7 +843,7 @@ router.post("/barbecues/:id/ensure-invite-token", requireAuth, asyncHandler(asyn
   const id = Number(req.params.id);
   const bbq = await bbqRepo.getById(id);
   if (!bbq) notFound("Event not found");
-  await assertEventMemberOrThrow(req, id);
+  await assertEventAccessOrThrow(req, id);
   const updated = await bbqRepo.ensureInviteToken(id);
   if (!updated) notFound("Event not found");
   res.json(updated);
@@ -795,7 +858,7 @@ router.patch(p(api.barbecues.update.path), requireAuth, asyncHandler(async (req,
   const id = Number(req.params.id);
   const bbq = await bbqRepo.getById(id);
   if (!bbq) notFound("BBQ not found");
-  await assertEventMemberOrThrow(req, id);
+  await assertEventAccessOrThrow(req, id);
   const schema = z.object({
     allowOptInExpenses: z.boolean().optional(),
     templateData: z.unknown().optional(),
@@ -1098,7 +1161,7 @@ router.post("/barbecues/:bbqId/invite", requireAuth, asyncHandler(async (req, re
   const schema = z.object({ username: z.string().min(1) });
   const { username } = schema.parse(req.body);
   const bbqId = Number(req.params.bbqId);
-  await assertEventMemberOrThrow(req, bbqId);
+  await assertEventAccessOrThrow(req, bbqId);
   const targetUser = await userRepo.findByUsername(username.trim());
   if (!targetUser) notFound("User not found");
   const existing = await db.select().from(participants).where(
@@ -1286,7 +1349,7 @@ router.post("/barbecues/:bbqId/banner", requireAuth, asyncHandler(async (req, re
   const username = req.session?.username;
   if (!username) unauthorized("Not authenticated");
   if (!isAdmin(req)) {
-    await assertEventMemberOrThrow(req, bbqId);
+    await assertEventAccessOrThrow(req, bbqId);
   }
 
   const payload = z.object({ dataUrl: z.string().min(1) }).parse(req.body ?? {});
@@ -1338,7 +1401,7 @@ router.delete("/barbecues/:bbqId/banner", requireAuth, asyncHandler(async (req, 
   const username = req.session?.username;
   if (!username) unauthorized("Not authenticated");
   if (!isAdmin(req)) {
-    await assertEventMemberOrThrow(req, bbqId);
+    await assertEventAccessOrThrow(req, bbqId);
   }
 
   if (bbq.bannerImageUrl?.startsWith("/uploads/event-banners/")) {
@@ -1479,36 +1542,40 @@ router.get("/pending-requests/all", requireAuth, asyncHandler(async (req, res) =
 
 // Search users (for adding friends) - must be before /:username
 router.get("/users/search", requireAuth, asyncHandler(async (req, res) => {
-  const query = ((req.query.q as string) || "").toLowerCase().trim();
-  if (!query || query.length < 2) return res.json([]);
-  const allUsers = await db
-    .select({
-      id: users.id,
-      username: users.username,
-      displayName: users.displayName,
-      email: users.email,
-      avatarUrl: users.avatarUrl,
-      profileImageUrl: users.profileImageUrl,
-    })
-    .from(users);
-  const results = allUsers
-    .filter(
-      (u) =>
-        u.id !== req.session!.userId &&
-        (
-          u.username.toLowerCase().includes(query) ||
-          (u.displayName && u.displayName.toLowerCase().includes(query)) ||
-          u.email.toLowerCase().includes(query)
-        )
-    )
-    .slice(0, 10);
-  res.json(results.map((u) => ({
-    id: u.id,
-    displayName: u.displayName || u.username,
-    username: u.username,
-    email: u.email,
-    avatarUrl: u.avatarUrl ?? u.profileImageUrl ?? null,
-  })));
+  try {
+    const query = ((req.query.q as string) || "").toLowerCase().trim();
+    if (!query || query.length < 2) return res.json([]);
+    const allUsers = await db
+      .select({
+        id: users.id,
+        username: users.username,
+        displayName: users.displayName,
+        email: users.email,
+        avatarUrl: users.avatarUrl,
+        profileImageUrl: users.profileImageUrl,
+      })
+      .from(users);
+    const results = allUsers
+      .filter(
+        (u) =>
+          u.id !== req.session!.userId &&
+          (
+            u.username.toLowerCase().includes(query) ||
+            (u.displayName && u.displayName.toLowerCase().includes(query)) ||
+            u.email.toLowerCase().includes(query)
+          )
+      )
+      .slice(0, 10);
+    res.json(results.map((u) => ({
+      id: Number(u.id),
+      displayName: u.displayName || u.username,
+      username: u.username,
+      email: u.email,
+      avatarUrl: u.avatarUrl ?? u.profileImageUrl ?? null,
+    })));
+  } catch (err) {
+    return handleGuestRouteError("GET /api/users/search", req, err, res);
+  }
 }));
 
 // Public profile by username (for viewing other users)

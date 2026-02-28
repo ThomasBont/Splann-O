@@ -490,12 +490,13 @@ type HomeRouteMode = "legacy" | "private" | "public" | "event";
 type HomeProps = {
   appRouteMode?: HomeRouteMode;
   routeEventId?: number | null;
+  debugDisableDiscoverModal?: boolean;
 };
 
-export default function Home({ appRouteMode = "legacy", routeEventId = null }: HomeProps) {
+export default function Home({ appRouteMode = "legacy", routeEventId = null, debugDisableDiscoverModal = false }: HomeProps) {
   const { language, setLanguage, t } = useLanguage();
   const { theme, setPreference } = useTheme();
-  const { effectivePrefs: eventHeaderPrefs } = useEventHeaderPreferences();
+  const { prefs: eventHeaderPrefs } = useEventHeaderPreferences();
   const { user, isLoading: isAuthLoading, logout, resendVerification } = useAuth();
   const [, setLocation] = useLocation();
   const username = user?.username ?? null;
@@ -1571,17 +1572,19 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
         />
       )}
 
-      <DiscoverModal
-        open={discoverOpen}
-        onOpenChange={setDiscoverOpen}
-        username={username}
-        onSelectEvent={(bbq) => {
-          setSelectedBbqId(bbq.id);
-          setArea(getEventArea(bbq));
-          setDiscoverOpen(false);
-        }}
-        onJoin={handleDiscoverJoin}
-      />
+      {!debugDisableDiscoverModal && (
+        <DiscoverModal
+          open={discoverOpen}
+          onOpenChange={setDiscoverOpen}
+          username={username}
+          onSelectEvent={(bbq) => {
+            setSelectedBbqId(bbq.id);
+            setArea(getEventArea(bbq));
+            setDiscoverOpen(false);
+          }}
+          onJoin={handleDiscoverJoin}
+        />
+      )}
 
       {/* Header */}
       <header className="sticky top-0 z-50 bg-[hsl(var(--surface-0))]/90 backdrop-blur-lg border-b border-[hsl(var(--border-subtle))]" data-testid="header">
@@ -2266,23 +2269,18 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                     </div>
                   </section>
 
-                  <aside className="lg:sticky lg:top-6 h-fit">
-                    <div className="rounded-2xl border border-slate-200 bg-[#F8F4EE] shadow-sm h-[calc(100vh-11rem)] min-h-[520px] flex flex-col overflow-hidden">
-                      <div className="border-b border-slate-200 px-4 py-3">
-                        <p className="text-sm font-semibold text-slate-800">Chat</p>
-                        <p className="text-xs text-slate-500">Event room</p>
-                      </div>
-                      <div className="flex-1 overflow-y-auto p-4 bg-[#F6F1EA]">
-                        <div className="h-full min-h-[260px] rounded-2xl border border-slate-200/70 bg-white/80 flex items-center justify-center text-center px-6">
-                          <div>
-                            <p className="text-sm font-medium text-slate-700">This is your event room 👋</p>
-                            <p className="mt-1 text-xs text-slate-500">Drop quick updates and keep everyone aligned.</p>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="border-t border-slate-200 p-3 bg-[#F8F4EE]">
-                        <div className="h-10 rounded-xl border border-slate-200 bg-slate-50" />
-                      </div>
+                  <aside className="lg:sticky lg:top-6 h-fit min-h-[340px] lg:min-h-0">
+                    <div className="h-[calc(100vh-11rem)] min-h-[520px]">
+                      <ChatSidebar
+                        eventId={selectedBbq.id}
+                        eventName={selectedBbq.name}
+                        currentUser={{
+                          id: user?.id ?? null,
+                          username: user?.username ?? null,
+                          avatarUrl: user?.avatarUrl ?? null,
+                        }}
+                        enabled={!!user}
+                      />
                     </div>
                   </aside>
                 </div>

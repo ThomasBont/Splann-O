@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useLanguage } from "@/hooks/use-language";
 import { useCreateExpense, useDeleteExpenseReceipt, useUpdateExpense, useUploadExpenseReceipt } from "@/hooks/use-expenses";
 import { useParticipants } from "@/hooks/use-participants";
@@ -46,6 +46,7 @@ interface AddExpenseDialogProps {
 }
 
 const DEFAULT_CATEGORIES = ["Meat", "Bread", "Drinks", "Charcoal", "Transportation", "Other"];
+const EMPTY_PARTICIPANTS: Array<{ id: number; userId?: string | null; name: string }> = [];
 
 export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, currencySymbol, categories: categoriesProp, defaultItem: defaultItemProp, defaultCategory: defaultCategoryProp, defaultOptIn: defaultOptInProp, allowOptIn = false, onAddCustomCategory, eventType, eventKind = "party", currentUsername, currencyCode, groupHomeCurrencyCode, lastExpense, privateTone = false, showReceipt = false }: AddExpenseDialogProps) {
   const { t } = useLanguage();
@@ -70,7 +71,11 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
   const [removeExistingReceipt, setRemoveExistingReceipt] = useState(false);
   const [savedPulse, setSavedPulse] = useState(false);
 
-  const participantList = (participants.data ?? []) as Array<{ id: number; userId?: string | null; name: string }>;
+  const participantList = useMemo(
+    () => ((participants.data ?? EMPTY_PARTICIPANTS) as Array<{ id: number; userId?: string | null; name: string }>),
+    [participants.data],
+  );
+  const resetSignatureRef = useRef<string>("");
   const smartStored = useMemo(() => getSmartDefaultsForGroup(bbqId), [bbqId, open]);
   const resolvedDefaults = useMemo(
     () =>
@@ -92,35 +97,80 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
   }, [participantList, resolvedDefaults.orderedParticipantIds]);
 
   useEffect(() => {
-    if (open) {
-      setShowCustomCategoryInput(false);
-      setCustomCategoryName("");
-      if (editingExpense) {
-        setParticipantId(editingExpense.participantId?.toString() || "");
-        setCategory(editingExpense.category);
-        setItem(editingExpense.item);
-        setAmount(editingExpense.amount.toString());
-        setOptInByDefault(false);
-        setReceiptDataUrl(null);
-        setReceiptPreviewUrl(editingExpense.receiptUrl ?? null);
-        setRemoveExistingReceipt(false);
-      } else {
-        if (participantList.length > 0) {
-          const suggestedPayerId = resolvedDefaults.payerParticipantId ?? participantList[0].id;
-          setParticipantId(String(suggestedPayerId));
-        }
-        const rememberedCategory = smartStored.defaults?.lastCategory;
-        const cat = defaultCategoryProp ?? (rememberedCategory && categories.includes(rememberedCategory) ? rememberedCategory : undefined) ?? categories[0] ?? "Other";
-        setCategory(categories.includes(cat) ? cat : categories[0] ?? "Other");
-        setItem(defaultItemProp ?? "");
-        setAmount("");
-        setOptInByDefault(defaultOptInProp ?? false);
-        setReceiptDataUrl(null);
-        setReceiptPreviewUrl(null);
-        setRemoveExistingReceipt(false);
-      }
+    if (!open) {
+      resetSignatureRef.current = "";
+      return;
     }
-  }, [open, editingExpense, participantList, categories, defaultItemProp, defaultCategoryProp, defaultOptInProp, resolvedDefaults.payerParticipantId, smartStored.defaults?.lastCategory]);
+
+    const editingSignature = editingExpense
+      ? [
+        editingExpense.id,
+        editingExpense.participantId ?? "",
+        editingExpense.category ?? "",
+        editingExpense.item ?? "",
+        editingExpense.amount ?? "",
+        editingExpense.receiptUrl ?? "",
+      ].join("|")
+      : "new";
+    const signature = [
+      editingSignature,
+      bbqId ?? "",
+      participantList.length,
+      resolvedDefaults.payerParticipantId ?? "",
+      smartStored.defaults?.lastCategory ?? "",
+      defaultCategoryProp ?? "",
+      defaultItemProp ?? "",
+      defaultOptInProp == null ? "" : String(defaultOptInProp),
+      categories.join("|"),
+    ].join("::");
+
+    if (resetSignatureRef.current === signature) return;
+    resetSignatureRef.current = signature;
+
+    setShowCustomCategoryInput(false);
+    setCustomCategoryName("");
+    if (editingExpense) {
+      setParticipantId(editingExpense.participantId?.toString() || "");
+      setCategory(editingExpense.category);
+      setItem(editingExpense.item);
+      setAmount(editingExpense.amount.toString());
+      setOptInByDefault(false);
+      setReceiptDataUrl(null);
+      setReceiptPreviewUrl(editingExpense.receiptUrl ?? null);
+      setRemoveExistingReceipt(false);
+      return;
+    }
+
+    if (participantList.length > 0) {
+      const suggestedPayerId = resolvedDefaults.payerParticipantId ?? participantList[0].id;
+      setParticipantId(String(suggestedPayerId));
+    }
+    const rememberedCategory = smartStored.defaults?.lastCategory;
+    const cat = defaultCategoryProp ?? (rememberedCategory && categories.includes(rememberedCategory) ? rememberedCategory : undefined) ?? categories[0] ?? "Other";
+    setCategory(categories.includes(cat) ? cat : categories[0] ?? "Other");
+    setItem(defaultItemProp ?? "");
+    setAmount("");
+    setOptInByDefault(defaultOptInProp ?? false);
+    setReceiptDataUrl(null);
+    setReceiptPreviewUrl(null);
+    setRemoveExistingReceipt(false);
+  }, [
+    open,
+    editingExpense?.id,
+    editingExpense?.participantId,
+    editingExpense?.category,
+    editingExpense?.item,
+    editingExpense?.amount,
+    editingExpense?.receiptUrl,
+    bbqId,
+    participantList.length,
+    categories,
+    defaultItemProp,
+    defaultCategoryProp,
+    defaultOptInProp,
+    resolvedDefaults.payerParticipantId,
+    smartStored.defaults?.lastCategory,
+  ]);
 
   const themeId = eventType && eventKind ? (getThemeConfig(eventKind, eventType).id as ThemeId) : null;
   const placeholderKey = themeId != null ? getExpensePlaceholderKey(category, themeId) : getPlaceholderKeyForCategory(category);

@@ -1,9 +1,9 @@
 import type { Request, Response, NextFunction } from "express";
-import { unauthorized } from "../lib/errors";
 
-export function requireAuth(req: Request, _res: Response, next: NextFunction): void {
+export function requireAuth(req: Request, res: Response, next: NextFunction): void {
   if (!req.session?.userId) {
-    throw unauthorized("Not authenticated");
+    res.status(401).json({ code: "NOT_AUTHENTICATED", message: "Not authenticated" });
+    return;
   }
   next();
 }

@@ -1,24 +1,25 @@
 import { Router, type Request } from "express";
 import { z } from "zod";
-import { eq, and, or } from "drizzle-orm";
+import { eq, and, or, desc } from "drizzle-orm";
 import { promises as fs } from "fs";
 import path from "path";
-import { randomUUID } from "crypto";
+import { randomUUID, randomBytes } from "crypto";
 import { api } from "@shared/routes";
-import { users, expenses, notes, stripeEvents, publicEventRsvps, participants } from "@shared/schema";
+import { users, expenses, notes, stripeEvents, publicEventRsvps, participants, eventMembers, eventInvites } from "@shared/schema";
 import { optionalCountryCodeSchema } from "@shared/lib/country-code-schema";
 import { bbqRepo } from "../repositories/bbqRepo";
 import { participantRepo } from "../repositories/participantRepo";
 import { expenseRepo } from "../repositories/expenseRepo";
 import { userRepo } from "../repositories/userRepo";
 import { publicInboxRepo } from "../repositories/publicInboxRepo";
+import { listEventChatMessages } from "../lib/eventChatStore";
 import * as bbqService from "../services/bbqService";
-import { inviteByUsername } from "../services/inviteService";
 import { requireAuth } from "../middleware/requireAuth";
 import { publicRateLimit } from "../middleware/publicRateLimit";
 import { checkPublicInboxRateLimit } from "../middleware/publicInboxRateLimit";
 import { db } from "../db";
 import { getLimits } from "../lib/plan";
+import { broadcastEventRealtime } from "../lib/eventRealtime";
 import { auditLog, auditSecurity } from "../lib/audit";
 import { badRequest, conflict, forbidden, gone, notFound, unauthorized, upgradeRequired } from "../lib/errors";
 import { createStripeCheckoutSession, verifyStripeWebhookSignature } from "../lib/stripe";
@@ -116,6 +117,47 @@ async function ensurePrivateEventParticipantOrCreator(req: Request, bbqId: numbe
   return bbq;
 }
 
+async function isEventMemberUser(eventId: number, userId: number, username?: string | null): Promise<boolean> {
+  const bbq = await bbqRepo.getById(eventId);
+  if (!bbq) return false;
+  if (username && bbq.creatorId === username) return true;
+
+  const rows = await db
+    .select({ id: eventMembers.id })
+    .from(eventMembers)
+    .where(and(eq(eventMembers.eventId, eventId), eq(eventMembers.userId, userId)))
+    .limit(1);
+  if (rows[0]) return true;
+
+  const acceptedLegacy = await db
+    .select({ id: participants.id })
+    .from(participants)
+    .where(
+      and(
+        eq(participants.barbecueId, eventId),
+        eq(participants.status, "accepted"),
+        or(
+          eq(participants.invitedUserId, userId),
+          username ? eq(participants.userId, username) : eq(participants.userId, "__no_user__"),
+        ),
+      ),
+    )
+    .limit(1);
+  return !!acceptedLegacy[0];
+}
+
+async function assertEventMemberOrThrow(req: Request, eventId: number) {
+  const userId = req.session?.userId;
+  const username = req.session?.username;
+  if (!userId || !username) unauthorized("Not authenticated");
+  const ok = await isEventMemberUser(eventId, userId, username);
+  if (!ok) forbidden("NOT_AUTHORIZED");
+}
+
+function getAppOrigin(req: Request) {
+  return (process.env.APP_URL ?? process.env.APP_BASE_URL ?? "").replace(/\/$/, "") || `${req.protocol}://${req.get("host")}`;
+}
+
 // Barbecues
 router.get(p(api.barbecues.list.path), asyncHandler(async (req, res) => {
   const currentUsername = (req.session?.username as string) || (req.query.userId as string | undefined);
@@ -166,6 +208,14 @@ router.post(p(api.barbecues.create.path), asyncHandler(async (req, res) => {
     currencySource: (parsed.currencySource as "auto" | "manual" | undefined) ?? "auto",
   };
   const created = await bbqService.createBarbecue(input, req.session?.username);
+  if (req.session?.userId) {
+    await db.insert(eventMembers).values({
+      eventId: created.id,
+      userId: req.session.userId,
+      role: "owner",
+      joinedAt: new Date(),
+    }).onConflictDoNothing({ target: [eventMembers.eventId, eventMembers.userId] });
+  }
   res.status(201).json(created);
 }));
 
@@ -297,6 +347,15 @@ router.post("/public-events/:eventId/conversations", requireAuth, asyncHandler(a
     status: eligibility.isApproved ? "active" : "pending",
   });
   res.status(201).json(created);
+}));
+
+router.get("/events/:eventId/chat", requireAuth, asyncHandler(async (req, res) => {
+  const eventId = Number(req.params.eventId);
+  if (!Number.isInteger(eventId) || eventId <= 0) badRequest("Invalid event id");
+  const limit = Number(req.query.limit ?? 50);
+  await getBarbecueOr404(req, eventId, "Event not found");
+  const messages = listEventChatMessages(eventId, limit);
+  res.json({ messages, nextCursor: undefined });
 }));
 
 router.get("/conversations", requireAuth, asyncHandler(async (req, res) => {
@@ -467,12 +526,261 @@ router.get("/join/:token", asyncHandler(async (req, res) => {
   });
 }));
 
+router.get("/invites/:token", asyncHandler(async (req, res) => {
+  const token = String(req.params.token ?? "").trim();
+  if (!token) badRequest("Invalid invite token");
+  const rows = await db.select().from(eventInvites).where(eq(eventInvites.token, token)).limit(1);
+  const invite = rows[0];
+  if (!invite) notFound("Invite not found");
+  if (invite.status !== "pending") gone("Invite no longer active");
+  if (invite.expiresAt.getTime() <= Date.now()) gone("Invite expired");
+  const bbq = await bbqRepo.getById(invite.eventId);
+  if (!bbq) notFound("Event not found");
+  res.json({
+    inviteId: invite.id,
+    eventId: bbq.id,
+    name: bbq.name,
+    eventType: bbq.eventType,
+    currency: bbq.currency,
+    email: invite.email ?? null,
+    status: invite.status,
+  });
+}));
+
+router.post("/invites/:token/accept", requireAuth, asyncHandler(async (req, res) => {
+  const token = String(req.params.token ?? "").trim();
+  if (!token) badRequest("Invalid invite token");
+  const userId = req.session!.userId!;
+  const username = req.session!.username!;
+  const rows = await db.select().from(eventInvites).where(eq(eventInvites.token, token)).limit(1);
+  const invite = rows[0];
+  if (!invite) notFound("Invite not found");
+  if (invite.status !== "pending") conflict("Invite already handled");
+  if (invite.expiresAt.getTime() <= Date.now()) gone("Invite expired");
+
+  const eventId = invite.eventId;
+  const now = new Date();
+  const [member] = await db.insert(eventMembers).values({
+    eventId,
+    userId,
+    role: "member",
+    joinedAt: now,
+  }).onConflictDoNothing({ target: [eventMembers.eventId, eventMembers.userId] }).returning();
+  if (!member) {
+    const existing = await db.select().from(eventMembers).where(and(eq(eventMembers.eventId, eventId), eq(eventMembers.userId, userId))).limit(1);
+    if (!existing[0]) conflict("Could not join event");
+  }
+
+  const existingParticipant = await db
+    .select()
+    .from(participants)
+    .where(and(eq(participants.barbecueId, eventId), eq(participants.status, "accepted"), or(eq(participants.invitedUserId, userId), eq(participants.userId, username))))
+    .limit(1);
+  if (!existingParticipant[0]) {
+    await participantRepo.create({
+      barbecueId: eventId,
+      name: username,
+      userId: username,
+      invitedUserId: userId,
+      status: "accepted",
+    });
+  }
+
+  await db.update(eventInvites).set({
+    status: "accepted",
+    acceptedByUserId: userId,
+    acceptedAt: now,
+  }).where(eq(eventInvites.id, invite.id));
+
+  const me = await userRepo.findById(userId);
+  broadcastEventRealtime(eventId, {
+    type: "event:member_joined",
+    eventId,
+    member: {
+      userId,
+      name: me?.displayName || me?.username || username,
+      avatarUrl: me?.avatarUrl ?? null,
+      role: "member",
+      joinedAt: now.toISOString(),
+    },
+  });
+
+  res.json({ eventId });
+}));
+
+router.get("/events/:eventId/members", requireAuth, asyncHandler(async (req, res) => {
+  const eventId = Number(req.params.eventId);
+  if (!Number.isFinite(eventId)) badRequest("Invalid event id");
+  await assertEventMemberOrThrow(req, eventId);
+  const rows = await db
+    .select({
+      userId: eventMembers.userId,
+      role: eventMembers.role,
+      joinedAt: eventMembers.joinedAt,
+      username: users.username,
+      displayName: users.displayName,
+      avatarUrl: users.avatarUrl,
+      profileImageUrl: users.profileImageUrl,
+    })
+    .from(eventMembers)
+    .innerJoin(users, eq(users.id, eventMembers.userId))
+    .where(eq(eventMembers.eventId, eventId))
+    .orderBy(desc(eventMembers.joinedAt));
+  res.json(rows.map((r) => ({
+    userId: r.userId,
+    name: r.displayName || r.username,
+    username: r.username,
+    avatarUrl: r.avatarUrl ?? r.profileImageUrl ?? null,
+    role: r.role,
+    joinedAt: r.joinedAt ? r.joinedAt.toISOString() : null,
+  })));
+}));
+
+router.post("/events/:eventId/members", requireAuth, asyncHandler(async (req, res) => {
+  const eventId = Number(req.params.eventId);
+  if (!Number.isFinite(eventId)) badRequest("Invalid event id");
+  await assertEventMemberOrThrow(req, eventId);
+
+  const parsed = z.object({ userId: z.coerce.number().int().positive() }).parse(req.body ?? {});
+  const targetUser = await userRepo.findById(parsed.userId);
+  if (!targetUser) notFound("User not found");
+
+  const now = new Date();
+  await db.insert(eventMembers).values({
+    eventId,
+    userId: targetUser.id,
+    role: "member",
+    joinedAt: now,
+  }).onConflictDoNothing({ target: [eventMembers.eventId, eventMembers.userId] });
+
+  await db.insert(participants).values({
+    barbecueId: eventId,
+    name: targetUser.displayName || targetUser.username,
+    userId: targetUser.username,
+    invitedUserId: targetUser.id,
+    status: "accepted",
+  }).onConflictDoNothing();
+
+  const memberPayload = {
+    userId: targetUser.id,
+    name: targetUser.displayName || targetUser.username,
+    username: targetUser.username,
+    avatarUrl: targetUser.avatarUrl ?? targetUser.profileImageUrl ?? null,
+    role: "member" as const,
+    joinedAt: now.toISOString(),
+  };
+  broadcastEventRealtime(eventId, {
+    type: "event:member_joined",
+    eventId,
+    member: memberPayload,
+  });
+
+  res.status(201).json(memberPayload);
+}));
+
+router.get("/events/:eventId/invites", requireAuth, asyncHandler(async (req, res) => {
+  const eventId = Number(req.params.eventId);
+  if (!Number.isFinite(eventId)) badRequest("Invalid event id");
+  await assertEventMemberOrThrow(req, eventId);
+  const status = String(req.query.status ?? "pending");
+  const rows = await db.select().from(eventInvites)
+    .where(and(eq(eventInvites.eventId, eventId), eq(eventInvites.status, status)))
+    .orderBy(desc(eventInvites.createdAt));
+  const appOrigin = getAppOrigin(req);
+  res.json(rows.map((row) => ({
+    id: row.id,
+    email: row.email,
+    token: row.token,
+    inviteUrl: `${appOrigin}/invite/${row.token}`,
+    status: row.status,
+    createdAt: row.createdAt ? row.createdAt.toISOString() : null,
+    expiresAt: row.expiresAt.toISOString(),
+  })));
+}));
+
+router.post("/events/:eventId/invites", requireAuth, asyncHandler(async (req, res) => {
+  const eventId = Number(req.params.eventId);
+  if (!Number.isFinite(eventId)) badRequest("Invalid event id");
+  await assertEventMemberOrThrow(req, eventId);
+
+  const parsed = z.object({ email: z.string().email().optional() }).parse(req.body ?? {});
+  const token = randomBytes(32).toString("base64url");
+  const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+  const [invite] = await db.insert(eventInvites).values({
+    eventId,
+    inviterUserId: req.session!.userId!,
+    email: parsed.email ?? null,
+    token,
+    status: "pending",
+    expiresAt,
+  }).returning();
+
+  const appOrigin = getAppOrigin(req);
+  const inviteUrl = `${appOrigin}/invite/${token}`;
+  if (parsed.email) {
+    console.log("[event-invite] email invite placeholder", { eventId, email: parsed.email, inviteUrl });
+  }
+
+  broadcastEventRealtime(eventId, {
+    type: "event:invite_created",
+    eventId,
+    invite: {
+      id: invite.id,
+      email: invite.email,
+      status: invite.status,
+      createdAt: invite.createdAt ? invite.createdAt.toISOString() : null,
+      expiresAt: invite.expiresAt.toISOString(),
+      token: invite.token,
+      inviteUrl,
+    },
+  });
+
+  res.status(201).json({
+    inviteId: invite.id,
+    token,
+    inviteUrl,
+  });
+}));
+
+router.post("/events/:eventId/invites/:inviteId/revoke", requireAuth, asyncHandler(async (req, res) => {
+  const eventId = Number(req.params.eventId);
+  if (!Number.isFinite(eventId)) badRequest("Invalid event id");
+  await assertEventMemberOrThrow(req, eventId);
+  const inviteId = String(req.params.inviteId ?? "").trim();
+  if (!inviteId) badRequest("Invalid invite id");
+
+  const existing = await db
+    .select()
+    .from(eventInvites)
+    .where(and(eq(eventInvites.id, inviteId), eq(eventInvites.eventId, eventId)))
+    .limit(1);
+  if (!existing[0]) notFound("Invite not found");
+  if (existing[0].status !== "pending") conflict("Invite can no longer be revoked");
+
+  const [updated] = await db
+    .update(eventInvites)
+    .set({ status: "revoked" })
+    .where(eq(eventInvites.id, inviteId))
+    .returning();
+
+  broadcastEventRealtime(eventId, {
+    type: "event:invite_revoked",
+    eventId,
+    inviteId,
+  });
+
+  res.json({
+    id: updated.id,
+    status: updated.status,
+  });
+}));
+
 /** Ensure event has invite token (backfill for legacy events). Creator only. */
 router.post("/barbecues/:id/ensure-invite-token", requireAuth, asyncHandler(async (req, res) => {
   const id = Number(req.params.id);
   const bbq = await bbqRepo.getById(id);
   if (!bbq) notFound("Event not found");
-  if (bbq.creatorId !== req.session!.username) forbidden("Only the creator can update this event");
+  await assertEventMemberOrThrow(req, id);
   const updated = await bbqRepo.ensureInviteToken(id);
   if (!updated) notFound("Event not found");
   res.json(updated);
@@ -487,7 +795,7 @@ router.patch(p(api.barbecues.update.path), requireAuth, asyncHandler(async (req,
   const id = Number(req.params.id);
   const bbq = await bbqRepo.getById(id);
   if (!bbq) notFound("BBQ not found");
-  if (bbq.creatorId !== req.session!.username) forbidden("Only the creator can update this BBQ");
+  await assertEventMemberOrThrow(req, id);
   const schema = z.object({
     allowOptInExpenses: z.boolean().optional(),
     templateData: z.unknown().optional(),
@@ -518,7 +826,7 @@ router.patch(p(api.barbecues.update.path), requireAuth, asyncHandler(async (req,
     bannerImageUrl: z.string().url().nullable().optional(),
   });
   const body = schema.parse(req.body);
-  const updated = await bbqService.updateBarbecue(id, body, req.session!.username);
+  const updated = await bbqService.updateBarbecue(id, body, req.session!.username, req.session!.userId);
   if (!updated) notFound("BBQ not found");
   res.json(updated);
 }));
@@ -742,6 +1050,28 @@ router.post(p(api.participants.create.path), asyncHandler(async (req, res) => {
     barbecueId: bbqId,
     status: "accepted",
   });
+  if (created.userId) {
+    const user = await userRepo.findByUsername(created.userId);
+    if (user) {
+      await db.insert(eventMembers).values({
+        eventId: bbqId,
+        userId: user.id,
+        role: "member",
+        joinedAt: new Date(),
+      }).onConflictDoNothing({ target: [eventMembers.eventId, eventMembers.userId] });
+      broadcastEventRealtime(bbqId, {
+        type: "event:member_joined",
+        eventId: bbqId,
+        member: {
+          userId: user.id,
+          name: user.displayName || user.username,
+          avatarUrl: user.avatarUrl ?? null,
+          role: "member",
+          joinedAt: new Date().toISOString(),
+        },
+      });
+    }
+  }
   res.status(201).json(created);
 }));
 
@@ -768,15 +1098,43 @@ router.post("/barbecues/:bbqId/invite", requireAuth, asyncHandler(async (req, re
   const schema = z.object({ username: z.string().min(1) });
   const { username } = schema.parse(req.body);
   const bbqId = Number(req.params.bbqId);
-  const inviterUsername = req.session!.username;
-  if (!inviterUsername) unauthorized("Not authenticated");
-  const created = await inviteByUsername(bbqId, username, inviterUsername);
+  await assertEventMemberOrThrow(req, bbqId);
+  const targetUser = await userRepo.findByUsername(username.trim());
+  if (!targetUser) notFound("User not found");
+  const existing = await db.select().from(participants).where(
+    and(
+      eq(participants.barbecueId, bbqId),
+      or(eq(participants.invitedUserId, targetUser.id), eq(participants.userId, targetUser.username)),
+    ),
+  );
+  if (existing[0]) conflict("already_member");
+  const created = await participantRepo.inviteUser(bbqId, targetUser.username, targetUser.id);
   res.status(201).json(created);
 }));
 
 router.patch(p(api.participants.accept.path), asyncHandler(async (req, res) => {
   const updated = await participantRepo.accept(Number(req.params.id));
   if (!updated) notFound("Participant not found");
+  const user = updated.invitedUserId ? await userRepo.findById(updated.invitedUserId) : null;
+  if (updated.invitedUserId) {
+    await db.insert(eventMembers).values({
+      eventId: updated.barbecueId,
+      userId: updated.invitedUserId,
+      role: "member",
+      joinedAt: new Date(),
+    }).onConflictDoNothing({ target: [eventMembers.eventId, eventMembers.userId] });
+    broadcastEventRealtime(updated.barbecueId, {
+      type: "event:member_joined",
+      eventId: updated.barbecueId,
+      member: {
+        userId: updated.invitedUserId,
+        name: user?.displayName || user?.username || updated.name,
+        avatarUrl: user?.avatarUrl ?? null,
+        role: "member",
+        joinedAt: new Date().toISOString(),
+      },
+    });
+  }
   res.json(updated);
 }));
 
@@ -927,7 +1285,9 @@ router.post("/barbecues/:bbqId/banner", requireAuth, asyncHandler(async (req, re
   if (bbq.visibilityOrigin !== "private") forbidden("Banner editing via this action is available for private events only");
   const username = req.session?.username;
   if (!username) unauthorized("Not authenticated");
-  if (!isAdmin(req) && bbq.creatorId !== username) forbidden("Only the organizer can change this banner");
+  if (!isAdmin(req)) {
+    await assertEventMemberOrThrow(req, bbqId);
+  }
 
   const payload = z.object({ dataUrl: z.string().min(1) }).parse(req.body ?? {});
   const match = payload.dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
@@ -977,7 +1337,9 @@ router.delete("/barbecues/:bbqId/banner", requireAuth, asyncHandler(async (req, 
   if (bbq.visibilityOrigin !== "private") forbidden("Banner editing via this action is available for private events only");
   const username = req.session?.username;
   if (!username) unauthorized("Not authenticated");
-  if (!isAdmin(req) && bbq.creatorId !== username) forbidden("Only the organizer can change this banner");
+  if (!isAdmin(req)) {
+    await assertEventMemberOrThrow(req, bbqId);
+  }
 
   if (bbq.bannerImageUrl?.startsWith("/uploads/event-banners/")) {
     const oldPath = path.join(EVENT_BANNER_UPLOAD_DIR, path.basename(bbq.bannerImageUrl));
@@ -1119,15 +1481,34 @@ router.get("/pending-requests/all", requireAuth, asyncHandler(async (req, res) =
 router.get("/users/search", requireAuth, asyncHandler(async (req, res) => {
   const query = ((req.query.q as string) || "").toLowerCase().trim();
   if (!query || query.length < 2) return res.json([]);
-  const allUsers = await db.select({ id: users.id, username: users.username, displayName: users.displayName }).from(users);
+  const allUsers = await db
+    .select({
+      id: users.id,
+      username: users.username,
+      displayName: users.displayName,
+      email: users.email,
+      avatarUrl: users.avatarUrl,
+      profileImageUrl: users.profileImageUrl,
+    })
+    .from(users);
   const results = allUsers
     .filter(
       (u) =>
         u.id !== req.session!.userId &&
-        (u.username.toLowerCase().includes(query) || (u.displayName && u.displayName.toLowerCase().includes(query)))
+        (
+          u.username.toLowerCase().includes(query) ||
+          (u.displayName && u.displayName.toLowerCase().includes(query)) ||
+          u.email.toLowerCase().includes(query)
+        )
     )
     .slice(0, 10);
-  res.json(results);
+  res.json(results.map((u) => ({
+    id: u.id,
+    displayName: u.displayName || u.username,
+    username: u.username,
+    email: u.email,
+    avatarUrl: u.avatarUrl ?? u.profileImageUrl ?? null,
+  })));
 }));
 
 // Public profile by username (for viewing other users)

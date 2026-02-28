@@ -225,3 +225,109 @@ export function useDeleteParticipant(bbqId: number | null) {
     },
   });
 }
+
+export type EventMemberView = {
+  userId: number;
+  name: string;
+  username?: string | null;
+  avatarUrl?: string | null;
+  role: "member" | "owner" | string;
+  joinedAt?: string | null;
+};
+
+export type EventInviteView = {
+  id: string;
+  token?: string | null;
+  inviteUrl?: string | null;
+  email?: string | null;
+  status: "pending" | "accepted" | "revoked" | "expired" | string;
+  createdAt?: string | null;
+  expiresAt?: string | null;
+};
+
+export function useEventMembers(eventId: number | null) {
+  return useQuery<EventMemberView[]>({
+    queryKey: ["/api/events", eventId, "members"],
+    queryFn: async () => {
+      if (!eventId) return [];
+      const res = await fetch(`/api/events/${eventId}/members`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch members");
+      return (await res.json()) as EventMemberView[];
+    },
+    enabled: !!eventId,
+  });
+}
+
+export function usePendingEventInvites(eventId: number | null) {
+  return useQuery<EventInviteView[]>({
+    queryKey: ["/api/events", eventId, "invites", "pending"],
+    queryFn: async () => {
+      if (!eventId) return [];
+      const res = await fetch(`/api/events/${eventId}/invites?status=pending`, { credentials: "include" });
+      if (!res.ok) return [];
+      return (await res.json()) as EventInviteView[];
+    },
+    enabled: !!eventId,
+  });
+}
+
+export function useCreateEventInvite(eventId: number | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: { email?: string }) => {
+      if (!eventId) throw new Error("No event selected");
+      const res = await fetch(`/api/events/${eventId}/invites`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+        credentials: "include",
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((body as { message?: string }).message || "Failed to create invite");
+      return body as { inviteId: string; token: string; inviteUrl: string };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/events", eventId, "invites", "pending"] });
+    },
+  });
+}
+
+export function useAddEventMember(eventId: number | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ userId }: { userId: number }) => {
+      if (!eventId) throw new Error("No event selected");
+      const res = await fetch(`/api/events/${eventId}/members`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId }),
+        credentials: "include",
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((body as { message?: string }).message || "Failed to add member");
+      return body as EventMemberView;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/events", eventId, "members"] });
+    },
+  });
+}
+
+export function useRevokeEventInvite(eventId: number | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ inviteId }: { inviteId: string }) => {
+      if (!eventId) throw new Error("No event selected");
+      const res = await fetch(`/api/events/${eventId}/invites/${inviteId}/revoke`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((body as { message?: string }).message || "Failed to revoke invite");
+      return body as { id: string; status: string };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/events", eventId, "invites", "pending"] });
+    },
+  });
+}

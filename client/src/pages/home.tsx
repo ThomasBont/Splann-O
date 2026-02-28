@@ -45,6 +45,8 @@ import { LocationCombobox } from "@/components/location-combobox";
 import { PrivateLocationTypeahead } from "@/components/event/PrivateLocationTypeahead";
 import { type LocationOption, currencyForCountry } from "@/lib/locations-data";
 import { EventHeader } from "@/components/event/EventHeader";
+import { ChatSidebar } from "@/components/event/ChatSidebar";
+import GuestsWidget from "@/components/event/GuestsWidget";
 import { PrivateEventHero } from "@/components/event/PrivateEventHero";
 import EventSettingsModal from "@/components/event/EventSettingsModal";
 import { EditTripLocationModal } from "@/components/event/EditTripLocationModal";
@@ -904,7 +906,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
   const sendPublicInboxMessage = useSendConversationMessage(publicInboxConversationId);
   const updateConversationStatus = useUpdateConversationStatus(publicInboxConversationId);
   const publicInboxConversations = (publicInboxList.data?.conversations ?? []).filter((c) => c.barbecueId === selectedBbqId);
-  const { data: invitedParticipants = [] } = useInvitedParticipants(isCreator && isPrivate ? selectedBbqId : null);
+  const { data: invitedParticipants = [] } = useInvitedParticipants(isPrivate ? selectedBbqId : null);
   const { data: memberships = [] } = useMemberships(username);
   const privateSuggestionsEligible = isEligibleForLocalSuggestions({
     city: selectedBbq?.city ?? null,
@@ -1478,7 +1480,8 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
     });
   };
 
-  const canManage = isCreator;
+  const canManage = isCreator || (!!selectedBbq && !!myParticipant);
+  const canEditEvent = canManage;
   const isAcceptedMember = !isCreator && !!myParticipant;
   const verifyBannerFlag = import.meta.env.VITE_SHOW_VERIFY_BANNER;
   const showVerifyBanner = verifyBannerFlag != null ? verifyBannerFlag !== "false" : !import.meta.env.DEV;
@@ -1511,6 +1514,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
   );
   const allBalancesZero = balances.every((b: { balance: number }) => Math.abs(b.balance) < 0.01);
   const selectedPrivateTemplate = getPrivateTemplateForEvent(selectedBbq);
+  const selectedEventVibeTheme = VIBE_THEME[(selectedBbq?.eventVibe as PrivateEventVibeId) ?? "cozy"] ?? VIBE_THEME.cozy;
   const selectedCreatePrivateTemplate = getPrivateTemplateById(newPrivateTemplateId);
   const selectedCreatePrivateType = getPrivateEventTypeById(newPrivateEventTypeId);
   const selectedCreatePrivateVibes = PRIVATE_EVENT_VIBES_BY_TYPE[newPrivateEventTypeId] ?? [];
@@ -2164,6 +2168,128 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
             }}
           />
         ) : selectedBbqId ? (() => {
+          if (appRouteMode === "event" && isPrivateContext && selectedBbq) {
+            const pendingCount = Math.max(invitedParticipants.length, pendingRequests.length);
+            const responseProgress = Math.max(
+              8,
+              Math.min(100, Math.round((participantCount / Math.max(participantCount + pendingCount, 1)) * 100)),
+            );
+            const heroImage = selectedBbq.bannerImageUrl || "https://images.unsplash.com/photo-1559339352-11d035aa65de?auto=format&fit=crop&w=1600&q=80";
+            return (
+              <div className="mx-auto w-full max-w-[1400px] px-4 sm:px-6 lg:px-10 py-6 bg-[#FAF7F2] rounded-2xl">
+                <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+                  <section className="min-w-0 space-y-8">
+                    <div className="relative overflow-hidden rounded-3xl min-h-[300px] border border-slate-200 shadow-sm">
+                      <img
+                        src={heroImage}
+                        alt={selectedBbq.name}
+                        className="absolute inset-0 h-full w-full object-cover"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/35 to-black/10" />
+                      <div className="relative z-10 p-7 sm:p-8 h-full flex flex-col justify-end">
+                        <span className="absolute top-5 right-5 rounded-full border border-white/30 bg-black/35 px-3 py-1 text-[11px] font-medium tracking-wide text-white/90">
+                          3h plan
+                        </span>
+                        <h2 className="text-3xl sm:text-4xl font-semibold tracking-tight text-white">
+                          {selectedBbq.name}
+                        </h2>
+                        <p className="mt-2 text-sm text-white/85 tracking-wide">
+                          {selectedBbq.date
+                            ? new Date(selectedBbq.date).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" })
+                            : "Date TBA"}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-amber-200/60 bg-gradient-to-r from-amber-100/80 to-rose-100/70 dark:from-amber-900/25 dark:to-rose-900/20 shadow-sm p-5">
+                      <p className="text-base font-medium text-slate-800 dark:text-slate-100">
+                        Hey {user?.displayName || user?.username}, you&apos;re planning a Cozy Dinner ✨
+                      </p>
+                      <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+                        {pendingCount} friend{pendingCount === 1 ? "" : "s"} still need to respond.
+                      </p>
+                      <div className="mt-5 h-2 rounded-full bg-white/70 overflow-hidden">
+                        <div className="h-full rounded-full bg-amber-400/90 transition-all duration-300" style={{ width: `${responseProgress}%` }} />
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 md:grid-cols-3">
+                      <GuestsWidget eventId={selectedBbq.id} />
+
+                      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
+                        <p className="text-xs font-medium tracking-wide text-slate-500 uppercase">Shared pot</p>
+                        <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-800">{formatMoney(totalSpent)}</p>
+                        <p className="mt-1 text-xs text-slate-500">{expenses.length} logged expense{expenses.length === 1 ? "" : "s"}</p>
+                        <div className="mt-3 h-2 rounded-full bg-slate-100 overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-amber-300 transition-all duration-200"
+                            style={{ width: `${Math.min(100, Math.max(10, Math.round((expenses.length / Math.max(participantCount * 2, 1)) * 100)))}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
+                        <p className="text-xs font-medium tracking-wide text-slate-500 uppercase">Quick actions</p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="rounded-xl border-amber-200/80 bg-amber-50 text-slate-700 hover:bg-amber-100"
+                            onClick={() => {
+                              setRecommendedExpenseTemplate({ item: "Wine", category: "Drinks" });
+                              setIsAddExpenseOpen(true);
+                            }}
+                          >
+                            Add wine
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="rounded-xl border-amber-200/80 bg-amber-50 text-slate-700 hover:bg-amber-100"
+                            onClick={() => setActiveEventTab("people")}
+                          >
+                            Assign dishes
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="rounded-xl border-amber-200/80 bg-amber-50 text-slate-700 hover:bg-amber-100"
+                            onClick={() => setActiveEventTab("split")}
+                          >
+                            Start vote
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+
+                  <aside className="lg:sticky lg:top-6 h-fit">
+                    <div className="rounded-2xl border border-slate-200 bg-[#F8F4EE] shadow-sm h-[calc(100vh-11rem)] min-h-[520px] flex flex-col overflow-hidden">
+                      <div className="border-b border-slate-200 px-4 py-3">
+                        <p className="text-sm font-semibold text-slate-800">Chat</p>
+                        <p className="text-xs text-slate-500">Event room</p>
+                      </div>
+                      <div className="flex-1 overflow-y-auto p-4 bg-[#F6F1EA]">
+                        <div className="h-full min-h-[260px] rounded-2xl border border-slate-200/70 bg-white/80 flex items-center justify-center text-center px-6">
+                          <div>
+                            <p className="text-sm font-medium text-slate-700">This is your event room 👋</p>
+                            <p className="mt-1 text-xs text-slate-500">Drop quick updates and keep everyone aligned.</p>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="border-t border-slate-200 p-3 bg-[#F8F4EE]">
+                        <div className="h-10 rounded-xl border border-slate-200 bg-slate-50" />
+                      </div>
+                    </div>
+                  </aside>
+                </div>
+              </div>
+            );
+          }
+
           const eventTemplate = getEventTemplate(selectedBbq?.eventType);
           const eventCategory = normalizeEvent(selectedBbq ?? {}).category;
           const eventKind = eventCategory === "trip" ? "trip" : "party";
@@ -2188,7 +2314,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
             eventStatus: eventStatus,
             showStatusPill: showEventStatusPill,
             showAddExpenseAction: headerPrimaryActionVisible,
-            onOpenSettings: isCreator ? () => setEventSettingsOpen(true) : undefined,
+            onOpenSettings: canEditEvent ? () => setEventSettingsOpen(true) : undefined,
             onAddToCalendar:
               selectedBbq?.date && isPrivateContext
                 ? () => {
@@ -2273,7 +2399,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                 ? async () => {
                     const inviteToken = selectedBbq.inviteToken
                       ? selectedBbq.inviteToken
-                      : (isCreator ? (await ensureInviteToken.mutateAsync(selectedBbq.id))?.inviteToken : null);
+                      : (canEditEvent ? (await ensureInviteToken.mutateAsync(selectedBbq.id))?.inviteToken : null);
                     const url = inviteToken
                       ? `${typeof window !== "undefined" ? window.location.origin : ""}/join/${inviteToken}`
                       : null;
@@ -2300,7 +2426,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                 ? async () => {
                     const inviteToken = selectedBbq.inviteToken
                       ? selectedBbq.inviteToken
-                      : (isCreator ? (await ensureInviteToken.mutateAsync(selectedBbq.id))?.inviteToken : null);
+                      : (canEditEvent ? (await ensureInviteToken.mutateAsync(selectedBbq.id))?.inviteToken : null);
                     const url = inviteToken
                       ? `${typeof window !== "undefined" ? window.location.origin : ""}/join/${inviteToken}`
                       : null;
@@ -2329,7 +2455,11 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
           };
           return (
             <EventThemeProvider kind={eventKind} eventType={selectedBbq?.eventType}>
-            <div ref={eventViewRef}>
+            <div
+              ref={eventViewRef}
+              className={`grid gap-4 ${appRouteMode === "event" ? "h-[calc(100vh-9rem)] overflow-hidden lg:grid-cols-[minmax(0,1fr)_360px]" : ""}`}
+            >
+            <div className={`${appRouteMode === "event" ? "min-h-0 overflow-y-auto pr-1" : ""}`}>
             <EventTemplateWrapper
               template={eventTemplate}
               decorationClass={isPartyEventType(selectedBbq?.eventType) ? getPartyTemplate(selectedBbq?.eventType).decorationClass : undefined}
@@ -2338,15 +2468,15 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
               {/* Event header with signature effect overlay */}
               <div className="relative">
                 <SignatureEffect />
-                {isPrivateContext && selectedBbq ? (
+                {appRouteMode !== "event" && isPrivateContext && selectedBbq ? (
                   <PrivateEventHero
                     event={selectedBbq}
                     template={selectedPrivateTemplate}
                     participantNames={participants.map((p: Participant) => p.name)}
                     participantCount={participantCount}
                     headerProps={headerProps}
-                    canEditBanner={isCreator}
-                    onUploadBanner={isCreator ? async (dataUrl) => {
+                    canEditBanner={canEditEvent}
+                    onUploadBanner={canEditEvent ? async (dataUrl) => {
                       await uploadEventBanner.mutateAsync(dataUrl);
                       const currentTemplate = (selectedBbq.templateData && typeof selectedBbq.templateData === "object")
                         ? (selectedBbq.templateData as Record<string, unknown>)
@@ -2367,7 +2497,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                       });
                       toastSuccess("Banner updated");
                     } : undefined}
-                    onSelectBannerPreset={isCreator ? async (presetId: EventBannerPresetId) => {
+                    onSelectBannerPreset={canEditEvent ? async (presetId: EventBannerPresetId) => {
                       const currentTemplate = (selectedBbq.templateData && typeof selectedBbq.templateData === "object")
                         ? (selectedBbq.templateData as Record<string, unknown>)
                         : {};
@@ -2389,7 +2519,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                       });
                       toastSuccess("Banner preset applied");
                     } : undefined}
-                    onResetBanner={isCreator ? async () => {
+                    onResetBanner={canEditEvent ? async () => {
                       const currentTemplate = (selectedBbq.templateData && typeof selectedBbq.templateData === "object")
                         ? (selectedBbq.templateData as Record<string, unknown>)
                         : {};
@@ -2414,7 +2544,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                 open={eventSettingsOpen}
                 onOpenChange={setEventSettingsOpen}
                 event={selectedBbq ?? null}
-                isCreator={!!isCreator}
+                isCreator={!!canEditEvent}
                 updating={updateBbq.isPending}
                 publicListingActive={publicListingActive}
                 visibilityLocked={selectedBbqVisibilityOriginLocked}
@@ -2433,7 +2563,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                         if (ok) toastSuccess(t.bbq.copySuccess);
                         else toastInfo("Copy failed — select and copy manually.");
                       }
-                    : selectedBbq && isCreator
+                    : selectedBbq && canEditEvent
                       ? async () => {
                           const ensured = await ensureInviteToken.mutateAsync(selectedBbq.id);
                           if (!ensured?.inviteToken) return;
@@ -2465,7 +2595,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                   });
                 } : undefined}
                 allowOptInExpenses={selectedBbq?.allowOptInExpenses ?? false}
-                onSettleUp={isCreator && !isPublicBuilderContext ? () => setSettleUpModalOpen(true) : undefined}
+                onSettleUp={canEditEvent && !isPublicBuilderContext ? () => setSettleUpModalOpen(true) : undefined}
                 settleUpPending={settleUp.isPending}
               />
 
@@ -2671,6 +2801,78 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                   </Button>
                 </div>
               )}
+
+            {appRouteMode === "event" && isPrivateContext && selectedBbq && (
+              <div className="mt-4 space-y-4">
+                <div
+                  className={`relative overflow-hidden rounded-3xl border border-border/60 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-slate-900 dark:to-slate-800 min-h-[220px] transition-all duration-300 ${selectedEventVibeTheme.gradientClass}`}
+                >
+                  {selectedBbq.bannerImageUrl ? (
+                    <img
+                      src={selectedBbq.bannerImageUrl}
+                      alt={selectedBbq.name}
+                      className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 hover:scale-[1.02]"
+                    />
+                  ) : null}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/20 to-transparent" />
+                  <div className="relative z-10 p-6 sm:p-7">
+                    <p className="text-xs uppercase tracking-[0.16em] text-white/80">Private plan</p>
+                    <h2 className="mt-2 text-2xl sm:text-3xl font-semibold tracking-tight text-white">{selectedBbq.name}</h2>
+                    <p className="mt-2 text-sm text-white/85">
+                      {selectedBbq.date ? new Date(selectedBbq.date).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" }) : "Date TBD"}
+                      {" · "}
+                      {(selectedBbq.locationName ?? selectedBbq.city ?? selectedBbq.countryName ?? "Location TBD")}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="rounded-2xl border border-white/50 dark:border-slate-700/70 bg-white/70 dark:bg-slate-900/70 backdrop-blur-md p-4 shadow-sm">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold">Hoi {user?.displayName || user?.username}, you’re planning a {privateVibeLabel((selectedBbq.eventVibe as string) || "cozy", "Cozy")} {privateTypeLabel((selectedBbq.eventType as string) || "generic", "Event")} ✨</p>
+                      <p className="text-xs text-muted-foreground mt-1">{Math.max(invitedParticipants.length, pendingRequests.length)} friend{Math.max(invitedParticipants.length, pendingRequests.length) === 1 ? "" : "s"} still need to respond.</p>
+                    </div>
+                    <span className="text-lg" aria-hidden>✨</span>
+                  </div>
+                  <div className="mt-3 h-2 rounded-full bg-muted/40 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-primary transition-all duration-300"
+                      style={{ width: `${Math.min(100, Math.round((participantCount / Math.max(participantCount + Math.max(invitedParticipants.length, pendingRequests.length), 1)) * 100))}%` }}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div className="rounded-2xl border border-border/60 bg-card p-4">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Who’s bringing what</p>
+                    <div className="mt-3 flex items-center -space-x-2">
+                      {participants.slice(0, 5).map((p: Participant) => (
+                        <span key={`bringing-${p.id}`} className="h-8 w-8 rounded-full border-2 border-background bg-primary/10 text-[11px] font-semibold grid place-items-center" title={p.name}>
+                          {getParticipantInitials(p.name)}
+                        </span>
+                      ))}
+                    </div>
+                    <p className="mt-3 text-xs text-muted-foreground">Assign dishes and drinks in one tap.</p>
+                  </div>
+                  <div className="rounded-2xl border border-border/60 bg-card p-4">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Shared pot</p>
+                    <p className="mt-2 text-xl font-semibold">{formatMoney(totalSpent)}</p>
+                    <div className="mt-3 h-2 rounded-full bg-muted/40 overflow-hidden">
+                      <div className="h-full rounded-full bg-primary/80" style={{ width: `${Math.min(100, Math.round((expenses.length / Math.max(participantCount * 2, 1)) * 100))}%` }} />
+                    </div>
+                    <p className="mt-2 text-xs text-muted-foreground">{expenses.length} logged expense{expenses.length === 1 ? "" : "s"}</p>
+                  </div>
+                  <div className="rounded-2xl border border-border/60 bg-card p-4">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Quick actions</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button size="sm" variant="outline" onClick={() => { setRecommendedExpenseTemplate({ item: "Wine", category: "Drinks" }); setIsAddExpenseOpen(true); }}>Add wine</Button>
+                      <Button size="sm" variant="outline" onClick={() => setActiveEventTab("people")}>Assign dishes</Button>
+                      <Button size="sm" variant="outline" onClick={() => setActiveEventTab("split")}>Start vote</Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Row C: Tabs */}
             <div className="mt-4">
@@ -2903,7 +3105,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                         {t.addPerson}
                       </Button>
                     )}
-                    {isCreator && isPrivate && (
+                    {canManage && isPrivate && (
                       <InviteSheet
                         trigger={
                           <Button size="sm" variant="outline" className="border-border shrink-0" data-testid="button-invite-sheet">
@@ -3439,6 +3641,21 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
             </div>
             </EventTemplateWrapper>
             </div>
+            {appRouteMode === "event" && selectedBbq && (
+              <div className="min-h-[340px] lg:min-h-0 lg:h-full">
+                <ChatSidebar
+                  eventId={selectedBbq.id}
+                  eventName={selectedBbq.name}
+                  currentUser={{
+                    id: user?.id ?? null,
+                    username: user?.username ?? null,
+                    avatarUrl: user?.avatarUrl ?? null,
+                  }}
+                  enabled={!!user}
+                />
+              </div>
+            )}
+            </div>
             </EventThemeProvider>
           );
         })() : (
@@ -3932,50 +4149,53 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                 {newPrivateCreateStep === 1 && (
                   <div className="space-y-4">
                     <div className="space-y-2">
-                      <Label className="text-muted-foreground">{t.bbq.bbqName}</Label>
+                      <Label className="text-muted-foreground text-xs uppercase tracking-wide">{t.bbq.bbqName}</Label>
                       <Input
-                        placeholder={t.events.event}
+                        placeholder="What are we celebrating?"
                         value={newBbqName}
                         onChange={(e) => setNewBbqName(e.target.value)}
                         autoFocus
                         data-testid="input-bbq-name"
-                        className="focus-visible:ring-2 focus-visible:ring-primary/40"
+                        className="rounded-xl border-border/70 bg-amber-50/70 dark:bg-slate-900/60 focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:shadow-lg focus-visible:shadow-primary/20 transition-all duration-200"
                       />
                       {!newBbqName.trim() ? <p className="text-xs text-muted-foreground">{t.privateWizard.basicsNameHint}</p> : null}
                     </div>
                     <div className="space-y-2">
-                      <Label className="text-muted-foreground">{t.privateWizard.basicsLocationLabel}</Label>
-                      <PrivateLocationTypeahead
-                        value={newEventLocation}
-                        onChange={(next) => {
-                          setNewEventLocation(next);
-                          rememberRecentLocation(next);
-                        }}
-                        recent={recentLocationOptions}
-                        suggested={privateSuggestedLocations}
-                        uiText={privateLocationUiText}
-                        data-testid="input-event-location-private"
-                      />
+                      <Label className="text-muted-foreground text-xs uppercase tracking-wide">{t.privateWizard.basicsLocationLabel}</Label>
+                      <div className="rounded-xl border border-border/70 bg-amber-50/60 dark:bg-slate-900/60 px-2 py-1 transition-all duration-200 focus-within:ring-2 focus-within:ring-primary/60 focus-within:shadow-lg focus-within:shadow-primary/20">
+                        <PrivateLocationTypeahead
+                          value={newEventLocation}
+                          onChange={(next) => {
+                            setNewEventLocation(next);
+                            rememberRecentLocation(next);
+                          }}
+                          recent={recentLocationOptions}
+                          suggested={privateSuggestedLocations}
+                          uiText={privateLocationUiText}
+                          data-testid="input-event-location-private"
+                        />
+                      </div>
+                      {!newEventLocation ? <p className="text-xs text-muted-foreground">Where does the magic happen?</p> : null}
                     </div>
                     <div className="grid gap-4 sm:grid-cols-2">
                       <div className="space-y-2">
-                        <Label className="text-muted-foreground">{t.bbq.date}</Label>
+                        <Label className="text-muted-foreground text-xs uppercase tracking-wide">{t.bbq.date}</Label>
                         <Input
                           type="date"
                           value={newBbqDate}
                           onChange={(e) => setNewBbqDate(e.target.value)}
                           data-testid="input-bbq-date"
-                          className="focus-visible:ring-2 focus-visible:ring-primary/40"
+                          className="rounded-xl border-border/70 bg-amber-50/70 dark:bg-slate-900/60 focus-visible:ring-2 focus-visible:ring-primary/60 transition-all duration-200"
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label className="text-muted-foreground">{t.privateWizard.basicsTimeLabel}</Label>
+                        <Label className="text-muted-foreground text-xs uppercase tracking-wide">{t.privateWizard.basicsTimeLabel}</Label>
                         <Input
                           type="time"
                           value={newBbqTime}
                           onChange={(e) => setNewBbqTime(e.target.value)}
                           data-testid="input-bbq-time"
-                          className="focus-visible:ring-2 focus-visible:ring-primary/40"
+                          className="rounded-xl border-border/70 bg-amber-50/70 dark:bg-slate-900/60 focus-visible:ring-2 focus-visible:ring-primary/60 transition-all duration-200"
                         />
                       </div>
                     </div>
@@ -3988,21 +4208,26 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                       <h4 className="text-sm font-semibold">{t.privateWizard.typeTitle}</h4>
                       <p className="text-xs text-muted-foreground mt-1">{t.privateWizard.typeSubtitle}</p>
                     </div>
-                    <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="grid gap-3 sm:grid-cols-2">
                       {PRIVATE_EVENT_TYPES.map((type) => (
                         <button
                           key={`private-event-type-${type.id}`}
                           type="button"
                           onClick={() => applyPrivateEventType(type.id)}
-                          className={`rounded-xl border p-3 text-left transition-colors ${
-                            newPrivateEventTypeId === type.id ? "border-primary bg-primary/5" : "border-border hover:bg-muted/20"
+                          className={`rounded-2xl border p-4 text-left transition-all duration-200 ${
+                            newPrivateEventTypeId === type.id
+                              ? "border-primary/70 bg-primary/10 shadow-lg shadow-primary/20 scale-[1.01]"
+                              : "border-border/70 bg-card/80 hover:-translate-y-0.5 hover:bg-muted/20 hover:shadow-md"
                           }`}
                         >
-                          <p className="text-sm font-semibold flex items-center gap-1.5">
-                            <span aria-hidden>{type.emoji}</span>
+                          <p className="text-sm font-semibold flex items-center gap-2">
+                            <span aria-hidden className="text-xl">{type.emoji}</span>
                             {privateTypeLabel(type.id, type.label)}
                           </p>
                           <p className="text-xs text-muted-foreground mt-1">{privateTypeDescription(type.id, type.description)}</p>
+                          {newPrivateEventTypeId === type.id ? (
+                            <p className="text-[11px] text-primary/90 mt-2">Unlocks: recipes, shared lists & diet preferences</p>
+                          ) : null}
                         </button>
                       ))}
                     </div>
@@ -4011,7 +4236,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
 
                 {newPrivateCreateStep === 3 && (
                   <div className="space-y-3">
-                    <div className={`rounded-xl border border-border/60 p-3 ${selectedCreatePrivateVibeTheme.gradientClass}`}>
+                    <div className={`rounded-2xl border border-border/60 p-4 shadow-sm ${selectedCreatePrivateVibeTheme.gradientClass}`}>
                       <p className="text-xs uppercase tracking-wide text-muted-foreground">{t.privateWizard.vibePreview}</p>
                       <p className="text-sm font-semibold mt-1 flex items-center gap-1.5">
                         <span aria-hidden>{selectedCreatePrivateType.emoji}</span>
@@ -4023,18 +4248,20 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null }: H
                       <h4 className="text-sm font-semibold">{t.privateWizard.vibeTitle}</h4>
                       <p className="text-xs text-muted-foreground mt-1">{t.privateWizard.vibeSubtitle}</p>
                     </div>
-                    <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="grid gap-3 sm:grid-cols-2">
                       {selectedCreatePrivateVibes.map((vibe) => (
                         <button
                           key={`private-event-vibe-${vibe.id}`}
                           type="button"
                           onClick={() => setNewPrivateEventVibeId(vibe.id)}
-                          className={`rounded-xl border p-3 text-left transition-colors ${
-                            newPrivateEventVibeId === vibe.id ? "border-primary bg-primary/5" : "border-border hover:bg-muted/20"
+                          className={`rounded-2xl border p-4 text-left transition-all duration-200 ${
+                            newPrivateEventVibeId === vibe.id
+                              ? "border-primary/70 bg-primary/10 shadow-md shadow-primary/15 scale-[1.01]"
+                              : "border-border/70 hover:-translate-y-0.5 hover:bg-muted/20"
                           }`}
                         >
                           <p className="text-sm font-semibold flex items-center gap-1.5">
-                            <span aria-hidden>{vibe.emoji}</span>
+                            <span aria-hidden className="text-lg">{vibe.emoji}</span>
                             {privateVibeLabel(vibe.id, vibe.label)}
                           </p>
                           <p className="text-xs text-muted-foreground mt-1">{privateVibeDescription(vibe.id, vibe.description)}</p>

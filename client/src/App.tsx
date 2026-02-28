@@ -28,6 +28,7 @@ function Router() {
     <Switch>
       <Route path="/" component={LandingV2} />
       <Route path="/join/:token" component={JoinPage} />
+      <Route path="/invite/:token" component={JoinPage} />
       <Route path="/basic" component={Basic} />
       <Route path="/login" component={LoginPage} />
       <Route path="/app/e/:eventId" component={AppRoute} />

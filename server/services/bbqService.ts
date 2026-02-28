@@ -6,9 +6,11 @@ import { AppError, forbidden, upgradeRequired } from "../lib/errors";
 import { auditLog } from "../lib/audit";
 import { resolveTripCurrency } from "../lib/country-currency";
 import { isPublicListingActive, slugifyPublicEvent } from "../lib/public-listing";
-import type { Barbecue } from "@shared/schema";
+import { db } from "../db";
+import { eventMembers, type Barbecue } from "@shared/schema";
 import { isPublicEvent as isCanonicalPublicEvent } from "@shared/event-visibility";
 import { normalizeCountryCode } from "@shared/lib/country-code";
+import { and, eq } from "drizzle-orm";
 
 const DEFAULT_LISTING_DURATION_DAYS = Number(process.env.PUBLIC_LISTING_DAYS ?? 30);
 const warnedPrivatePollutionIds = new Set<number>();
@@ -412,11 +414,19 @@ export async function updateBarbecue(
     publicDescription?: string | null;
     bannerImageUrl?: string | null;
   },
-  sessionUsername?: string
+  sessionUsername?: string,
+  sessionUserId?: number,
 ): Promise<Barbecue | undefined> {
   const bbq = await bbqRepo.getById(id);
   if (!bbq) return undefined;
-  if (bbq.creatorId !== sessionUsername) return undefined;
+  let canEdit = bbq.creatorId === sessionUsername;
+  if (!canEdit && sessionUserId) {
+    const rows = await db.select({ id: eventMembers.id }).from(eventMembers)
+      .where(and(eq(eventMembers.eventId, id), eq(eventMembers.userId, sessionUserId)))
+      .limit(1);
+    canEdit = !!rows[0];
+  }
+  if (!canEdit) return undefined;
   requireVisibilityOriginAllowsPublic(
     {
       visibility: updates.visibility,

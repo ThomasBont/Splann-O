@@ -239,6 +239,7 @@ function AppSidebar({ section }: { section: AppSection }) {
     () => `splanno.sidebar.advanced.v1:${user?.id ?? user?.username ?? "anon"}`,
     [user?.id, user?.username],
   );
+  // Shared between desktop sidebar + mobile drawer so collapse preference stays in sync.
   const recentCollapsedKey = "splanno.sidebar.recentCollapsed";
 
   useEffect(() => {
@@ -447,7 +448,7 @@ function AppSidebar({ section }: { section: AppSection }) {
                 </div>
               </div>
               {recentCollapsed ? (
-                <p className="px-1 py-1 text-[11px] text-muted-foreground">Recent hidden</p>
+                <p className="px-1 py-1 text-[11px] text-muted-foreground">{searchedEvents.length} hidden</p>
               ) : (
                 <div id="sidebar-recent-events-list">
                   {renderEventList(searchedEvents, "No events found")}
@@ -1138,7 +1139,7 @@ export default function AppRoute() {
                     </button>
                   </div>
                   {mobileRecentCollapsed ? (
-                    <p className="text-xs text-muted-foreground px-1 py-1.5">Recent hidden</p>
+                    <p className="text-xs text-muted-foreground px-1 py-1.5">{mobileQuickSwitchEvents.length} hidden</p>
                   ) : mobileQuickSwitchEvents.length === 0 ? (
                     <p className="text-xs text-muted-foreground px-1 py-1.5">No events found</p>
                   ) : (

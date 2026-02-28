@@ -1,4 +1,4 @@
-import { pgTable, text, serial, numeric, integer, timestamp, boolean, unique, json, real } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, numeric, integer, timestamp, boolean, unique, json, real, uuid } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { sql } from "drizzle-orm";
@@ -223,6 +223,29 @@ export const publicEventMessages = pgTable("public_event_messages", {
   readAt: timestamp("read_at"),
 });
 
+export const eventMembers = pgTable("event_members", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  eventId: integer("event_id").references(() => barbecues.id, { onDelete: "cascade" }).notNull(),
+  userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  role: text("role").notNull().default("member"), // member | owner
+  joinedAt: timestamp("joined_at").defaultNow(),
+}, (table) => ({
+  uniqueEventUser: unique().on(table.eventId, table.userId),
+}));
+
+export const eventInvites = pgTable("event_invites", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  eventId: integer("event_id").references(() => barbecues.id, { onDelete: "cascade" }).notNull(),
+  inviterUserId: integer("inviter_user_id").references(() => users.id, { onDelete: "set null" }),
+  email: text("email"),
+  token: text("token").notNull().unique(),
+  status: text("status").notNull().default("pending"), // pending | accepted | revoked | expired
+  createdAt: timestamp("created_at").defaultNow(),
+  expiresAt: timestamp("expires_at").notNull(),
+  acceptedByUserId: integer("accepted_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  acceptedAt: timestamp("accepted_at"),
+});
+
 export const insertNoteSchema = createInsertSchema(notes)
   .omit({ id: true, createdAt: true, updatedAt: true })
   .extend({
@@ -259,6 +282,9 @@ export type InsertParticipant = z.infer<typeof insertParticipantSchema>;
 
 export type Expense = typeof expenses.$inferSelect;
 export type InsertExpense = z.infer<typeof insertExpenseSchema>;
+
+export type EventMember = typeof eventMembers.$inferSelect;
+export type EventInvite = typeof eventInvites.$inferSelect;
 
 export type ExpenseWithParticipant = Expense & {
   participantName: string;

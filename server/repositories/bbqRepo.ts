@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { db } from "../db";
-import { barbecues, participants, eventNotifications } from "@shared/schema";
+import { barbecues, participants, eventMembers, eventNotifications } from "@shared/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { desc } from "drizzle-orm";
 import type { Barbecue } from "@shared/schema";
@@ -16,6 +16,8 @@ export const bbqRepo = {
     if (currentUserId) {
       const invitedByUserId = await db.select({ bbqId: participants.barbecueId }).from(participants).where(eq(participants.invitedUserId, currentUserId));
       invitedByUserId.forEach((p) => participatingIds.add(p.bbqId));
+      const byEventMember = await db.select({ bbqId: eventMembers.eventId }).from(eventMembers).where(eq(eventMembers.userId, currentUserId));
+      byEventMember.forEach((p) => participatingIds.add(p.bbqId));
     }
 
     return all.filter((b) => {
@@ -56,6 +58,8 @@ export const bbqRepo = {
     if (currentUserId) {
       const byInvited = await db.select({ id: participants.id }).from(participants).where(and(eq(participants.barbecueId, bbq.id), eq(participants.invitedUserId, currentUserId)));
       if (byInvited.length > 0) return true;
+      const byEventMember = await db.select({ id: eventMembers.id }).from(eventMembers).where(and(eq(eventMembers.eventId, bbq.id), eq(eventMembers.userId, currentUserId)));
+      if (byEventMember.length > 0) return true;
     }
     return false;
   },

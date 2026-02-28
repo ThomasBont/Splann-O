@@ -19,18 +19,24 @@ interface JoinInfo {
 }
 
 export default function JoinPage() {
-  const [, params] = useRoute("/join/:token");
+  const [, paramsJoin] = useRoute("/join/:token");
+  const [, paramsInvite] = useRoute("/invite/:token");
   const [, setLocation] = useLocation();
-  const token = params?.token;
+  const token = paramsInvite?.token ?? paramsJoin?.token;
   const { user, isLoading: isAuthLoading } = useAuth();
   const [joined, setJoined] = useState(false);
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ["/api/join", token],
+    queryKey: ["/api/invites", token],
     queryFn: async (): Promise<JoinInfo> => {
-      const res = await fetch(`/api/join/${token}`, { credentials: "include" });
-      if (!res.ok) throw new Error("Invite not found");
-      return res.json();
+      const inviteRes = await fetch(`/api/invites/${token}`, { credentials: "include" });
+      if (inviteRes.ok) {
+        const body = await inviteRes.json() as { eventId: number; name: string; eventType: string; currency: string };
+        return { bbqId: body.eventId, name: body.name, eventType: body.eventType, currency: body.currency };
+      }
+      const fallback = await fetch(`/api/join/${token}`, { credentials: "include" });
+      if (!fallback.ok) throw new Error("Invite not found");
+      return fallback.json();
     },
     enabled: !!token,
   });
@@ -46,6 +52,20 @@ export default function JoinPage() {
 
   const handleJoin = () => {
     if (!user || !data) return;
+    if (paramsInvite?.token) {
+      fetch(`/api/invites/${token}/accept`, { method: "POST", credentials: "include" })
+        .then(async (res) => {
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            throw new Error((body as { message?: string }).message || "Invite accept failed");
+          }
+          setJoined(true);
+        })
+        .catch((err: unknown) => {
+          if ((err as Error).message.includes("already")) setJoined(true);
+        });
+      return;
+    }
     joinBbq.mutate(
       { bbqId: data.bbqId, name: user.username, userId: user.username },
       {

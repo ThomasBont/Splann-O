@@ -279,18 +279,6 @@ export default function SettingsPage() {
                 <CardTitle className="text-lg">Profile</CardTitle>
                 <CardDescription>Placeholder section for future account/profile settings.</CardDescription>
               </CardHeader>
-              {user && (
-                <CardContent className="pt-0">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => window.open(`/u/${encodeURIComponent(user.publicHandle || user.username)}`, "_blank")}
-                  >
-                    <User className="h-4 w-4 mr-2" />
-                    Open public profile
-                  </Button>
-                </CardContent>
-              )}
             </Card>
 
             <Card className="opacity-80">

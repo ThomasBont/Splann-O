@@ -31,14 +31,6 @@ import {
 } from "@/components/ui/accordion";
 import { Switch } from "@/components/ui/switch";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { AddPersonDialog } from "@/components/add-person-dialog";
 import { AddExpenseDialog } from "@/components/add-expense-dialog";
 import { CurrencyPicker } from "@/components/currency-picker";
@@ -48,6 +40,7 @@ import { ChatSidebar } from "@/components/event/ChatSidebar";
 import GuestsWidget from "@/components/event/GuestsWidget";
 import SharedCostsWidget from "@/components/event/SharedCostsWidget";
 import PlanDetailsDrawer from "@/components/event/PlanDetailsDrawer";
+import PlanTypeDrawer from "@/components/event/PlanTypeDrawer";
 import { PrivateEventHero } from "@/components/event/PrivateEventHero";
 import EventSettingsModal from "@/components/event/EventSettingsModal";
 import { EditTripLocationModal } from "@/components/event/EditTripLocationModal";
@@ -71,7 +64,7 @@ import {
   CalendarDays, Loader2,
   UserCheck, UserX, LogOut, Crown, Clock, UserCircle, ChevronDown,
   Lock, Globe, UserPlus, X, Eye, EyeOff, Compass,
-  Bell, UserPlus2, Search, Heart, Sun, Moon, MessageCircle, Star, Plane, PartyPopper,
+  Bell, UserPlus2, Search, Heart, Sun, Moon, MessageCircle, Star, Plane, PartyPopper, Settings2,
 } from "lucide-react";
 import { useTheme } from "@/hooks/use-theme";
 import { useEventHeaderPreferences } from "@/hooks/use-event-header-preferences";
@@ -79,6 +72,7 @@ import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
 import { useAppToast } from "@/hooks/use-app-toast";
 import { useUpgrade } from "@/contexts/UpgradeContext";
+import { useNewPlanWizard } from "@/contexts/new-plan-wizard";
 import { UpgradeRequiredError } from "@/lib/upgrade";
 import {
   getEventTemplate,
@@ -140,6 +134,12 @@ import {
 } from "@/lib/private-event-suggestions";
 import { getListingBadgeLabel, isPublicEvent, shouldShowPendingPublish } from "@/lib/public-listing-ui";
 import { isPrivateEvent as isPrivateEventVisibility } from "@shared/event-visibility";
+import {
+  derivePlanTypeSelection,
+  getEventTypeForPlanType,
+  getPlanMainTypeLabel,
+  getPlanSubcategoryLabel,
+} from "@shared/lib/plan-types";
 import type { ExpenseWithParticipant, Barbecue, Participant, FriendInfo, PendingRequestWithBbq } from "@shared/schema";
 
 /** Fallback colors for expense chart. Extended for custom categories (hash-based). */
@@ -561,6 +561,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
   const { toast } = useToast();
   const { toastSuccess, toastError, toastInfo, toastWarning } = useAppToast();
   const { showUpgrade } = useUpgrade();
+  const { openNewPlanWizard } = useNewPlanWizard();
   const shouldReduceMotion = useReducedMotion();
   const isManagedAppRoute = appRouteMode !== "legacy";
 
@@ -628,6 +629,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
   const [isAddPersonOpen, setIsAddPersonOpen] = useState(false);
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
   const [isPlanDetailsOpen, setIsPlanDetailsOpen] = useState(false);
+  const [isPlanTypeOpen, setIsPlanTypeOpen] = useState(false);
   const [recommendedExpenseTemplate, setRecommendedExpenseTemplate] = useState<{ item: string; category: string; optInDefault?: boolean } | null>(null);
   const [editingExpense, setEditingExpense] = useState<ExpenseWithParticipant | null>(null);
   const [editingParticipantId, setEditingParticipantId] = useState<number | null>(null);
@@ -647,6 +649,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
   const removeFriendMut = useRemoveFriend();
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [viewedProfileUsername, setViewedProfileUsername] = useState<string | null>(null);
+  const [isAccountDrawerOpen, setIsAccountDrawerOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [showAuthDialog, setShowAuthDialog] = useState(true);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
@@ -1618,13 +1621,22 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
     totalSpent !== settleSnapshot.total || expenses.length !== settleSnapshot.expenseCount
   );
   const allBalancesZero = balances.every((b: { balance: number }) => Math.abs(b.balance) < 0.01);
+  const selectedPlanTypeSelection = useMemo(
+    () => derivePlanTypeSelection({ templateData: selectedBbq?.templateData, eventType: selectedBbq?.eventType }),
+    [selectedBbq?.templateData, selectedBbq?.eventType],
+  );
+  const selectedPlanTypeHeadline = useMemo(() => {
+    const { mainType, subcategory } = selectedPlanTypeSelection;
+    if (!mainType) return "Set your plan type ✨";
+    const mainLabel = getPlanMainTypeLabel(mainType);
+    if (!subcategory) return `You’re planning a ${mainLabel} ✨`;
+    return `You’re planning a ${mainLabel} — ${getPlanSubcategoryLabel(subcategory)} ✨`;
+  }, [selectedPlanTypeSelection]);
   const selectedPrivateTemplate = getPrivateTemplateForEvent(selectedBbq);
   const selectedEventVibeTheme = VIBE_THEME[(selectedBbq?.eventVibe as PrivateEventVibeId) ?? "cozy"] ?? VIBE_THEME.cozy;
   const selectedCreatePrivateTemplate = getPrivateTemplateById(newPrivateTemplateId);
   const selectedSubcategoryList = newPlanMainCategory === "trip" ? TRIP_SUBCATEGORIES : newPlanMainCategory === "party" ? PARTY_SUBCATEGORIES : [];
   const selectedSubcategoryDef = [...TRIP_SUBCATEGORIES, ...PARTY_SUBCATEGORIES].find((item) => item.id === newPlanSubCategory) ?? null;
-  const privateTypeLabel = (typeId: string, fallback: string) => t.privateWizard.typeLabels[typeId] ?? fallback;
-  const privateVibeLabel = (vibeId: string, fallback: string) => t.privateWizard.vibeLabels[vibeId] ?? fallback;
   const isPrivateBasicsValid = !!newBbqName.trim() && !!newBbqDate && !!newEventLocation?.locationName.trim();
   const headerPrimaryActionLabel = !isPublicBuilderContext && activeEventTab === "people" ? "Invite" : UI_COPY.actions.addExpense;
   const headerPrimaryActionVisible = !isPublicBuilderContext && (activeEventTab === "expenses" || activeEventTab === "people");
@@ -1896,69 +1908,29 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                   </PopoverContent>
                 </Popover>
 
-                {/* Profile dropdown: Profile/Friends + Logout */}
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="sm:hidden relative"
-                      data-testid="button-profile-dropdown-mobile"
-                    >
-                      <UserCircle className="w-4 h-4" />
-                      {friendRequests.length > 0 && (
-                        <span className="absolute -top-0.5 -right-0.5 bg-primary text-primary-foreground text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center" data-testid="badge-friend-requests">
-                          {friendRequests.length}
-                        </span>
-                      )}
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground px-2 py-1.5 rounded-lg bg-white/5 hover:bg-white/10"
-                      data-testid="button-profile-dropdown"
-                    >
-                      <span className="font-medium max-w-[100px] truncate" data-testid="text-username">{user.username}</span>
-                      <ChevronDown className="w-3.5 h-3.5 shrink-0" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-48">
-                    <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-                      {t.auth.loggedInAs}
-                    </DropdownMenuLabel>
-                    <DropdownMenuLabel className="font-medium truncate" data-testid="dropdown-username">
-                      {user.username}
-                    </DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem
-                      onClick={() => { setViewedProfileUsername(null); setIsProfileOpen(true); }}
-                      data-testid="dropdown-item-profile"
-                    >
-                      <UserCircle className="w-4 h-4 mr-2" />
-                      {t.auth.profile}
-                      {friendRequests.length > 0 && (
-                        <span className="ml-auto bg-primary text-primary-foreground text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
-                          {friendRequests.length}
-                        </span>
-                      )}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => window.open(`/u/${encodeURIComponent(user.publicHandle || user.username)}`, "_blank")}
-                      data-testid="dropdown-item-public-profile"
-                    >
-                      <Globe className="w-4 h-4 mr-2" />
-                      Open public profile
-                    </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onClick={() => logout.mutate()}
-                      data-testid="dropdown-item-logout"
-                    >
-                      <LogOut className="w-4 h-4 mr-2" />
-                      {t.auth.logout}
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="sm:hidden relative"
+                  data-testid="button-profile-drawer-mobile"
+                  onClick={() => setIsAccountDrawerOpen(true)}
+                >
+                  <UserCircle className="w-4 h-4" />
+                  {friendRequests.length > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 bg-primary text-primary-foreground text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center" data-testid="badge-friend-requests">
+                      {friendRequests.length}
+                    </span>
+                  )}
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground px-2 py-1.5 rounded-lg bg-white/5 hover:bg-white/10"
+                  data-testid="button-profile-drawer"
+                  onClick={() => setIsAccountDrawerOpen(true)}
+                >
+                  <span className="font-medium max-w-[100px] truncate" data-testid="text-username">{user.username}</span>
+                  <ChevronDown className="w-3.5 h-3.5 shrink-0" />
+                </Button>
               </div>
             ) : !showAuthDialog ? (
               <Button
@@ -1974,6 +1946,74 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
           </div>
         </div>
       </header>
+
+      <Sheet open={isAccountDrawerOpen} onOpenChange={setIsAccountDrawerOpen}>
+        <SheetContent
+          side="right"
+          className="h-full w-[420px] max-w-[92vw] border-l border-slate-200 bg-white p-0 shadow-2xl dark:border-neutral-800 dark:bg-[#121212]"
+        >
+          <div className="flex h-full flex-col">
+            <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-5 py-4 backdrop-blur dark:border-neutral-800 dark:bg-[#121212]/95">
+                <SheetHeader className="space-y-1 text-left">
+                  <SheetTitle className="text-lg font-semibold text-slate-900 dark:text-neutral-100">Account</SheetTitle>
+                  <SheetDescription className="text-sm text-slate-500 dark:text-neutral-400">
+                    {user?.displayName || user?.username || "Signed in"}
+                    {user?.email ? ` · ${user.email}` : ""}
+                  </SheetDescription>
+                </SheetHeader>
+              </header>
+
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+              <div className="space-y-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="w-full justify-start"
+                  data-testid="drawer-item-profile"
+                  onClick={() => {
+                    setIsAccountDrawerOpen(false);
+                    setViewedProfileUsername(null);
+                    setIsProfileOpen(true);
+                  }}
+                >
+                  <UserCircle className="mr-2 h-4 w-4" />
+                  {t.auth.profile}
+                </Button>
+
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="w-full justify-start"
+                  data-testid="drawer-item-settings"
+                  onClick={() => {
+                    setIsAccountDrawerOpen(false);
+                    setLocation("/settings");
+                  }}
+                >
+                  <Settings2 className="mr-2 h-4 w-4" />
+                  Settings
+                </Button>
+              </div>
+            </div>
+
+            <footer className="border-t border-slate-200 bg-white px-5 py-3 dark:border-neutral-800 dark:bg-[#121212]">
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full justify-start"
+                data-testid="drawer-item-logout"
+                onClick={() => {
+                  setIsAccountDrawerOpen(false);
+                  logout.mutate();
+                }}
+              >
+                <LogOut className="mr-2 h-4 w-4" />
+                {t.auth.logout}
+              </Button>
+            </footer>
+          </div>
+        </SheetContent>
+      </Sheet>
 
       {/* Email verification banner */}
       {showVerifyBanner && user && !user.emailVerifiedAt && (
@@ -2133,7 +2173,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
               {user && (
                 <Button
                   size="sm"
-                  onClick={() => { setNewEventArea(area); setNewEventType(area === "trips" ? "city_trip" : "barbecue"); setIsNewBbqOpen(true); }}
+                  onClick={() => { setNewEventArea(area); setNewEventType(area === "trips" ? "city_trip" : "barbecue"); openNewPlanWizard("BASICS"); }}
                   className="font-semibold"
                   data-testid="button-new-bbq"
                 >
@@ -2383,9 +2423,20 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                       </div>
                     </button>
 
-                    <div className="rounded-2xl border border-amber-200/60 bg-gradient-to-r from-amber-100/80 to-rose-100/70 dark:from-amber-900/25 dark:to-rose-900/20 shadow-sm p-5">
+                    <button
+                      type="button"
+                      className="w-full rounded-2xl border border-amber-200/60 bg-gradient-to-r from-amber-100/80 to-rose-100/70 p-5 text-left shadow-sm transition-all duration-200 hover:border-amber-300/80 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 dark:from-amber-900/25 dark:to-rose-900/20"
+                      onClick={() => setIsPlanTypeOpen(true)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          setIsPlanTypeOpen(true);
+                        }
+                      }}
+                      aria-label="Open plan type editor"
+                    >
                       <p className="text-base font-medium text-slate-800 dark:text-slate-100">
-                        Hey {user?.displayName || user?.username}, you&apos;re planning a Cozy Dinner ✨
+                        {selectedPlanTypeHeadline}
                       </p>
                       <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
                         {pendingCount} friend{pendingCount === 1 ? "" : "s"} still need to respond.
@@ -2415,7 +2466,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                       <div className="mt-5 h-2 rounded-full bg-white/70 overflow-hidden">
                         <div className="h-full rounded-full bg-amber-400/90 transition-all duration-300" style={{ width: `${responseProgress}%` }} />
                       </div>
-                    </div>
+                    </button>
 
                     <div className="grid gap-4 md:grid-cols-3">
                       <GuestsWidget eventId={selectedBbq.id} />
@@ -2427,6 +2478,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                         totalSpentLabel={formatMoney(totalSpent)}
                         expenseCount={expenses.length}
                         progressPercent={Math.min(100, Math.max(10, Math.round((expenses.length / Math.max(participantCount * 2, 1)) * 100)))}
+                        categories={getCategoriesForEvent((selectedBbq as any)?.eventType, customCategories)}
                         participants={participants}
                         expenses={expenses}
                         balances={balances}
@@ -2494,6 +2546,35 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                         await queryClient.refetchQueries({ queryKey: ["/api/barbecues"] });
                         toastSuccess("Plan details updated");
                         setIsPlanDetailsOpen(false);
+                      }}
+                    />
+                    <PlanTypeDrawer
+                      open={isPlanTypeOpen}
+                      onOpenChange={setIsPlanTypeOpen}
+                      plan={selectedBbq}
+                      saving={updateBbq.isPending}
+                      onSave={async ({ mainType, subcategory }) => {
+                        if (!selectedBbq) return;
+                        const currentTemplateData = selectedBbq.templateData && typeof selectedBbq.templateData === "object"
+                          ? (selectedBbq.templateData as Record<string, unknown>)
+                          : {};
+                        const nextTemplateData = {
+                          ...currentTemplateData,
+                          mainCategory: mainType,
+                          privateMainCategory: mainType,
+                          subCategory: subcategory ?? null,
+                          privateSubCategory: subcategory ?? null,
+                          privateEventTypeId: subcategory ?? null,
+                        };
+                        await updateBbq.mutateAsync({
+                          id: selectedBbq.id,
+                          eventType: getEventTypeForPlanType(mainType, subcategory),
+                          templateData: nextTemplateData,
+                        });
+                        await queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] });
+                        await queryClient.refetchQueries({ queryKey: ["/api/barbecues"] });
+                        toastSuccess("Plan type updated");
+                        setIsPlanTypeOpen(false);
                       }}
                     />
                   </section>
@@ -3056,7 +3137,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                 <div className="rounded-2xl border border-white/50 dark:border-slate-700/70 bg-white/70 dark:bg-slate-900/70 backdrop-blur-md p-4 shadow-sm">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <p className="text-sm font-semibold">Hoi {user?.displayName || user?.username}, you’re planning a {privateVibeLabel((selectedBbq.eventVibe as string) || "cozy", "Cozy")} {privateTypeLabel((selectedBbq.eventType as string) || "generic", "Event")} ✨</p>
+                      <p className="text-sm font-semibold">{selectedPlanTypeHeadline}</p>
                       <p className="text-xs text-muted-foreground mt-1">{Math.max(invitedParticipants.length, pendingRequests.length)} friend{Math.max(invitedParticipants.length, pendingRequests.length) === 1 ? "" : "s"} still need to respond.</p>
                     </div>
                     <span className="text-lg" aria-hidden>✨</span>
@@ -3913,7 +3994,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                 <Button
                   type="button"
                   className="mt-4"
-                  onClick={() => { setNewEventArea(area); setNewEventType(area === "trips" ? "city_trip" : "barbecue"); setIsNewBbqOpen(true); }}
+                  onClick={() => { setNewEventArea(area); setNewEventType(area === "trips" ? "city_trip" : "barbecue"); openNewPlanWizard("BASICS"); }}
                 >
                   <Plus className="mr-1.5 h-4 w-4" />
                   New plan
@@ -3967,425 +4048,6 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
         </>
         }
       </main>
-
-      {/* Create event drawer */}
-      <Sheet open={isNewBbqOpen} onOpenChange={handleNewEventOpenChange}>
-        <SheetContent side="right" className="h-full w-full sm:max-w-[760px] p-0" data-testid="dialog-new-bbq">
-          <div className="flex h-full flex-col">
-            <header className="shrink-0 border-b border-border/60 bg-background/95 px-6 py-4 backdrop-blur">
-              <SheetHeader className="space-y-1 text-left">
-                <SheetTitle>Start a plan</SheetTitle>
-                <SheetDescription>Turn an idea into a plan.</SheetDescription>
-              </SheetHeader>
-            </header>
-            <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-              <div className="space-y-8 min-h-[460px]">
-          {/* Section 1 — Plan basics */}
-          <div className="space-y-3">
-            <h3 className="text-sm font-semibold">{t.bbq.eventBasics}</h3>
-            {newBbqVisibilityOrigin === "public" ? (
-              <div className="space-y-5">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <h3 className="text-base font-semibold">Public plan builder</h3>
-                    <p className="text-xs text-muted-foreground">A guided setup for professional events. Your event starts Unlisted.</p>
-                  </div>
-                  <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                    {[
-                      { n: 1, label: "Basics" },
-                      { n: 2, label: "Page content" },
-                      { n: 3, label: "Branding" },
-                      { n: 4, label: "Visibility" },
-                    ].map((step) => {
-                      const active = newPublicCreateStep === step.n;
-                      return (
-                        <span key={step.n} className={`rounded-full border px-2 py-0.5 ${active ? "border-primary/40 bg-primary/5 text-primary" : "border-border"}`}>
-                          {step.label}
-                        </span>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {newPublicCreateStep === 1 && (
-                  <div className="space-y-4">
-                    <div className="rounded-xl border border-border/60 bg-muted/10 p-4">
-                      <p className="text-sm font-medium">Public events are designed for professional hosting.</p>
-                      <p className="text-xs text-muted-foreground mt-1">Your event starts as Unlisted. Only people with your link can view it. Publish when you’re ready to appear on Explore.</p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-muted-foreground">{t.bbq.bbqName}</Label>
-                      <Input
-                        placeholder={t.events.event}
-                        value={newBbqName}
-                        onChange={e => setNewBbqName(e.target.value)}
-                        autoFocus
-                        data-testid="input-bbq-name"
-                        className="focus-visible:ring-2 focus-visible:ring-primary/40"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between gap-3">
-                        <Label className="text-muted-foreground">Category</Label>
-                        <EventCategoryBadge category={newEventPublicCategory} compact showTone />
-                      </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                        {PUBLIC_CREATE_CATEGORY_OPTIONS.map((option) => (
-                          <button
-                            key={option.key}
-                            type="button"
-                            onClick={() => applyPublicCreateCategory(option.key)}
-                            className={`rounded-lg border px-3 py-2 text-sm font-medium text-left transition-colors ${newEventPublicCategory === option.key ? "border-primary bg-primary/5 text-foreground" : "border-border text-muted-foreground hover:bg-muted/20 hover:text-foreground"}`}
-                            data-testid={`button-public-category-${option.key}`}
-                          >
-                            {option.label}
-                          </button>
-                        ))}
-                      </div>
-                      <p className="text-xs text-muted-foreground">Choose the category that best matches how your event will appear in Explore.</p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-muted-foreground">Public listing</Label>
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        <button
-                          type="button"
-                          onClick={() => setNewBbqPublicMode("marketing")}
-                          className={`rounded-lg border p-3 text-left transition-colors ${newBbqPublicMode === "marketing" ? "border-primary bg-primary/5" : "border-border hover:bg-muted/20"}`}
-                        >
-                          <p className="text-sm font-semibold">Marketing</p>
-                          <p className="text-xs text-muted-foreground mt-1">Visible on Explore. People can view details, join via invite link.</p>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setNewBbqPublicMode("joinable")}
-                          className={`rounded-lg border p-3 text-left transition-colors ${newBbqPublicMode === "joinable" ? "border-primary bg-primary/5" : "border-border hover:bg-muted/20"}`}
-                        >
-                          <p className="text-sm font-semibold">Joinable</p>
-                          <p className="text-xs text-muted-foreground mt-1">Visible on Explore. People can request to join.</p>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {newPublicCreateStep === 2 && (
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label className="text-muted-foreground">Subtitle / tagline (optional)</Label>
-                      <Input
-                        value={newPublicSubtitle}
-                        onChange={(e) => setNewPublicSubtitle(e.target.value)}
-                        placeholder="A one-line reason people should care"
-                        maxLength={140}
-                      />
-                    </div>
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label className="text-muted-foreground">Date</Label>
-                        <Input type="date" value={newBbqDate} onChange={e => setNewBbqDate(e.target.value)} data-testid="input-bbq-date" />
-                      </div>
-                      <div className="space-y-2">
-                        <Label className="text-muted-foreground">Capacity (optional)</Label>
-                        <Input inputMode="numeric" placeholder="e.g. 120" value={newPublicCapacity} onChange={(e) => setNewPublicCapacity(e.target.value.replace(/[^\d]/g, ""))} />
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-muted-foreground">Location</Label>
-                      <Input
-                        value={newEventLocation?.locationName ?? ""}
-                        onChange={(e) => handleNewEventLocationInput(e.target.value)}
-                        onBlur={() => setNewEventLocationTouched(true)}
-                        placeholder="Where is it?"
-                        data-testid="input-event-location"
-                      />
-                      {newEventLocationTouched && !newEventLocation?.locationName.trim() ? (
-                        <p className="text-xs text-destructive">Location is required.</p>
-                      ) : (
-                        <p className="text-xs text-muted-foreground">Currency uses your default when country is not specified.</p>
-                      )}
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-muted-foreground">Organization (optional)</Label>
-                      <Input value={newPublicOrganizationName} onChange={(e) => setNewPublicOrganizationName(e.target.value)} placeholder="Studio, brand, venue, team…" />
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-muted-foreground">Description</Label>
-                      <Textarea value={newPublicDescription} onChange={(e) => setNewPublicDescription(e.target.value)} rows={4} maxLength={5000} placeholder="What is this event about? What should attendees know before joining?" />
-                      <p className="text-xs text-muted-foreground text-right">{newPublicDescription.length}/5000</p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-muted-foreground">External link (optional)</Label>
-                      <Input type="url" value={newPublicExternalLink} onChange={(e) => setNewPublicExternalLink(e.target.value)} placeholder="https://your-site.example/event" />
-                    </div>
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <Label className="text-muted-foreground">Tickets / RSVP</Label>
-                        <Button type="button" variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={addPublicRsvpTier}>
-                          <Plus className="w-3.5 h-3.5 mr-1" /> Add tier
-                        </Button>
-                      </div>
-                      <div className="space-y-2">
-                        {newPublicRsvpTiers.map((tier) => (
-                          <div key={tier.id} className="rounded-xl border border-border/60 bg-card p-3 space-y-2">
-                            <div className="grid gap-2 sm:grid-cols-2">
-                              <Input placeholder="Tier name" value={tier.name} onChange={(e) => updatePublicRsvpTier(tier.id, { name: e.target.value })} />
-                              <div className="flex items-center gap-2">
-                                <Input
-                                  placeholder={tier.isFree ? "Free" : "Price label (e.g. €39)"}
-                                  value={tier.priceLabel}
-                                  onChange={(e) => updatePublicRsvpTier(tier.id, { priceLabel: e.target.value })}
-                                  disabled={tier.isFree}
-                                />
-                                <Button type="button" variant="ghost" size="icon" className="h-8 w-8" onClick={() => removePublicRsvpTier(tier.id)} disabled={newPublicRsvpTiers.length <= 1}>
-                                  <X className="w-4 h-4" />
-                                </Button>
-                              </div>
-                            </div>
-                            <Textarea rows={2} placeholder="Description (optional)" value={tier.description} onChange={(e) => updatePublicRsvpTier(tier.id, { description: e.target.value })} />
-                            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                              <div className="flex items-center gap-2 rounded-lg border border-border/60 px-3 py-2">
-                                <input type="checkbox" checked={tier.isFree} onChange={(e) => updatePublicRsvpTier(tier.id, { isFree: e.target.checked, priceLabel: e.target.checked ? "" : tier.priceLabel })} />
-                                <span className="text-sm">Free tier</span>
-                              </div>
-                              <Input
-                                inputMode="numeric"
-                                placeholder="Capacity (optional)"
-                                value={tier.capacity}
-                                onChange={(e) => updatePublicRsvpTier(tier.id, { capacity: e.target.value.replace(/[^\d]/g, "") })}
-                                className="sm:max-w-[220px]"
-                              />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {newPublicCreateStep === 3 && (
-                  <div className="space-y-4">
-                    <div className="rounded-xl border border-border/60 bg-muted/10 p-4">
-                      <p className="text-sm font-medium">Branding</p>
-                      <p className="text-xs text-muted-foreground mt-1">Use a wide banner (recommended 16:9). We’ll center-crop it for public surfaces.</p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-muted-foreground">Template</Label>
-                      <div className="grid gap-2 sm:grid-cols-2">
-                        {PUBLIC_TEMPLATE_OPTIONS.map((template) => (
-                          <button
-                            key={template.key}
-                            type="button"
-                            onClick={() => setNewPublicTemplate(template.key)}
-                            className={`rounded-xl border p-3 text-left transition-colors ${newPublicTemplate === template.key ? "border-primary bg-primary/5" : "border-border hover:bg-muted/20"}`}
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <p className="text-sm font-semibold">{template.label}</p>
-                              <span className="text-[10px] px-2 py-0.5 rounded-full border border-border/70 text-muted-foreground">Layout</span>
-                            </div>
-                            <p className="text-xs text-muted-foreground mt-1">{template.description}</p>
-                            <div className={`mt-2 h-12 rounded-lg border border-border/50 ${template.key === "keynote" ? "bg-gradient-to-r from-primary/15 to-primary/5" : template.key === "nightlife" ? "bg-gradient-to-r from-fuchsia-500/15 to-violet-500/5" : template.key === "workshop" ? "bg-gradient-to-r from-emerald-500/12 to-emerald-500/5" : "bg-muted/25"}`} />
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-muted-foreground">Banner image URL</Label>
-                      <Input
-                        type="url"
-                        value={newPublicBannerUrl}
-                        onChange={(e) => setNewPublicBannerUrl(e.target.value)}
-                        placeholder="https://…"
-                        data-testid="input-public-banner-url"
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                      {PUBLIC_BANNER_PRESETS.map((url, idx) => (
-                        <button
-                          key={`public-banner-preset-${idx}`}
-                          type="button"
-                          onClick={() => setNewPublicBannerUrl(url)}
-                          className={`overflow-hidden rounded-xl border ${newPublicBannerUrl === url ? "border-primary ring-2 ring-primary/20" : "border-border/60"}`}
-                          data-testid={`button-public-banner-preset-${idx}`}
-                        >
-                          <img src={url} alt="" className="h-20 w-full object-cover" />
-                        </button>
-                      ))}
-                    </div>
-                    <div className="rounded-2xl border border-border/60 bg-card p-3">
-                      <p className="text-xs text-muted-foreground mb-2">Preview</p>
-                      <div className="aspect-[16/9] rounded-xl border border-border/60 bg-muted/30 overflow-hidden flex items-center justify-center text-xs text-muted-foreground">
-                        {newPublicBannerUrl ? (
-                          <img src={newPublicBannerUrl} alt="Banner preview" className="h-full w-full object-cover" />
-                        ) : (
-                          "No banner selected yet"
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {newPublicCreateStep === 4 && (
-                  <div className="space-y-4">
-                    <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-2">
-                      <p className="text-sm font-medium">Visibility</p>
-                      <p className="text-xs text-muted-foreground">Public events start as Unlisted by default and are not discoverable until listing activation.</p>
-                    </div>
-                    <div className="rounded-xl border border-border/60 bg-card p-3 flex items-center justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-medium">List on Explore</p>
-                        <p className="text-xs text-muted-foreground">Off by default. Activate listing later in Event Settings to publish.</p>
-                      </div>
-                      <Switch checked={newPublicListOnExplore} onCheckedChange={setNewPublicListOnExplore} />
-                    </div>
-                    <div className="rounded-xl border border-border/60 bg-card p-4 space-y-3">
-                      <p className="text-sm font-semibold">Preview</p>
-                      <div className="rounded-xl border border-border/60 bg-muted/10 p-3">
-                        <p className="text-sm font-medium truncate">{newBbqName || "Untitled public event"}</p>
-                        {newPublicSubtitle ? <p className="text-xs text-muted-foreground mt-1 truncate">{newPublicSubtitle}</p> : null}
-                        <p className="text-xs text-muted-foreground mt-2">
-                          {newEventLocation?.locationName || "Location required"} · {newBbqDate || "Date required"}
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          {newBbqPublicMode === "joinable" ? "Request to join" : "Invite link only"} · {newPublicListOnExplore ? "Wants Explore listing" : "Unlisted by default"}
-                        </p>
-                      </div>
-                    </div>
-                    <p className="text-xs text-muted-foreground">Create now and publish on Explore when you are ready.</p>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <span className={`px-2 py-0.5 rounded-full border ${newPrivateCreateStep === 1 ? "border-primary/40 text-primary bg-primary/5" : "border-border"}`}>The plan</span>
-                  <span className={`px-2 py-0.5 rounded-full border ${newPrivateCreateStep === 2 ? "border-primary/40 text-primary bg-primary/5" : "border-border"}`}>What kind of plan?</span>
-                  <span className={`px-2 py-0.5 rounded-full border ${newPrivateCreateStep === 3 ? "border-primary/40 text-primary bg-primary/5" : "border-border"}`}>Subcategory</span>
-                </div>
-
-                {newPrivateCreateStep === 1 && (
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label className="text-muted-foreground text-xs uppercase tracking-wide">{t.bbq.bbqName}</Label>
-                      <Input
-                        placeholder="What are we celebrating?"
-                        value={newBbqName}
-                        onChange={(e) => setNewBbqName(e.target.value)}
-                        autoFocus
-                        data-testid="input-bbq-name"
-                        className="rounded-xl border-border/70 bg-amber-50/70 dark:bg-slate-900/60 focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:shadow-lg focus-visible:shadow-primary/20 transition-all duration-200"
-                      />
-                      {!newBbqName.trim() ? <p className="text-xs text-muted-foreground">{t.privateWizard.basicsNameHint}</p> : null}
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-muted-foreground text-xs uppercase tracking-wide">{t.privateWizard.basicsLocationLabel}</Label>
-                      <Input
-                        placeholder="Where is it?"
-                        value={newEventLocation?.locationName ?? ""}
-                        onChange={(e) => handleNewEventLocationInput(e.target.value)}
-                        onBlur={() => setNewEventLocationTouched(true)}
-                        data-testid="input-event-location-private"
-                        className="rounded-xl border-border/70 bg-amber-50/70 dark:bg-slate-900/60 focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:shadow-lg focus-visible:shadow-primary/20 transition-all duration-200"
-                      />
-                      {newEventLocationTouched && !newEventLocation?.locationName.trim() ? (
-                        <p className="text-xs text-destructive">Location is required.</p>
-                      ) : null}
-                    </div>
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label className="text-muted-foreground text-xs uppercase tracking-wide">{t.bbq.date}</Label>
-                        <Input
-                          type="date"
-                          value={newBbqDate}
-                          onChange={(e) => setNewBbqDate(e.target.value)}
-                          data-testid="input-bbq-date"
-                          className="rounded-xl border-border/70 bg-amber-50/70 dark:bg-slate-900/60 focus-visible:ring-2 focus-visible:ring-primary/60 transition-all duration-200"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label className="text-muted-foreground text-xs uppercase tracking-wide">{t.privateWizard.basicsTimeLabel}</Label>
-                        <Input
-                          type="time"
-                          value={newBbqTime}
-                          onChange={(e) => setNewBbqTime(e.target.value)}
-                          data-testid="input-bbq-time"
-                          className="rounded-xl border-border/70 bg-amber-50/70 dark:bg-slate-900/60 focus-visible:ring-2 focus-visible:ring-primary/60 transition-all duration-200"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {newPrivateCreateStep === 2 && (
-                  <div className="space-y-4">
-                    <div>
-                      <h4 className="text-sm font-semibold">Plan type</h4>
-                      <p className="text-xs text-muted-foreground mt-1">Pick what you’re planning.</p>
-                    </div>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      {PLAN_TYPE_OPTIONS.map((option) => {
-                        const Icon = option.icon;
-                        const active = newPlanMainCategory === option.id;
-                        return (
-                          <button
-                            key={`plan-main-category-${option.id}`}
-                            type="button"
-                            onClick={() => applyPlanMainCategory(option.id)}
-                            className={`rounded-2xl border p-4 text-left transition-all duration-200 ${
-                              active
-                                ? "border-primary/70 bg-primary/10 shadow-md shadow-primary/15"
-                                : "border-border/70 hover:-translate-y-0.5 hover:bg-muted/20"
-                            }`}
-                          >
-                            <p className="text-sm font-semibold flex items-center gap-2">
-                              <Icon className="h-4 w-4" />
-                              {option.label}
-                            </p>
-                            <p className="text-xs text-muted-foreground mt-1">{option.description}</p>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {newPrivateCreateStep === 3 && (
-                  <div className="space-y-3">
-                    <div>
-                      <h4 className="text-sm font-semibold">{newPlanMainCategory === "trip" ? "Trip type" : "Party type"}</h4>
-                      <p className="text-xs text-muted-foreground mt-1">Choose a subcategory.</p>
-                    </div>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      {selectedSubcategoryList.map((subcategory) => (
-                        <button
-                          key={`plan-subcategory-${subcategory.id}`}
-                          type="button"
-                          onClick={() => applyPlanSubCategory(subcategory.id)}
-                          className={`rounded-2xl border p-4 text-left transition-all duration-200 ${
-                            newPlanSubCategory === subcategory.id
-                              ? "border-primary/70 bg-primary/10 shadow-md shadow-primary/15"
-                              : "border-border/70 hover:-translate-y-0.5 hover:bg-muted/20"
-                          }`}
-                        >
-                          <p className="text-sm font-semibold flex items-center gap-1.5">
-                            <span aria-hidden className="text-lg">{subcategory.emoji}</span>
-                            {subcategory.label}
-                          </p>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-              </div>
-            </div>
-            <footer className="shrink-0 border-t border-border/60 bg-background/95 px-6 py-4 backdrop-blur">
-              {newEventWizardFooter}
-            </footer>
-          </div>
-        </SheetContent>
-      </Sheet>
 
       <Modal
         open={whatsAppStarterOpen}

@@ -10,6 +10,7 @@ type SharedCostsWidgetProps = {
   totalSpentLabel: string;
   expenseCount: number;
   progressPercent: number;
+  categories: string[];
   participants: Array<{ id: number; name: string }>;
   expenses: ExpenseWithParticipant[];
   balances: Balance[];
@@ -24,6 +25,7 @@ export function SharedCostsWidget({
   totalSpentLabel,
   expenseCount,
   progressPercent,
+  categories,
   participants,
   expenses,
   balances,
@@ -66,6 +68,7 @@ export function SharedCostsWidget({
         peopleCount={peopleCount}
         totalSpentLabel={totalSpentLabel}
         expenseCount={expenseCount}
+        categories={categories}
         participants={participants}
         expenses={expenses}
         balances={balances}

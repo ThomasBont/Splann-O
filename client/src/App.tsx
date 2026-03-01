@@ -6,6 +6,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { LanguageProvider } from "@/hooks/use-language";
 import { ThemeProvider } from "@/hooks/use-theme";
 import { UpgradeProvider } from "@/contexts/UpgradeContext";
+import { NewPlanWizardProvider } from "@/contexts/new-plan-wizard";
 import NotFound from "@/pages/not-found";
 import Landing from "@/pages/landing";
 import LandingV2 from "@/pages/landing-v2";
@@ -163,8 +164,10 @@ function App() {
       <ThemeProvider>
         <LanguageProvider>
           <UpgradeProvider>
-            <Router />
-            <Toaster />
+            <NewPlanWizardProvider>
+              <Router />
+              <Toaster />
+            </NewPlanWizardProvider>
           </UpgradeProvider>
         </LanguageProvider>
       </ThemeProvider>

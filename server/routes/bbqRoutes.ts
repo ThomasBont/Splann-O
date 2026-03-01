@@ -7,6 +7,13 @@ import { randomUUID, randomBytes } from "crypto";
 import { api } from "@shared/routes";
 import { users, expenses, notes, stripeEvents, publicEventRsvps, participants, eventMembers, eventInvites } from "@shared/schema";
 import { optionalCountryCodeSchema } from "@shared/lib/country-code-schema";
+import {
+  derivePlanTypeSelection,
+  getPlanTypeDisplayLabel,
+  normalizePlanMainType,
+  normalizePlanSubcategory,
+  isSubcategoryForMainType,
+} from "@shared/lib/plan-types";
 import { bbqRepo } from "../repositories/bbqRepo";
 import { participantRepo } from "../repositories/participantRepo";
 import { expenseRepo } from "../repositories/expenseRepo";
@@ -36,8 +43,8 @@ const USERS_SEARCH_WINDOW_MS = 10_000;
 const USERS_SEARCH_MAX_REQUESTS = 60;
 const PRIVATE_MAIN_CATEGORIES = new Set(["trip", "party"]);
 const PRIVATE_SUBCATEGORIES_BY_MAIN: Record<string, Set<string>> = {
-  trip: new Set(["backpacking", "city_trip", "workation", "roadtrip", "beach_trip", "ski_trip", "festival_trip", "weekend_getaway"]),
-  party: new Set(["barbecue", "cinema_night", "game_night", "dinner", "birthday", "house_party", "club_night", "picnic"]),
+  trip: new Set(["backpacking", "city_trip", "workation", "road_trip", "roadtrip", "beach_getaway", "beach_trip", "ski_trip", "festival_trip", "weekend_escape", "weekend_getaway"]),
+  party: new Set(["barbecue", "cinema", "cinema_night", "game_night", "dinner", "birthday", "house_party", "drinks_night", "club_night", "brunch", "picnic"]),
 };
 
 function escapeLikeQuery(raw: string): string {
@@ -938,16 +945,59 @@ router.patch(p(api.barbecues.update.path), requireAuth, asyncHandler(async (req,
     bannerImageUrl: z.string().url().nullable().optional(),
   });
   const body = schema.parse(req.body);
+  if ((body.visibilityOrigin ?? bbq.visibilityOrigin ?? "private") === "private" && body.templateData && typeof body.templateData === "object") {
+    const templateData = body.templateData as Record<string, unknown>;
+    const rawMainCategory = templateData.mainCategory ?? templateData.privateMainCategory ?? null;
+    const rawSubCategory = templateData.subCategory ?? templateData.privateSubCategory ?? null;
+    const mainCategory = normalizePlanMainType(rawMainCategory);
+    const subCategory = normalizePlanSubcategory(rawSubCategory);
+    if (rawMainCategory != null && !mainCategory) {
+      badRequest("Invalid mainCategory");
+    }
+    if (rawSubCategory != null && !subCategory) {
+      badRequest("Invalid subCategory");
+    }
+    if (mainCategory && subCategory && !isSubcategoryForMainType(mainCategory, subCategory)) {
+      badRequest("Invalid subCategory for mainCategory");
+    }
+    if (mainCategory && !PRIVATE_MAIN_CATEGORIES.has(mainCategory)) {
+      badRequest("Invalid mainCategory");
+    }
+    if (mainCategory && subCategory) {
+      const validSubcategories = PRIVATE_SUBCATEGORIES_BY_MAIN[mainCategory];
+      if (!validSubcategories?.has(subCategory)) {
+        badRequest("Invalid subCategory for mainCategory");
+      }
+    }
+  }
   const updated = await bbqService.updateBarbecue(id, body, req.session!.username, req.session!.userId);
   if (!updated) notFound("BBQ not found");
+  const previousPlanType = derivePlanTypeSelection({ templateData: bbq.templateData, eventType: bbq.eventType });
+  const nextPlanType = derivePlanTypeSelection({
+    templateData: body.templateData ?? bbq.templateData,
+    eventType: body.eventType ?? bbq.eventType,
+  });
+  const planTypeChanged = previousPlanType.mainType !== nextPlanType.mainType || previousPlanType.subcategory !== nextPlanType.subcategory;
+  const actor = req.session?.username ?? "Someone";
+  const planTypeLabel = nextPlanType.mainType
+    ? getPlanTypeDisplayLabel(nextPlanType.mainType, nextPlanType.subcategory)
+    : "plan";
   await logPlanActivity({
     eventId: id,
     type: "PLAN_UPDATED",
     actorUserId: req.session?.userId ?? null,
-    actorName: req.session?.username ?? "Someone",
-    message: `${req.session?.username ?? "Someone"} updated the plan`,
+    actorName: actor,
+    message: planTypeChanged
+      ? `${actor} updated the plan type to ${planTypeLabel}`
+      : `${actor} updated the plan`,
     meta: {
       changedFields: Object.keys(body),
+      ...(planTypeChanged
+        ? {
+            mainType: nextPlanType.mainType,
+            subCategory: nextPlanType.subcategory,
+          }
+        : {}),
     },
   });
   res.json(updated);

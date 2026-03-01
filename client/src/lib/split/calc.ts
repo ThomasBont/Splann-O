@@ -37,7 +37,29 @@ export interface Settlement {
   amount: number;
 }
 
-const EPSILON = 0.01;
+const CENTS = 100;
+
+function toCents(amount: number): number {
+  return Math.round(amount * CENTS);
+}
+
+function fromCents(cents: number): number {
+  return cents / CENTS;
+}
+
+function allocateEvenly(totalCents: number, participantIds: number[]): Map<number, number> {
+  const allocation = new Map<number, number>();
+  if (participantIds.length === 0) return allocation;
+
+  const base = Math.trunc(totalCents / participantIds.length);
+  let remainder = totalCents - base * participantIds.length;
+  for (const participantId of participantIds) {
+    const adjust = remainder > 0 ? 1 : remainder < 0 ? -1 : 0;
+    allocation.set(participantId, base + adjust);
+    if (adjust !== 0) remainder -= adjust;
+  }
+  return allocation;
+}
 
 /**
  * Get participant IDs included in an expense.
@@ -51,12 +73,43 @@ export function getParticipantsInExpense(
   participants: SplitParticipant[],
   allowOptIn: boolean
 ): number[] {
-  const forExp = expenseShares.filter((s) => s.expenseId === expenseId);
-  if (forExp.length === 0) {
+  const forExpense = expenseShares.filter((share) => share.expenseId === expenseId);
+  if (forExpense.length === 0) {
     if (allowOptIn) return [];
-    return participants.map((p) => p.id);
+    return participants.map((participant) => participant.id);
   }
-  return forExp.map((s) => s.participantId);
+  return forExpense.map((share) => share.participantId);
+}
+
+function computeFairShareByParticipantCents(
+  participants: SplitParticipant[],
+  expenses: SplitExpense[],
+  expenseShares: ExpenseShareEntry[],
+  allowOptIn: boolean,
+): Map<number, number> {
+  const fairShareByParticipant = new Map<number, number>();
+  const participantIds = participants.map((participant) => participant.id);
+  for (const participantId of participantIds) fairShareByParticipant.set(participantId, 0);
+
+  if (!allowOptIn || expenseShares.length === 0) {
+    const totalCents = expenses.reduce((sum, expense) => sum + toCents(expense.amount), 0);
+    const perParticipant = allocateEvenly(totalCents, participantIds);
+    perParticipant.forEach((cents, participantId) => {
+      fairShareByParticipant.set(participantId, cents);
+    });
+    return fairShareByParticipant;
+  }
+
+  for (const expense of expenses) {
+    const participantIdsInExpense = [...getParticipantsInExpense(expense.id, expenseShares, participants, true)].sort((a, b) => a - b);
+    if (participantIdsInExpense.length === 0) continue;
+    const perParticipant = allocateEvenly(toCents(expense.amount), participantIdsInExpense);
+    perParticipant.forEach((cents, participantId) => {
+      fairShareByParticipant.set(participantId, (fairShareByParticipant.get(participantId) ?? 0) + cents);
+    });
+  }
+
+  return fairShareByParticipant;
 }
 
 /**
@@ -71,17 +124,8 @@ export function getFairShareForParticipant(
   participants: SplitParticipant[],
   allowOptIn: boolean
 ): number {
-  if (!allowOptIn || expenseShares.length === 0) {
-    return participants.length > 0
-      ? expenses.reduce((s, e) => s + e.amount, 0) / participants.length
-      : 0;
-  }
-  let sum = 0;
-  for (const exp of expenses) {
-    const inIds = getParticipantsInExpense(exp.id, expenseShares, participants, true);
-    if (inIds.includes(participantId)) sum += exp.amount / inIds.length;
-  }
-  return sum;
+  const fairShareByParticipant = computeFairShareByParticipantCents(participants, expenses, expenseShares, allowOptIn);
+  return fromCents(fairShareByParticipant.get(participantId) ?? 0);
 }
 
 /**
@@ -93,47 +137,79 @@ export function computeBalances(
   expenseShares: ExpenseShareEntry[],
   allowOptIn: boolean
 ): Balance[] {
-  return participants.map((p) => {
-    const paid = expenses
-      .filter((e) => e.participantId === p.id)
-      .reduce((s, e) => s + e.amount, 0);
-    const fairShare = getFairShareForParticipant(p.id, expenses, expenseShares, participants, allowOptIn);
-    return { id: p.id, name: p.name, paid, balance: paid - fairShare };
+  const paidByParticipant = new Map<number, number>();
+  for (const participant of participants) paidByParticipant.set(participant.id, 0);
+
+  for (const expense of expenses) {
+    paidByParticipant.set(
+      expense.participantId,
+      (paidByParticipant.get(expense.participantId) ?? 0) + toCents(expense.amount),
+    );
+  }
+
+  const fairShareByParticipant = computeFairShareByParticipantCents(participants, expenses, expenseShares, allowOptIn);
+
+  return participants.map((participant) => {
+    const paidCents = paidByParticipant.get(participant.id) ?? 0;
+    const fairShareCents = fairShareByParticipant.get(participant.id) ?? 0;
+    return {
+      id: participant.id,
+      name: participant.name,
+      paid: fromCents(paidCents),
+      balance: fromCents(paidCents - fairShareCents),
+    };
   });
 }
 
 /**
  * Compute settlement plan: minimal transfers from debtors to creditors.
- * Greedy algorithm: smallest debtor pays largest creditor.
+ * Greedy algorithm over cents, so rounding is deterministic.
  */
 export function computeSettlementPlan(balances: Balance[]): Settlement[] {
   const debtors = balances
-    .filter((b) => b.balance < -EPSILON)
-    .sort((a, b) => a.balance - b.balance)
-    .map((b) => ({ ...b }));
+    .map((balance) => ({ ...balance, cents: toCents(balance.balance) }))
+    .filter((balance) => balance.cents < 0)
+    .sort((a, b) => a.cents - b.cents)
+    .map((balance) => ({ ...balance }));
+
   const creditors = balances
-    .filter((b) => b.balance > EPSILON)
-    .sort((a, b) => b.balance - a.balance)
-    .map((b) => ({ ...b }));
+    .map((balance) => ({ ...balance, cents: toCents(balance.balance) }))
+    .filter((balance) => balance.cents > 0)
+    .sort((a, b) => b.cents - a.cents)
+    .map((balance) => ({ ...balance }));
 
   const settlements: Settlement[] = [];
-  let i = 0,
-    j = 0;
+  let debtorIndex = 0;
+  let creditorIndex = 0;
 
-  while (i < debtors.length && j < creditors.length) {
-    const d = debtors[i];
-    const c = creditors[j];
-    const amount = Math.min(Math.abs(d.balance), c.balance);
-    if (amount > EPSILON) {
-      settlements.push({ from: d.name, to: c.name, amount });
-      d.balance += amount;
-      c.balance -= amount;
+  while (debtorIndex < debtors.length && creditorIndex < creditors.length) {
+    const debtor = debtors[debtorIndex];
+    const creditor = creditors[creditorIndex];
+    const transferCents = Math.min(Math.abs(debtor.cents), creditor.cents);
+
+    if (transferCents > 0) {
+      settlements.push({
+        from: debtor.name,
+        to: creditor.name,
+        amount: fromCents(transferCents),
+      });
+      debtor.cents += transferCents;
+      creditor.cents -= transferCents;
     }
-    if (Math.abs(d.balance) < EPSILON) i++;
-    if (c.balance < EPSILON) j++;
+
+    if (Math.abs(debtor.cents) <= 0) debtorIndex += 1;
+    if (Math.abs(creditor.cents) <= 0) creditorIndex += 1;
   }
 
   return settlements;
+}
+
+function assertBalanceInvariants(balances: Balance[]) {
+  const sumNetCents = balances.reduce((sum, balance) => sum + toCents(balance.balance), 0);
+  const positiveCents = balances.reduce((sum, balance) => sum + Math.max(0, toCents(balance.balance)), 0);
+  const negativeCentsAbs = balances.reduce((sum, balance) => sum + Math.abs(Math.min(0, toCents(balance.balance))), 0);
+  console.assert(Math.abs(sumNetCents) <= 1, `[split] sum(net) drifted by ${sumNetCents} cents`);
+  console.assert(Math.abs(positiveCents - negativeCentsAbs) <= 1, `[split] positive/negative mismatch (+${positiveCents}, -${negativeCentsAbs})`);
 }
 
 /**
@@ -147,6 +223,9 @@ export function computeSplit(
 ): { balances: Balance[]; settlements: Settlement[] } {
   if (participants.length === 0) return { balances: [], settlements: [] };
   const balances = computeBalances(participants, expenses, expenseShares, allowOptIn);
+  if (typeof window !== "undefined" && import.meta.env.DEV) {
+    assertBalanceInvariants(balances);
+  }
   const settlements = computeSettlementPlan(balances);
   return { balances, settlements };
 }

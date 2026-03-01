@@ -30,6 +30,8 @@ import { Modal } from "@/components/ui/modal";
 import { Switch } from "@/components/ui/switch";
 import { loadLocalUserPreferences } from "@/lib/user-preferences";
 import { EventHeaderPreferencesProvider } from "@/hooks/use-event-header-preferences";
+import { useNewPlanWizard } from "@/contexts/new-plan-wizard";
+import NewPlanWizardDrawer from "@/components/event/NewPlanWizardDrawer";
 import { FEATURE_PUBLIC_PLANS } from "@/lib/features";
 import {
   defaultPinGroups,
@@ -179,12 +181,12 @@ function NewEventMenuButton({
   className,
   size = "default",
   align = "start",
-  onNavigate,
+  onCreate,
 }: {
   className?: string;
   size?: "sm" | "md" | "default" | "lg";
   align?: "start" | "end" | "center";
-  onNavigate?: () => void;
+  onCreate?: () => void;
 }) {
   return (
     <DropdownMenu>
@@ -195,20 +197,21 @@ function NewEventMenuButton({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align={align} className="w-72">
-        <DropdownMenuItem asChild>
-          <Link href="/app/private?new=private">
-            <a className="flex flex-col items-start py-2" onClick={onNavigate}>
-              <span className="text-sm font-medium">Friends plan</span>
-              <span className="text-xs text-muted-foreground">Plan with your crew and split costs</span>
-            </a>
-          </Link>
+        <DropdownMenuItem
+          className="flex flex-col items-start py-2"
+          onSelect={() => {
+            onCreate?.();
+          }}
+        >
+          <span className="text-sm font-medium">Friends plan</span>
+          <span className="text-xs text-muted-foreground">Plan with your crew and split costs</span>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
 }
 
-function AppSidebar({ section }: { section: AppSection }) {
+function AppSidebar({ section, onCreatePlan }: { section: AppSection; onCreatePlan: () => void }) {
   const { data: events = [], isLoading: eventsLoading, error: eventsError, refetch: refetchEvents } = useBarbecues();
   const { user } = useAuth();
   const [search, setSearch] = useState("");
@@ -401,7 +404,7 @@ function AppSidebar({ section }: { section: AppSection }) {
         <div className="px-3 pb-3 flex-1 min-h-0">
           <div className="sticky top-4 h-[calc(100vh-2rem)] min-h-0 flex flex-col gap-3">
             <div className="border-t border-border/60 pt-3 shrink-0">
-              <NewEventMenuButton className="w-full justify-start" align="start" />
+              <NewEventMenuButton className="w-full justify-start" align="start" onCreate={onCreatePlan} />
             </div>
 
             <section className="flex min-h-0 flex-1 flex-col rounded-xl border border-border/60 bg-card/70">
@@ -530,7 +533,7 @@ function AppSidebar({ section }: { section: AppSection }) {
   );
 }
 
-function AppDashboardHome() {
+function AppDashboardHome({ onCreatePlan }: { onCreatePlan: () => void }) {
   const { data: events = [], isLoading, error, refetch } = useBarbecues();
   const recent = useMemo(() => {
     const sorted = [...events].filter((event) => isPrivateEvent(event)).sort((a, b) => {
@@ -552,7 +555,7 @@ function AppDashboardHome() {
 
       <section className="rounded-2xl border border-border/60 bg-card p-4 sm:p-5">
         <h2 className="text-sm font-semibold mb-3">Quick actions</h2>
-        <NewEventMenuButton />
+        <NewEventMenuButton onCreate={onCreatePlan} />
       </section>
 
       <section className="rounded-2xl border border-border/60 bg-card p-4 sm:p-5">
@@ -578,7 +581,7 @@ function AppDashboardHome() {
                 <p className="text-sm font-medium">{EMPTY_COPY.recentEventsTitle}</p>
             <p className="mt-1 text-sm text-muted-foreground">{EMPTY_COPY.recentEventsBody}</p>
             <div className="mt-4 flex justify-center gap-2">
-              <NewEventMenuButton size="sm" />
+              <NewEventMenuButton size="sm" onCreate={onCreatePlan} />
             </div>
           </div>
         ) : (
@@ -603,7 +606,7 @@ function AppDashboardHome() {
   );
 }
 
-function PrivateHomePage({ user }: { user: { id?: number | null; username?: string | null } | null }) {
+function PrivateHomePage({ user, onCreatePlan }: { user: { id?: number | null; username?: string | null } | null; onCreatePlan: () => void }) {
   const { data: events = [], isLoading, error, refetch } = useBarbecues();
   const { pinnedEventIds, setPinnedEventIds, recentEventIds } = useEventLocalLists(user);
   const privateEvents = useMemo(
@@ -687,7 +690,7 @@ function PrivateHomePage({ user }: { user: { id?: number | null; username?: stri
             <p className="text-sm font-medium">{EMPTY_COPY.privateListTitle}</p>
             <p className="mt-1 text-sm text-muted-foreground">{EMPTY_COPY.privateListBody}</p>
             <div className="mt-4">
-              <NewEventMenuButton size="sm" />
+              <NewEventMenuButton size="sm" onCreate={onCreatePlan} />
             </div>
           </div>
         ) : (
@@ -721,6 +724,7 @@ function PrivateHomePage({ user }: { user: { id?: number | null; username?: stri
 export default function AppRoute() {
   const [location, setLocation] = useLocation();
   const { user, isLoading: isAuthLoading } = useAuth();
+  const { openNewPlanWizard } = useNewPlanWizard();
   const { data: appEvents = [] } = useBarbecues();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [mobileQuickSwitchSearch, setMobileQuickSwitchSearch] = useState("");
@@ -751,6 +755,15 @@ export default function AppRoute() {
     const startRoute = startRouteByPref[prefs.defaultStartPage] ?? "/app/home";
     setLocation(`${startRoute}${url.search || ""}`, { replace: true });
   }, [pathname, setLocation, user?.id]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("new") !== "private") return;
+    openNewPlanWizard("BASICS");
+    url.searchParams.delete("new");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+  }, [location, openNewPlanWizard]);
 
   let section: AppSection = "home";
   let routeEventId: number | null = null;
@@ -866,6 +879,9 @@ export default function AppRoute() {
   if (!user) return null;
 
   const anyKillActive = devDisable.headerPrefs || devDisable.discoverModal || devDisable.homeEffects;
+  const handleOpenNewPlan = () => {
+    openNewPlanWizard("BASICS");
+  };
   const mainContent = (
     <div className="min-h-screen bg-background lg:flex">
         <header className="lg:hidden sticky top-0 z-40 h-14 border-b border-border/60 bg-background/95 backdrop-blur-sm">
@@ -920,7 +936,14 @@ export default function AppRoute() {
                 })}
               </nav>
               <div className="border-y border-border/60 px-3 py-3 space-y-2 shrink-0">
-                <NewEventMenuButton className="w-full justify-start" align="start" onNavigate={() => setIsSidebarOpen(false)} />
+                <NewEventMenuButton
+                  className="w-full justify-start"
+                  align="start"
+                  onCreate={() => {
+                    setIsSidebarOpen(false);
+                    handleOpenNewPlan();
+                  }}
+                />
                 <div className="space-y-2">
                   <p className="text-[11px] uppercase tracking-wide text-muted-foreground px-1">Your plans</p>
                   <Input
@@ -973,9 +996,9 @@ export default function AppRoute() {
           </div>
         )}
 
-        <AppSidebar section={section} />
+        <AppSidebar section={section} onCreatePlan={handleOpenNewPlan} />
         <main className="min-w-0 flex-1">
-          {section === "home" && <AppDashboardHome />}
+          {section === "home" && <AppDashboardHome onCreatePlan={handleOpenNewPlan} />}
           {section === "private" && (
             devDisable.homeEffects
               ? <div className="p-6 text-sm text-muted-foreground">Home effects disabled via kill switch.</div>
@@ -993,6 +1016,7 @@ export default function AppRoute() {
               )
           )}
         </main>
+        <NewPlanWizardDrawer />
         {import.meta.env.DEV && anyKillActive && (
           <div className="fixed bottom-3 left-3 z-[100] rounded-md border border-amber-300 bg-amber-100/95 px-2 py-1 text-[11px] text-amber-900 shadow-sm">
             kill: {Object.entries(devDisable).filter(([, enabled]) => enabled).map(([name]) => name).join(", ")}

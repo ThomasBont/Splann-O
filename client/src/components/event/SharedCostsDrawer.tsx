@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, Loader2, Receipt, Scale, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/select";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useCreateExpense } from "@/hooks/use-expenses";
+import { useDeleteExpense, useUpdateExpense } from "@/hooks/use-expenses";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAppToast } from "@/hooks/use-app-toast";
 import type { ExpenseWithParticipant } from "@shared/schema";
@@ -25,6 +26,7 @@ type SharedCostsDrawerProps = {
   peopleCount: number;
   totalSpentLabel: string;
   expenseCount: number;
+  categories: string[];
   participants: Array<{ id: number; name: string }>;
   expenses: ExpenseWithParticipant[];
   balances: Balance[];
@@ -40,6 +42,7 @@ export function SharedCostsDrawer({
   peopleCount,
   totalSpentLabel,
   expenseCount,
+  categories: categoriesProp,
   participants,
   expenses,
   balances,
@@ -49,17 +52,29 @@ export function SharedCostsDrawer({
   const { toastError, toastSuccess } = useAppToast();
   const queryClient = useQueryClient();
   const createExpense = useCreateExpense(eventId);
-  const [view, setView] = useState<"overview" | "add-expense">("overview");
+  const updateExpense = useUpdateExpense(eventId);
+  const deleteExpense = useDeleteExpense(eventId);
+  const [view, setView] = useState<"overview" | "expense-form">("overview");
+  const [editingExpenseId, setEditingExpenseId] = useState<number | null>(null);
   const [participantId, setParticipantId] = useState<string>("");
-  const [category, setCategory] = useState("Other");
+  const [category, setCategory] = useState<string>("");
   const [item, setItem] = useState("");
   const [amount, setAmount] = useState("");
+  const prevOpenRef = useRef(false);
   const subtitle = `${planName} · ${peopleCount} ${peopleCount === 1 ? "person" : "people"}`;
   const categories = useMemo(() => {
-    const fromExpenses = Array.from(new Set(expenses.map((exp) => exp.category).filter(Boolean)));
-    const defaults = ["Food", "Drinks", "Transport", "Accommodation", "Activities", "Other"];
-    return fromExpenses.length > 0 ? fromExpenses : defaults;
-  }, [expenses]);
+    const fallback = ["Food", "Drinks", "Transport", "Accommodation", "Activities", "Other"];
+    const base = categoriesProp.length > 0 ? categoriesProp : fallback;
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const entry of base) {
+      if (!entry || seen.has(entry)) continue;
+      seen.add(entry);
+      result.push(entry);
+    }
+    if (!result.includes("Other")) result.push("Other");
+    return result;
+  }, [categoriesProp]);
   const sortedExpenses = useMemo(
     () =>
       [...expenses].sort((a, b) => {
@@ -70,22 +85,47 @@ export function SharedCostsDrawer({
       }),
     [expenses],
   );
+  const editingExpense = useMemo(
+    () => (editingExpenseId == null ? null : expenses.find((expense) => expense.id === editingExpenseId) ?? null),
+    [editingExpenseId, expenses],
+  );
+  const formCategories = useMemo(() => {
+    if (category && !categories.includes(category)) return [...categories, category];
+    return categories;
+  }, [categories, category]);
 
   const resetAddForm = () => {
+    setEditingExpenseId(null);
     setParticipantId(participants[0] ? String(participants[0].id) : "");
     setCategory(categories[0] ?? "Other");
     setItem("");
     setAmount("");
   };
 
+  useEffect(() => {
+    if (open && !prevOpenRef.current) {
+      setView("overview");
+      resetAddForm();
+    }
+    if (!open) {
+      setView("overview");
+      resetAddForm();
+    }
+    prevOpenRef.current = open;
+  }, [open, categories, participants]);
+
   const openAddExpenseView = () => {
-    if (!participantId) {
-      setParticipantId(participants[0] ? String(participants[0].id) : "");
-    }
-    if (!category) {
-      setCategory(categories[0] ?? "Other");
-    }
-    setView("add-expense");
+    resetAddForm();
+    setView("expense-form");
+  };
+
+  const openEditExpenseView = (expense: ExpenseWithParticipant) => {
+    setEditingExpenseId(expense.id);
+    setParticipantId(String(expense.participantId));
+    setCategory(expense.category || categories[0] || "Other");
+    setItem(expense.item || "");
+    setAmount(String(expense.amount));
+    setView("expense-form");
   };
 
   const handleCreateExpense = async (e: React.FormEvent) => {
@@ -93,24 +133,51 @@ export function SharedCostsDrawer({
     if (!eventId || !participantId || !item.trim() || !amount || Number(amount) <= 0) return;
 
     try {
-      await createExpense.mutateAsync({
-        participantId: Number(participantId),
-        category,
-        item: item.trim(),
-        amount,
-      });
+      if (editingExpense) {
+        await updateExpense.mutateAsync({
+          id: editingExpense.id,
+          participantId: Number(participantId),
+          category,
+          item: item.trim(),
+          amount: Number(amount),
+        });
+      } else {
+        await createExpense.mutateAsync({
+          participantId: Number(participantId),
+          category,
+          item: item.trim(),
+          amount,
+        });
+      }
 
       // Shared costs cards derive from expenses/expense-shares; force canonical refresh after mutation.
       await queryClient.refetchQueries({ queryKey: ['/api/barbecues', eventId, 'expenses'], exact: true });
       await queryClient.refetchQueries({ queryKey: ['/api/barbecues', eventId, 'expense-shares'], exact: true });
 
-      toastSuccess("Expense added");
+      toastSuccess(editingExpense ? "Expense updated" : "Expense added");
       resetAddForm();
       setView("overview");
     } catch (error) {
-      toastError((error as Error).message || "Couldn’t add expense. Try again.");
+      toastError((error as Error).message || (editingExpense ? "Couldn’t update expense. Try again." : "Couldn’t add expense. Try again."));
     }
   };
+
+  const handleDeleteExpense = async () => {
+    if (!eventId || !editingExpense) return;
+    try {
+      await deleteExpense.mutateAsync(editingExpense.id);
+      await queryClient.refetchQueries({ queryKey: ['/api/barbecues', eventId, 'expenses'], exact: true });
+      await queryClient.refetchQueries({ queryKey: ['/api/barbecues', eventId, 'expense-shares'], exact: true });
+      toastSuccess("Expense deleted");
+      resetAddForm();
+      setView("overview");
+    } catch (error) {
+      toastError((error as Error).message || "Couldn’t delete expense. Try again.");
+    }
+  };
+
+  const isMutationPending =
+    createExpense.isPending || updateExpense.isPending || deleteExpense.isPending;
 
   return (
     <Sheet
@@ -133,7 +200,7 @@ export function SharedCostsDrawer({
           </header>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-            {view === "add-expense" ? (
+            {view === "expense-form" ? (
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <Button type="button" variant="ghost" size="sm" onClick={() => setView("overview")}>
@@ -143,7 +210,9 @@ export function SharedCostsDrawer({
                 </div>
                 <form className="space-y-4" onSubmit={handleCreateExpense}>
                   <section className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
-                    <h3 className="text-sm font-semibold text-slate-900 dark:text-neutral-100">Add expense</h3>
+                    <h3 className="text-sm font-semibold text-slate-900 dark:text-neutral-100">
+                      {editingExpense ? "Edit expense" : "Add expense"}
+                    </h3>
                     <div className="mt-3 space-y-3">
                       <div className="space-y-2">
                         <Label htmlFor="shared-cost-participant">Paid by</Label>
@@ -167,7 +236,7 @@ export function SharedCostsDrawer({
                             <SelectValue placeholder="Select category" />
                           </SelectTrigger>
                           <SelectContent>
-                            {categories.map((entry) => (
+                            {formCategories.map((entry) => (
                               <SelectItem key={`shared-cost-category-${entry}`} value={entry}>
                                 {entry}
                               </SelectItem>
@@ -200,15 +269,25 @@ export function SharedCostsDrawer({
                     </div>
                   </section>
                   <div className="flex items-center justify-end gap-2">
-                    <Button type="button" variant="outline" onClick={() => setView("overview")}>
+                    {editingExpense ? (
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        onClick={() => void handleDeleteExpense()}
+                        disabled={isMutationPending}
+                      >
+                        Delete
+                      </Button>
+                    ) : null}
+                    <Button type="button" variant="outline" onClick={() => setView("overview")} disabled={isMutationPending}>
                       Cancel
                     </Button>
                     <Button
                       type="submit"
-                      disabled={!eventId || !participantId || !item.trim() || !amount || Number(amount) <= 0 || createExpense.isPending}
+                      disabled={!eventId || !participantId || !item.trim() || !amount || Number(amount) <= 0 || isMutationPending}
                     >
-                      {createExpense.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Receipt className="mr-1.5 h-4 w-4" />}
-                      Save expense
+                      {isMutationPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Receipt className="mr-1.5 h-4 w-4" />}
+                      {editingExpense ? "Save changes" : "Save expense"}
                     </Button>
                   </div>
                 </form>
@@ -243,9 +322,11 @@ export function SharedCostsDrawer({
                 {sortedExpenses.length > 0 ? (
                   <div className="mt-3 space-y-2">
                     {sortedExpenses.slice(0, 6).map((expense) => (
-                      <div
+                      <button
+                        type="button"
                         key={`shared-cost-expense-${expense.id}`}
-                        className="flex items-center justify-between gap-2 rounded-xl border border-slate-200/80 px-3 py-2 dark:border-neutral-700"
+                        className="flex w-full items-center justify-between gap-2 rounded-xl border border-slate-200/80 px-3 py-2 text-left transition-colors hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 dark:border-neutral-700 dark:hover:border-neutral-600 dark:hover:bg-neutral-800/70"
+                        onClick={() => openEditExpenseView(expense)}
                       >
                         <div className="min-w-0">
                           <p className="truncate text-sm text-slate-800 dark:text-neutral-100">{expense.item}</p>
@@ -256,7 +337,7 @@ export function SharedCostsDrawer({
                         <p className="shrink-0 text-sm font-semibold text-slate-800 dark:text-neutral-100">
                           {formatMoney(Number(expense.amount))}
                         </p>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 ) : (

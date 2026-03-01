@@ -67,12 +67,12 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }:
     }
     if (isLocked) {
       if (import.meta.env.DEV) console.log("[chat-send] blocked: locked");
-      toastError("Chat is locked for this event.");
+      toastError("Plan chat is locked.");
       return;
     }
     if (!eventId) {
       if (import.meta.env.DEV) console.log("[chat-send] blocked: no-eventId");
-      toastError("Event not loaded yet.");
+      toastError("Plan not loaded yet.");
       return;
     }
 
@@ -134,10 +134,10 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }:
       <header className="px-4 py-3 border-b border-slate-200 bg-slate-50/80">
         <div className="flex items-center justify-between gap-2">
           <div>
-            <p className="text-sm font-semibold text-slate-900">Chat</p>
+            <p className="text-sm font-semibold text-slate-900">Plan chat</p>
             <p className="text-xs text-slate-500">
-              {eventName ? `${eventName} room` : "Event room"}
-              {membersQuery.data ? ` · ${membersQuery.data.length} participants` : ""}
+              {eventName ? `${eventName} room` : "Plan room"}
+              {membersQuery.data ? ` · ${membersQuery.data.length} people` : ""}
             </p>
           </div>
           <div className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2 py-1 text-[10px] text-slate-600">
@@ -166,7 +166,7 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }:
           <div className="h-full min-h-[180px] flex items-center justify-center text-center px-4">
             <div className="space-y-1 text-slate-500">
               <MessageCircle className="h-4 w-4 mx-auto" />
-              <p className="text-sm">Chat is locked for this event.</p>
+              <p className="text-sm">Plan chat is locked.</p>
             </div>
           </div>
         ) : historyError ? (

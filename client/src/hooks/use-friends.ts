@@ -90,15 +90,32 @@ export function useRemoveFriend() {
 }
 
 export function useSearchUsers(query: string) {
+  const normalizedQuery = query.trim();
   return useQuery({
-    queryKey: ['/api/users/search', query],
-    queryFn: async () => {
-      if (!query || query.length < 2) return [];
-      const res = await fetch(`/api/users/search?q=${encodeURIComponent(query)}`);
-      if (!res.ok) return [];
-      return res.json();
+    queryKey: ['/api/users/search', normalizedQuery],
+    queryFn: async ({ signal }) => {
+      if (!normalizedQuery || normalizedQuery.length < 2) return [];
+      if (import.meta.env.DEV) {
+        console.debug(`[friends-search] q=${normalizedQuery}`);
+      }
+      const res = await fetch(`/api/users/search?q=${encodeURIComponent(normalizedQuery)}`, { signal });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error((body as { message?: string }).message || "Failed to search users");
+      }
+      const body = await res.json() as {
+        users?: Array<{ id: number; displayName?: string | null; handle?: string | null; username?: string | null; avatarUrl?: string | null }>;
+      };
+      const rows = Array.isArray(body.users) ? body.users : [];
+      return rows.map((row) => ({
+        id: row.id,
+        displayName: row.displayName ?? row.handle ?? row.username ?? "",
+        username: row.username ?? row.handle ?? "",
+        avatarUrl: row.avatarUrl ?? null,
+      }));
     },
-    enabled: query.length >= 2,
+    enabled: normalizedQuery.length >= 2,
+    staleTime: 15_000,
   });
 }
 

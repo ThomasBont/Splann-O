@@ -1,6 +1,6 @@
 import { Router, type Request } from "express";
 import { z } from "zod";
-import { eq, and, or, desc } from "drizzle-orm";
+import { eq, and, or, desc, sql } from "drizzle-orm";
 import { promises as fs } from "fs";
 import path from "path";
 import { randomUUID, randomBytes } from "crypto";
@@ -20,6 +20,7 @@ import { checkPublicInboxRateLimit } from "../middleware/publicInboxRateLimit";
 import { db } from "../db";
 import { getLimits } from "../lib/plan";
 import { broadcastEventRealtime } from "../lib/eventRealtime";
+import { listPlanActivity, logPlanActivity } from "../lib/planActivity";
 import { log } from "../lib/logger";
 import { auditLog, auditSecurity } from "../lib/audit";
 import { AppError, badRequest, conflict, forbidden, gone, notFound, unauthorized, upgradeRequired } from "../lib/errors";
@@ -30,6 +31,21 @@ const RECEIPT_UPLOAD_DIR = path.resolve(process.cwd(), "public/uploads/receipts"
 const MAX_RECEIPT_SIZE_BYTES = 5 * 1024 * 1024;
 const EVENT_BANNER_UPLOAD_DIR = path.resolve(process.cwd(), "public/uploads/event-banners");
 const MAX_EVENT_BANNER_SIZE_BYTES = 5 * 1024 * 1024;
+const usersSearchRate = new Map<string, { count: number; windowStart: number }>();
+const USERS_SEARCH_WINDOW_MS = 10_000;
+const USERS_SEARCH_MAX_REQUESTS = 60;
+const PRIVATE_MAIN_CATEGORIES = new Set(["trip", "party"]);
+const PRIVATE_SUBCATEGORIES_BY_MAIN: Record<string, Set<string>> = {
+  trip: new Set(["backpacking", "city_trip", "workation", "roadtrip", "beach_trip", "ski_trip", "festival_trip", "weekend_getaway"]),
+  party: new Set(["barbecue", "cinema_night", "game_night", "dinner", "birthday", "house_party", "club_night", "picnic"]),
+};
+
+function escapeLikeQuery(raw: string): string {
+  return raw
+    .replace(/\\/g, "\\\\")
+    .replace(/%/g, "\\%")
+    .replace(/_/g, "\\_");
+}
 
 function getPublicRsvpTiersFromTemplateData(templateData: unknown) {
   const tpl = templateData && typeof templateData === "object" ? (templateData as Record<string, unknown>) : null;
@@ -233,6 +249,20 @@ router.post(p(api.barbecues.create.path), asyncHandler(async (req, res) => {
     bannerImageUrl: z.string().url().nullable().optional(),
   });
   const parsed = bodySchema.parse(req.body);
+  if ((parsed.visibilityOrigin ?? "public") === "private" && parsed.templateData && typeof parsed.templateData === "object") {
+    const templateData = parsed.templateData as Record<string, unknown>;
+    const mainCategory = typeof templateData.mainCategory === "string" ? templateData.mainCategory : null;
+    const subCategory = typeof templateData.subCategory === "string" ? templateData.subCategory : null;
+    if (mainCategory && !PRIVATE_MAIN_CATEGORIES.has(mainCategory)) {
+      badRequest("Invalid mainCategory");
+    }
+    if (mainCategory && subCategory) {
+      const validSubcategories = PRIVATE_SUBCATEGORIES_BY_MAIN[mainCategory];
+      if (!validSubcategories?.has(subCategory)) {
+        badRequest("Invalid subCategory for mainCategory");
+      }
+    }
+  }
   const input = {
     ...parsed,
     currencySource: (parsed.currencySource as "auto" | "manual" | undefined) ?? "auto",
@@ -387,6 +417,15 @@ router.get("/events/:eventId/chat", requireAuth, asyncHandler(async (req, res) =
   await getBarbecueOr404(req, eventId, "Event not found");
   const messages = listEventChatMessages(eventId, limit);
   res.json({ messages, nextCursor: undefined });
+}));
+
+router.get("/plans/:id/activity", requireAuth, asyncHandler(async (req, res) => {
+  const eventId = Number(req.params.id);
+  if (!Number.isFinite(eventId)) badRequest("Invalid plan id");
+  await assertEventAccessOrThrow(req, eventId);
+  const limit = Number(req.query.limit ?? 10);
+  const items = await listPlanActivity(eventId, limit);
+  res.json({ items });
 }));
 
 router.get("/conversations", requireAuth, asyncHandler(async (req, res) => {
@@ -641,6 +680,14 @@ router.post("/invites/:token/accept", requireAuth, asyncHandler(async (req, res)
       eventId: Number(eventId),
       text: `${me?.displayName || me?.username || username} joined the event`,
     });
+    await logPlanActivity({
+      eventId,
+      type: "MEMBER_JOINED",
+      actorUserId: userId,
+      actorName: me?.displayName || me?.username || username,
+      message: `${me?.displayName || me?.username || username} joined the plan`,
+      meta: { userId },
+    });
 
     res.json({ eventId: Number(eventId) });
   } catch (err) {
@@ -860,6 +907,8 @@ router.patch(p(api.barbecues.update.path), requireAuth, asyncHandler(async (req,
   if (!bbq) notFound("BBQ not found");
   await assertEventAccessOrThrow(req, id);
   const schema = z.object({
+    name: z.string().min(1).max(120).optional(),
+    date: z.coerce.date().optional(),
     allowOptInExpenses: z.boolean().optional(),
     templateData: z.unknown().optional(),
     status: z.enum(["draft", "active", "settling", "settled"]).optional(),
@@ -891,6 +940,16 @@ router.patch(p(api.barbecues.update.path), requireAuth, asyncHandler(async (req,
   const body = schema.parse(req.body);
   const updated = await bbqService.updateBarbecue(id, body, req.session!.username, req.session!.userId);
   if (!updated) notFound("BBQ not found");
+  await logPlanActivity({
+    eventId: id,
+    type: "PLAN_UPDATED",
+    actorUserId: req.session?.userId ?? null,
+    actorName: req.session?.username ?? "Someone",
+    message: `${req.session?.username ?? "Someone"} updated the plan`,
+    meta: {
+      changedFields: Object.keys(body),
+    },
+  });
   res.json(updated);
 }));
 
@@ -1244,6 +1303,20 @@ router.post(p(api.expenses.create.path), asyncHandler(async (req, res) => {
   const input = bodySchema.parse(req.body);
   const { optInByDefault, ...expenseData } = input;
   const created = await expenseRepo.create({ ...expenseData, barbecueId: bbqId }, { optInByDefault });
+  const actor = await participantRepo.getById(input.participantId);
+  const actorName = actor?.name || req.session?.username || "Someone";
+  await logPlanActivity({
+    eventId: bbqId,
+    type: "EXPENSE_ADDED",
+    actorUserId: req.session?.userId ?? null,
+    actorName,
+    message: `${actorName} added an expense: ${created.item} (${bbq.currency ?? "€"}${Number(created.amount).toFixed(2)})`,
+    meta: {
+      expenseId: created.id,
+      amount: Number(created.amount),
+      currency: bbq.currency ?? null,
+    },
+  });
   res.status(201).json(created);
 }));
 
@@ -1542,39 +1615,68 @@ router.get("/pending-requests/all", requireAuth, asyncHandler(async (req, res) =
 
 // Search users (for adding friends) - must be before /:username
 router.get("/users/search", requireAuth, asyncHandler(async (req, res) => {
+  const reqId = (req.headers["x-request-id"] as string | undefined) ?? randomUUID();
+  const userId = req.session?.userId;
+  const ip = req.ip ?? req.socket.remoteAddress ?? "unknown";
+  const throttleKey = `${userId ?? "anon"}:${ip}`;
+  const now = Date.now();
+  const current = usersSearchRate.get(throttleKey);
+  if (!current || now - current.windowStart > USERS_SEARCH_WINDOW_MS) {
+    usersSearchRate.set(throttleKey, { count: 1, windowStart: now });
+  } else {
+    current.count += 1;
+    if (current.count > USERS_SEARCH_MAX_REQUESTS) {
+      return res.status(429).json({ code: "USERS_SEARCH_RATE_LIMITED", message: "Too many search requests. Try again shortly." });
+    }
+  }
+
   try {
-    const query = ((req.query.q as string) || "").toLowerCase().trim();
-    if (!query || query.length < 2) return res.json([]);
-    const allUsers = await db
+    const rawInput = typeof req.query.q === "string" ? req.query.q : "";
+    const trimmed = rawInput.trim().slice(0, 50);
+    if (trimmed.length < 2) return res.json({ users: [] });
+    if (!userId) return res.status(401).json({ code: "UNAUTHORIZED", message: "Not authenticated" });
+
+    const escaped = escapeLikeQuery(trimmed);
+    const pattern = `%${escaped}%`;
+    const limit = 10;
+
+    const results = await db
       .select({
         id: users.id,
         username: users.username,
         displayName: users.displayName,
-        email: users.email,
         avatarUrl: users.avatarUrl,
         profileImageUrl: users.profileImageUrl,
       })
-      .from(users);
-    const results = allUsers
-      .filter(
-        (u) =>
-          u.id !== req.session!.userId &&
-          (
-            u.username.toLowerCase().includes(query) ||
-            (u.displayName && u.displayName.toLowerCase().includes(query)) ||
-            u.email.toLowerCase().includes(query)
-          )
-      )
-      .slice(0, 10);
-    res.json(results.map((u) => ({
-      id: Number(u.id),
-      displayName: u.displayName || u.username,
-      username: u.username,
-      email: u.email,
-      avatarUrl: u.avatarUrl ?? u.profileImageUrl ?? null,
-    })));
+      .from(users)
+      .where(and(
+        sql`${users.id} <> ${userId}`,
+        or(
+          sql`${users.username} ILIKE ${pattern} ESCAPE '\\'`,
+          sql`COALESCE(${users.displayName}, '') ILIKE ${pattern} ESCAPE '\\'`,
+          sql`COALESCE(${users.email}, '') ILIKE ${pattern} ESCAPE '\\'`,
+        ),
+      ))
+      .limit(limit);
+
+    return res.json({
+      users: results.map((u) => ({
+        id: Number(u.id),
+        displayName: u.displayName || u.username,
+        handle: u.username,
+        avatarUrl: u.avatarUrl ?? u.profileImageUrl ?? null,
+      })),
+    });
   } catch (err) {
-    return handleGuestRouteError("GET /api/users/search", req, err, res);
+    log("error", "users-search failed", {
+      route: "GET /api/users/search",
+      reqId,
+      message: err instanceof Error ? err.message : "unknown_error",
+    });
+    return res.status(500).json({
+      code: "USERS_SEARCH_FAILED",
+      message: process.env.NODE_ENV === "development" && err instanceof Error ? err.message : "Couldn’t search users right now.",
+    });
   }
 }));
 

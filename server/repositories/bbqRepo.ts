@@ -92,6 +92,8 @@ export const bbqRepo = {
   async update(
     id: number,
     updates: {
+      name?: string;
+      date?: Date;
       allowOptInExpenses?: boolean;
       templateData?: unknown;
       status?: string;
@@ -125,6 +127,8 @@ export const bbqRepo = {
     }
   ): Promise<Barbecue | undefined> {
     const set: Record<string, unknown> = {};
+    if (updates.name !== undefined) set.name = updates.name;
+    if (updates.date !== undefined) set.date = updates.date;
     if (updates.allowOptInExpenses !== undefined) set.allowOptInExpenses = updates.allowOptInExpenses;
     if (updates.templateData !== undefined) set.templateData = updates.templateData;
     if (updates.status !== undefined) set.status = updates.status;

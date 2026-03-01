@@ -41,6 +41,7 @@ function genId(): string {
 
 const store: ToastItem[] = [];
 const listeners = new Set<() => void>();
+let isDismissingAll = false;
 
 function emit() {
   listeners.forEach((fn) => fn());
@@ -152,11 +153,14 @@ export function dismissToast(id?: string): void {
       if (idx > -1) store.splice(idx, 1);
     }
   } else {
+    if (isDismissingAll) return;
+    isDismissingAll = true;
     store.forEach((t) => {
       clearTimer(t);
       t.onDismiss?.();
     });
     store.length = 0;
+    isDismissingAll = false;
   }
   emit();
 }
@@ -211,15 +215,45 @@ export function updateToast(id: string, patch: Partial<ToastOptions>): void {
 
 export function useToast() {
   const [toasts, setToasts] = React.useState<ToastItem[]>([]);
+  const getSnapshot = React.useCallback(() => [...store], []);
+  const areEqual = React.useCallback((a: ToastItem[], b: ToastItem[]) => {
+    if (a === b) return true;
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i += 1) {
+      const left = a[i];
+      const right = b[i];
+      if (
+        left.id !== right.id ||
+        left.message !== right.message ||
+        left.title !== right.title ||
+        left.variant !== right.variant ||
+        left.duration !== right.duration ||
+        left.actionLabel !== right.actionLabel ||
+        left.dismissLabel !== right.dismissLabel ||
+        left.addedAt !== right.addedAt
+      ) {
+        return false;
+      }
+    }
+    return true;
+  }, []);
 
   React.useEffect(() => {
-    setToasts([...store]);
-    const onUpdate = () => setToasts([...store]);
+    setToasts((prev) => {
+      const next = getSnapshot();
+      return areEqual(prev, next) ? prev : next;
+    });
+    const onUpdate = () => {
+      setToasts((prev) => {
+        const next = getSnapshot();
+        return areEqual(prev, next) ? prev : next;
+      });
+    };
     listeners.add(onUpdate);
     return () => {
       listeners.delete(onUpdate);
     };
-  }, []);
+  }, [areEqual, getSnapshot]);
 
   return {
     toasts,

@@ -246,6 +246,17 @@ export const eventInvites = pgTable("event_invites", {
   acceptedAt: timestamp("accepted_at"),
 });
 
+export const planActivity = pgTable("plan_activity", {
+  id: serial("id").primaryKey(),
+  eventId: integer("event_id").references(() => barbecues.id, { onDelete: "cascade" }).notNull(),
+  type: text("type").notNull(),
+  actorUserId: integer("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+  actorName: text("actor_name"),
+  message: text("message").notNull(),
+  meta: json("meta").$type<Record<string, unknown> | null>().default(null),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 export const insertNoteSchema = createInsertSchema(notes)
   .omit({ id: true, createdAt: true, updatedAt: true })
   .extend({
@@ -285,6 +296,7 @@ export type InsertExpense = z.infer<typeof insertExpenseSchema>;
 
 export type EventMember = typeof eventMembers.$inferSelect;
 export type EventInvite = typeof eventInvites.$inferSelect;
+export type PlanActivity = typeof planActivity.$inferSelect;
 
 export type ExpenseWithParticipant = Expense & {
   participantName: string;

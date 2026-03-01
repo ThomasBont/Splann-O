@@ -7,6 +7,7 @@ import { requireAuth } from "../middleware/requireAuth";
 import { bbqRepo } from "../repositories/bbqRepo";
 import { userRepo } from "../repositories/userRepo";
 import { broadcastEventRealtime } from "../lib/eventRealtime";
+import { listPlanActivity, logPlanActivity } from "../lib/planActivity";
 import { log } from "../lib/logger";
 import { AppError, badRequest, forbidden, notFound } from "../lib/errors";
 import { eventInvites, eventMembers, participants, users } from "@shared/schema";
@@ -121,6 +122,19 @@ router.get("/:eventId/members", requireAuth, asyncHandler(async (req, res) => {
   }
 }));
 
+router.get("/:eventId/activity", requireAuth, asyncHandler(async (req, res) => {
+  try {
+    const eventId = Number(req.params.eventId);
+    if (!Number.isFinite(eventId)) badRequest("Invalid event id");
+    await assertEventAccessOrThrow(req, eventId);
+    const limit = Number(req.query.limit ?? 10);
+    const items = await listPlanActivity(eventId, limit);
+    res.json({ items });
+  } catch (err) {
+    return handleEventsRouteError("GET /api/events/:eventId/activity", req, err, res);
+  }
+}));
+
 router.post("/:eventId/members", requireAuth, asyncHandler(async (req, res) => {
   try {
     const eventId = Number(req.params.eventId);
@@ -157,6 +171,14 @@ router.post("/:eventId/members", requireAuth, asyncHandler(async (req, res) => {
     };
 
     if (inserted[0]) {
+      await logPlanActivity({
+        eventId,
+        type: "MEMBER_JOINED",
+        actorUserId: targetUser.id,
+        actorName: targetUser.displayName || targetUser.username,
+        message: `${targetUser.displayName || targetUser.username} joined the plan`,
+        meta: { userId: targetUser.id },
+      });
       broadcastEventRealtime(eventId, {
         type: "event:member_joined",
         eventId: Number(eventId),

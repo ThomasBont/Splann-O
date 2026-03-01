@@ -40,7 +40,7 @@ export function GuestsWidget({ eventId }: GuestsWidgetProps) {
         <div className="flex items-center justify-between gap-2">
           <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-neutral-400">
             <Users className="h-3.5 w-3.5" />
-            Guests
+            Crew
           </p>
           <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
             {members.length}
@@ -54,7 +54,7 @@ export function GuestsWidget({ eventId }: GuestsWidgetProps) {
           </div>
         ) : error ? (
           <p className="mt-3 text-xs text-slate-500 dark:text-neutral-400">
-            Couldn’t load guests. Click to retry.
+            Couldn’t load crew. Click to retry.
           </p>
         ) : (
           <>

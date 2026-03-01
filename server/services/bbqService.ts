@@ -8,7 +8,6 @@ import { resolveTripCurrency } from "../lib/country-currency";
 import { isPublicListingActive, slugifyPublicEvent } from "../lib/public-listing";
 import { db } from "../db";
 import { eventMembers, type Barbecue } from "@shared/schema";
-import { isPublicEvent as isCanonicalPublicEvent } from "@shared/event-visibility";
 import { normalizeCountryCode } from "@shared/lib/country-code";
 import { and, eq } from "drizzle-orm";
 
@@ -42,7 +41,6 @@ function privatePublicFieldChanges(event: Barbecue): Array<string> {
   if (event.publicSlug) changes.push("publicSlug");
   if (event.organizationName) changes.push("organizationName");
   if (event.publicDescription) changes.push("publicDescription");
-  if (event.bannerImageUrl) changes.push("bannerImageUrl");
   if (event.publicMode !== "marketing") changes.push("publicMode");
   if (event.publicTemplate !== "classic") changes.push("publicTemplate");
   if (event.isPublic) changes.push("isPublic");
@@ -50,9 +48,8 @@ function privatePublicFieldChanges(event: Barbecue): Array<string> {
 }
 
 export function normalizeEventForClient(event: Barbecue): Barbecue {
-  const privateCanonical = !isCanonicalPublicEvent(event);
   const suspiciousPollution = shouldTreatAsPollutedPrivate(event);
-  if (!privateCanonical && !suspiciousPollution) return event;
+  if (!suspiciousPollution) return event;
 
   const normalized: Barbecue = {
     ...event,
@@ -68,7 +65,6 @@ export function normalizeEventForClient(event: Barbecue): Barbecue {
     publicSlug: null,
     organizationName: null,
     publicDescription: null,
-    bannerImageUrl: null,
   };
 
   if (process.env.NODE_ENV !== "production") {
@@ -100,7 +96,6 @@ function stripPublicOnlyFieldsForPrivateMutation<T extends Record<string, unknow
     publicListingExpiresAt: null,
     organizationName: null,
     publicDescription: null,
-    bannerImageUrl: null,
   } as T;
 }
 
@@ -385,6 +380,8 @@ export async function createBarbecue(
 export async function updateBarbecue(
   id: number,
   updates: {
+    name?: string;
+    date?: Date | string;
     allowOptInExpenses?: boolean;
     templateData?: unknown;
     status?: "draft" | "active" | "settling" | "settled";
@@ -448,6 +445,8 @@ export async function updateBarbecue(
   const targetVisibility = (updates.visibility ?? bbq.visibility) as "private" | "public";
   const normalizedCountryCode = updates.countryCode !== undefined ? normalizeCountryCode(updates.countryCode) : undefined;
   const set: Parameters<typeof bbqRepo.update>[1] = {
+    name: updates.name,
+    date: updates.date ? (typeof updates.date === "string" ? new Date(updates.date) : updates.date) : undefined,
     allowOptInExpenses: targetVisibility === "private" ? updates.allowOptInExpenses : false,
     templateData: updates.templateData,
     status: updates.status,

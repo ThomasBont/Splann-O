@@ -123,7 +123,7 @@ export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
   const handleAddMember = async (userId: number, displayName: string) => {
     try {
       await addMember(userId);
-      toastSuccess(`Added ${displayName} to the event`);
+      toastSuccess(`Added ${displayName} to the plan`);
       setSearchInput("");
       setDebouncedSearch("");
     } catch (err) {
@@ -151,9 +151,9 @@ export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <SheetHeader className="space-y-1 text-left">
-                    <SheetTitle className="text-lg font-semibold text-slate-900 dark:text-neutral-100">Guests</SheetTitle>
+                    <SheetTitle className="text-lg font-semibold text-slate-900 dark:text-neutral-100">Crew</SheetTitle>
                     <SheetDescription className="text-sm text-slate-500 dark:text-neutral-400">
-                      Manage members and invites
+                      Manage people and invites
                     </SheetDescription>
                   </SheetHeader>
                 </div>
@@ -164,7 +164,7 @@ export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
               <div className="space-y-5">
         {error ? (
           <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-            Couldn’t load guests right now. <button type="button" className="underline" onClick={() => void refresh()}>Retry</button>
+            Couldn’t load crew right now. <button type="button" className="underline" onClick={() => void refresh()}>Retry</button>
           </div>
         ) : null}
 

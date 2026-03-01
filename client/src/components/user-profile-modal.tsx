@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { useLanguage, SELECTABLE_LANGUAGES, type Language } from "@/hooks/use-language";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -36,9 +36,7 @@ import {
   Heart,
   Receipt,
   Mail,
-  Globe,
   LogOut,
-  Link2,
   User,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -85,24 +83,31 @@ export function UserProfileModal({ open, onOpenChange, username: usernameProp, o
   const removeFriend = useRemoveFriend();
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [editMode, setEditMode] = useState(false);
   const [draftDisplayName, setDraftDisplayName] = useState("");
   const [draftBio, setDraftBio] = useState("");
   const [draftProfileImageUrl, setDraftProfileImageUrl] = useState("");
-  const [draftPublicHandle, setDraftPublicHandle] = useState("");
-  const [draftPublicProfileEnabled, setDraftPublicProfileEnabled] = useState(true);
-  const [draftDefaultEventType, setDraftDefaultEventType] = useState<"private" | "public">("private");
   const [draftDefaultStartPage, setDraftDefaultStartPage] = useState<DefaultStartPage>("home");
   const [draftEmailNotifications, setDraftEmailNotifications] = useState(true);
   const [draftActivityNotifications, setDraftActivityNotifications] = useState(true);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteConfirmUsername, setDeleteConfirmUsername] = useState("");
-  const [handleCheckState, setHandleCheckState] = useState<{
-    status: "idle" | "checking" | "available" | "taken" | "invalid" | "error";
-    normalized?: string;
-  }>({ status: "idle" });
 
-  const { data: searchResults = [], isLoading: searchLoading } = useSearchUsers(searchQuery);
+  const {
+    data: searchResults = [],
+    isLoading: searchLoading,
+    error: searchError,
+    refetch: refetchSearch,
+  } = useSearchUsers(debouncedSearchQuery);
+
+  useEffect(() => {
+    const trimmed = searchQuery.trim();
+    const timer = window.setTimeout(() => {
+      setDebouncedSearchQuery(trimmed);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [searchQuery]);
 
   const displayUser = isOwnProfile ? authUser : profileData?.user;
   const stats = profileData?.stats ?? { eventsCount: 0, friendsCount: 0, totalSpent: 0 };
@@ -112,51 +117,14 @@ export function UserProfileModal({ open, onOpenChange, username: usernameProp, o
       setDraftDisplayName(authUser.displayName || "");
       setDraftBio(authUser.bio || "");
       setDraftProfileImageUrl(authUser.profileImageUrl || authUser.avatarUrl || "");
-      setDraftPublicHandle((authUser.publicHandle || authUser.username || "").toLowerCase());
-      setDraftPublicProfileEnabled(authUser.publicProfileEnabled ?? true);
-      setDraftDefaultEventType(authUser.defaultEventType === "public" ? "public" : "private");
       const localPrefs = loadLocalUserPreferences(authUser.id);
-      setDraftDefaultStartPage(localPrefs.defaultStartPage);
+      setDraftDefaultStartPage(localPrefs.defaultStartPage === "public" ? "private" : localPrefs.defaultStartPage);
       setDraftEmailNotifications(localPrefs.emailNotifications);
       setDraftActivityNotifications(localPrefs.activityNotifications);
     }
   }, [authUser, isOwnProfile]);
 
   useEffect(() => { setEditMode(false); }, [effectiveUsername]);
-  useEffect(() => { setHandleCheckState({ status: "idle" }); }, [open, effectiveUsername]);
-
-  useEffect(() => {
-    if (!open || !isOwnProfile) return;
-    const raw = draftPublicHandle.trim().toLowerCase();
-    const current = (authUser?.publicHandle || authUser?.username || "").toLowerCase();
-    if (!raw) {
-      setHandleCheckState({ status: "invalid" });
-      return;
-    }
-    if (!/^[a-z0-9][a-z0-9_-]{1,29}$/.test(raw)) {
-      setHandleCheckState({ status: "invalid" });
-      return;
-    }
-    if (raw === current) {
-      setHandleCheckState({ status: "available", normalized: raw });
-      return;
-    }
-    setHandleCheckState({ status: "checking" });
-    const timer = window.setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/users/handle-availability?handle=${encodeURIComponent(raw)}`, { credentials: "include" });
-        const data = await res.json();
-        if (!res.ok) throw new Error("handle_check_failed");
-        setHandleCheckState({
-          status: data?.ok ? "available" : data?.reason === "invalid" ? "invalid" : "taken",
-          normalized: data?.normalized,
-        });
-      } catch {
-        setHandleCheckState({ status: "error" });
-      }
-    }, 300);
-    return () => window.clearTimeout(timer);
-  }, [draftPublicHandle, authUser?.publicHandle, authUser?.username, isOwnProfile, open]);
 
   const friendUserIds = new Set(friends.map((f: FriendInfo) => f.userId));
   const requestUserIds = new Set(friendRequests.map((f: FriendInfo) => f.userId));
@@ -164,29 +132,15 @@ export function UserProfileModal({ open, onOpenChange, username: usernameProp, o
     (u: { id: number }) => u.id !== authUser?.id && !friendUserIds.has(u.id) && !requestUserIds.has(u.id)
   );
 
-  const publicProfileUrl = useMemo(() => {
-    if (!authUser?.username) return "";
-    const handle = (draftPublicHandle.trim() || authUser.publicHandle || authUser.username).toLowerCase();
-    return `/u/${encodeURIComponent(handle)}`;
-  }, [authUser?.publicHandle, authUser?.username, draftPublicHandle]);
-
-  const canSaveSettings = !updateProfile.isPending
-    && (handleCheckState.status === "idle" || handleCheckState.status === "available" || !draftPublicHandle.trim());
+  const canSaveSettings = !updateProfile.isPending;
 
   const saveIdentitySettings = () => {
     if (!isOwnProfile) return;
-    if (draftPublicHandle.trim() && !(handleCheckState.status === "available" || handleCheckState.status === "idle")) {
-      toast({ variant: "destructive", title: "Choose an available handle" });
-      return;
-    }
     updateProfile.mutate(
       {
         displayName: draftDisplayName.trim() || undefined,
         profileImageUrl: draftProfileImageUrl.trim() || null,
         bio: draftBio.trim().slice(0, 160) || null,
-        publicHandle: draftPublicHandle.trim().toLowerCase() || null,
-        publicProfileEnabled: draftPublicProfileEnabled,
-        defaultEventType: draftDefaultEventType,
       },
       {
         onSuccess: () => {
@@ -198,9 +152,8 @@ export function UserProfileModal({ open, onOpenChange, username: usernameProp, o
           toast({ variant: "success", message: t.modals.profileSaved });
           setEditMode(false);
         },
-        onError: (err) => {
-          const message = err instanceof Error ? err.message : "Could not save profile";
-          toast({ variant: "destructive", title: message === "handle_taken" ? "That handle is already taken." : "Could not save settings." });
+        onError: () => {
+          toast({ variant: "destructive", title: "Could not save settings." });
         },
       }
     );
@@ -454,11 +407,15 @@ export function UserProfileModal({ open, onOpenChange, username: usernameProp, o
                     />
                   </div>
                   <AnimatePresence mode="wait">
-                    {searchQuery.length >= 2 && (
+                    {searchQuery.trim().length >= 2 && (
                       <motion.div key="search-results" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={motionTransition.normal} className="space-y-1">
                         <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">{t.friends.addFriend}</p>
                         {searchLoading ? (
                           <div className="flex justify-center py-3"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>
+                        ) : searchError ? (
+                          <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+                            Couldn’t search users. <button type="button" className="underline" onClick={() => void refetchSearch()}>Retry</button>
+                          </div>
                         ) : filteredResults.length === 0 ? (
                           <p className="text-xs text-muted-foreground text-center py-2">{t.friends.userNotFound}</p>
                         ) : (
@@ -486,6 +443,9 @@ export function UserProfileModal({ open, onOpenChange, username: usernameProp, o
                           ))
                         )}
                       </motion.div>
+                    )}
+                    {searchQuery.trim().length > 0 && searchQuery.trim().length < 2 && (
+                      <p className="text-xs text-muted-foreground text-center py-2">Type at least 2 characters</p>
                     )}
                   </AnimatePresence>
                   {friendRequests.length > 0 && (
@@ -577,37 +537,11 @@ export function UserProfileModal({ open, onOpenChange, username: usernameProp, o
                       />
                     </div>
                     <div>
-                      <Label className="text-xs">Public handle</Label>
-                      <Input
-                        value={draftPublicHandle}
-                        onChange={(e) => setDraftPublicHandle(e.target.value.toLowerCase())}
-                        placeholder={(authUser?.username || "handle").toLowerCase()}
-                        className="mt-1 bg-secondary/50 border-white/10"
-                        autoCapitalize="none"
-                        autoCorrect="off"
-                      />
-                      <div className="mt-1 flex items-center justify-between gap-2 text-[11px]">
-                        <p className="text-muted-foreground truncate">Used for your public profile URL.</p>
-                        <span className={
-                          handleCheckState.status === "available" ? "text-emerald-500" :
-                          handleCheckState.status === "taken" ? "text-rose-500" :
-                          handleCheckState.status === "invalid" ? "text-amber-500" :
-                          "text-muted-foreground"
-                        }>
-                          {handleCheckState.status === "checking" ? "Checking…" :
-                           handleCheckState.status === "available" ? "Available" :
-                           handleCheckState.status === "taken" ? "Already taken" :
-                           handleCheckState.status === "invalid" ? "Use 2–30 lowercase letters, numbers, _ or -" :
-                           handleCheckState.status === "error" ? "Could not check" : ""}
-                        </span>
-                      </div>
-                    </div>
-                    <div>
                       <Label className="text-xs">Bio</Label>
                       <textarea
                         value={draftBio}
                         onChange={(e) => setDraftBio(e.target.value.slice(0, 160))}
-                        placeholder="A short intro for your public creator profile."
+                        placeholder="A short intro about you."
                         className="flex min-h-[84px] w-full rounded-md border border-input bg-secondary/50 border-white/10 px-3 py-2 text-sm mt-1 resize-none"
                         maxLength={160}
                       />
@@ -627,45 +561,15 @@ export function UserProfileModal({ open, onOpenChange, username: usernameProp, o
 
                 <div className="rounded-2xl border border-white/10 bg-secondary/10 p-4 sm:p-5 space-y-4">
                   <div className="flex items-center gap-2">
-                    <Globe className="w-4 h-4 text-muted-foreground" />
-                    <p className="text-sm font-semibold">Public presence</p>
-                  </div>
-                  <div className="flex items-start justify-between gap-3 rounded-xl border border-white/10 bg-background/30 p-3">
-                    <div className="space-y-1">
-                      <p className="text-sm font-medium">Enable public profile</p>
-                      <p className="text-xs text-muted-foreground">People can view your hosted public events and profile.</p>
-                    </div>
-                    <Switch checked={draftPublicProfileEnabled} onCheckedChange={setDraftPublicProfileEnabled} />
-                  </div>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <Link2 className="w-3.5 h-3.5" />
-                    <span className="truncate">{publicProfileUrl || "/u/<handle>"}</span>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="h-6 px-2 text-[11px]"
-                      onClick={() => {
-                        if (!publicProfileUrl) return;
-                        window.open(publicProfileUrl, "_blank");
-                      }}
-                    >
-                      Open
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="rounded-2xl border border-white/10 bg-secondary/10 p-4 sm:p-5 space-y-4">
-                  <div className="flex items-center gap-2">
                     <Settings2 className="w-4 h-4 text-muted-foreground" />
                     <p className="text-sm font-semibold">Defaults</p>
                   </div>
                   <div className="space-y-2">
                     <Label className="text-xs">Default start page</Label>
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-2 gap-2">
                       {([
                         { key: "home", label: "Home" },
                         { key: "private", label: "Private" },
-                        { key: "public", label: "Public" },
                       ] as const).map((option) => (
                         <button
                           key={`profile-start-page-${option.key}`}
@@ -676,27 +580,6 @@ export function UserProfileModal({ open, onOpenChange, username: usernameProp, o
                           {option.label}
                         </button>
                       ))}
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-xs">Default event type</Label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setDraftDefaultEventType("private")}
-                        className={`rounded-xl border px-3 py-2 text-left transition ${draftDefaultEventType === "private" ? "border-primary bg-primary/10" : "border-white/10 bg-background/30 hover:bg-background/50"}`}
-                      >
-                        <p className="text-sm font-medium">Private</p>
-                        <p className="text-[11px] text-muted-foreground">Friends and circles</p>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setDraftDefaultEventType("public")}
-                        className={`rounded-xl border px-3 py-2 text-left transition ${draftDefaultEventType === "public" ? "border-primary bg-primary/10" : "border-white/10 bg-background/30 hover:bg-background/50"}`}
-                      >
-                        <p className="text-sm font-medium">Public</p>
-                        <p className="text-[11px] text-muted-foreground">Professional hosting</p>
-                      </button>
                     </div>
                   </div>
                 </div>
@@ -795,14 +678,10 @@ export function UserProfileModal({ open, onOpenChange, username: usernameProp, o
                         setDraftDisplayName(authUser.displayName || "");
                         setDraftBio((authUser.bio || "").slice(0, 160));
                         setDraftProfileImageUrl(authUser.profileImageUrl || authUser.avatarUrl || "");
-                        setDraftPublicHandle((authUser.publicHandle || authUser.username || "").toLowerCase());
-                        setDraftPublicProfileEnabled(authUser.publicProfileEnabled ?? true);
-                        setDraftDefaultEventType(authUser.defaultEventType === "public" ? "public" : "private");
                         const localPrefs = loadLocalUserPreferences(authUser.id);
-                        setDraftDefaultStartPage(localPrefs.defaultStartPage);
+                        setDraftDefaultStartPage(localPrefs.defaultStartPage === "public" ? "private" : localPrefs.defaultStartPage);
                         setDraftEmailNotifications(localPrefs.emailNotifications);
                         setDraftActivityNotifications(localPrefs.activityNotifications);
-                        setHandleCheckState({ status: "idle" });
                       }}
                     >
                       Reset

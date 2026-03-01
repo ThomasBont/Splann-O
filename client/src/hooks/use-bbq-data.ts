@@ -222,6 +222,8 @@ export function useUpdateBarbecue() {
   return useMutation({
     mutationFn: async (updates: {
       id: number;
+      name?: string;
+      date?: string;
       allowOptInExpenses?: boolean;
       templateData?: unknown;
       status?: "draft" | "active" | "settling" | "settled";
@@ -253,6 +255,8 @@ export function useUpdateBarbecue() {
       const { id, ...rest } = updates;
       const url = buildUrl(api.barbecues.update.path, { id });
       const body: Record<string, unknown> = {};
+      if (rest.name !== undefined) body.name = rest.name;
+      if (rest.date !== undefined) body.date = rest.date;
       if (rest.allowOptInExpenses !== undefined) body.allowOptInExpenses = rest.allowOptInExpenses;
       if (rest.templateData !== undefined) body.templateData = rest.templateData;
       if (rest.status !== undefined) body.status = rest.status;

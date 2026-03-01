@@ -1,21 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
-import { useBarbecues, useCheckoutPublicListing, useUpdateBarbecue } from "@/hooks/use-bbq-data";
+import { useBarbecues } from "@/hooks/use-bbq-data";
 import Home from "@/pages/home";
-import ExplorePage from "@/pages/explore";
 import {
   Loader2,
   Home as HomeIcon,
   Lock,
-  Globe,
-  Compass,
   Plus,
-  Copy,
   Pin,
   PinOff,
-  ExternalLink,
-  Megaphone,
   Menu,
   X,
   GripVertical,
@@ -34,10 +28,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Modal } from "@/components/ui/modal";
 import { Switch } from "@/components/ui/switch";
-import { useAppToast } from "@/hooks/use-app-toast";
 import { loadLocalUserPreferences } from "@/lib/user-preferences";
-import { copyText } from "@/lib/copy-text";
 import { EventHeaderPreferencesProvider } from "@/hooks/use-event-header-preferences";
+import { FEATURE_PUBLIC_PLANS } from "@/lib/features";
 import {
   defaultPinGroups,
   defaultSidebarLayout,
@@ -50,11 +43,11 @@ import {
   type SmartSectionKind,
 } from "@/lib/sidebar-layout";
 import type { Barbecue } from "@shared/schema";
-import { isPrivateEvent, isPublicEvent } from "@shared/event-visibility";
+import { isPrivateEvent } from "@shared/event-visibility";
 import { InlineQueryError, SkeletonCard } from "@/components/ui/load-states";
-import { EMPTY_COPY, UI_COPY } from "@/lib/emotional-copy";
+import { EMPTY_COPY } from "@/lib/emotional-copy";
 
-type AppSection = "home" | "private" | "public" | "explore" | "event";
+type AppSection = "home" | "private" | "event";
 type DevDisableFlags = {
   headerPrefs: boolean;
   discoverModal: boolean;
@@ -99,17 +92,6 @@ function formatEventLocation(event: Barbecue) {
   if (event.city) return event.city;
   if (event.countryName) return event.countryName;
   return "Location TBA";
-}
-
-function isPublicListed(event: Barbecue) {
-  return isPublicEvent(event) && event.visibility === "public" && event.publicListingStatus === "active";
-}
-
-function getPublicHomeStatus(event: Barbecue): { label: string; tone: "default" | "secondary" | "outline" } {
-  if (event.publicListingStatus === "paused") return { label: "Paused", tone: "secondary" };
-  if (isPublicListed(event)) return { label: "Listed", tone: "default" };
-  if (event.status === "draft") return { label: "Draft", tone: "outline" };
-  return { label: "Unlisted", tone: "outline" };
 }
 
 function useEventLocalLists(user: { id?: number | null; username?: string | null } | null) {
@@ -181,9 +163,7 @@ function EventRow({
         <a className="min-w-0 flex-1">
           <div className="flex items-center gap-2 min-w-0">
             <p className="text-sm font-medium truncate">{event.name}</p>
-            <Badge variant="outline" className="rounded-full shrink-0">
-              {isPublicEvent(event) ? "Public" : "Private"}
-            </Badge>
+            <Badge variant="outline" className="rounded-full shrink-0">Private</Badge>
           </div>
           <p className="mt-0.5 text-xs text-muted-foreground truncate">
             {formatEventDate(event.date)} · {formatEventLocation(event)}
@@ -211,23 +191,15 @@ function NewEventMenuButton({
       <DropdownMenuTrigger asChild>
         <Button className={className} size={size}>
           <Plus className="h-4 w-4 mr-1.5" />
-          New event
+          New plan
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align={align} className="w-72">
         <DropdownMenuItem asChild>
           <Link href="/app/private?new=private">
             <a className="flex flex-col items-start py-2" onClick={onNavigate}>
-              <span className="text-sm font-medium">Private event</span>
-              <span className="text-xs text-muted-foreground">Friends + split costs</span>
-            </a>
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <Link href="/app/public?new=public">
-            <a className="flex flex-col items-start py-2" onClick={onNavigate}>
-              <span className="text-sm font-medium">Public event</span>
-              <span className="text-xs text-muted-foreground">Professional/public listing</span>
+              <span className="text-sm font-medium">Friends plan</span>
+              <span className="text-xs text-muted-foreground">Plan with your crew and split costs</span>
             </a>
           </Link>
         </DropdownMenuItem>
@@ -244,7 +216,6 @@ function AppSidebar({ section }: { section: AppSection }) {
   const [customizeOpen, setCustomizeOpen] = useState(false);
   const [pinGroups, setPinGroups] = useState<PinGroup[]>(() => defaultPinGroups());
   const [advanced, setAdvanced] = useState({
-    showDrafts: false,
     showUnsettled: false,
     showUpcoming: false,
     showPinGroups: false,
@@ -282,7 +253,6 @@ function AppSidebar({ section }: { section: AppSection }) {
     } catch {
       setPinGroups(defaultPinGroups());
       setAdvanced({
-        showDrafts: false,
         showUnsettled: false,
         showUpcoming: false,
         showPinGroups: false,
@@ -301,8 +271,12 @@ function AppSidebar({ section }: { section: AppSection }) {
     return () => window.clearTimeout(timeout);
   }, [pinGroups, advanced, recentCollapsed, pinGroupsKey, advancedKey]);
 
-  const eventById = useMemo(() => new Map(events.map((event) => [event.id, event])), [events]);
-  const allSortedEvents = useMemo(() => [...events].sort((a, b) => getEventDateMs(b) - getEventDateMs(a)), [events]);
+  const privateEvents = useMemo(
+    () => events.filter((event) => isPrivateEvent(event)),
+    [events],
+  );
+  const eventById = useMemo(() => new Map(privateEvents.map((event) => [event.id, event])), [privateEvents]);
+  const allSortedEvents = useMemo(() => [...privateEvents].sort((a, b) => getEventDateMs(b) - getEventDateMs(a)), [privateEvents]);
 
   const recentOpenedIds = useMemo(() => {
     if (typeof window === "undefined") return [] as number[];
@@ -312,7 +286,7 @@ function AppSidebar({ section }: { section: AppSection }) {
     } catch {
       return [];
     }
-  }, [recentOpenedKey, events.length]);
+  }, [recentOpenedKey, privateEvents.length]);
 
   const recentEvents = useMemo(() => {
     if (recentOpenedIds.length === 0) return allSortedEvents.slice(0, 12);
@@ -344,10 +318,6 @@ function AppSidebar({ section }: { section: AppSection }) {
     [pinnedEventIds, eventById],
   );
 
-  const advancedDrafts = useMemo(
-    () => allSortedEvents.filter((event) => isPublicEvent(event) && !isPublicListed(event)).slice(0, 8),
-    [allSortedEvents],
-  );
   const advancedUnsettled = useMemo(
     () => allSortedEvents.filter((event) => isPrivateEvent(event) && event.status !== "settled").slice(0, 8),
     [allSortedEvents],
@@ -365,11 +335,9 @@ function AppSidebar({ section }: { section: AppSection }) {
       .slice(0, 8);
   }, [allSortedEvents]);
 
-  const items: Array<{ href: string; label: string; icon: ComponentType<{ className?: string }> ; key: AppSection | "explore" }> = [
+  const items: Array<{ href: string; label: string; icon: ComponentType<{ className?: string }> ; key: AppSection }> = [
     { href: "/app/home", label: "Home", icon: HomeIcon, key: "home" },
     { href: "/app/private", label: "Private", icon: Lock, key: "private" },
-    { href: "/app/public", label: "Public", icon: Globe, key: "public" },
-    { href: "/app/explore", label: "Explore", icon: Compass, key: "explore" },
   ];
 
   const renderEventList = (list: Barbecue[], emptyMessage: string, limit = 12) => (
@@ -395,9 +363,7 @@ function AppSidebar({ section }: { section: AppSection }) {
             <a className="block rounded-md border border-transparent px-2 py-1.5 text-xs hover:border-border/60 hover:bg-muted/30">
               <div className="flex items-center justify-between gap-2">
                 <p className="truncate font-medium">{event.name}</p>
-                <span className="shrink-0 rounded-full border border-border/60 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                  {isPublicEvent(event) ? "Public" : "Private"}
-                </span>
+                <span className="shrink-0 rounded-full border border-border/60 px-1.5 py-0.5 text-[10px] text-muted-foreground">Private</span>
               </div>
               <p className="truncate text-[10px] text-muted-foreground">
                 {formatEventLocation(event)}
@@ -410,126 +376,126 @@ function AppSidebar({ section }: { section: AppSection }) {
   );
 
   return (
-    <aside className="group/sidebar hidden lg:flex w-64 lg:flex-col lg:shrink-0 border-r border-border/60 bg-card/40 backdrop-blur-sm">
-      <div className="px-4 py-4 border-b border-border/60">
-        <Link href="/app/home">
-          <span className="text-sm font-semibold tracking-tight cursor-pointer">Splanno</span>
-        </Link>
-      </div>
-      <nav className="px-3 py-3 space-y-1 shrink-0">
-        {items.map((item) => {
-          const active = section === item.key || (section === "event" && item.key === "home");
-          const Icon = item.icon;
-          return (
-            <Link key={`app-nav-${item.href}`} href={item.href}>
-              <a className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition ${active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
-                <Icon className="h-4 w-4" />
-                <span>{item.label}</span>
-              </a>
-            </Link>
-          );
-        })}
-      </nav>
+    <aside className="group/sidebar hidden lg:flex w-64 lg:shrink-0 border-r border-border/60 bg-card/40 backdrop-blur-sm">
+      <div className="h-screen w-full flex flex-col">
+        <div className="px-4 py-4 border-b border-border/60 shrink-0">
+          <Link href="/app/home">
+            <span className="text-sm font-semibold tracking-tight cursor-pointer">Splanno</span>
+          </Link>
+        </div>
+        <nav className="px-3 py-3 space-y-1 shrink-0">
+          {items.map((item) => {
+            const active = section === item.key || (section === "event" && item.key === "home");
+            const Icon = item.icon;
+            return (
+              <Link key={`app-nav-${item.href}`} href={item.href}>
+                <a className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition ${active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
+                  <Icon className="h-4 w-4" />
+                  <span>{item.label}</span>
+                </a>
+              </Link>
+            );
+          })}
+        </nav>
 
-      <div className="border-t border-border/60 px-3 pt-3 pb-2 shrink-0">
-        <NewEventMenuButton className="w-full justify-start" align="start" />
-      </div>
-
-      <div className="px-3 pb-3 flex-1 min-h-0 overflow-y-auto">
-        <section className="rounded-xl border border-border/60 bg-card/70">
-          <div className="px-3 py-2 border-b border-border/50">
-            <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Your events</p>
-          </div>
-          <div className="p-2 space-y-2">
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search events..."
-              className="h-8 text-xs"
-            />
-            {pinnedEvents.length > 0 && (
-              <div className="space-y-1">
-                <p className="px-1 text-[11px] font-medium text-muted-foreground">Pinned</p>
-                {renderEventList(pinnedEvents, "No pinned events", 5)}
-              </div>
-            )}
-            <div className="space-y-1">
-              <div className="flex items-center justify-between px-1">
-                <p className="text-[11px] font-medium text-muted-foreground">Recent</p>
-                <div className="flex items-center gap-1">
-                  <span className="text-[10px] text-muted-foreground">{searchedEvents.length}</span>
-                  <button
-                    type="button"
-                    className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                    aria-label={recentCollapsed ? "Expand recent events" : "Collapse recent events"}
-                    aria-expanded={!recentCollapsed}
-                    aria-controls="sidebar-recent-events-list"
-                    onClick={() => setRecentCollapsed((v) => !v)}
-                  >
-                    <ChevronDown className={`h-3.5 w-3.5 transition-transform ${recentCollapsed ? "" : "rotate-180"}`} />
-                  </button>
-                </div>
-              </div>
-              {recentCollapsed ? (
-                <p className="px-1 py-1 text-[11px] text-muted-foreground">{searchedEvents.length} hidden</p>
-              ) : (
-                <div id="sidebar-recent-events-list">
-                  {renderEventList(searchedEvents, "No events found")}
-                </div>
-              )}
+        <div className="px-3 pb-3 flex-1 min-h-0">
+          <div className="sticky top-4 h-[calc(100vh-2rem)] min-h-0 flex flex-col gap-3">
+            <div className="border-t border-border/60 pt-3 shrink-0">
+              <NewEventMenuButton className="w-full justify-start" align="start" />
             </div>
-            <div className="pt-1">
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-7 px-2 text-xs"
-                onClick={() => setCustomizeOpen(true)}
-              >
-                <Settings2 className="h-3.5 w-3.5 mr-1.5" />
-                Customize
-              </Button>
-            </div>
-          </div>
-        </section>
 
-        {(advanced.showUpcoming || advanced.showDrafts || advanced.showUnsettled || advanced.showPinGroups) && (
-          <div className="mt-3 space-y-2">
-            {advanced.showUpcoming && (
-              <section className="rounded-xl border border-border/60 bg-card/70 p-2">
-                <p className="px-1 pb-1 text-[11px] uppercase tracking-wide text-muted-foreground">Upcoming</p>
-                {renderEventList(advancedUpcoming, "No upcoming events", 6)}
-              </section>
-            )}
-            {advanced.showDrafts && (
-              <section className="rounded-xl border border-border/60 bg-card/70 p-2">
-                <p className="px-1 pb-1 text-[11px] uppercase tracking-wide text-muted-foreground">Drafts</p>
-                {renderEventList(advancedDrafts, "No drafts", 6)}
-              </section>
-            )}
-            {advanced.showUnsettled && (
-              <section className="rounded-xl border border-border/60 bg-card/70 p-2">
-                <p className="px-1 pb-1 text-[11px] uppercase tracking-wide text-muted-foreground">Unsettled</p>
-                {renderEventList(advancedUnsettled, "Everything is settled", 6)}
-              </section>
-            )}
-            {advanced.showPinGroups && (
-              <section className="rounded-xl border border-border/60 bg-card/70 p-2">
-                <p className="px-1 pb-1 text-[11px] uppercase tracking-wide text-muted-foreground">Pin groups</p>
-                <div className="space-y-2">
-                  {pinGroups.map((group) => {
-                    const groupEvents = group.eventIds.map((id) => eventById.get(id)).filter((event): event is Barbecue => !!event);
-                    return (
-                      <div key={group.id} className="rounded-lg border border-border/50 p-2">
-                        <p className="text-xs font-medium mb-1">{group.name}</p>
-                        {renderEventList(groupEvents, "No events in this group", 4)}
-                      </div>
-                    );
-                  })}
+            <section className="flex min-h-0 flex-1 flex-col rounded-xl border border-border/60 bg-card/70">
+              <div className="shrink-0 border-b border-border/50 p-2 space-y-2">
+            <p className="px-1 text-[11px] uppercase tracking-wide text-muted-foreground">Your plans</p>
+                <Input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search plans..."
+                  className="h-8 text-xs"
+                />
+              </div>
+              {/* min-h-0 keeps flex children shrinkable so only this list area scrolls */}
+              <div className="min-h-0 flex-1 overflow-y-auto p-2 space-y-2">
+                {pinnedEvents.length > 0 && (
+                  <div className="space-y-1">
+                    <p className="px-1 text-[11px] font-medium text-muted-foreground">Pinned</p>
+                    {renderEventList(pinnedEvents, "No pinned plans", 5)}
+                  </div>
+                )}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between px-1">
+                <p className="text-[11px] font-medium text-muted-foreground">Recent plans</p>
+                    <div className="flex items-center gap-1">
+                      <span className="text-[10px] text-muted-foreground">{searchedEvents.length}</span>
+                      <button
+                        type="button"
+                        className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                        aria-label={recentCollapsed ? "Expand recent plans" : "Collapse recent plans"}
+                        aria-expanded={!recentCollapsed}
+                        aria-controls="sidebar-recent-events-list"
+                        onClick={() => setRecentCollapsed((v) => !v)}
+                      >
+                        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${recentCollapsed ? "" : "rotate-180"}`} />
+                      </button>
+                    </div>
+                  </div>
+                  {recentCollapsed ? (
+                    <p className="px-1 py-1 text-[11px] text-muted-foreground">{searchedEvents.length} hidden</p>
+                  ) : (
+                    <div id="sidebar-recent-events-list">
+                      {renderEventList(searchedEvents, "No plans found")}
+                    </div>
+                  )}
                 </div>
-              </section>
-            )}
+
+                {(advanced.showUpcoming || advanced.showUnsettled || advanced.showPinGroups) && (
+                  <div className="space-y-2">
+                    {advanced.showUpcoming && (
+                      <section className="rounded-xl border border-border/60 bg-card/70 p-2">
+                        <p className="px-1 pb-1 text-[11px] uppercase tracking-wide text-muted-foreground">Upcoming</p>
+                        {renderEventList(advancedUpcoming, "No upcoming plans", 6)}
+                      </section>
+                    )}
+                    {advanced.showUnsettled && (
+                      <section className="rounded-xl border border-border/60 bg-card/70 p-2">
+                        <p className="px-1 pb-1 text-[11px] uppercase tracking-wide text-muted-foreground">Unsettled</p>
+                        {renderEventList(advancedUnsettled, "Everything is settled", 6)}
+                      </section>
+                    )}
+                    {advanced.showPinGroups && (
+                      <section className="rounded-xl border border-border/60 bg-card/70 p-2">
+                        <p className="px-1 pb-1 text-[11px] uppercase tracking-wide text-muted-foreground">Pin groups</p>
+                        <div className="space-y-2">
+                          {pinGroups.map((group) => {
+                            const groupEvents = group.eventIds.map((id) => eventById.get(id)).filter((event): event is Barbecue => !!event);
+                            return (
+                              <div key={group.id} className="rounded-lg border border-border/50 p-2">
+                                <p className="text-xs font-medium mb-1">{group.name}</p>
+                                {renderEventList(groupEvents, "No plans in this group", 4)}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </section>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="shrink-0 border-t border-border/50 p-2">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 px-2 text-xs"
+                  onClick={() => setCustomizeOpen(true)}
+                >
+                  <Settings2 className="h-3.5 w-3.5 mr-1.5" />
+                  Customize
+                </Button>
+              </div>
+            </section>
           </div>
-        )}
+        </div>
       </div>
 
       <Modal
@@ -542,10 +508,6 @@ function AppSidebar({ section }: { section: AppSection }) {
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">Choose which advanced sections appear in your sidebar.</p>
           <div className="space-y-3">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-sm">Show Drafts</p>
-              <Switch checked={advanced.showDrafts} onCheckedChange={(checked) => setAdvanced((prev) => ({ ...prev, showDrafts: checked }))} />
-            </div>
             <div className="flex items-center justify-between gap-3">
               <p className="text-sm">Show Unsettled</p>
               <Switch checked={advanced.showUnsettled} onCheckedChange={(checked) => setAdvanced((prev) => ({ ...prev, showUnsettled: checked }))} />
@@ -571,7 +533,7 @@ function AppSidebar({ section }: { section: AppSection }) {
 function AppDashboardHome() {
   const { data: events = [], isLoading, error, refetch } = useBarbecues();
   const recent = useMemo(() => {
-    const sorted = [...events].sort((a, b) => {
+    const sorted = [...events].filter((event) => isPrivateEvent(event)).sort((a, b) => {
       const at = new Date((a.updatedAt as unknown as string) || (a.date as unknown as string) || 0).getTime();
       const bt = new Date((b.updatedAt as unknown as string) || (b.date as unknown as string) || 0).getTime();
       return bt - at;
@@ -584,7 +546,7 @@ function AppDashboardHome() {
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Home</h1>
-          <p className="text-sm text-muted-foreground">Your shared life dashboard across private and public events.</p>
+          <p className="text-sm text-muted-foreground">Turn ideas into plans with your friends.</p>
         </div>
       </div>
 
@@ -595,7 +557,7 @@ function AppDashboardHome() {
 
       <section className="rounded-2xl border border-border/60 bg-card p-4 sm:p-5">
         <div className="flex items-center justify-between gap-2 mb-3">
-          <h2 className="text-sm font-semibold">Recent events</h2>
+          <h2 className="text-sm font-semibold">Recent plans</h2>
           <Link href="/app/private"><Button variant="ghost" size="sm">Open private</Button></Link>
         </div>
         {isLoading ? (
@@ -606,14 +568,14 @@ function AppDashboardHome() {
           </div>
         ) : error ? (
           <InlineQueryError
-            message="Couldn’t load recent events. Try again."
+            message="Couldn’t load recent plans. Try again."
             onRetry={() => {
               void refetch();
             }}
           />
         ) : recent.length === 0 ? (
           <div className="rounded-xl border border-border/50 bg-muted/20 p-6 text-center">
-            <p className="text-sm font-medium">{EMPTY_COPY.recentEventsTitle}</p>
+                <p className="text-sm font-medium">{EMPTY_COPY.recentEventsTitle}</p>
             <p className="mt-1 text-sm text-muted-foreground">{EMPTY_COPY.recentEventsBody}</p>
             <div className="mt-4 flex justify-center gap-2">
               <NewEventMenuButton size="sm" />
@@ -624,18 +586,16 @@ function AppDashboardHome() {
             {recent.map((event: Barbecue) => (
               <Link key={`recent-${event.id}`} href={`/app/e/${event.id}`}>
                 <a className="flex items-center justify-between gap-3 rounded-xl border border-border/50 p-3 hover:bg-muted/20 transition">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium truncate">{event.name}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      {event.date ? new Date(event.date).toLocaleDateString() : "Date TBA"}
-                    </p>
-                  </div>
-                  <Badge variant="outline" className="rounded-full">
-                    {isPublicEvent(event) ? "Public" : "Private"}
-                  </Badge>
-                </a>
-              </Link>
-            ))}
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate">{event.name}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {event.date ? new Date(event.date).toLocaleDateString() : "Date TBA"}
+                  </p>
+                </div>
+                <Badge variant="outline" className="rounded-full">Private</Badge>
+              </a>
+            </Link>
+          ))}
           </div>
         )}
       </section>
@@ -669,16 +629,15 @@ function PrivateHomePage({ user }: { user: { id?: number | null; username?: stri
     <div className="min-h-full p-4 sm:p-6 lg:p-8 space-y-6">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Private events</h1>
-          <p className="text-sm text-muted-foreground">Friends, circles, and split-cost plans in one place.</p>
+          <h1 className="text-2xl font-semibold tracking-tight">Friends plans</h1>
+          <p className="text-sm text-muted-foreground">A plan buddy for friend groups.</p>
         </div>
-        <NewEventMenuButton />
       </div>
 
       {(pinnedPrivate.length > 0 || fallbackPinned.length > 0) && (
         <section className="rounded-2xl border border-border/60 bg-card p-4 sm:p-5">
           <div className="flex items-center justify-between gap-2 mb-3">
-            <h2 className="text-sm font-semibold">Pinned private events</h2>
+            <h2 className="text-sm font-semibold">Pinned plans</h2>
             {pinnedPrivate.length === 0 && <span className="text-xs text-muted-foreground">Showing recent until you pin one</span>}
           </div>
           <div className="space-y-2">
@@ -707,7 +666,7 @@ function PrivateHomePage({ user }: { user: { id?: number | null; username?: stri
 
       <section className="rounded-2xl border border-border/60 bg-card p-4 sm:p-5">
         <div className="flex items-center justify-between gap-2 mb-3">
-          <h2 className="text-sm font-semibold">All private events</h2>
+          <h2 className="text-sm font-semibold">All plans</h2>
           <Badge variant="outline" className="rounded-full">{privateEvents.length}</Badge>
         </div>
         {isLoading ? (
@@ -718,7 +677,7 @@ function PrivateHomePage({ user }: { user: { id?: number | null; username?: stri
           </div>
         ) : error ? (
           <InlineQueryError
-            message="Couldn’t load private events. Try again."
+            message="Couldn’t load plans. Try again."
             onRetry={() => {
               void refetch();
             }}
@@ -759,188 +718,6 @@ function PrivateHomePage({ user }: { user: { id?: number | null; username?: stri
   );
 }
 
-function PublicHomePage() {
-  const { data: events = [], isLoading, error, refetch } = useBarbecues();
-  const { toastError, toastInfo, toastSuccess } = useAppToast();
-  const updateBbq = useUpdateBarbecue();
-  const checkoutPublicListing = useCheckoutPublicListing();
-  const [publicListTab, setPublicListTab] = useState<"drafts" | "listed">("drafts");
-
-  const publicEvents = useMemo(
-    () => events.filter((e) => isPublicEvent(e)).sort((a, b) => getEventDateMs(b) - getEventDateMs(a)),
-    [events],
-  );
-  const listedEvents = useMemo(() => publicEvents.filter((e) => isPublicListed(e)), [publicEvents]);
-  const draftEvents = useMemo(() => publicEvents.filter((e) => !isPublicListed(e)), [publicEvents]);
-  const activeList = publicListTab === "listed" ? listedEvents : draftEvents;
-
-  const copyLink = async (event: Barbecue) => {
-    if (!event.publicSlug) {
-      toastInfo("Public link is not ready yet.");
-      return;
-    }
-    const url = `${typeof window !== "undefined" ? window.location.origin : ""}/events/${event.publicSlug}`;
-    const ok = await copyText(url);
-    if (ok) {
-      toastSuccess(UI_COPY.toasts.copied);
-    } else {
-      toastError(UI_COPY.toasts.copiedManual);
-    }
-  };
-
-  const handlePublish = (event: Barbecue) => {
-    if (event.publicListingStatus === "active") {
-      updateBbq.mutate(
-        { id: event.id, visibility: "public", publicMode: (event.publicMode === "joinable" ? "joinable" : "marketing") },
-        {
-          onSuccess: () => toastSuccess("Event published"),
-          onError: () => toastError("Couldn’t publish event. Try again."),
-        },
-      );
-      return;
-    }
-    checkoutPublicListing.mutate(
-      { id: event.id, publicMode: (event.publicMode === "joinable" ? "joinable" : "marketing") },
-      {
-        onSuccess: (data) => {
-          if (data?.url) window.location.href = data.url;
-        },
-        onError: (err) => {
-          const msg = (err as Error).message || "Failed to start checkout";
-          if (!/APP_URL/i.test(msg)) toastError("Couldn’t start listing checkout. Try again.");
-        },
-      },
-    );
-  };
-
-  return (
-    <div className="min-h-full p-4 sm:p-6 lg:p-8 space-y-6">
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Public events</h1>
-          <p className="text-sm text-muted-foreground">Creator workspace for drafts, listings, and share-ready event pages.</p>
-        </div>
-        <NewEventMenuButton />
-      </div>
-
-      <section className="rounded-2xl border border-border/60 bg-card p-4 sm:p-5">
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <div className="inline-flex rounded-xl border border-border/60 bg-muted/20 p-1">
-            <button
-              type="button"
-              className={`px-3 py-1.5 text-sm rounded-lg transition ${publicListTab === "drafts" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-              onClick={() => setPublicListTab("drafts")}
-            >
-              Draft / Unlisted
-              <span className="ml-2 text-xs text-muted-foreground">{draftEvents.length}</span>
-            </button>
-            <button
-              type="button"
-              className={`px-3 py-1.5 text-sm rounded-lg transition ${publicListTab === "listed" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
-              onClick={() => setPublicListTab("listed")}
-            >
-              Listed / Published
-              <span className="ml-2 text-xs text-muted-foreground">{listedEvents.length}</span>
-            </button>
-          </div>
-          <p className="text-xs text-muted-foreground">Explore is separate: it shows listed public events from everyone.</p>
-        </div>
-      </section>
-
-      <section className="rounded-2xl border border-border/60 bg-card p-4 sm:p-5">
-        {isLoading ? (
-          <div className="space-y-3">
-            <SkeletonCard />
-            <SkeletonCard />
-            <SkeletonCard />
-          </div>
-        ) : error ? (
-          <InlineQueryError
-            message="Couldn’t load public events. Try again."
-            onRetry={() => {
-              void refetch();
-            }}
-          />
-        ) : activeList.length === 0 ? (
-          <div className="rounded-xl border border-border/50 bg-muted/20 p-6 text-center">
-            <p className="text-sm font-medium">{publicListTab === "drafts" ? EMPTY_COPY.publicListDraftTitle : EMPTY_COPY.publicListListedTitle}</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {publicListTab === "drafts"
-                ? EMPTY_COPY.publicListDraftBody
-                : EMPTY_COPY.publicListListedBody}
-            </p>
-            <div className="mt-4">
-              <NewEventMenuButton size="sm" />
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {activeList.map((event) => {
-              const status = getPublicHomeStatus(event);
-              return (
-                <div key={`public-home-${event.id}`} className="rounded-xl border border-border/50 p-3">
-                  <div className="flex items-start gap-3">
-                    <div className="h-16 w-24 shrink-0 rounded-lg border border-border/50 bg-muted/20 overflow-hidden">
-                      {event.bannerImageUrl ? (
-                        <img src={event.bannerImageUrl} alt={event.name} className="h-full w-full object-cover" />
-                      ) : (
-                        <div className="h-full w-full flex items-center justify-center text-muted-foreground">
-                          <Megaphone className="h-4 w-4" />
-                        </div>
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-sm font-medium truncate">{event.name}</p>
-                        <Badge variant={status.tone === "default" ? "default" : "outline"} className="rounded-full">
-                          {status.label}
-                        </Badge>
-                        <Badge variant="outline" className="rounded-full">
-                          {event.publicMode === "joinable" ? "Joinable" : "Marketing"}
-                        </Badge>
-                      </div>
-                      <p className="mt-1 text-xs text-muted-foreground truncate">
-                        {formatEventDate(event.date)} · {formatEventLocation(event)}
-                      </p>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <Link href={`/app/e/${event.id}`}>
-                          <Button size="sm" variant="outline">
-                            <ExternalLink className="h-4 w-4 mr-1.5" />Open
-                          </Button>
-                        </Link>
-                        <Button size="sm" variant="ghost" onClick={() => void copyLink(event)}>
-                          <Copy className="h-4 w-4 mr-1.5" />Copy link
-                        </Button>
-                        {!isPublicListed(event) && (
-                          <Button
-                            size="sm"
-                            onClick={() => handlePublish(event)}
-                            disabled={checkoutPublicListing.isPending || updateBbq.isPending}
-                            className="min-w-[92px]"
-                          >
-                            {checkoutPublicListing.isPending || updateBbq.isPending ? (
-                              <>
-                                <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
-                                Publishing
-                              </>
-                            ) : (
-                              "Publish"
-                            )}
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
-    </div>
-  );
-}
-
 export default function AppRoute() {
   const [location, setLocation] = useLocation();
   const { user, isLoading: isAuthLoading } = useAuth();
@@ -951,9 +728,7 @@ export default function AppRoute() {
 
   const pathname = typeof window !== "undefined" ? window.location.pathname : (location.split("?")[0] || "/app");
   const search = typeof window !== "undefined" ? window.location.search : "";
-  const searchParams = useMemo(() => new URLSearchParams(search), [search]);
   const devDisable = useMemo(() => parseDevDisableFlags(search), [search]);
-  const newFlow = searchParams.get("new");
   useEffect(() => {
     if (!isAuthLoading && !user) setLocation("/login");
   }, [user, isAuthLoading, setLocation]);
@@ -971,7 +746,7 @@ export default function AppRoute() {
     const startRouteByPref: Record<string, string> = {
       home: "/app/home",
       private: "/app/private",
-      public: "/app/public",
+      public: "/app/private",
     };
     const startRoute = startRouteByPref[prefs.defaultStartPage] ?? "/app/home";
     setLocation(`${startRoute}${url.search || ""}`, { replace: true });
@@ -986,16 +761,14 @@ export default function AppRoute() {
     routeEventId = Number.isFinite(n) ? n : null;
   } else if (pathname === "/app/private") {
     section = "private";
-  } else if (pathname === "/app/public") {
-    section = "public";
-  } else if (pathname === "/app/explore") {
-    section = "explore";
   } else {
     section = "home";
   }
-  const shouldUseLegacyHomeForCreate =
-    (section === "private" && newFlow === "private") ||
-    (section === "public" && newFlow === "public");
+  useEffect(() => {
+    if (!FEATURE_PUBLIC_PLANS && (pathname === "/app/public" || pathname === "/app/explore")) {
+      setLocation("/app/private", { replace: true });
+    }
+  }, [pathname, setLocation]);
 
   useEffect(() => {
     setIsSidebarOpen(false);
@@ -1033,7 +806,7 @@ export default function AppRoute() {
 
   const mobileQuickSwitchEvents = useMemo(() => {
     const q = mobileQuickSwitchSearch.trim().toLowerCase();
-    const sorted = [...appEvents].sort((a, b) => getEventDateMs(b) - getEventDateMs(a));
+    const sorted = [...appEvents].filter((event) => isPrivateEvent(event)).sort((a, b) => getEventDateMs(b) - getEventDateMs(a));
     if (!q) return sorted.slice(0, 8);
     return sorted.filter((event) => {
       const locationText = `${event.city ?? ""} ${event.countryName ?? ""} ${event.locationName ?? ""}`;
@@ -1046,15 +819,20 @@ export default function AppRoute() {
     return appEvents.find((e) => e.id === routeEventId)?.name ?? null;
   }, [section, routeEventId, appEvents]);
 
+  useEffect(() => {
+    if (section !== "event" || !routeEventId) return;
+    const event = appEvents.find((candidate) => candidate.id === routeEventId);
+    if (!event) return;
+    if (!isPrivateEvent(event)) {
+      setLocation("/app/private", { replace: true });
+    }
+  }, [section, routeEventId, appEvents, setLocation]);
+
   const mobileSectionLabel = section === "event"
     ? (currentEventName ?? "Event")
     : section === "private"
       ? "Private"
-      : section === "public"
-        ? "Public"
-        : section === "explore"
-          ? "Explore"
-          : "Home";
+      : "Home";
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1125,8 +903,6 @@ export default function AppRoute() {
                 {[
                   { href: "/app/home", label: "Home", icon: HomeIcon, key: "home" as AppSection },
                   { href: "/app/private", label: "Private", icon: Lock, key: "private" as AppSection },
-                  { href: "/app/public", label: "Public", icon: Globe, key: "public" as AppSection },
-                  { href: "/app/explore", label: "Explore", icon: Compass, key: "explore" as AppSection },
                 ].map((item) => {
                   const Icon = item.icon;
                   const active = section === item.key || (section === "event" && item.key === "home");
@@ -1146,11 +922,11 @@ export default function AppRoute() {
               <div className="border-y border-border/60 px-3 py-3 space-y-2 shrink-0">
                 <NewEventMenuButton className="w-full justify-start" align="start" onNavigate={() => setIsSidebarOpen(false)} />
                 <div className="space-y-2">
-                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground px-1">Your events</p>
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground px-1">Your plans</p>
                   <Input
                     value={mobileQuickSwitchSearch}
                     onChange={(e) => setMobileQuickSwitchSearch(e.target.value)}
-                    placeholder="Search events..."
+                    placeholder="Search plans..."
                     className="h-8 text-xs"
                   />
                 </div>
@@ -1158,11 +934,11 @@ export default function AppRoute() {
               <div className="px-3 py-3 flex-1 min-h-0 overflow-y-auto">
                 <div className="space-y-1 pr-1">
                   <div className="flex items-center justify-between px-1">
-                    <p className="text-[11px] font-medium text-muted-foreground">Recent</p>
+                    <p className="text-[11px] font-medium text-muted-foreground">Recent plans</p>
                     <button
                       type="button"
                       className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                      aria-label={mobileRecentCollapsed ? "Expand recent events" : "Collapse recent events"}
+                      aria-label={mobileRecentCollapsed ? "Expand recent plans" : "Collapse recent plans"}
                       aria-expanded={!mobileRecentCollapsed}
                       aria-controls="mobile-recent-events-list"
                       onClick={() => setMobileRecentCollapsed((v) => !v)}
@@ -1173,7 +949,7 @@ export default function AppRoute() {
                   {mobileRecentCollapsed ? (
                     <p className="text-xs text-muted-foreground px-1 py-1.5">{mobileQuickSwitchEvents.length} hidden</p>
                   ) : mobileQuickSwitchEvents.length === 0 ? (
-                    <p className="text-xs text-muted-foreground px-1 py-1.5">No events found</p>
+                    <p className="text-xs text-muted-foreground px-1 py-1.5">No plans found</p>
                   ) : (
                     <div id="mobile-recent-events-list" className="space-y-1">
                       {mobileQuickSwitchEvents.map((event) => (
@@ -1184,7 +960,7 @@ export default function AppRoute() {
                           >
                             <p className="truncate font-medium">{event.name}</p>
                             <p className="truncate text-[10px] text-muted-foreground">
-                              {isPublicEvent(event) ? "Public" : "Private"} · {formatEventLocation(event)}
+                              Private · {formatEventLocation(event)}
                             </p>
                           </a>
                         </Link>
@@ -1200,22 +976,10 @@ export default function AppRoute() {
         <AppSidebar section={section} />
         <main className="min-w-0 flex-1">
           {section === "home" && <AppDashboardHome />}
-          {section === "explore" && <ExplorePage />}
-          {section === "private" && (shouldUseLegacyHomeForCreate
-            ? (
-              devDisable.homeEffects
-                ? <div className="p-6 text-sm text-muted-foreground">Home effects disabled via kill switch.</div>
-                : <Home appRouteMode="private" debugDisableDiscoverModal={devDisable.discoverModal} />
-            )
-            : <PrivateHomePage user={user} />
-          )}
-          {section === "public" && (shouldUseLegacyHomeForCreate
-            ? (
-              devDisable.homeEffects
-                ? <div className="p-6 text-sm text-muted-foreground">Home effects disabled via kill switch.</div>
-                : <Home appRouteMode="public" debugDisableDiscoverModal={devDisable.discoverModal} />
-            )
-            : <PublicHomePage />
+          {section === "private" && (
+            devDisable.homeEffects
+              ? <div className="p-6 text-sm text-muted-foreground">Home effects disabled via kill switch.</div>
+              : <Home appRouteMode="private" debugDisableDiscoverModal={devDisable.discoverModal} />
           )}
           {section === "event" && (
             devDisable.homeEffects

@@ -30,6 +30,7 @@ declare module "http" {
 
 export function createApp() {
   const app = express();
+  const publicSectionEnabled = process.env.FEATURE_PUBLIC_PLANS === "1" || process.env.ENABLE_PUBLIC_SECTION === "1";
 
   app.use(
     express.json({
@@ -80,6 +81,23 @@ export function createApp() {
   );
 
   app.use(requestContext);
+
+  // Temporary feature lock: disable public/explore surfaces while private UX is being polished.
+  if (!publicSectionEnabled) {
+    app.use((req, res, next) => {
+      const path = req.path || "";
+      const isPublicApiPath =
+        path.startsWith("/api/explore/") ||
+        path.startsWith("/api/public/") ||
+        path.startsWith("/api/public-events/") ||
+        path.startsWith("/api/public-profile/");
+      if (!isPublicApiPath) return next();
+      return res.status(410).json({
+        code: "PUBLIC_DISABLED",
+        message: "Public section is temporarily disabled",
+      });
+    });
+  }
 
   // Legacy aggregate endpoint (/all) for older deployed clients.
   // Fail-soft: partial slices return defaults + errors metadata instead of 500.

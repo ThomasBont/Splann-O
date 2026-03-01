@@ -46,6 +46,8 @@ export const api = {
       method: 'PATCH' as const,
       path: '/api/barbecues/:id' as const,
       input: z.object({
+        name: z.string().min(1).max(120).optional(),
+        date: z.union([z.string(), z.date()]).optional(),
         allowOptInExpenses: z.boolean().optional(),
         templateData: z.unknown().optional(),
         status: z.enum(["draft", "active", "settling", "settled"]).optional(),

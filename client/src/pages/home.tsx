@@ -21,7 +21,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { EventTabsContent } from "@/components/event/EventTabs";
 import { EventPageTabsRouter } from "@/components/event/pages/EventPageTabsRouter";
-import { Modal, ModalSection } from "@/components/ui/modal";
+import { Modal } from "@/components/ui/modal";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import {
   Accordion,
   AccordionContent,
@@ -41,12 +42,12 @@ import {
 import { AddPersonDialog } from "@/components/add-person-dialog";
 import { AddExpenseDialog } from "@/components/add-expense-dialog";
 import { CurrencyPicker } from "@/components/currency-picker";
-import { LocationCombobox } from "@/components/location-combobox";
-import { PrivateLocationTypeahead } from "@/components/event/PrivateLocationTypeahead";
 import { type LocationOption, currencyForCountry } from "@/lib/locations-data";
 import { EventHeader } from "@/components/event/EventHeader";
 import { ChatSidebar } from "@/components/event/ChatSidebar";
 import GuestsWidget from "@/components/event/GuestsWidget";
+import SharedCostsWidget from "@/components/event/SharedCostsWidget";
+import PlanDetailsDrawer from "@/components/event/PlanDetailsDrawer";
 import { PrivateEventHero } from "@/components/event/PrivateEventHero";
 import EventSettingsModal from "@/components/event/EventSettingsModal";
 import { EditTripLocationModal } from "@/components/event/EditTripLocationModal";
@@ -70,7 +71,7 @@ import {
   CalendarDays, Loader2,
   UserCheck, UserX, LogOut, Crown, Clock, UserCircle, ChevronDown,
   Lock, Globe, UserPlus, X, Eye, EyeOff, Compass,
-  Bell, UserPlus2, Search, Heart, Sun, Moon, MessageCircle, Star,
+  Bell, UserPlus2, Search, Heart, Sun, Moon, MessageCircle, Star, Plane, PartyPopper,
 } from "lucide-react";
 import { useTheme } from "@/hooks/use-theme";
 import { useEventHeaderPreferences } from "@/hooks/use-event-header-preferences";
@@ -100,6 +101,7 @@ import { NotesTab } from "@/components/event/NotesTab";
 import { ExpenseReactionBar } from "@/components/event/ExpenseReactionBar";
 import { AnimatedBalance } from "@/components/event/AnimatedBalance";
 import { useExpenseReactions } from "@/hooks/use-expense-reactions";
+import { usePlanActivity } from "@/hooks/use-plan-activity";
 import { getEventTheme } from "@/theme/useEventTheme";
 import { EventThemeProvider } from "@/themes/ThemeProvider";
 import { SignatureEffect } from "@/themes/SignatureEffect";
@@ -114,13 +116,7 @@ import {
   type PrivateTemplateId,
 } from "@/lib/private-event-templates";
 import {
-  PRIVATE_EVENT_TYPES,
-  PRIVATE_EVENT_VIBES_BY_TYPE,
   VIBE_THEME,
-  getDefaultVibeForType,
-  getPrivateEventTypeById,
-  inferPrivateEventTypeFromEventType,
-  type PrivateEventTypeId,
   type PrivateEventVibeId,
 } from "@/lib/event-types";
 import { buildWhatsAppMessage, buildWhatsAppShareUrl } from "@/lib/share-message";
@@ -129,6 +125,7 @@ import { buildIcs, downloadIcs, inferEventDateRange } from "@/lib/calendar-ics";
 import { buildMapsUrl, openMaps } from "@/lib/maps";
 import { InlineQueryError, SkeletonAvatar, SkeletonCard, SkeletonLine } from "@/components/ui/load-states";
 import { EMPTY_COPY, UI_COPY } from "@/lib/emotional-copy";
+import { FEATURE_PUBLIC_PLANS } from "@/lib/features";
 import type { EventBannerPresetId } from "@/lib/event-banner";
 import {
   defaultPrivateSuggestionState,
@@ -142,6 +139,7 @@ import {
   type SuggestionVote,
 } from "@/lib/private-event-suggestions";
 import { getListingBadgeLabel, isPublicEvent, shouldShowPendingPublish } from "@/lib/public-listing-ui";
+import { isPrivateEvent as isPrivateEventVisibility } from "@shared/event-visibility";
 import type { ExpenseWithParticipant, Barbecue, Participant, FriendInfo, PendingRequestWithBbq } from "@shared/schema";
 
 /** Fallback colors for expense chart. Extended for custom categories (hash-based). */
@@ -181,6 +179,66 @@ const PUBLIC_TEMPLATE_OPTIONS = [
   { key: "nightlife", label: "Nightlife", description: "Atmospheric, bold hero treatment" },
   { key: "meetup", label: "Meetup", description: "Friendly community event layout" },
 ] as const;
+
+type PlanMainCategory = "trip" | "party";
+type PlanSubcategoryId =
+  | "backpacking"
+  | "city_trip"
+  | "workation"
+  | "roadtrip"
+  | "beach_trip"
+  | "ski_trip"
+  | "festival_trip"
+  | "weekend_getaway"
+  | "barbecue"
+  | "cinema_night"
+  | "game_night"
+  | "dinner"
+  | "birthday"
+  | "house_party"
+  | "club_night"
+  | "picnic";
+
+type PlanSubcategoryDef = {
+  id: PlanSubcategoryId;
+  label: string;
+  emoji: string;
+  eventTypeValue: string;
+  area: "trips" | "parties";
+  templateId: PrivateTemplateId;
+};
+
+const PLAN_TYPE_OPTIONS: Array<{
+  id: PlanMainCategory;
+  label: string;
+  description: string;
+  icon: typeof Plane;
+}> = [
+  { id: "trip", label: "Trip", description: "Travel plans and shared costs", icon: Plane },
+  { id: "party", label: "Party", description: "Celebrate and coordinate with friends", icon: PartyPopper },
+];
+
+const TRIP_SUBCATEGORIES: PlanSubcategoryDef[] = [
+  { id: "backpacking", label: "Backpacking", emoji: "🎒", eventTypeValue: "backpacking", area: "trips", templateId: "trip" },
+  { id: "city_trip", label: "City trip", emoji: "🏙️", eventTypeValue: "city_trip", area: "trips", templateId: "trip" },
+  { id: "workation", label: "Workation", emoji: "💻", eventTypeValue: "workation", area: "trips", templateId: "trip" },
+  { id: "roadtrip", label: "Roadtrip", emoji: "🚗", eventTypeValue: "road_trip", area: "trips", templateId: "trip" },
+  { id: "ski_trip", label: "Ski trip", emoji: "🎿", eventTypeValue: "ski_trip", area: "trips", templateId: "trip" },
+  { id: "beach_trip", label: "Beach getaway", emoji: "🏖️", eventTypeValue: "beach_trip", area: "trips", templateId: "trip" },
+  { id: "festival_trip", label: "Festival trip", emoji: "🎪", eventTypeValue: "festival_trip", area: "trips", templateId: "trip" },
+  { id: "weekend_getaway", label: "Weekend escape", emoji: "🧳", eventTypeValue: "weekend_getaway", area: "trips", templateId: "weekend" },
+];
+
+const PARTY_SUBCATEGORIES: PlanSubcategoryDef[] = [
+  { id: "barbecue", label: "Barbecue", emoji: "🔥", eventTypeValue: "barbecue", area: "parties", templateId: "party" },
+  { id: "cinema_night", label: "Cinema", emoji: "🎬", eventTypeValue: "cinema", area: "parties", templateId: "generic" },
+  { id: "game_night", label: "Game night", emoji: "🎮", eventTypeValue: "game_night", area: "parties", templateId: "game_night" },
+  { id: "dinner", label: "Dinner", emoji: "🍝", eventTypeValue: "dinner_party", area: "parties", templateId: "dinner" },
+  { id: "house_party", label: "House party", emoji: "🏠", eventTypeValue: "house_party", area: "parties", templateId: "party" },
+  { id: "birthday", label: "Birthday", emoji: "🎂", eventTypeValue: "birthday", area: "parties", templateId: "party" },
+  { id: "club_night", label: "Drinks night", emoji: "🍸", eventTypeValue: "after_party", area: "parties", templateId: "party" },
+  { id: "picnic", label: "Brunch", emoji: "🥐", eventTypeValue: "day_out", area: "parties", templateId: "generic" },
+];
 
 type PublicTemplateKey = (typeof PUBLIC_TEMPLATE_OPTIONS)[number]["key"];
 type PublicRsvpTierDraft = {
@@ -521,18 +579,15 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
   const [newBbqPublicMode, setNewBbqPublicMode] = useState<"marketing" | "joinable">("marketing");
   const [newBbqAllowOptIn, setNewBbqAllowOptIn] = useState(false);
   const [newEventPublicCategory, setNewEventPublicCategory] = useState<PublicCreateCategoryKey>("networking");
-  const [newEventWizardStep, setNewEventWizardStep] = useState<1 | 2 | 3>(1);
   const [newPublicCreateStep, setNewPublicCreateStep] = useState<1 | 2 | 3 | 4>(1);
   const [newPrivateCreateStep, setNewPrivateCreateStep] = useState<1 | 2 | 3>(1);
-  const [newEventWizardGoal, setNewEventWizardGoal] = useState<"private" | "public" | null>(null);
-  const [newEventPrivateAck, setNewEventPrivateAck] = useState(false);
-  const [newEventPublicAck, setNewEventPublicAck] = useState(false);
   const [newEventArea, setNewEventArea] = useState<"parties" | "trips">("parties");
   const [newEventType, setNewEventType] = useState<string>("barbecue");
-  const [newPrivateEventTypeId, setNewPrivateEventTypeId] = useState<PrivateEventTypeId>("generic");
-  const [newPrivateEventVibeId, setNewPrivateEventVibeId] = useState<PrivateEventVibeId>("cozy");
+  const [newPlanMainCategory, setNewPlanMainCategory] = useState<PlanMainCategory | null>(null);
+  const [newPlanSubCategory, setNewPlanSubCategory] = useState<PlanSubcategoryId | null>(null);
   const [newPrivateTemplateId, setNewPrivateTemplateId] = useState<PrivateTemplateId>("generic");
   const [newEventLocation, setNewEventLocation] = useState<LocationOption | null>(null);
+  const [newEventLocationTouched, setNewEventLocationTouched] = useState(false);
   const [newPublicDescription, setNewPublicDescription] = useState("");
   const [newPublicSubtitle, setNewPublicSubtitle] = useState("");
   const [newPublicOrganizationName, setNewPublicOrganizationName] = useState("");
@@ -548,9 +603,15 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
   const [newPublicListOnExplore, setNewPublicListOnExplore] = useState(false);
 
   useEffect(() => {
-    if (appRouteMode === "private") setEventVisibilityTab("private");
-    if (appRouteMode === "public") setEventVisibilityTab("public");
+    if (appRouteMode === "private" || !FEATURE_PUBLIC_PLANS) setEventVisibilityTab("private");
+    if (appRouteMode === "public" && FEATURE_PUBLIC_PLANS) setEventVisibilityTab("public");
   }, [appRouteMode]);
+
+  useEffect(() => {
+    if (!isManagedAppRoute) return;
+    if (appRouteMode !== "private") return;
+    setSelectedBbqId(null);
+  }, [isManagedAppRoute, appRouteMode]);
 
   useEffect(() => {
     if (newEventLocation) {
@@ -564,18 +625,9 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
     setNewBbqCurrency((current) => (current === "EUR" ? userDefault : current));
   }, [user?.defaultCurrencyCode, newEventLocation]);
 
-  useEffect(() => {
-    if (!isNewBbqOpen) return;
-    if (newEventWizardStep !== 1) return;
-    if (newEventWizardGoal) return;
-    const preferred = user?.defaultEventType === "public" ? "public" : user?.defaultEventType === "private" ? "private" : null;
-    if (!preferred) return;
-    setNewEventWizardGoal(preferred);
-    applyNewEventWizardGoal(preferred);
-  }, [isNewBbqOpen, newEventWizardStep, newEventWizardGoal, user?.defaultEventType]);
-
   const [isAddPersonOpen, setIsAddPersonOpen] = useState(false);
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
+  const [isPlanDetailsOpen, setIsPlanDetailsOpen] = useState(false);
   const [recommendedExpenseTemplate, setRecommendedExpenseTemplate] = useState<{ item: string; category: string; optInDefault?: boolean } | null>(null);
   const [editingExpense, setEditingExpense] = useState<ExpenseWithParticipant | null>(null);
   const [editingParticipantId, setEditingParticipantId] = useState<number | null>(null);
@@ -727,10 +779,8 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
     const next = url.searchParams.get("new");
     if (next !== "private" && next !== "public") return;
     setIsNewBbqOpen(true);
-    setNewEventWizardStep(1);
+    resetNewEventWizard();
     setNewPublicCreateStep(1);
-    setNewEventWizardGoal(next);
-    applyNewEventWizardGoal(next);
     url.searchParams.delete("new");
     window.history.replaceState({}, "", url.toString());
   }, [isManagedAppRoute]);
@@ -818,6 +868,14 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
         return getEventSortTime(b) - getEventSortTime(a);
       }),
     [barbecuesForArea]
+  );
+  // Keep Friends plans overview aligned with sidebar dataset:
+  // all private plans the user can access, independent of area filter.
+  const privatePlansForOverview = useMemo(
+    () => barbecues
+      .filter((b: Barbecue) => isPrivateEventVisibility(b))
+      .sort((a: Barbecue, b: Barbecue) => getEventSortTime(b) - getEventSortTime(a)),
+    [barbecues]
   );
   const listBarbecuesForArea = eventVisibilityTab === "private" ? privateBarbecuesForArea : publicBarbecuesForArea;
   const allEventsForArea = useMemo(
@@ -908,6 +966,8 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
   const updateConversationStatus = useUpdateConversationStatus(publicInboxConversationId);
   const publicInboxConversations = (publicInboxList.data?.conversations ?? []).filter((c) => c.barbecueId === selectedBbqId);
   const { data: invitedParticipants = [] } = useInvitedParticipants(isPrivate ? selectedBbqId : null);
+  const { latestItems: latestPlanActivity, loading: planActivityLoading, highlightedId: highlightedActivityId } =
+    usePlanActivity(selectedBbq?.id ?? null, !!selectedBbq?.id && isPrivateContext);
   const { data: memberships = [] } = useMemberships(username);
   const privateSuggestionsEligible = isEligibleForLocalSuggestions({
     city: selectedBbq?.city ?? null,
@@ -1002,6 +1062,29 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
     const converted = convertCurrency(amount, currency, displayCurrency);
     const num = Number.isFinite(converted) ? converted : 0;
     return `${displayCurrencyInfo.symbol}${num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
+  const formatHeroDateEnglish = (value: string | Date | null | undefined) => {
+    if (!value) return "Date TBA";
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return "Date TBA";
+    return new Intl.DateTimeFormat("en-GB", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    }).format(date);
+  };
+  const formatRelativeShort = (value?: string | null) => {
+    if (!value) return "";
+    const ts = new Date(value).getTime();
+    if (!Number.isFinite(ts)) return "";
+    const diff = Date.now() - ts;
+    const mins = Math.floor(diff / 60_000);
+    if (mins <= 0) return "Just now";
+    if (mins < 60) return `${mins}m`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h`;
+    const days = Math.floor(hours / 24);
+    return `${days}d`;
   };
 
   const totalSpent = expenses.reduce(
@@ -1228,8 +1311,9 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
 
   const handleCreateBbq = () => {
     if (!newBbqName.trim()) return;
-    if (newBbqVisibilityOrigin === "public" && !newEventLocation) {
-      toastError("Location is required for public events.");
+    if (!newEventLocation?.locationName.trim()) {
+      setNewEventLocationTouched(true);
+      toastError("Location is required.");
       return;
     }
     const requestedPublicOnCreate = newBbqIsPublic;
@@ -1264,13 +1348,17 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
       };
     } else {
       const baseTemplate = (templateData && typeof templateData === "object") ? templateData as Record<string, unknown> : {};
+      const selectedPrivateSubcategory = [...TRIP_SUBCATEGORIES, ...PARTY_SUBCATEGORIES].find((item) => item.id === newPlanSubCategory) ?? null;
       templateData = {
         ...baseTemplate,
         personality: getDefaultCirclePersonality({ area: newEventArea, eventType: newEventType }),
-        privateEventTypeId: newPrivateEventTypeId,
-        privateEventVibeId: newPrivateEventVibeId,
+        mainCategory: newPlanMainCategory ?? "party",
+        subCategory: newPlanSubCategory ?? "barbecue",
+        privateMainCategory: newPlanMainCategory ?? "party",
+        privateSubCategory: newPlanSubCategory ?? "barbecue",
+        privateEventTypeId: newPlanSubCategory ?? "barbecue",
         privateTemplateId: newPrivateTemplateId,
-        emoji: selectedCreatePrivateTemplate.emoji,
+        emoji: selectedPrivateSubcategory?.emoji ?? selectedCreatePrivateTemplate.emoji,
       };
     }
     const payload: Parameters<typeof createBbq.mutate>[0] & { currencySource?: "auto" | "manual" } = {
@@ -1285,7 +1373,6 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
       allowOptInExpenses: newBbqAllowOptIn,
       area: newEventArea,
       eventType: newEventType,
-      eventVibe: requestedVisibilityOriginOnCreate === "private" ? newPrivateEventVibeId : undefined,
       templateData,
       status: requestedVisibilityOriginOnCreate === "public" ? "draft" : undefined,
       organizationName: requestedVisibilityOriginOnCreate === "public" ? (newPublicOrganizationName.trim() || null) : undefined,
@@ -1364,12 +1451,8 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
   };
 
   const resetNewEventWizard = () => {
-    setNewEventWizardStep(1);
     setNewPublicCreateStep(1);
     setNewPrivateCreateStep(1);
-    setNewEventWizardGoal(null);
-    setNewEventPrivateAck(false);
-    setNewEventPublicAck(false);
     setNewEventPublicCategory("networking");
     setNewPublicDescription("");
     setNewPublicSubtitle("");
@@ -1383,28 +1466,43 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
     setNewPublicRsvpTiers([{ id: "general", name: "General Admission", description: "", priceLabel: "", capacity: "", isFree: true }]);
     setNewPublicListOnExplore(false);
     setNewPrivateTemplateId("generic");
-    setNewPrivateEventTypeId("generic");
-    setNewPrivateEventVibeId("cozy");
-    setNewBbqVisibilityOrigin("public");
-    setNewBbqIsPublic(true);
+    setNewPlanMainCategory(null);
+    setNewPlanSubCategory(null);
+    setNewBbqVisibilityOrigin("private");
+    setNewBbqIsPublic(false);
+    setNewEventLocationTouched(false);
   };
 
-  const applyNewEventWizardGoal = (goal: "private" | "public") => {
-    setNewEventWizardGoal(goal);
-    if (goal === "private") {
-      setNewBbqVisibilityOrigin("private");
-      setNewBbqIsPublic(false);
-      const inferredType = inferPrivateEventTypeFromEventType(newEventType);
-      applyPrivateEventType(inferredType);
-      setNewPrivateCreateStep(1);
-    } else {
-      setNewBbqVisibilityOrigin("public");
-      setNewBbqIsPublic(true);
-      const preset = PUBLIC_CREATE_CATEGORY_OPTIONS.find((c) => c.key === "networking")!;
-      setNewEventPublicCategory(preset.key);
-      setNewEventArea(preset.area);
-      setNewEventType(preset.eventType);
+  const handleNewEventLocationInput = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      setNewEventLocation(null);
+      return;
     }
+    setNewEventLocation({
+      locationName: value,
+      city: "",
+      countryCode: "",
+      countryName: "",
+    });
+  };
+
+  const closeNewEventWizard = () => {
+    setIsNewBbqOpen(false);
+    setNewEventArea(area);
+    setNewEventType(area === "trips" ? "city_trip" : "barbecue");
+    setNewEventLocation(null);
+    setNewEventLocationTouched(false);
+    resetNewEventWizard();
+  };
+
+  const handleNewEventOpenChange = (open: boolean) => {
+    setIsNewBbqOpen(open);
+    if (!open) {
+      closeNewEventWizard();
+      return;
+    }
+    resetNewEventWizard();
   };
 
   const applyPublicCreateCategory = (categoryKey: PublicCreateCategoryKey) => {
@@ -1436,13 +1534,19 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
     });
   };
 
-  const applyPrivateEventType = (typeId: PrivateEventTypeId) => {
-    const typeDef = getPrivateEventTypeById(typeId);
-    setNewPrivateEventTypeId(typeId);
-    setNewEventArea(typeDef.area);
-    setNewEventType(typeDef.eventTypeValue);
-    setNewPrivateTemplateId(typeDef.privateTemplateId);
-    setNewPrivateEventVibeId(getDefaultVibeForType(typeId));
+  const applyPlanMainCategory = (mainCategory: PlanMainCategory) => {
+    setNewPlanMainCategory(mainCategory);
+    setNewPlanSubCategory(null);
+  };
+
+  const applyPlanSubCategory = (subcategoryId: PlanSubcategoryId) => {
+    const all = [...TRIP_SUBCATEGORIES, ...PARTY_SUBCATEGORIES];
+    const selected = all.find((item) => item.id === subcategoryId);
+    if (!selected) return;
+    setNewPlanSubCategory(subcategoryId);
+    setNewEventArea(selected.area);
+    setNewEventType(selected.eventTypeValue);
+    setNewPrivateTemplateId(selected.templateId);
   };
 
   const markEventRecent = (eventId: number) => {
@@ -1517,15 +1621,11 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
   const selectedPrivateTemplate = getPrivateTemplateForEvent(selectedBbq);
   const selectedEventVibeTheme = VIBE_THEME[(selectedBbq?.eventVibe as PrivateEventVibeId) ?? "cozy"] ?? VIBE_THEME.cozy;
   const selectedCreatePrivateTemplate = getPrivateTemplateById(newPrivateTemplateId);
-  const selectedCreatePrivateType = getPrivateEventTypeById(newPrivateEventTypeId);
-  const selectedCreatePrivateVibes = PRIVATE_EVENT_VIBES_BY_TYPE[newPrivateEventTypeId] ?? [];
-  const selectedCreatePrivateVibeTheme = VIBE_THEME[newPrivateEventVibeId] ?? VIBE_THEME.cozy;
+  const selectedSubcategoryList = newPlanMainCategory === "trip" ? TRIP_SUBCATEGORIES : newPlanMainCategory === "party" ? PARTY_SUBCATEGORIES : [];
+  const selectedSubcategoryDef = [...TRIP_SUBCATEGORIES, ...PARTY_SUBCATEGORIES].find((item) => item.id === newPlanSubCategory) ?? null;
   const privateTypeLabel = (typeId: string, fallback: string) => t.privateWizard.typeLabels[typeId] ?? fallback;
-  const privateTypeDescription = (typeId: string, fallback: string) => t.privateWizard.typeDescriptions[typeId] ?? fallback;
   const privateVibeLabel = (vibeId: string, fallback: string) => t.privateWizard.vibeLabels[vibeId] ?? fallback;
-  const privateVibeDescription = (vibeId: string, fallback: string) => t.privateWizard.vibeDescriptions[vibeId] ?? fallback;
-  const privateVibeHelperCopy = (vibeId: string, fallback: string) => t.privateWizard.vibeHelperCopy[vibeId] ?? fallback;
-  const isPrivateBasicsValid = !!newBbqName.trim() && !!newBbqDate;
+  const isPrivateBasicsValid = !!newBbqName.trim() && !!newBbqDate && !!newEventLocation?.locationName.trim();
   const headerPrimaryActionLabel = !isPublicBuilderContext && activeEventTab === "people" ? "Invite" : UI_COPY.actions.addExpense;
   const headerPrimaryActionVisible = !isPublicBuilderContext && (activeEventTab === "expenses" || activeEventTab === "people");
   const handleHeaderPrimaryAction = () => {
@@ -1538,6 +1638,85 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
     setEditingExpense(null);
     setIsAddExpenseOpen(true);
   };
+
+  const newEventWizardFooter = (
+    <div className="w-full space-y-2">
+      {newBbqVisibilityOrigin === "public" && newPublicCreateStep <= 4 && (
+        <p className="text-xs text-muted-foreground text-right">
+          Your plan is created as a private draft. Publish to Explore when ready.
+        </p>
+      )}
+      <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3 w-full">
+        <Button
+          variant="ghost"
+          onClick={() => {
+            if (newBbqVisibilityOrigin === "public" && newPublicCreateStep > 1) {
+              setNewPublicCreateStep((s) => (s > 1 ? ((s - 1) as 1 | 2 | 3) : s));
+              return;
+            }
+            if (newBbqVisibilityOrigin === "private" && newPrivateCreateStep > 1) {
+              setNewPrivateCreateStep((s) => (s > 1 ? ((s - 1) as 1 | 2) : s));
+              return;
+            }
+            closeNewEventWizard();
+          }}
+          className="w-full sm:w-auto order-2 sm:order-1"
+          data-testid="button-cancel-bbq"
+        >
+          {(newBbqVisibilityOrigin === "public" && newPublicCreateStep > 1) || (newBbqVisibilityOrigin === "private" && newPrivateCreateStep > 1)
+            ? "Back"
+            : t.modals.cancel}
+        </Button>
+        {newBbqVisibilityOrigin === "public" && newPublicCreateStep < 4 ? (
+          <Button
+            onClick={() => setNewPublicCreateStep((s) => ((s + 1) as 2 | 3 | 4))}
+            disabled={
+              (newPublicCreateStep === 1 && !newBbqName.trim()) ||
+              (newPublicCreateStep === 2 && (!newBbqName.trim() || !newEventLocation?.locationName.trim()))
+            }
+            className="w-full sm:w-auto bg-primary text-primary-foreground font-semibold transition-all duration-150 order-1 sm:order-2"
+            data-testid="button-public-builder-next"
+          >
+            Next
+          </Button>
+        ) : newBbqVisibilityOrigin === "private" && newPrivateCreateStep < 3 ? (
+          <Button
+            onClick={() => {
+              setNewPrivateCreateStep((s) => ((s + 1) as 2 | 3));
+            }}
+            disabled={
+              (newPrivateCreateStep === 1 && !isPrivateBasicsValid) ||
+              (newPrivateCreateStep === 2 && !newPlanMainCategory)
+            }
+            className="w-full sm:w-auto bg-primary text-primary-foreground font-semibold transition-all duration-150 order-1 sm:order-2"
+            data-testid="button-private-builder-next"
+          >
+            Next
+          </Button>
+        ) : newBbqVisibilityOrigin === "public" && newPublicCreateStep === 4 ? (
+          <Button
+            onClick={() => handleCreateBbq()}
+            disabled={!newBbqName.trim() || !newEventLocation?.locationName.trim() || createBbq.isPending}
+            className="w-full sm:w-auto min-w-[188px] bg-primary text-primary-foreground font-semibold shadow-lg shadow-primary/20 hover:shadow-primary/30 hover:-translate-y-0.5 transition-all duration-150 order-1 sm:order-2"
+            data-testid="button-create-public-event"
+          >
+            {createBbq.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <span className="w-4 h-4 inline-block" aria-hidden />}
+            <span>{createBbq.isPending ? "Starting plan..." : "Start public plan"}</span>
+          </Button>
+        ) : (
+          <Button
+            onClick={() => handleCreateBbq()}
+            disabled={!isPrivateBasicsValid || !newPlanMainCategory || !newPlanSubCategory || createBbq.isPending}
+            className="w-full sm:w-auto min-w-[188px] bg-primary text-primary-foreground font-semibold shadow-lg shadow-primary/20 hover:shadow-primary/30 hover:-translate-y-0.5 transition-all duration-150 order-1 sm:order-2"
+            data-testid="button-create-bbq"
+          >
+            {createBbq.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <span className="w-4 h-4 inline-block" aria-hidden />}
+            <span>{createBbq.isPending ? "Starting plan..." : "Start plan"}</span>
+          </Button>
+        )}
+      </div>
+    </div>
+  );
 
   useEffect(() => {
     const status = (selectedBbq?.status as string) ?? "active";
@@ -1845,7 +2024,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                 </button>
               </div>
 
-              {!isManagedAppRoute && (
+              {!isManagedAppRoute && FEATURE_PUBLIC_PLANS && (
                 <div className="inline-flex rounded-lg border border-white/10 overflow-hidden flex-shrink-0">
                   <button
                     type="button"
@@ -1874,22 +2053,22 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                     className="h-8 min-w-[180px] max-w-[280px] justify-between border-white/10 text-muted-foreground hover:text-foreground hover:bg-white/5 flex-shrink-0"
                     data-testid="button-all-events-selector"
                   >
-                    <span className="truncate text-left">{selectedBbq ? selectedEventLabel : "All events"}</span>
+                    <span className="truncate text-left">{selectedBbq ? selectedEventLabel : "All plans"}</span>
                     <ChevronDown className="w-3.5 h-3.5 ml-2 shrink-0 opacity-70" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent align="start" className="w-[320px] p-2">
                   <div className="space-y-2">
-                    <p className="px-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wide">All events</p>
+                    <p className="px-1 text-[11px] font-medium text-muted-foreground uppercase tracking-wide">All plans</p>
                     <Input
                       value={allEventsSearch}
                       onChange={(e) => setAllEventsSearch(e.target.value)}
-                      placeholder="Search events, city, country..."
+                      placeholder="Search plans, city, country..."
                       className="h-8"
                     />
                     <div className="max-h-72 overflow-y-auto space-y-1">
                       {allEventsFilteredForArea.length === 0 ? (
-                        <p className="px-2 py-2 text-xs text-muted-foreground">No events found</p>
+                        <p className="px-2 py-2 text-xs text-muted-foreground">No plans found</p>
                       ) : (
                         allEventsFilteredForArea.map((bbq: Barbecue) => {
                           const isSelected = bbq.id === selectedBbqId;
@@ -1909,12 +2088,12 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                                 <div className="min-w-0">
                                   <p className="text-sm font-medium truncate">{bbq.name}</p>
                                   <p className="text-[11px] text-muted-foreground truncate">
-                                    {bbq.city && bbq.countryName ? `${bbq.city}, ${bbq.countryName}` : (bbq.countryName || bbq.city || (isPublicItem ? "Public event" : "Private event"))}
+                                    {bbq.city && bbq.countryName ? `${bbq.city}, ${bbq.countryName}` : (bbq.countryName || bbq.city || (isPublicItem ? "Public plan" : "Friends plan"))}
                                   </p>
                                 </div>
                                 <div className="flex items-center gap-1 shrink-0">
                                   <span className={`text-[10px] px-1.5 py-0.5 rounded-full border ${isPublicItem ? "border-sky-400/30 text-sky-300" : "border-amber-400/30 text-amber-300"}`}>
-                                    {isPublicItem ? "Public" : "Private"}
+                                    {isPublicItem ? "Public" : "Friends"}
                                   </span>
                                   <button
                                     type="button"
@@ -1959,7 +2138,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                   data-testid="button-new-bbq"
                 >
                   <Plus className="w-4 h-4 mr-1.5" />
-                  {t.events.newEvent}
+                  Start a plan
                 </Button>
               )}
             </div>
@@ -1973,7 +2152,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
       <div className="sticky top-[114px] z-30 bg-[hsl(var(--surface-0))]/90 backdrop-blur-md border-b border-[hsl(var(--border-subtle))]" data-testid="section-bbq-selector">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-2">
           <p className="px-1 pb-1 text-[11px] text-muted-foreground hidden sm:block">
-            Pinned events
+            Pinned plans
           </p>
           <div className="overflow-x-auto -mx-1 px-1 pb-1">
             <div className="flex gap-2 items-center min-w-max">
@@ -1981,7 +2160,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                 <Loader2 className="w-4 h-4 animate-spin text-muted-foreground mx-2" />
               ) : pinnedBarbecuesForArea.length === 0 ? (
                 <span className="text-xs text-muted-foreground px-2 py-1.5 italic">
-                  {eventVisibilityTab === "private" ? "No pinned plans yet" : "No pinned events yet"}
+                  {eventVisibilityTab === "private" ? "No pinned plans yet" : "No pinned plans yet"}
                 </span>
               ) : (
                 pinnedBarbecuesForArea.map((bbq: Barbecue) => {
@@ -2165,7 +2344,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
           </div>
         ) : selectedBbqId && barbecuesError ? (
           <InlineQueryError
-            message="Couldn’t load this event. Try again."
+            message="Couldn’t load this plan. Try again."
             onRetry={() => {
               void refetchBarbecues();
             }}
@@ -2182,27 +2361,27 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
               <div className="mx-auto w-full max-w-[1400px] px-4 sm:px-6 lg:px-10 py-6 bg-[#FAF7F2] rounded-2xl">
                 <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
                   <section className="min-w-0 space-y-8">
-                    <div className="relative overflow-hidden rounded-3xl min-h-[300px] border border-slate-200 shadow-sm">
+                    <button
+                      type="button"
+                      className="relative min-h-[300px] w-full overflow-hidden rounded-3xl border border-slate-200 text-left shadow-sm transition-all duration-200 hover:border-slate-300 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                      onClick={() => setIsPlanDetailsOpen(true)}
+                      aria-label="Open plan details"
+                    >
                       <img
                         src={heroImage}
                         alt={selectedBbq.name}
                         className="absolute inset-0 h-full w-full object-cover"
                       />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-black/35 to-black/10" />
-                      <div className="relative z-10 p-7 sm:p-8 h-full flex flex-col justify-end">
-                        <span className="absolute top-5 right-5 rounded-full border border-white/30 bg-black/35 px-3 py-1 text-[11px] font-medium tracking-wide text-white/90">
-                          3h plan
-                        </span>
-                        <h2 className="text-3xl sm:text-4xl font-semibold tracking-tight text-white">
+                      <div className="absolute inset-0 rounded-3xl bg-gradient-to-b from-black/40 via-black/10 to-transparent" />
+                      <div className="pointer-events-none absolute left-6 top-6 z-10 md:left-8 md:top-8">
+                        <h2 className="text-2xl font-semibold tracking-tight text-white drop-shadow-sm md:text-3xl lg:text-4xl">
                           {selectedBbq.name}
                         </h2>
-                        <p className="mt-2 text-sm text-white/85 tracking-wide">
-                          {selectedBbq.date
-                            ? new Date(selectedBbq.date).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" })
-                            : "Date TBA"}
+                        <p className="mt-1 text-sm text-white/80 drop-shadow-sm md:text-base">
+                          {formatHeroDateEnglish(selectedBbq.date)}
                         </p>
                       </div>
-                    </div>
+                    </button>
 
                     <div className="rounded-2xl border border-amber-200/60 bg-gradient-to-r from-amber-100/80 to-rose-100/70 dark:from-amber-900/25 dark:to-rose-900/20 shadow-sm p-5">
                       <p className="text-base font-medium text-slate-800 dark:text-slate-100">
@@ -2211,6 +2390,28 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                       <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
                         {pendingCount} friend{pendingCount === 1 ? "" : "s"} still need to respond.
                       </p>
+                      <div className="mt-4 rounded-xl border border-white/40 bg-white/50 px-3 py-2 dark:border-white/10 dark:bg-black/10">
+                        <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-300">Recent activity</p>
+                        {planActivityLoading ? (
+                          <p className="mt-1 text-xs text-slate-500 dark:text-slate-300">Loading updates...</p>
+                        ) : latestPlanActivity.length > 0 ? (
+                          <ul className="mt-1 space-y-1">
+                            {latestPlanActivity.map((activity) => (
+                              <li
+                                key={`plan-activity-${activity.id}`}
+                                className={`truncate text-xs text-slate-700 transition-colors duration-700 dark:text-slate-200 ${highlightedActivityId === activity.id ? "bg-primary/5" : ""}`}
+                                title={activity.message}
+                              >
+                                • {activity.message} {activity.createdAt ? `· ${formatRelativeShort(activity.createdAt)}` : ""}
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="mt-1 text-xs text-slate-500 dark:text-slate-300">
+                            No updates yet — start by adding an expense or inviting your crew.
+                          </p>
+                        )}
+                      </div>
                       <div className="mt-5 h-2 rounded-full bg-white/70 overflow-hidden">
                         <div className="h-full rounded-full bg-amber-400/90 transition-all duration-300" style={{ width: `${responseProgress}%` }} />
                       </div>
@@ -2219,17 +2420,19 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                     <div className="grid gap-4 md:grid-cols-3">
                       <GuestsWidget eventId={selectedBbq.id} />
 
-                      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
-                        <p className="text-xs font-medium tracking-wide text-slate-500 uppercase">Shared pot</p>
-                        <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-800">{formatMoney(totalSpent)}</p>
-                        <p className="mt-1 text-xs text-slate-500">{expenses.length} logged expense{expenses.length === 1 ? "" : "s"}</p>
-                        <div className="mt-3 h-2 rounded-full bg-slate-100 overflow-hidden">
-                          <div
-                            className="h-full rounded-full bg-amber-300 transition-all duration-200"
-                            style={{ width: `${Math.min(100, Math.max(10, Math.round((expenses.length / Math.max(participantCount * 2, 1)) * 100)))}%` }}
-                          />
-                        </div>
-                      </div>
+                      <SharedCostsWidget
+                        eventId={selectedBbq.id}
+                        planName={selectedBbq.name}
+                        peopleCount={participantCount}
+                        totalSpentLabel={formatMoney(totalSpent)}
+                        expenseCount={expenses.length}
+                        progressPercent={Math.min(100, Math.max(10, Math.round((expenses.length / Math.max(participantCount * 2, 1)) * 100)))}
+                        participants={participants}
+                        expenses={expenses}
+                        balances={balances}
+                        settlements={settlements}
+                        formatMoney={formatMoney}
+                      />
 
                       <div className="rounded-2xl border border-slate-200 bg-white shadow-sm p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
                         <p className="text-xs font-medium tracking-wide text-slate-500 uppercase">Quick actions</p>
@@ -2267,6 +2470,32 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                         </div>
                       </div>
                     </div>
+
+                    <PlanDetailsDrawer
+                      open={isPlanDetailsOpen}
+                      onOpenChange={setIsPlanDetailsOpen}
+                      plan={selectedBbq}
+                      saving={updateBbq.isPending}
+                      onSave={async (updates) => {
+                        if (!selectedBbq) return;
+                        const updatedPlan = await updateBbq.mutateAsync({
+                          id: selectedBbq.id,
+                          name: updates.name,
+                          locationText: updates.locationText,
+                          date: updates.date,
+                          bannerImageUrl: updates.bannerImageUrl,
+                        });
+                        const expectedBanner = updates.bannerImageUrl ?? null;
+                        const savedBanner = updatedPlan?.bannerImageUrl ?? null;
+                        if (savedBanner !== expectedBanner) {
+                          throw new Error("Banner image URL could not be saved. Try again.");
+                        }
+                        await queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] });
+                        await queryClient.refetchQueries({ queryKey: ["/api/barbecues"] });
+                        toastSuccess("Plan details updated");
+                        setIsPlanDetailsOpen(false);
+                      }}
+                    />
                   </section>
 
                   <aside className="lg:sticky lg:top-6 h-fit min-h-[340px] lg:min-h-0">
@@ -2549,7 +2778,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                 onUpdate={(updates) => {
                   if (!selectedBbq) return;
                   updateBbq.mutate({ id: selectedBbq.id, ...updates }, {
-                    onError: () => toastError("Couldn’t update event settings. Try again."),
+                    onError: () => toastError("Couldn’t update plan settings. Try again."),
                   });
                 }}
                 onDelete={selectedBbq ? () => handleDeleteBbq(selectedBbq.id) : undefined}
@@ -3656,7 +3885,80 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
             </div>
             </EventThemeProvider>
           );
-        })() : (
+        })() : appRouteMode === "private" ? (
+          <div className="mx-auto w-full max-w-[1400px] px-4 py-6 sm:px-6 lg:px-10">
+            <div className="mb-5">
+              <div>
+                <h2 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Friends plans</h2>
+                <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Plans you&apos;re part of.</p>
+              </div>
+            </div>
+
+            {isLoadingBbqs ? (
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                {Array.from({ length: 4 }).map((_, idx) => (
+                  <div key={`private-plan-skeleton-${idx}`} className="rounded-2xl border border-border/60 bg-card p-4 shadow-sm">
+                    <SkeletonLine className="h-5 w-2/3 rounded" />
+                    <SkeletonLine className="mt-2 h-4 w-1/2 rounded" />
+                    <div className="mt-4 flex items-center gap-2">
+                      <SkeletonCard className="h-5 w-16 rounded-full" />
+                      <SkeletonCard className="h-5 w-20 rounded-full" />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : privatePlansForOverview.length === 0 ? (
+              <div className="rounded-2xl border border-border/60 bg-card p-10 text-center">
+                <p className="text-base font-medium text-slate-800 dark:text-slate-100">No plans yet. Start one with your friends.</p>
+                <Button
+                  type="button"
+                  className="mt-4"
+                  onClick={() => { setNewEventArea(area); setNewEventType(area === "trips" ? "city_trip" : "barbecue"); setIsNewBbqOpen(true); }}
+                >
+                  <Plus className="mr-1.5 h-4 w-4" />
+                  New plan
+                </Button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                {privatePlansForOverview.map((plan: Barbecue) => {
+                  const dateLabel = plan.date
+                    ? new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" }).format(new Date(plan.date))
+                    : null;
+                  const locationLabel = plan.locationText
+                    || plan.locationName
+                    || [plan.city, plan.countryName].filter(Boolean).join(", ")
+                    || null;
+                  const meta = [dateLabel, locationLabel].filter(Boolean).join(" · ");
+                  return (
+                    <button
+                      key={`private-plan-card-${plan.id}`}
+                      type="button"
+                      onClick={() => handleSelectEvent(plan.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          handleSelectEvent(plan.id);
+                        }
+                      }}
+                      className="w-full rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition-all duration-200 hover:border-slate-300 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-neutral-700"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <h3 className="min-w-0 truncate text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-100">{plan.name}</h3>
+                        <span className="shrink-0 rounded-full border border-amber-300/70 bg-amber-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-800 dark:border-amber-600/40 dark:bg-amber-500/20 dark:text-amber-200">
+                          Private
+                        </span>
+                      </div>
+                      <p className="mt-2 truncate text-sm text-slate-500 dark:text-neutral-400">
+                        {meta || "Date and location to be confirmed"}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ) : (
           <div className="text-center py-16 text-muted-foreground">
             <Receipt className="w-12 h-12 mx-auto mb-4 opacity-20" />
             <p className="text-lg font-medium">Pick an event to get started</p>
@@ -3666,220 +3968,26 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
         }
       </main>
 
-      {/* Create event dialog — premium section-based layout */}
-      <Modal
-        open={isNewBbqOpen}
-        onClose={() => { setIsNewBbqOpen(false); setNewEventArea(area); setNewEventType(area === "trips" ? "city_trip" : "barbecue"); setNewEventLocation(null); resetNewEventWizard(); }}
-        onOpenChange={(open) => { setIsNewBbqOpen(open); if (!open) { setNewEventArea(area); setNewEventType(area === "trips" ? "city_trip" : "barbecue"); setNewEventLocation(null); resetNewEventWizard(); } else { resetNewEventWizard(); } }}
-        title={t.events.newEvent}
-        subtitle={t.subtitle}
-        size="2xl"
-        className="sm:max-w-[760px] min-h-[620px] max-h-[86vh]"
-        scrollable
-        footer={
-          <div className="w-full space-y-2">
-            {newEventWizardStep === 3 && newBbqVisibilityOrigin === "public" && newPublicCreateStep <= 4 && (
-              <p className="text-xs text-muted-foreground text-right">
-                Your event is created as a private draft. Publish to Explore when ready.
-              </p>
-            )}
-            <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3 w-full">
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  if (newEventWizardStep === 3 && newBbqVisibilityOrigin === "public" && newPublicCreateStep > 1) {
-                    setNewPublicCreateStep((s) => (s > 1 ? ((s - 1) as 1 | 2 | 3) : s));
-                    return;
-                  }
-                  if (newEventWizardStep === 3 && newBbqVisibilityOrigin === "private" && newPrivateCreateStep > 1) {
-                    setNewPrivateCreateStep((s) => (s > 1 ? ((s - 1) as 1 | 2) : s));
-                    return;
-                  }
-                  if (newEventWizardStep > 1) {
-                    setNewEventWizardStep((s) => (s > 1 ? ((s - 1) as 1 | 2) : s));
-                    return;
-                  }
-                  setIsNewBbqOpen(false);
-                }}
-                className="w-full sm:w-auto order-2 sm:order-1"
-                data-testid="button-cancel-bbq"
-              >
-                {newEventWizardStep > 1 ? "Back" : t.modals.cancel}
-              </Button>
-              {newEventWizardStep < 3 ? (
-                <Button
-                  onClick={() => {
-                    if (newEventWizardStep === 1) {
-                      if (!newEventWizardGoal) return;
-                      applyNewEventWizardGoal(newEventWizardGoal);
-                      setNewEventWizardStep(2);
-                      return;
-                    }
-                    if (newEventWizardGoal === "private" && !newEventPrivateAck) return;
-                    if (newEventWizardGoal === "public" && !newEventPublicAck) return;
-                    setNewEventWizardStep(3);
-                  }}
-                  disabled={
-                    (newEventWizardStep === 1 && !newEventWizardGoal) ||
-                    (newEventWizardStep === 2 && newEventWizardGoal === "private" && !newEventPrivateAck) ||
-                    (newEventWizardStep === 2 && newEventWizardGoal === "public" && !newEventPublicAck)
-                  }
-                  className="w-full sm:w-auto bg-primary text-primary-foreground font-semibold transition-all duration-150 order-1 sm:order-2"
-                  data-testid="button-wizard-next"
-                >
-                  Continue
-                </Button>
-              ) : newBbqVisibilityOrigin === "public" && newPublicCreateStep < 4 ? (
-                <Button
-                  onClick={() => setNewPublicCreateStep((s) => ((s + 1) as 2 | 3 | 4))}
-                  disabled={
-                    (newPublicCreateStep === 1 && !newBbqName.trim()) ||
-                    (newPublicCreateStep === 2 && (!newBbqName.trim() || !newEventLocation))
-                  }
-                  className="w-full sm:w-auto bg-primary text-primary-foreground font-semibold transition-all duration-150 order-1 sm:order-2"
-                  data-testid="button-public-builder-next"
-                >
-                  Next
-                </Button>
-              ) : newBbqVisibilityOrigin === "private" && newPrivateCreateStep < 3 ? (
-                <Button
-                  onClick={() => setNewPrivateCreateStep((s) => ((s + 1) as 2 | 3))}
-                  disabled={
-                    (newPrivateCreateStep === 1 && !isPrivateBasicsValid) ||
-                    (newPrivateCreateStep === 2 && !newPrivateEventTypeId)
-                  }
-                  className="w-full sm:w-auto bg-primary text-primary-foreground font-semibold transition-all duration-150 order-1 sm:order-2"
-                  data-testid="button-private-builder-next"
-                >
-                  Next
-                </Button>
-              ) : newBbqVisibilityOrigin === "public" && newPublicCreateStep === 4 ? (
-                <Button
-                  onClick={() => handleCreateBbq()}
-                  disabled={!newBbqName.trim() || !newEventLocation || createBbq.isPending}
-                  className="w-full sm:w-auto min-w-[188px] bg-primary text-primary-foreground font-semibold shadow-lg shadow-primary/20 hover:shadow-primary/30 hover:-translate-y-0.5 transition-all duration-150 order-1 sm:order-2"
-                  data-testid="button-create-public-event"
-                >
-                  {createBbq.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <span className="w-4 h-4 inline-block" aria-hidden />}
-                  <span>{createBbq.isPending ? "Creating event..." : "Create public event"}</span>
-                </Button>
-              ) : (
-                <Button
-                  onClick={() => handleCreateBbq()}
-                  disabled={!isPrivateBasicsValid || createBbq.isPending}
-                  className="w-full sm:w-auto min-w-[188px] bg-primary text-primary-foreground font-semibold shadow-lg shadow-primary/20 hover:shadow-primary/30 hover:-translate-y-0.5 transition-all duration-150 order-1 sm:order-2"
-                  data-testid="button-create-bbq"
-                >
-                  {createBbq.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <span className="w-4 h-4 inline-block" aria-hidden />}
-                  <span>{createBbq.isPending ? "Creating event..." : t.bbq.create}</span>
-                </Button>
-              )}
-            </div>
-          </div>
-        }
-        data-testid="dialog-new-bbq"
-      >
-        <div className="space-y-8 min-h-[460px]">
-          {newEventWizardStep < 3 && (
-            <div className="space-y-5">
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span className={`px-2 py-0.5 rounded-full border ${newEventWizardStep === 1 ? "border-primary/40 text-primary bg-primary/5" : "border-border"}`}>1. Goal</span>
-                <span className={`px-2 py-0.5 rounded-full border ${newEventWizardStep === 2 ? "border-primary/40 text-primary bg-primary/5" : "border-border"}`}>2. Privacy guide</span>
-                <span className="px-2 py-0.5 rounded-full border border-border opacity-60">3. Details</span>
-              </div>
-
-              {newEventWizardStep === 1 && (
-                <div className="space-y-4">
-                  <div>
-                    <h3 className="text-lg font-semibold">What is your goal for this event?</h3>
-                    <p className="text-sm text-muted-foreground">Choose the experience you want. We will set up the right privacy flow for you.</p>
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <button
-                      type="button"
-                      onClick={() => setNewEventWizardGoal("private")}
-                      className={`rounded-xl border p-4 text-left transition-all ${!shouldReduceMotion ? "duration-150" : ""} ${newEventWizardGoal === "private" ? "border-primary bg-primary/5 shadow-sm" : "border-border hover:bg-muted/20"}`}
-                      data-testid="wizard-goal-private"
-                    >
-                      <div className="flex items-center gap-2 font-semibold"><Lock className="w-4 h-4" /> Private event (friends)</div>
-                      <p className="text-xs text-muted-foreground mt-2">For friend groups, shared costs, and invite-only coordination.</p>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setNewEventWizardGoal("public")}
-                      className={`rounded-xl border p-4 text-left transition-all ${!shouldReduceMotion ? "duration-150" : ""} ${newEventWizardGoal === "public" ? "border-primary bg-primary/5 shadow-sm" : "border-border hover:bg-muted/20"}`}
-                      data-testid="wizard-goal-public"
-                    >
-                      <div className="flex items-center gap-2 font-semibold"><Globe className="w-4 h-4" /> Public event (professional)</div>
-                      <p className="text-xs text-muted-foreground mt-2">For organizations, brands, and events you may want listed on Explore.</p>
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {newEventWizardStep === 2 && newEventWizardGoal && (
-                <div className="space-y-4">
-                  <div>
-                    <h3 className="text-lg font-semibold">Before you continue</h3>
-                    <p className="text-sm text-muted-foreground">A quick explanation so the privacy behavior is clear from the start.</p>
-                  </div>
-                  {newEventWizardGoal === "public" ? (
-                    <div className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-4 space-y-2">
-                      <p className="text-sm font-medium flex items-center gap-2"><Globe className="w-4 h-4" /> Public event — discoverable</p>
-                      <p className="text-sm text-muted-foreground">
-                        This event can be listed publicly and discovered in Explore.
-                        It will start in private mode until you activate the listing.
-                      </p>
-                      <div className="rounded-lg border border-sky-500/15 bg-background/50 px-3 py-2">
-                        <p className="text-xs text-muted-foreground">
-                          Public events are only visible in Explore after listing activation.
-                          You stay in control before publishing.
-                        </p>
-                      </div>
-                      <label className="flex items-start gap-2 text-sm pt-1">
-                        <input
-                          type="checkbox"
-                          checked={newEventPublicAck}
-                          onChange={(e) => setNewEventPublicAck(e.target.checked)}
-                          className="mt-0.5 h-4 w-4 rounded border-border"
-                        />
-                        <span>I understand this event starts private and won’t appear in Explore until I activate the listing.</span>
-                      </label>
-                      <p className="text-xs text-muted-foreground pl-6">You can activate the listing later from event settings.</p>
-                    </div>
-                  ) : (
-                    <div className="rounded-xl border border-border/60 bg-muted/10 p-4 space-y-3">
-                      <p className="text-sm font-medium flex items-center gap-2"><Lock className="w-4 h-4" /> Private event — invite-only</p>
-                      <p className="text-sm text-muted-foreground">
-                        This event will only be visible to people you invite.
-                        It will not appear in Explore or public listings.
-                      </p>
-                      <label className="flex items-start gap-2 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={newEventPrivateAck}
-                          onChange={(e) => setNewEventPrivateAck(e.target.checked)}
-                          className="mt-0.5 h-4 w-4 rounded border-border"
-                        />
-                        <span>I understand this event will remain invite-only.</span>
-                      </label>
-                    </div>
-                  )}
-                  <p className="text-xs text-muted-foreground">You can edit event details later. Only the visibility type cannot be changed.</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {newEventWizardStep === 3 && (
-          <>
-          {/* Section 1 — Event Basics */}
-          <ModalSection title={t.bbq.eventBasics}>
+      {/* Create event drawer */}
+      <Sheet open={isNewBbqOpen} onOpenChange={handleNewEventOpenChange}>
+        <SheetContent side="right" className="h-full w-full sm:max-w-[760px] p-0" data-testid="dialog-new-bbq">
+          <div className="flex h-full flex-col">
+            <header className="shrink-0 border-b border-border/60 bg-background/95 px-6 py-4 backdrop-blur">
+              <SheetHeader className="space-y-1 text-left">
+                <SheetTitle>Start a plan</SheetTitle>
+                <SheetDescription>Turn an idea into a plan.</SheetDescription>
+              </SheetHeader>
+            </header>
+            <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+              <div className="space-y-8 min-h-[460px]">
+          {/* Section 1 — Plan basics */}
+          <div className="space-y-3">
+            <h3 className="text-sm font-semibold">{t.bbq.eventBasics}</h3>
             {newBbqVisibilityOrigin === "public" ? (
               <div className="space-y-5">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <h3 className="text-base font-semibold">Public event builder</h3>
+                    <h3 className="text-base font-semibold">Public plan builder</h3>
                     <p className="text-xs text-muted-foreground">A guided setup for professional events. Your event starts Unlisted.</p>
                   </div>
                   <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -3983,8 +4091,18 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                     </div>
                     <div className="space-y-2">
                       <Label className="text-muted-foreground">Location</Label>
-                      <LocationCombobox value={newEventLocation} onChange={setNewEventLocation} placeholder="Search city or country…" data-testid="input-event-location" />
-                      <p className="text-xs text-muted-foreground">Currency is set automatically from the country (or your default if none selected).</p>
+                      <Input
+                        value={newEventLocation?.locationName ?? ""}
+                        onChange={(e) => handleNewEventLocationInput(e.target.value)}
+                        onBlur={() => setNewEventLocationTouched(true)}
+                        placeholder="Where is it?"
+                        data-testid="input-event-location"
+                      />
+                      {newEventLocationTouched && !newEventLocation?.locationName.trim() ? (
+                        <p className="text-xs text-destructive">Location is required.</p>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">Currency uses your default when country is not specified.</p>
+                      )}
                     </div>
                     <div className="space-y-2">
                       <Label className="text-muted-foreground">Organization (optional)</Label>
@@ -4139,9 +4257,9 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
             ) : (
               <div className="space-y-4">
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <span className={`px-2 py-0.5 rounded-full border ${newPrivateCreateStep === 1 ? "border-primary/40 text-primary bg-primary/5" : "border-border"}`}>{t.privateWizard.stepBasics}</span>
-                  <span className={`px-2 py-0.5 rounded-full border ${newPrivateCreateStep === 2 ? "border-primary/40 text-primary bg-primary/5" : "border-border"}`}>{t.privateWizard.stepType}</span>
-                  <span className={`px-2 py-0.5 rounded-full border ${newPrivateCreateStep === 3 ? "border-primary/40 text-primary bg-primary/5" : "border-border"}`}>{t.privateWizard.stepVibe}</span>
+                  <span className={`px-2 py-0.5 rounded-full border ${newPrivateCreateStep === 1 ? "border-primary/40 text-primary bg-primary/5" : "border-border"}`}>The plan</span>
+                  <span className={`px-2 py-0.5 rounded-full border ${newPrivateCreateStep === 2 ? "border-primary/40 text-primary bg-primary/5" : "border-border"}`}>What kind of plan?</span>
+                  <span className={`px-2 py-0.5 rounded-full border ${newPrivateCreateStep === 3 ? "border-primary/40 text-primary bg-primary/5" : "border-border"}`}>Subcategory</span>
                 </div>
 
                 {newPrivateCreateStep === 1 && (
@@ -4160,20 +4278,17 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                     </div>
                     <div className="space-y-2">
                       <Label className="text-muted-foreground text-xs uppercase tracking-wide">{t.privateWizard.basicsLocationLabel}</Label>
-                      <div className="rounded-xl border border-border/70 bg-amber-50/60 dark:bg-slate-900/60 px-2 py-1 transition-all duration-200 focus-within:ring-2 focus-within:ring-primary/60 focus-within:shadow-lg focus-within:shadow-primary/20">
-                        <PrivateLocationTypeahead
-                          value={newEventLocation}
-                          onChange={(next) => {
-                            setNewEventLocation(next);
-                            rememberRecentLocation(next);
-                          }}
-                          recent={recentLocationOptions}
-                          suggested={privateSuggestedLocations}
-                          uiText={privateLocationUiText}
-                          data-testid="input-event-location-private"
-                        />
-                      </div>
-                      {!newEventLocation ? <p className="text-xs text-muted-foreground">Where does the magic happen?</p> : null}
+                      <Input
+                        placeholder="Where is it?"
+                        value={newEventLocation?.locationName ?? ""}
+                        onChange={(e) => handleNewEventLocationInput(e.target.value)}
+                        onBlur={() => setNewEventLocationTouched(true)}
+                        data-testid="input-event-location-private"
+                        className="rounded-xl border-border/70 bg-amber-50/70 dark:bg-slate-900/60 focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:shadow-lg focus-visible:shadow-primary/20 transition-all duration-200"
+                      />
+                      {newEventLocationTouched && !newEventLocation?.locationName.trim() ? (
+                        <p className="text-xs text-destructive">Location is required.</p>
+                      ) : null}
                     </div>
                     <div className="grid gap-4 sm:grid-cols-2">
                       <div className="space-y-2">
@@ -4201,68 +4316,60 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                 )}
 
                 {newPrivateCreateStep === 2 && (
-                  <div className="space-y-3">
+                  <div className="space-y-4">
                     <div>
-                      <h4 className="text-sm font-semibold">{t.privateWizard.typeTitle}</h4>
-                      <p className="text-xs text-muted-foreground mt-1">{t.privateWizard.typeSubtitle}</p>
+                      <h4 className="text-sm font-semibold">Plan type</h4>
+                      <p className="text-xs text-muted-foreground mt-1">Pick what you’re planning.</p>
                     </div>
                     <div className="grid gap-3 sm:grid-cols-2">
-                      {PRIVATE_EVENT_TYPES.map((type) => (
-                        <button
-                          key={`private-event-type-${type.id}`}
-                          type="button"
-                          onClick={() => applyPrivateEventType(type.id)}
-                          className={`rounded-2xl border p-4 text-left transition-all duration-200 ${
-                            newPrivateEventTypeId === type.id
-                              ? "border-primary/70 bg-primary/10 shadow-lg shadow-primary/20 scale-[1.01]"
-                              : "border-border/70 bg-card/80 hover:-translate-y-0.5 hover:bg-muted/20 hover:shadow-md"
-                          }`}
-                        >
-                          <p className="text-sm font-semibold flex items-center gap-2">
-                            <span aria-hidden className="text-xl">{type.emoji}</span>
-                            {privateTypeLabel(type.id, type.label)}
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-1">{privateTypeDescription(type.id, type.description)}</p>
-                          {newPrivateEventTypeId === type.id ? (
-                            <p className="text-[11px] text-primary/90 mt-2">Unlocks: recipes, shared lists & diet preferences</p>
-                          ) : null}
-                        </button>
-                      ))}
+                      {PLAN_TYPE_OPTIONS.map((option) => {
+                        const Icon = option.icon;
+                        const active = newPlanMainCategory === option.id;
+                        return (
+                          <button
+                            key={`plan-main-category-${option.id}`}
+                            type="button"
+                            onClick={() => applyPlanMainCategory(option.id)}
+                            className={`rounded-2xl border p-4 text-left transition-all duration-200 ${
+                              active
+                                ? "border-primary/70 bg-primary/10 shadow-md shadow-primary/15"
+                                : "border-border/70 hover:-translate-y-0.5 hover:bg-muted/20"
+                            }`}
+                          >
+                            <p className="text-sm font-semibold flex items-center gap-2">
+                              <Icon className="h-4 w-4" />
+                              {option.label}
+                            </p>
+                            <p className="text-xs text-muted-foreground mt-1">{option.description}</p>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
 
                 {newPrivateCreateStep === 3 && (
                   <div className="space-y-3">
-                    <div className={`rounded-2xl border border-border/60 p-4 shadow-sm ${selectedCreatePrivateVibeTheme.gradientClass}`}>
-                      <p className="text-xs uppercase tracking-wide text-muted-foreground">{t.privateWizard.vibePreview}</p>
-                      <p className="text-sm font-semibold mt-1 flex items-center gap-1.5">
-                        <span aria-hidden>{selectedCreatePrivateType.emoji}</span>
-                        {privateTypeLabel(selectedCreatePrivateType.id, selectedCreatePrivateType.label)} · {privateVibeLabel(newPrivateEventVibeId, (selectedCreatePrivateVibes.find((v) => v.id === newPrivateEventVibeId)?.label) ?? newPrivateEventVibeId)}
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-1">{privateVibeHelperCopy(newPrivateEventVibeId, selectedCreatePrivateVibeTheme.helperCopy)}</p>
-                    </div>
                     <div>
-                      <h4 className="text-sm font-semibold">{t.privateWizard.vibeTitle}</h4>
-                      <p className="text-xs text-muted-foreground mt-1">{t.privateWizard.vibeSubtitle}</p>
+                      <h4 className="text-sm font-semibold">{newPlanMainCategory === "trip" ? "Trip type" : "Party type"}</h4>
+                      <p className="text-xs text-muted-foreground mt-1">Choose a subcategory.</p>
                     </div>
                     <div className="grid gap-3 sm:grid-cols-2">
-                      {selectedCreatePrivateVibes.map((vibe) => (
+                      {selectedSubcategoryList.map((subcategory) => (
                         <button
-                          key={`private-event-vibe-${vibe.id}`}
+                          key={`plan-subcategory-${subcategory.id}`}
                           type="button"
-                          onClick={() => setNewPrivateEventVibeId(vibe.id)}
+                          onClick={() => applyPlanSubCategory(subcategory.id)}
                           className={`rounded-2xl border p-4 text-left transition-all duration-200 ${
-                            newPrivateEventVibeId === vibe.id
-                              ? "border-primary/70 bg-primary/10 shadow-md shadow-primary/15 scale-[1.01]"
+                            newPlanSubCategory === subcategory.id
+                              ? "border-primary/70 bg-primary/10 shadow-md shadow-primary/15"
                               : "border-border/70 hover:-translate-y-0.5 hover:bg-muted/20"
                           }`}
                         >
                           <p className="text-sm font-semibold flex items-center gap-1.5">
-                            <span aria-hidden className="text-lg">{vibe.emoji}</span>
-                            {privateVibeLabel(vibe.id, vibe.label)}
+                            <span aria-hidden className="text-lg">{subcategory.emoji}</span>
+                            {subcategory.label}
                           </p>
-                          <p className="text-xs text-muted-foreground mt-1">{privateVibeDescription(vibe.id, vibe.description)}</p>
                         </button>
                       ))}
                     </div>
@@ -4270,11 +4377,15 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                 )}
               </div>
             )}
-          </ModalSection>
-          </>
-          )}
-        </div>
-      </Modal>
+          </div>
+              </div>
+            </div>
+            <footer className="shrink-0 border-t border-border/60 bg-background/95 px-6 py-4 backdrop-blur">
+              {newEventWizardFooter}
+            </footer>
+          </div>
+        </SheetContent>
+      </Sheet>
 
       <Modal
         open={whatsAppStarterOpen}

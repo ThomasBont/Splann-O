@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { Copy, Loader2, Mail, UserRoundPlus, UserPlus2, XCircle } from "lucide-react";
+import { ArrowLeft, Copy, Loader2, Mail, UserRoundPlus, UserPlus2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SkeletonLine } from "@/components/ui/load-states";
 import { useAppToast } from "@/hooks/use-app-toast";
 import type { UseEventGuestsResult } from "@/hooks/use-event-guests";
 import { useSearchUsers } from "@/hooks/use-friends";
+import { useUserProfile } from "@/hooks/use-user-profile";
 import { copyText } from "@/lib/copy-text";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 
@@ -40,6 +41,8 @@ function formatRelativeTime(value?: string | null) {
 
 export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
   const { toastError, toastInfo, toastSuccess } = useAppToast();
+  const [view, setView] = useState<"list" | "profile">("list");
+  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -65,9 +68,22 @@ export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
     return () => window.clearTimeout(timer);
   }, [searchInput]);
 
+  useEffect(() => {
+    if (open) return;
+    setView("list");
+    setSelectedMemberId(null);
+    setSearchInput("");
+    setDebouncedSearch("");
+  }, [open]);
+
   const hasMembers = members.length > 0;
   const hasInvites = invitesPending.length > 0;
   const pendingCountLabel = useMemo(() => `${invitesPending.length} pending`, [invitesPending.length]);
+  const selectedMember = useMemo(
+    () => members.find((member) => String(member.userId) === selectedMemberId) ?? null,
+    [members, selectedMemberId],
+  );
+  const profileQuery = useUserProfile(view === "profile" ? (selectedMember?.username ?? null) : null);
 
   const handleSendInvite = async () => {
     try {
@@ -139,6 +155,10 @@ export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
   };
 
   const memberIds = useMemo(() => new Set(members.map((m) => m.userId)), [members]);
+  const openProfileView = (memberUserId: number) => {
+    setSelectedMemberId(String(memberUserId));
+    setView("profile");
+  };
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -161,7 +181,95 @@ export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
             </header>
 
             <div className="flex-1 overflow-y-auto px-5 py-4">
-              <div className="space-y-5">
+              {view === "profile" ? (
+                <div className="space-y-4">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="px-2"
+                    onClick={() => {
+                      setView("list");
+                      setSelectedMemberId(null);
+                    }}
+                  >
+                    <ArrowLeft className="mr-1.5 h-4 w-4" />
+                    Back to members
+                  </Button>
+
+                  {selectedMember ? (
+                    <section className="rounded-2xl border border-slate-200 bg-white p-4">
+                      <div className="flex items-center gap-3">
+                        <span className="grid h-12 w-12 place-items-center rounded-full bg-amber-100 text-sm font-semibold text-slate-700">
+                          {initials(selectedMember.name)}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="truncate text-base font-semibold text-slate-900">{selectedMember.name}</p>
+                          {selectedMember.username ? (
+                            <p className="text-sm text-slate-500">@{selectedMember.username}</p>
+                          ) : (
+                            <p className="text-sm text-slate-500">No username available</p>
+                          )}
+                        </div>
+                      </div>
+                    </section>
+                  ) : (
+                    <section className="rounded-2xl border border-slate-200 bg-white p-4">
+                      <p className="text-sm text-slate-500">Member not found.</p>
+                    </section>
+                  )}
+
+                  {profileQuery.isLoading ? (
+                    <section className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
+                      <SkeletonLine className="h-5 w-1/3 rounded-lg" />
+                      <SkeletonLine className="h-4 w-2/3 rounded-lg" />
+                      <SkeletonLine className="h-4 w-1/2 rounded-lg" />
+                    </section>
+                  ) : profileQuery.isError ? (
+                    <section className="rounded-2xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+                      Couldn’t load profile details.
+                      <button
+                        type="button"
+                        className="ml-1 underline"
+                        onClick={() => {
+                          void profileQuery.refetch();
+                        }}
+                      >
+                        Retry
+                      </button>
+                    </section>
+                  ) : (
+                    <section className="rounded-2xl border border-slate-200 bg-white p-4">
+                      <h3 className="text-sm font-semibold text-slate-900">Profile details</h3>
+                      <div className="mt-3 space-y-2 text-sm">
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-slate-500">Role</span>
+                          <span className="font-medium text-slate-800">{selectedMember?.role ?? "member"}</span>
+                        </div>
+                        {selectedMember?.joinedAt ? (
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-slate-500">Joined</span>
+                            <span className="font-medium text-slate-800">{formatRelativeTime(selectedMember.joinedAt)}</span>
+                          </div>
+                        ) : null}
+                        {profileQuery.data?.user?.displayName ? (
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-slate-500">Display name</span>
+                            <span className="font-medium text-slate-800 truncate">{profileQuery.data.user.displayName}</span>
+                          </div>
+                        ) : null}
+                        {profileQuery.data?.user?.bio ? (
+                          <div className="pt-1">
+                            <p className="text-slate-500">Bio</p>
+                            <p className="mt-1 text-slate-700">{profileQuery.data.user.bio}</p>
+                          </div>
+                        ) : null}
+                      </div>
+                    </section>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-5">
         {error ? (
           <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
             Couldn’t load crew right now. <button type="button" className="underline" onClick={() => void refresh()}>Retry</button>
@@ -232,7 +340,18 @@ export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
           ) : hasMembers ? (
             <div className="space-y-2">
               {members.map((member) => (
-                <div key={`member-${member.userId}`} className="flex items-center justify-between rounded-xl border border-slate-200/80 px-3 py-2">
+                <button
+                  key={`member-${member.userId}`}
+                  type="button"
+                  onClick={() => openProfileView(member.userId)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      openProfileView(member.userId);
+                    }
+                  }}
+                  className="flex w-full cursor-pointer items-center justify-between rounded-xl border border-slate-200/80 px-3 py-2 text-left transition-colors hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                >
                   <div className="flex min-w-0 items-center gap-2.5">
                     <span className="grid h-8 w-8 place-items-center rounded-full bg-amber-100 text-xs font-semibold text-slate-700">
                       {initials(member.name)}
@@ -243,7 +362,7 @@ export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
                     </div>
                   </div>
                   <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] text-emerald-700">In group</span>
-                </div>
+                </button>
               ))}
             </div>
           ) : (
@@ -313,7 +432,8 @@ export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
           </div>
         </section>
 
-              </div>
+                </div>
+              )}
             </div>
 
             <footer className="border-t border-slate-200 bg-white px-5 py-3 dark:border-neutral-800 dark:bg-[#121212]">

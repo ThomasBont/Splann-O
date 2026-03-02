@@ -3,6 +3,7 @@ import { Link, useLocation } from "wouter";
 import { normalizeCountryCode } from "@shared/lib/country-code";
 import { useLanguage, getCurrency, SELECTABLE_LANGUAGES, type CurrencyCode, convertCurrency } from "@/hooks/use-language";
 import { useAuth } from "@/hooks/use-auth";
+import { useUserProfile } from "@/hooks/use-user-profile";
 import {
   useParticipants, useCreateParticipant, useDeleteParticipant, useUpdateParticipantName,
   usePendingRequests, useMemberships, useJoinBarbecue,
@@ -14,7 +15,6 @@ import { useExpenses, useDeleteExpense, useExpenseShares, useSetExpenseShare } f
 import { useBarbecues, useCreateBarbecue, useDeleteBarbecue, useUpdateBarbecue, useEnsureInviteToken, useSettleUp, useEventNotifications, useMarkEventNotificationRead, useCheckoutPublicListing, useDeactivateListing, useExploreEvents, usePublicEventRsvpRequests, useUpdatePublicEventRsvpRequest, useConversations, useConversation, useSendConversationMessage, useUpdateConversationStatus, useUploadEventBanner, useDeleteEventBanner, type EventNotification, type ExploreEvent } from "@/hooks/use-bbq-data";
 import { useQueryClient } from "@tanstack/react-query";
 import { useFriends, useFriendRequests, useAllPendingRequests, useAcceptFriendRequest, useRemoveFriend } from "@/hooks/use-friends";
-import { UserProfileModal } from "@/components/user-profile-modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -41,6 +41,7 @@ import GuestsWidget from "@/components/event/GuestsWidget";
 import SharedCostsWidget from "@/components/event/SharedCostsWidget";
 import PlanDetailsDrawer from "@/components/event/PlanDetailsDrawer";
 import PlanTypeDrawer from "@/components/event/PlanTypeDrawer";
+import AccountSettingsContent from "@/components/account/AccountSettingsContent";
 import { PrivateEventHero } from "@/components/event/PrivateEventHero";
 import EventSettingsModal from "@/components/event/EventSettingsModal";
 import { EditTripLocationModal } from "@/components/event/EditTripLocationModal";
@@ -62,9 +63,10 @@ import {
   Receipt, Trash2, Edit2,
   Plus, CheckCircle2,
   CalendarDays, Loader2,
+  ArrowLeft,
   UserCheck, UserX, LogOut, Crown, Clock, UserCircle, ChevronDown,
   Lock, Globe, UserPlus, X, Eye, EyeOff, Compass,
-  Bell, UserPlus2, Search, Heart, Sun, Moon, MessageCircle, Star, Plane, PartyPopper, Settings2,
+  Bell, UserPlus2, Search, Heart, Sun, Moon, MessageCircle, Star, Plane, PartyPopper,
 } from "lucide-react";
 import { useTheme } from "@/hooks/use-theme";
 import { useEventHeaderPreferences } from "@/hooks/use-event-header-preferences";
@@ -545,6 +547,7 @@ export function AuthDialog({
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 type HomeRouteMode = "legacy" | "private" | "public" | "event";
+type AccountView = "profile" | "friends" | "editBio" | "changePhoto" | "settings";
 type HomeProps = {
   appRouteMode?: HomeRouteMode;
   routeEventId?: number | null;
@@ -555,7 +558,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
   const { language, setLanguage, t } = useLanguage();
   const { theme, setPreference } = useTheme();
   const { prefs: eventHeaderPrefs } = useEventHeaderPreferences();
-  const { user, isLoading: isAuthLoading, logout, resendVerification } = useAuth();
+  const { user, isLoading: isAuthLoading, logout, resendVerification, updateProfile, deleteAccount } = useAuth();
   const [, setLocation] = useLocation();
   const username = user?.username ?? null;
   const { toast } = useToast();
@@ -647,9 +650,14 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
   const markEventNotifRead = useMarkEventNotificationRead();
   const acceptFriendReq = useAcceptFriendRequest();
   const removeFriendMut = useRemoveFriend();
-  const [isProfileOpen, setIsProfileOpen] = useState(false);
-  const [viewedProfileUsername, setViewedProfileUsername] = useState<string | null>(null);
+  const [profileTargetUsername, setProfileTargetUsername] = useState<string | null>(null);
   const [isAccountDrawerOpen, setIsAccountDrawerOpen] = useState(false);
+  const [accountView, setAccountView] = useState<AccountView>("profile");
+  const [draftBio, setDraftBio] = useState("");
+  const [draftProfileImageUrl, setDraftProfileImageUrl] = useState("");
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteConfirmUsername, setDeleteConfirmUsername] = useState("");
+  const [selectedFriendId, setSelectedFriendId] = useState<number | null>(null);
   const [notifOpen, setNotifOpen] = useState(false);
   const [showAuthDialog, setShowAuthDialog] = useState(true);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
@@ -811,6 +819,59 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
     url.searchParams.delete("session_id");
     window.history.replaceState({}, "", url.toString());
   }, [queryClient, toast]);
+
+  useEffect(() => {
+    if (isAccountDrawerOpen) return;
+    setAccountView("profile");
+    setProfileTargetUsername(null);
+    setDeleteConfirmOpen(false);
+    setDeleteConfirmUsername("");
+    setSelectedFriendId(null);
+  }, [isAccountDrawerOpen]);
+
+  useEffect(() => {
+    if (!isAccountDrawerOpen) return;
+    if (!user) return;
+    if (profileTargetUsername) return;
+    setDraftBio((user.bio ?? "").slice(0, 160));
+    setDraftProfileImageUrl((user.profileImageUrl ?? user.avatarUrl ?? "").trim());
+    setDeleteConfirmOpen(false);
+    setDeleteConfirmUsername("");
+    setSelectedFriendId(null);
+  }, [
+    isAccountDrawerOpen,
+    user?.id,
+    user?.bio,
+    user?.profileImageUrl,
+    user?.avatarUrl,
+    profileTargetUsername,
+  ]);
+
+  const profileQueryUsername = isAccountDrawerOpen
+    ? (profileTargetUsername ?? user?.username ?? null)
+    : null;
+  const {
+    data: profileTargetData,
+    isLoading: profileTargetLoading,
+    isError: profileTargetError,
+    refetch: refetchProfileTarget,
+  } = useUserProfile(profileQueryUsername);
+  const isViewingOwnAccount = !profileTargetUsername;
+  const accountProfileUser = isViewingOwnAccount
+    ? {
+        id: user?.id ?? profileTargetData?.user.id ?? 0,
+        username: user?.username ?? profileTargetData?.user.username ?? "",
+        displayName: user?.displayName ?? profileTargetData?.user.displayName ?? null,
+        bio: user?.bio ?? profileTargetData?.user.bio ?? null,
+        profileImageUrl: user?.profileImageUrl ?? user?.avatarUrl ?? profileTargetData?.user.profileImageUrl ?? profileTargetData?.user.avatarUrl ?? null,
+      }
+    : profileTargetData?.user ?? null;
+  const accountProfileStats = profileTargetData?.stats
+    ?? {
+      eventsCount: 0,
+      friendsCount: friends.length,
+      totalSpent: 0,
+    };
 
   const {
     data: barbecues = [],
@@ -1947,7 +2008,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
         </div>
       </header>
 
-      <Sheet open={isAccountDrawerOpen} onOpenChange={setIsAccountDrawerOpen}>
+      <Sheet open={isAccountDrawerOpen} onOpenChange={(next) => setIsAccountDrawerOpen(next)}>
         <SheetContent
           side="right"
           className="h-full w-[420px] max-w-[92vw] border-l border-slate-200 bg-white p-0 shadow-2xl dark:border-neutral-800 dark:bg-[#121212]"
@@ -1957,43 +2018,344 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                 <SheetHeader className="space-y-1 text-left">
                   <SheetTitle className="text-lg font-semibold text-slate-900 dark:text-neutral-100">Account</SheetTitle>
                   <SheetDescription className="text-sm text-slate-500 dark:text-neutral-400">
-                    {user?.displayName || user?.username || "Signed in"}
-                    {user?.email ? ` · ${user.email}` : ""}
+                    {accountView === "profile"
+                      ? "Profile"
+                      : accountView === "friends"
+                        ? "Friends"
+                        : accountView === "editBio"
+                          ? "Edit bio"
+                          : accountView === "changePhoto"
+                            ? "Change photo"
+                            : "Settings"}
                   </SheetDescription>
                 </SheetHeader>
               </header>
 
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-              <div className="space-y-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="w-full justify-start"
-                  data-testid="drawer-item-profile"
-                  onClick={() => {
-                    setIsAccountDrawerOpen(false);
-                    setViewedProfileUsername(null);
-                    setIsProfileOpen(true);
-                  }}
-                >
-                  <UserCircle className="mr-2 h-4 w-4" />
-                  {t.auth.profile}
-                </Button>
+              {accountView === "profile" ? (
+                <div className="space-y-4">
+                  {profileTargetLoading ? (
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+                      <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-neutral-400">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Loading profile…
+                      </div>
+                    </div>
+                  ) : profileTargetError ? (
+                    <div className="rounded-2xl border border-red-200 bg-red-50/70 p-4 dark:border-red-900/50 dark:bg-red-950/30">
+                      <p className="text-sm text-red-700 dark:text-red-300">Couldn’t load profile details.</p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="mt-3"
+                        onClick={() => {
+                          void refetchProfileTarget();
+                        }}
+                      >
+                        Retry
+                      </Button>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="rounded-2xl border border-slate-200 bg-white p-4 text-center dark:border-neutral-800 dark:bg-neutral-900">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!isViewingOwnAccount) return;
+                            setAccountView("changePhoto");
+                          }}
+                          className={`mx-auto grid h-20 w-20 place-items-center overflow-hidden rounded-full bg-amber-100 text-lg font-semibold text-slate-700 dark:bg-amber-300/25 dark:text-amber-100 ${isViewingOwnAccount ? "cursor-pointer ring-2 ring-transparent transition hover:ring-amber-300/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" : "cursor-default"}`}
+                        >
+                          {accountProfileUser?.profileImageUrl ? (
+                            <img src={accountProfileUser.profileImageUrl} alt="" className="h-full w-full object-cover" />
+                          ) : (
+                            (accountProfileUser?.displayName || accountProfileUser?.username || "U").slice(0, 2).toUpperCase()
+                          )}
+                        </button>
+                        <p className="mt-3 truncate text-base font-semibold text-slate-900 dark:text-neutral-100">
+                          {accountProfileUser?.displayName || accountProfileUser?.username || "User"}
+                        </p>
+                        {accountProfileUser?.username ? (
+                          <p className="text-sm text-slate-500 dark:text-neutral-400">@{accountProfileUser.username}</p>
+                        ) : null}
+                        {isViewingOwnAccount && user?.email ? (
+                          <p className="mt-1 truncate text-xs text-slate-500 dark:text-neutral-400">{user.email}</p>
+                        ) : null}
+                      </div>
 
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="w-full justify-start"
-                  data-testid="drawer-item-settings"
-                  onClick={() => {
-                    setIsAccountDrawerOpen(false);
-                    setLocation("/settings");
-                  }}
-                >
-                  <Settings2 className="mr-2 h-4 w-4" />
-                  Settings
-                </Button>
-              </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => toastInfo("Plans details view coming soon.")}
+                          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-left transition hover:border-slate-300 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary dark:border-neutral-800 dark:bg-neutral-900"
+                        >
+                          <p className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-neutral-400">Plans</p>
+                          <p className="mt-1 text-base font-semibold text-slate-900 dark:text-neutral-100">{accountProfileStats.eventsCount}</p>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAccountView("friends")}
+                          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-left transition hover:border-slate-300 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary dark:border-neutral-800 dark:bg-neutral-900"
+                        >
+                          <p className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-neutral-400">Friends</p>
+                          <p className="mt-1 text-base font-semibold text-slate-900 dark:text-neutral-100">{accountProfileStats.friendsCount}</p>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => toastInfo("Spending details view coming soon.")}
+                          className="col-span-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-left transition hover:border-slate-300 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary dark:border-neutral-800 dark:bg-neutral-900"
+                        >
+                          <p className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-neutral-400">Total spent</p>
+                          <p className="mt-1 text-base font-semibold text-slate-900 dark:text-neutral-100">{formatMoney(accountProfileStats.totalSpent)}</p>
+                        </button>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!isViewingOwnAccount) return;
+                          setAccountView("editBio");
+                        }}
+                        className={`w-full rounded-xl border border-slate-200 bg-white p-3 text-left transition dark:border-neutral-800 dark:bg-neutral-900 ${isViewingOwnAccount ? "hover:border-slate-300 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" : ""}`}
+                      >
+                        <p className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-neutral-400">Bio</p>
+                        <p className="mt-1 text-sm text-slate-700 dark:text-neutral-300">
+                          {(accountProfileUser?.bio && accountProfileUser.bio.trim().length > 0)
+                            ? accountProfileUser.bio
+                            : "Add a short bio…"}
+                        </p>
+                      </button>
+
+                      {isViewingOwnAccount ? (
+                        <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-destructive">Delete account</p>
+                          <p className="mt-1 text-xs text-muted-foreground">This action is permanent and cannot be undone.</p>
+                          {!deleteConfirmOpen ? (
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              size="sm"
+                              className="mt-3"
+                              onClick={() => setDeleteConfirmOpen(true)}
+                            >
+                              Delete account
+                            </Button>
+                          ) : (
+                            <div className="mt-3 space-y-2">
+                              <Label htmlFor="delete-account-username" className="text-xs text-destructive">
+                                Type @{user?.username} to confirm
+                              </Label>
+                              <Input
+                                id="delete-account-username"
+                                value={deleteConfirmUsername}
+                                onChange={(event) => setDeleteConfirmUsername(event.target.value)}
+                                className="h-9"
+                              />
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    setDeleteConfirmOpen(false);
+                                    setDeleteConfirmUsername("");
+                                  }}
+                                >
+                                  Cancel
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="destructive"
+                                  size="sm"
+                                  disabled={deleteConfirmUsername.trim() !== user?.username || deleteAccount.isPending}
+                                  onClick={() =>
+                                    deleteAccount.mutate(undefined, {
+                                      onSuccess: () => {
+                                        setIsAccountDrawerOpen(false);
+                                        window.location.href = "/";
+                                      },
+                                      onError: () => toastError("Couldn’t delete account. Try again."),
+                                    })
+                                  }
+                                >
+                                  {deleteAccount.isPending ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
+                                  Confirm delete
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ) : null}
+                    </>
+                  )}
+                </div>
+              ) : accountView === "friends" ? (
+                <div className="space-y-4">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="w-fit px-2"
+                    onClick={() => setAccountView("profile")}
+                  >
+                    <ArrowLeft className="mr-1.5 h-4 w-4" />
+                    Back to profile
+                  </Button>
+                  {!isViewingOwnAccount ? (
+                    <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300">
+                      Friends feature coming soon for viewed profiles.
+                    </div>
+                  ) : friends.length === 0 ? (
+                    <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300">
+                      No friends yet.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {friends.map((friend) => (
+                        <button
+                          type="button"
+                          key={`account-friend-${friend.friendshipId}`}
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-left transition hover:border-slate-300 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary dark:border-neutral-800 dark:bg-neutral-900"
+                          onClick={() => setSelectedFriendId((prev) => (prev === friend.friendshipId ? null : friend.friendshipId))}
+                        >
+                          <p className="text-sm font-semibold text-slate-900 dark:text-neutral-100">
+                            {friend.displayName || friend.username}
+                          </p>
+                          <p className="text-xs text-slate-500 dark:text-neutral-400">@{friend.username}</p>
+                          {selectedFriendId === friend.friendshipId ? (
+                            <div className="mt-2 rounded-lg border border-slate-200/80 bg-slate-50 px-2 py-1.5 text-xs text-slate-600 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
+                              <p>Status: {friend.status}</p>
+                              <p>User id: {friend.userId}</p>
+                            </div>
+                          ) : null}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : accountView === "editBio" ? (
+                <div className="space-y-4">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="w-fit px-2"
+                    onClick={() => setAccountView("profile")}
+                  >
+                    <ArrowLeft className="mr-1.5 h-4 w-4" />
+                    Back to profile
+                  </Button>
+                  <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900">
+                    <Label htmlFor="account-bio" className="text-sm font-medium">Bio</Label>
+                    <Textarea
+                      id="account-bio"
+                      value={draftBio}
+                      onChange={(event) => setDraftBio(event.target.value.slice(0, 160))}
+                      rows={4}
+                      className="mt-2"
+                      placeholder="Add a short bio…"
+                    />
+                    <p className="mt-1 text-xs text-muted-foreground">{draftBio.length}/160</p>
+                    <div className="mt-3 flex items-center justify-end gap-2">
+                      <Button type="button" variant="outline" size="sm" onClick={() => setAccountView("profile")}>
+                        Cancel
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={updateProfile.isPending}
+                        onClick={() =>
+                          updateProfile.mutate(
+                            { bio: draftBio.trim().slice(0, 160) || null },
+                            {
+                              onSuccess: () => {
+                                toastSuccess("Bio updated");
+                                setAccountView("profile");
+                              },
+                              onError: () => toastError("Couldn’t update bio. Try again."),
+                            },
+                          )
+                        }
+                      >
+                        {updateProfile.isPending ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
+                        Save
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ) : accountView === "changePhoto" ? (
+                <div className="space-y-4">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="w-fit px-2"
+                    onClick={() => setAccountView("profile")}
+                  >
+                    <ArrowLeft className="mr-1.5 h-4 w-4" />
+                    Back to profile
+                  </Button>
+                  <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900">
+                    <Label htmlFor="account-photo-url" className="text-sm font-medium">Profile photo URL</Label>
+                    <Input
+                      id="account-photo-url"
+                      value={draftProfileImageUrl}
+                      onChange={(event) => setDraftProfileImageUrl(event.target.value)}
+                      className="mt-2"
+                      placeholder="https://example.com/photo.jpg"
+                    />
+                    <div className="mt-3 flex justify-center">
+                      <span className="grid h-20 w-20 place-items-center overflow-hidden rounded-full bg-amber-100 text-lg font-semibold text-slate-700 dark:bg-amber-300/25 dark:text-amber-100">
+                        {draftProfileImageUrl.trim() ? (
+                          <img src={draftProfileImageUrl.trim()} alt="" className="h-full w-full object-cover" />
+                        ) : (
+                          (user?.displayName || user?.username || "U").slice(0, 2).toUpperCase()
+                        )}
+                      </span>
+                    </div>
+                    <div className="mt-3 flex items-center justify-end gap-2">
+                      <Button type="button" variant="outline" size="sm" onClick={() => setAccountView("profile")}>
+                        Cancel
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={updateProfile.isPending}
+                        onClick={() =>
+                          updateProfile.mutate(
+                            { profileImageUrl: draftProfileImageUrl.trim() || null },
+                            {
+                              onSuccess: () => {
+                                toastSuccess("Photo updated");
+                                setAccountView("profile");
+                              },
+                              onError: () => toastError("Couldn’t update photo. Try again."),
+                            },
+                          )
+                        }
+                      >
+                        {updateProfile.isPending ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
+                        Save
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="w-fit px-2"
+                    onClick={() => setAccountView("profile")}
+                  >
+                    <ArrowLeft className="mr-1.5 h-4 w-4" />
+                    Back to profile
+                  </Button>
+                  <AccountSettingsContent compact />
+                </div>
+              )}
             </div>
 
             <footer className="border-t border-slate-200 bg-white px-5 py-3 dark:border-neutral-800 dark:bg-[#121212]">
@@ -3443,7 +3805,11 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                           })
                         }
                         onRejectInvite={(id) => rejectParticipant.mutate(id)}
-                        onViewUser={(u) => { setViewedProfileUsername(u); setIsProfileOpen(true); }}
+                        onViewUser={(u) => {
+                          setProfileTargetUsername(u);
+                          setAccountView("profile");
+                          setIsAccountDrawerOpen(true);
+                        }}
                       />
                     )}
                   </div>
@@ -3512,7 +3878,11 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                             {p.userId ? (
                               <button
                                 type="button"
-                                onClick={() => { setViewedProfileUsername(p.userId!); setIsProfileOpen(true); }}
+                                onClick={() => {
+                                  setProfileTargetUsername(p.userId!);
+                                  setAccountView("profile");
+                                  setIsAccountDrawerOpen(true);
+                                }}
                                 className="font-medium text-left hover:text-primary hover:underline"
                                 data-testid={`link-participant-profile-${p.id}`}
                               >
@@ -3653,7 +4023,11 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                                 {exp.participantUserId ? (
                                   <button
                                     type="button"
-                                    onClick={() => { setViewedProfileUsername(exp.participantUserId!); setIsProfileOpen(true); }}
+                                    onClick={() => {
+                                      setProfileTargetUsername(exp.participantUserId!);
+                                      setAccountView("profile");
+                                      setIsAccountDrawerOpen(true);
+                                    }}
                                     className={`hover:text-primary hover:underline ${isPrivateContext ? "decoration-primary/40" : ""}`}
                                     data-testid={`link-expense-payer-${exp.id}`}
                                   >
@@ -4392,13 +4766,6 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
         <ConfettiCelebration onComplete={() => setShowSettledConfetti(false)} reducedMotion={!!shouldReduceMotion} />
       )}
 
-      {/* Profile / Friends Dialog */}
-      <UserProfileModal
-        open={isProfileOpen}
-        onOpenChange={(open) => { setIsProfileOpen(open); if (!open) setViewedProfileUsername(null); }}
-        username={viewedProfileUsername}
-        onViewUser={(username) => setViewedProfileUsername(username)}
-      />
     </div>
   );
 }

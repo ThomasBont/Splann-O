@@ -14,10 +14,20 @@ type ChatSidebarProps = {
   enabled?: boolean;
 };
 
+const GROUP_WINDOW_MS = 4 * 60 * 1000;
+
 function formatMessageTime(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function getInitials(name: string) {
+  const safe = name.trim();
+  if (!safe) return "U";
+  const parts = safe.split(/\s+/);
+  if (parts.length === 1) return safe.slice(0, 2).toUpperCase();
+  return `${parts[0]?.[0] ?? ""}${parts[parts.length - 1]?.[0] ?? ""}`.toUpperCase();
 }
 
 export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }: ChatSidebarProps) {
@@ -39,6 +49,17 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }:
     retry,
   } = useEventChat(eventId, enabled && !!eventId);
   const membersQuery = useEventMembers(eventId);
+  const membersById = useMemo(() => {
+    const map = new Map<string, { name: string; avatarUrl?: string | null; username?: string | null }>();
+    for (const member of membersQuery.data ?? []) {
+      map.set(String(member.userId), {
+        name: member.name || member.username || "Unknown user",
+        avatarUrl: member.avatarUrl ?? null,
+        username: member.username ?? null,
+      });
+    }
+    return map;
+  }, [membersQuery.data]);
 
   useEffect(() => {
     const el = listRef.current;
@@ -179,7 +200,7 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }:
             </div>
           </div>
         ) : (
-          messages.map((msg) => {
+          messages.map((msg, index) => {
             if (msg.type === "system") {
               return (
                 <div key={msg.id} className="flex justify-center">
@@ -189,14 +210,53 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }:
                 </div>
               );
             }
+            const prev = index > 0 ? messages[index - 1] : undefined;
+            const next = index < messages.length - 1 ? messages[index + 1] : undefined;
+            const senderId = String(msg.user?.id ?? "");
+            const senderFromMember = senderId ? membersById.get(senderId) : undefined;
+            const senderName = msg.user?.name || senderFromMember?.name || "Unknown user";
+            const senderAvatar = msg.user?.avatarUrl ?? senderFromMember?.avatarUrl ?? null;
             const mine = String(msg.user?.id ?? "") === String(currentUser?.id ?? "") || msg.user?.name === currentUser?.username;
+            const prevSenderId = prev?.type === "user" ? String(prev.user?.id ?? "") : "";
+            const nextSenderId = next?.type === "user" ? String(next.user?.id ?? "") : "";
+            const prevTime = prev ? new Date(prev.createdAt).getTime() : NaN;
+            const nextTime = next ? new Date(next.createdAt).getTime() : NaN;
+            const currentTime = new Date(msg.createdAt).getTime();
+            const groupedWithPrev = !!prev && prev.type === "user" && prevSenderId === senderId
+              && Number.isFinite(prevTime) && Number.isFinite(currentTime)
+              && (currentTime - prevTime) < GROUP_WINDOW_MS;
+            const groupedWithNext = !!next && next.type === "user" && nextSenderId === senderId
+              && Number.isFinite(nextTime) && Number.isFinite(currentTime)
+              && (nextTime - currentTime) < GROUP_WINDOW_MS;
             return (
-              <div key={msg.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-                <div className={`max-w-[82%] rounded-2xl px-3 py-2 text-sm ${mine ? "bg-primary text-primary-foreground" : "bg-white border border-slate-200 text-slate-800"}`}>
-                  <p className="whitespace-pre-wrap break-words">{msg.text}</p>
-                  <p className={`mt-1 text-[10px] ${mine ? "text-primary-foreground/80" : "text-slate-500"}`}>
-                    {formatMessageTime(msg.createdAt)}
-                  </p>
+              <div key={msg.id} className={`flex ${mine ? "justify-end" : "justify-start"} ${groupedWithPrev ? "mt-1" : "mt-2.5"}`}>
+                {!mine ? (
+                  <div className="mr-2 flex w-8 flex-col items-center pt-0.5">
+                    {!groupedWithPrev ? (
+                      senderAvatar ? (
+                        <img src={senderAvatar} alt="" className="h-7 w-7 rounded-full border border-slate-200 object-cover" />
+                      ) : (
+                        <span className="grid h-7 w-7 place-items-center rounded-full border border-slate-200 bg-white text-[10px] font-semibold text-slate-600">
+                          {getInitials(senderName)}
+                        </span>
+                      )
+                    ) : null}
+                  </div>
+                ) : null}
+                <div className={`${mine ? "max-w-[84%] items-end" : "max-w-[82%] items-start"} flex flex-col`}>
+                  {!groupedWithPrev ? (
+                    <p className={`mb-1 px-1 text-[11px] ${mine ? "text-slate-400" : "text-slate-500"}`}>
+                      {mine ? "You" : senderName}
+                    </p>
+                  ) : null}
+                  <div className={`rounded-2xl px-3 py-2 text-sm ${mine ? "bg-primary text-primary-foreground" : "border border-slate-200 bg-white text-slate-800"}`}>
+                    <p className="whitespace-pre-wrap break-words">{msg.text}</p>
+                  </div>
+                  {!groupedWithNext ? (
+                    <p className={`mt-1 px-1 text-[10px] ${mine ? "text-primary/70" : "text-slate-500"}`}>
+                      {formatMessageTime(msg.createdAt)}
+                    </p>
+                  ) : null}
                 </div>
               </div>
             );

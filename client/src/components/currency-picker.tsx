@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Check, ChevronsUpDown, Star } from "lucide-react";
+import { Check, ChevronsUpDown } from "lucide-react";
 import {
   Command,
   CommandEmpty,
@@ -31,26 +31,8 @@ import {
   findCurrency,
 } from "@/lib/currencies";
 
-const STORAGE_FAVORITES = "splanno-currency-favorites";
 const STORAGE_RECENTS = "splanno-currency-recents";
 const MAX_RECENTS = 5;
-
-function getFavorites(): string[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(STORAGE_FAVORITES);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-function setFavorites(codes: string[]) {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(STORAGE_FAVORITES, JSON.stringify(codes));
-  } catch {}
-}
 
 function getRecents(storageKey: string): string[] {
   if (typeof window === "undefined") return [];
@@ -82,18 +64,12 @@ function recentsStorageKey(userScopedKey?: string) {
 function CurrencyPickerItem({
   currency,
   isSelected,
-  isFavorite,
   onSelect,
-  onToggleFavorite,
-  showFavorite,
   note,
 }: {
   currency: Currency;
   isSelected: boolean;
-  isFavorite: boolean;
   onSelect: () => void;
-  onToggleFavorite?: (e: React.MouseEvent) => void;
-  showFavorite: boolean;
   note?: string;
 }) {
   const shortLabel = getCurrencyLabelShort(currency);
@@ -108,18 +84,6 @@ function CurrencyPickerItem({
       )}
     >
       <div className="flex items-center gap-2 min-w-0 flex-1">
-        {showFavorite ? (
-          <button
-            type="button"
-            onClick={onToggleFavorite}
-            className="shrink-0 p-1 rounded hover:bg-muted -ml-1"
-            aria-label={isFavorite ? "Remove from favorites" : "Add to favorites"}
-          >
-            <Star className={cn("h-4 w-4", isFavorite && "fill-amber-400 text-amber-500")} />
-          </button>
-        ) : (
-          <span className="w-6 shrink-0" aria-hidden />
-        )}
         <span className="shrink-0 font-medium tabular-nums text-foreground">
           {shortLabel}
         </span>
@@ -147,7 +111,7 @@ function CurrencyPickerItem({
 export interface CurrencyPickerProps {
   value: string;
   onChange: (code: string) => void;
-  /** Use profile favorites when in app mode */
+  /** @deprecated Kept for compatibility; favorites are no longer shown in the picker UI. */
   profileFavorites?: string[];
   suggestedCode?: string | null;
   suggestedNote?: string | null;
@@ -164,7 +128,7 @@ export interface CurrencyPickerProps {
 export function CurrencyPicker({
   value,
   onChange,
-  profileFavorites,
+  profileFavorites: _profileFavorites,
   suggestedCode,
   suggestedNote,
   recentStorageUserKey,
@@ -176,10 +140,6 @@ export function CurrencyPicker({
 }: CurrencyPickerProps) {
   const [open, setOpen] = React.useState(false);
   const [search, setSearch] = React.useState("");
-  const hasProfileFavorites = profileFavorites !== undefined;
-  const [localFavorites, setLocalFavorites] = React.useState<string[]>(() =>
-    typeof window !== "undefined" ? getFavorites() : []
-  );
   const storageKey = React.useMemo(() => recentsStorageKey(recentStorageUserKey), [recentStorageUserKey]);
   const [recentCodes, setRecentCodes] = React.useState<string[]>(() =>
     typeof window !== "undefined" ? getRecents(recentsStorageKey(recentStorageUserKey)) : []
@@ -189,8 +149,6 @@ export function CurrencyPicker({
     if (typeof window === "undefined") return;
     setRecentCodes(getRecents(storageKey));
   }, [storageKey]);
-
-  const favorites = hasProfileFavorites ? (profileFavorites ?? []) : localFavorites;
 
   const selected = getCurrency(value);
   const displayLabel = selected ? getCurrencyLabelShort(selected) : placeholder;
@@ -202,16 +160,6 @@ export function CurrencyPicker({
     setSearch("");
   };
 
-  const toggleFavorite = (e: React.MouseEvent, code: string) => {
-    e.stopPropagation();
-    if (hasProfileFavorites) return;
-    const next = favorites.includes(code)
-      ? favorites.filter((c) => c !== code)
-      : [...favorites, code];
-    setLocalFavorites(next);
-    setFavorites(next);
-  };
-
   const normalizedSearch = search.trim();
   const [showAll, setShowAll] = React.useState(false);
   React.useEffect(() => {
@@ -219,17 +167,13 @@ export function CurrencyPicker({
     else setShowAll(false);
   }, [normalizedSearch]);
 
-  const favoritesList = favorites
-    .map((code) => getCurrency(code))
-    .filter((c): c is Currency => !!c);
   const suggestedCurrency = suggestedCode ? getCurrency(suggestedCode) : undefined;
   const recentsList = recentCodes
-    .filter((c) => c !== value && !favorites.includes(c) && c !== suggestedCurrency?.code)
+    .filter((c) => c !== value && c !== suggestedCurrency?.code)
     .map((code) => getCurrency(code))
     .filter((c): c is Currency => !!c);
   const coreCodes = new Set(CoreCurrencies.map((c) => c.code));
   const hiddenInAll = new Set<string>([
-    ...favoritesList.map((c) => c.code),
     ...recentsList.map((c) => c.code),
     ...(suggestedCurrency ? [suggestedCurrency.code] : []),
   ]);
@@ -240,7 +184,6 @@ export function CurrencyPicker({
     ? CoreCurrencies.filter((c) => c.code.toLowerCase().includes(normalizedSearch.toLowerCase()) || c.name.toLowerCase().includes(normalizedSearch.toLowerCase()) || c.symbol.toLowerCase().includes(normalizedSearch.toLowerCase()))
     : CoreCurrencies;
   const coreVisible = coreFiltered.filter((c) => !hiddenInAll.has(c.code));
-  const showPinFavoritesHint = hasProfileFavorites && favoritesList.length === 0;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -264,52 +207,31 @@ export function CurrencyPicker({
       </PopoverTrigger>
       <PopoverContent
         className={cn(
-          "p-0 overflow-hidden z-[100]",
-          "min-w-[260px] w-[max(var(--radix-popover-trigger-width),260px)]",
+          "z-[100] w-[var(--radix-popover-trigger-width)] max-w-[min(380px,calc(100vw-2rem))] min-w-0 overflow-hidden p-0",
           className
         )}
         align="start"
+        side="bottom"
         sideOffset={4}
+        collisionPadding={12}
       >
         <Command shouldFilter={false} className="rounded-lg border-0">
-          <div className="px-3 pt-3 pb-2 border-b">
+          <div className="border-b px-2.5 pt-2.5 pb-2">
             <CommandInput
               placeholder="Search by code, name, or symbol..."
               value={search}
               onValueChange={setSearch}
-              className="h-9 px-3"
+              className="h-8 px-2.5 text-sm"
             />
           </div>
-          <CommandList className="max-h-[300px] [&_[cmdk-group]]:px-1 [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-2 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider">
+          <CommandList className="max-h-[320px] overflow-y-auto [&_[cmdk-group]]:px-1 [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-2 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider">
             <CommandEmpty>No currency found.</CommandEmpty>
-            <CommandGroup heading="Favorites">
-              {favoritesList.map((cur) => (
-                <CurrencyPickerItem
-                  key={cur.code}
-                  currency={cur}
-                  isSelected={value === cur.code}
-                  isFavorite={true}
-                  onSelect={() => handleSelect(cur.code)}
-                  onToggleFavorite={!hasProfileFavorites ? (e) => toggleFavorite(e, cur.code) : undefined}
-                  showFavorite={!hasProfileFavorites}
-                />
-              ))}
-              {showPinFavoritesHint && (
-                <CommandItem disabled className="text-muted-foreground min-h-[40px]">
-                  Pin favorites in Settings
-                </CommandItem>
-              )}
-            </CommandGroup>
-
-            {suggestedCurrency && !favorites.includes(suggestedCurrency.code) && (
+            {suggestedCurrency && (
               <CommandGroup heading="Suggested">
                 <CurrencyPickerItem
                   currency={suggestedCurrency}
                   isSelected={value === suggestedCurrency.code}
-                  isFavorite={favorites.includes(suggestedCurrency.code)}
                   onSelect={() => handleSelect(suggestedCurrency.code)}
-                  onToggleFavorite={!hasProfileFavorites ? (e) => toggleFavorite(e, suggestedCurrency.code) : undefined}
-                  showFavorite={!hasProfileFavorites}
                   note={suggestedNote ?? "Auto from location"}
                 />
               </CommandGroup>
@@ -322,10 +244,7 @@ export function CurrencyPicker({
                     key={cur.code}
                     currency={cur}
                     isSelected={value === cur.code}
-                    isFavorite={favorites.includes(cur.code)}
                     onSelect={() => handleSelect(cur.code)}
-                    onToggleFavorite={!hasProfileFavorites ? (e) => toggleFavorite(e, cur.code) : undefined}
-                    showFavorite={false}
                   />
                 ))}
               </CommandGroup>
@@ -338,10 +257,7 @@ export function CurrencyPicker({
                     key={cur.code}
                     currency={cur}
                     isSelected={value === cur.code}
-                    isFavorite={favorites.includes(cur.code)}
                     onSelect={() => handleSelect(cur.code)}
-                    onToggleFavorite={!hasProfileFavorites ? (e) => toggleFavorite(e, cur.code) : undefined}
-                    showFavorite={!hasProfileFavorites}
                   />
                 ))}
                 {(showAll || normalizedSearch ? otherCurrencies : otherCurrencies.slice(0, 20)).map((cur) => (
@@ -349,10 +265,7 @@ export function CurrencyPicker({
                     key={cur.code}
                     currency={cur}
                     isSelected={value === cur.code}
-                    isFavorite={favorites.includes(cur.code)}
                     onSelect={() => handleSelect(cur.code)}
-                    onToggleFavorite={!hasProfileFavorites ? (e) => toggleFavorite(e, cur.code) : undefined}
-                    showFavorite={false}
                   />
                 ))}
                 {!normalizedSearch && !showAll && otherCurrencies.length > 20 && (

@@ -17,6 +17,7 @@ export function AccountSettingsContent({ compact = false }: AccountSettingsConte
   const { preference, setPreference } = useTheme();
   const { toast } = useToast();
   const [defaultCurrencyCode, setDefaultCurrencyCode] = React.useState("EUR");
+  const buildId = import.meta.env.VITE_BUILD_ID as string | undefined;
 
   React.useEffect(() => {
     if (!user) return;
@@ -103,6 +104,10 @@ export function AccountSettingsContent({ compact = false }: AccountSettingsConte
           Save
         </Button>
       </div>
+
+      {import.meta.env.DEV ? (
+        <p className="text-[10px] text-muted-foreground">Build: {buildId || "dev"}</p>
+      ) : null}
     </section>
   );
 }

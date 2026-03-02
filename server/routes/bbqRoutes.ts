@@ -181,13 +181,40 @@ async function assertEventAccessOrThrow(req: Request, eventId: number) {
   if (!ok) forbidden("Not a member of this event");
 }
 
+function getPublicBaseUrl(req: Request) {
+  const envBase = (process.env.PUBLIC_BASE_URL ?? process.env.APP_URL ?? process.env.APP_BASE_URL ?? "").trim().replace(/\/$/, "");
+  if (envBase) return envBase;
+
+  const forwardedProto = String(req.get("x-forwarded-proto") ?? "")
+    .split(",")[0]
+    .trim();
+  const forwardedHost = String(req.get("x-forwarded-host") ?? "")
+    .split(",")[0]
+    .trim();
+  if (forwardedHost) {
+    const proto = forwardedProto || req.protocol || "https";
+    return `${proto}://${forwardedHost}`;
+  }
+
+  return `${req.protocol}://${req.get("host")}`;
+}
+
 function getAppOrigin(req: Request) {
-  return (process.env.PUBLIC_BASE_URL ?? process.env.APP_URL ?? process.env.APP_BASE_URL ?? "").replace(/\/$/, "") || `${req.protocol}://${req.get("host")}`;
+  return getPublicBaseUrl(req);
+}
+
+function shouldStoreRelativeUploadPath(publicBaseUrl: string): boolean {
+  try {
+    const host = new URL(publicBaseUrl).hostname.toLowerCase();
+    return host === "localhost" || host === "127.0.0.1" || host === "::1";
+  } catch {
+    return false;
+  }
 }
 
 function toPublicUploadsUrl(req: Request, relativePath: string): string {
-  const origin = getAppOrigin(req);
-  return new URL(relativePath, `${origin}/`).toString();
+  const publicBaseUrl = getPublicBaseUrl(req);
+  return new URL(relativePath, `${publicBaseUrl}/`).toString();
 }
 
 function getEventBannerFileNameFromUrl(value: string | null | undefined): string | null {
@@ -1524,7 +1551,19 @@ router.post("/barbecues/:bbqId/banner", requireAuth, asyncHandler(async (req, re
 
   const prevBannerUrl = bbq.bannerImageUrl ?? null;
   const relativeBannerPath = `/uploads/event-banners/${fileName}`;
-  const bannerImageUrl = toPublicUploadsUrl(req, relativeBannerPath);
+  const publicBannerUrl = toPublicUploadsUrl(req, relativeBannerPath);
+  const bannerImageUrl = shouldStoreRelativeUploadPath(getPublicBaseUrl(req))
+    ? relativeBannerPath
+    : publicBannerUrl;
+  if (process.env.NODE_ENV !== "production") {
+    log("info", "Banner uploaded", {
+      route: "POST /api/barbecues/:bbqId/banner",
+      uploadDir: EVENT_BANNER_UPLOAD_DIR,
+      fileName,
+      storedBannerImageUrl: bannerImageUrl,
+      publicBannerUrl,
+    });
+  }
   const updated = await bbqRepo.update(bbqId, { bannerImageUrl });
   if (!updated) notFound("Event not found");
 
@@ -1536,7 +1575,8 @@ router.post("/barbecues/:bbqId/banner", requireAuth, asyncHandler(async (req, re
 
   res.json({
     bbqId,
-    url: updated.bannerImageUrl ?? null,
+    url: publicBannerUrl,
+    path: relativeBannerPath,
     bannerImageUrl: updated.bannerImageUrl ?? null,
   });
 }));

@@ -3303,7 +3303,15 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                         if ("bannerImageUrl" in updates) {
                           const expectedBanner = updates.bannerImageUrl ?? null;
                           const savedBanner = updatedPlan?.bannerImageUrl ?? null;
-                          if (savedBanner !== expectedBanner) {
+                          const normalizeBannerForCompare = (value: string | null) => {
+                            if (!value) return null;
+                            try {
+                              return new URL(value, window.location.origin).toString();
+                            } catch {
+                              return value;
+                            }
+                          };
+                          if (normalizeBannerForCompare(savedBanner) !== normalizeBannerForCompare(expectedBanner)) {
                             throw new Error("Banner image URL could not be saved. Try again.");
                           }
                         }

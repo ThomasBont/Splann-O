@@ -84,7 +84,13 @@ export function createApp() {
   app.use(requestContext);
 
   // Uploaded assets must be directly browser-loadable in both dev and prod.
-  app.use("/uploads", express.static(path.resolve(process.cwd(), "public/uploads")));
+  app.use(
+    "/uploads",
+    express.static(path.resolve(process.cwd(), "public/uploads"), {
+      maxAge: "1y",
+      immutable: true,
+    }),
+  );
 
   // Temporary feature lock: disable public/explore surfaces while private UX is being polished.
   if (!publicSectionEnabled) {

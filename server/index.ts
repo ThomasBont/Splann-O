@@ -41,6 +41,15 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { appendEventChatMessage } from "./lib/eventChatStore";
 import { broadcastEventRealtime, registerEventSocket, unregisterEventSocket } from "./lib/eventRealtime";
 
+const runtimeBuildId =
+  process.env.BUILD_ID
+  || process.env.VITE_BUILD_ID
+  || process.env.RENDER_GIT_COMMIT?.slice(0, 12)
+  || process.env.GITHUB_SHA?.slice(0, 12)
+  || `dev-${Date.now()}`;
+process.env.BUILD_ID = runtimeBuildId;
+process.env.VITE_BUILD_ID = process.env.VITE_BUILD_ID || runtimeBuildId;
+
 const app = createApp();
 const httpServer = createServer(app);
 const chatWss = new WebSocketServer({ noServer: true });

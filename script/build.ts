@@ -33,6 +33,13 @@ const allowlist = [
 ];
 
 async function buildAll() {
+  const buildId =
+    process.env.RENDER_GIT_COMMIT?.slice(0, 12)
+    || process.env.GITHUB_SHA?.slice(0, 12)
+    || `local-${Date.now()}`;
+  process.env.VITE_BUILD_ID = process.env.VITE_BUILD_ID || buildId;
+  process.env.BUILD_ID = process.env.BUILD_ID || buildId;
+
   await rm("dist", { recursive: true, force: true });
 
   console.log("building client...");

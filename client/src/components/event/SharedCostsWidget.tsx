@@ -59,23 +59,27 @@ export function SharedCostsWidget({
       >
         <div className="flex items-center justify-between gap-2">
           <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Shared pot</p>
-          {canAddExpense ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="h-7 rounded-full border-border/70 bg-background/70 px-2 text-[11px] text-muted-foreground hover:bg-muted"
-              aria-label="Add expense for this plan"
-              onClick={(event) => {
-                event.stopPropagation();
-                setInitialView("expense-form");
-                setOpen(true);
-              }}
-            >
-              <Plus className="mr-1 h-3.5 w-3.5" />
-              Add
-            </Button>
-          ) : null}
+          <div className="flex items-center gap-2">
+            <span className="grid h-6 w-6 place-items-center rounded-full bg-muted text-xs font-medium text-foreground">
+              {expenseCount}
+            </span>
+            {canAddExpense ? (
+              <Button
+                type="button"
+                size="icon"
+                variant="outline"
+                className="h-8 w-8 rounded-full border-border/70 bg-background/70 text-muted-foreground hover:bg-muted/30 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
+                aria-label="Add expense for this plan"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setInitialView("expense-form");
+                  setOpen(true);
+                }}
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            ) : null}
+          </div>
         </div>
         <p className="mt-3 text-2xl font-semibold tracking-tight text-foreground">{totalSpentLabel}</p>
         <p className="mt-1 text-xs text-muted-foreground">

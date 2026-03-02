@@ -10,7 +10,7 @@ type PlanDetailsValues = {
   name: string;
   locationText: string;
   date: string;
-  bannerImageUrl: string | null;
+  bannerImageUrl?: string | null;
 };
 
 type PlanDetailsDrawerProps = {
@@ -42,8 +42,23 @@ function toDateTimeLocalValue(value: string | Date | null | undefined) {
 function normalizeBannerUrl(input: string): string {
   const trimmed = input.trim();
   if (!trimmed) return "";
+  if (/^blob:/i.test(trimmed)) return "";
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (/^[a-z]+:\/\//i.test(trimmed)) return "";
+  if (trimmed.startsWith("/") && typeof window !== "undefined") {
+    return new URL(trimmed, window.location.origin).toString();
+  }
   return `https://${trimmed}`;
+}
+
+function toAbsoluteHttpUrl(input: string): string {
+  const trimmed = input.trim();
+  if (!trimmed) return "";
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  if (trimmed.startsWith("/") && typeof window !== "undefined") {
+    return new URL(trimmed, window.location.origin).toString();
+  }
+  return "";
 }
 
 export function PlanDetailsDrawer({ open, onOpenChange, plan, saving = false, onSave }: PlanDetailsDrawerProps) {
@@ -88,8 +103,13 @@ export function PlanDetailsDrawer({ open, onOpenChange, plan, saving = false, on
     || "";
   const initialDate = toDateTimeLocalValue(plan?.date ?? null);
   const initialBanner = plan?.bannerImageUrl ?? "";
+  const normalizedInitialBannerImageUrl = useMemo(() => normalizeBannerUrl(initialBanner), [initialBanner]);
   const normalizedBannerImageUrl = useMemo(() => normalizeBannerUrl(bannerImageUrl), [bannerImageUrl]);
   const bannerPreviewUrl = bannerUploadPreviewUrl || normalizedBannerImageUrl || "";
+  const hasUrlInputValue = useMemo(
+    () => useBannerUrlInput && bannerImageUrl.trim().length > 0,
+    [useBannerUrlInput, bannerImageUrl],
+  );
   const formatFileSize = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -130,16 +150,16 @@ export function PlanDetailsDrawer({ open, onOpenChange, plan, saving = false, on
       || dateTimeLocal !== initialDate
       || !!bannerUploadFile
       || removeBannerRequested
-      || normalizedBannerImageUrl !== normalizeBannerUrl(initialBanner)
+      || (hasUrlInputValue && normalizedBannerImageUrl !== normalizedInitialBannerImageUrl)
     ),
-    [name, locationText, dateTimeLocal, bannerUploadFile, removeBannerRequested, normalizedBannerImageUrl, initialName, initialLocation, initialDate, initialBanner],
+    [name, locationText, dateTimeLocal, bannerUploadFile, removeBannerRequested, hasUrlInputValue, normalizedBannerImageUrl, normalizedInitialBannerImageUrl, initialName, initialLocation, initialDate],
   );
 
   const handleSave = async () => {
     if (!isValid || !isDirty || saving) return;
     try {
       const isoDate = new Date(dateTimeLocal).toISOString();
-      let nextBannerImageUrl: string | null = null;
+      let nextBannerImageUrl: string | null | undefined = undefined;
       if (bannerUploadFile) {
         setBannerUploadPending(true);
         if (!plan?.id) throw new Error("No plan selected.");
@@ -166,13 +186,15 @@ export function PlanDetailsDrawer({ open, onOpenChange, plan, saving = false, on
         if (!uploadRes.ok) {
           throw new Error((uploadPayload as { message?: string }).message || "Couldn’t upload banner image.");
         }
-        nextBannerImageUrl = String((uploadPayload as { bannerImageUrl?: string }).bannerImageUrl ?? "");
-        if (!nextBannerImageUrl) {
+        const uploadedRaw = String((uploadPayload as { bannerImageUrl?: string }).bannerImageUrl ?? "");
+        const uploadedAbsolute = toAbsoluteHttpUrl(uploadedRaw);
+        if (!uploadedAbsolute) {
           throw new Error("Banner image URL could not be saved.");
         }
+        nextBannerImageUrl = uploadedAbsolute;
       } else if (removeBannerRequested) {
         nextBannerImageUrl = null;
-      } else if (normalizedBannerImageUrl) {
+      } else if (hasUrlInputValue) {
         let candidate: URL;
         try {
           candidate = new URL(normalizedBannerImageUrl);
@@ -183,15 +205,13 @@ export function PlanDetailsDrawer({ open, onOpenChange, plan, saving = false, on
           throw new Error("Banner image URL must start with http:// or https://");
         }
         nextBannerImageUrl = normalizedBannerImageUrl;
-      } else {
-        nextBannerImageUrl = null;
       }
-      const payload = {
+      const payload: PlanDetailsValues = {
         name: name.trim(),
         locationText: locationText.trim(),
         date: isoDate,
-        bannerImageUrl: nextBannerImageUrl,
       };
+      if (nextBannerImageUrl !== undefined) payload.bannerImageUrl = nextBannerImageUrl;
       if (import.meta.env.DEV) {
         console.debug("[plan-details-save] payload", payload);
       }
@@ -205,7 +225,7 @@ export function PlanDetailsDrawer({ open, onOpenChange, plan, saving = false, on
         if (prev) URL.revokeObjectURL(prev);
         return null;
       });
-      setBannerImageUrl(nextBannerImageUrl ?? "");
+      setBannerImageUrl(nextBannerImageUrl ?? normalizedInitialBannerImageUrl);
     } catch (error) {
       setBannerUploadPending(false);
       toastError((error as Error).message || "Couldn’t save plan details. Try again.");

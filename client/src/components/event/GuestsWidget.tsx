@@ -52,25 +52,24 @@ export function GuestsWidget({ eventId, canInvite = true }: GuestsWidgetProps) {
             Crew
           </p>
           <div className="flex items-center gap-2">
+            <span className="grid h-6 w-6 place-items-center rounded-full bg-muted text-xs font-medium text-foreground">
+              {members.length}
+            </span>
             {canInvite ? (
               <Button
                 type="button"
-                size="sm"
+                size="icon"
                 variant="outline"
-                className="h-7 rounded-full border-border/70 bg-background/70 px-2 text-[11px] text-muted-foreground hover:bg-muted"
+                className="h-8 w-8 rounded-full border-border/70 bg-background/70 text-muted-foreground hover:bg-muted/30 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
                 aria-label="Add friend to this plan"
                 onClick={(event) => {
                   event.stopPropagation();
                   setOpen(true);
                 }}
               >
-                <Plus className="mr-1 h-3.5 w-3.5" />
-                Add
+                <Plus className="h-4 w-4" />
               </Button>
             ) : null}
-            <span className="rounded-full border border-border/70 bg-background/70 px-2 py-0.5 text-[11px] text-muted-foreground">
-              {members.length}
-            </span>
           </div>
         </div>
 

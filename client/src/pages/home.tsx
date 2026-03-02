@@ -3266,17 +3266,28 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                       saving={updateBbq.isPending}
                       onSave={async (updates) => {
                         if (!selectedBbq) return;
-                        const updatedPlan = await updateBbq.mutateAsync({
+                        const payload: {
+                          id: number;
+                          name: string;
+                          locationText: string;
+                          date: string;
+                          bannerImageUrl?: string | null;
+                        } = {
                           id: selectedBbq.id,
                           name: updates.name,
                           locationText: updates.locationText,
                           date: updates.date,
-                          bannerImageUrl: updates.bannerImageUrl,
-                        });
-                        const expectedBanner = updates.bannerImageUrl ?? null;
-                        const savedBanner = updatedPlan?.bannerImageUrl ?? null;
-                        if (savedBanner !== expectedBanner) {
-                          throw new Error("Banner image URL could not be saved. Try again.");
+                        };
+                        if ("bannerImageUrl" in updates) {
+                          payload.bannerImageUrl = updates.bannerImageUrl ?? null;
+                        }
+                        const updatedPlan = await updateBbq.mutateAsync(payload);
+                        if ("bannerImageUrl" in updates) {
+                          const expectedBanner = updates.bannerImageUrl ?? null;
+                          const savedBanner = updatedPlan?.bannerImageUrl ?? null;
+                          if (savedBanner !== expectedBanner) {
+                            throw new Error("Banner image URL could not be saved. Try again.");
+                          }
                         }
                         await queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] });
                         await queryClient.refetchQueries({ queryKey: ["/api/barbecues"] });

@@ -8,11 +8,9 @@ import { ThemeProvider } from "@/hooks/use-theme";
 import { UpgradeProvider } from "@/contexts/UpgradeContext";
 import { NewPlanWizardProvider } from "@/contexts/new-plan-wizard";
 import NotFound from "@/pages/not-found";
-import Landing from "@/pages/landing";
 import LandingV2 from "@/pages/landing-v2";
 import ThemeGalleryPage from "@/pages/theme-gallery";
 import Basic from "@/pages/basic";
-import LoginPage from "@/pages/login";
 import AppRoute from "@/pages/app-route";
 import ResetPassword from "@/pages/reset-password";
 import JoinPage from "@/pages/join";
@@ -53,7 +51,8 @@ function Router() {
       <Route path="/join/:token" component={JoinPage} />
       <Route path="/invite/:token" component={JoinPage} />
       <Route path="/basic" component={Basic} />
-      <Route path="/login" component={LoginPage} />
+      <Route path="/login" component={LandingV2} />
+      <Route path="/signup" component={LandingV2} />
       <Route path="/app/e/:eventId" component={AppRoute} />
       <Route path="/app/home" component={AppRoute} />
       <Route path="/app/private" component={AppRoute} />

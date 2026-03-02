@@ -1,9 +1,13 @@
 import { Link, useLocation } from "wouter";
-import { ArrowRight, CheckCircle2, MessageCircle, ReceiptText, UserPlus2, Zap } from "lucide-react";
+import { useEffect } from "react";
+import { ArrowRight, CheckCircle2, MessageCircle, Moon, ReceiptText, Sun, UserPlus2, Zap } from "lucide-react";
 import { SplannoLogo } from "@/components/splanno-logo";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/use-auth";
+import { AuthDrawer } from "@/components/auth/AuthDrawer";
+import { SELECTABLE_LANGUAGES, useLanguage } from "@/hooks/use-language";
+import { useTheme } from "@/hooks/use-theme";
 
 const BENEFITS = [
   {
@@ -36,11 +40,39 @@ const STEPS = [
 
 export default function LandingV2() {
   const { user } = useAuth();
-  const [, setLocation] = useLocation();
+  const { language, setLanguage } = useLanguage();
+  const { theme, setPreference } = useTheme();
+  const isAuthenticated = !!user;
+  const [location, setLocation] = useLocation();
+  const authMode = location === "/signup" ? "signup" : location === "/login" ? "login" : null;
+  const isAuthDrawerOpen = authMode !== null;
+
+  const openAuth = (mode: "login" | "signup") => {
+    setLocation(mode === "signup" ? "/signup" : "/login");
+  };
 
   const handleCreatePlan = () => {
-    setLocation(user ? "/app/private" : "/login");
+    setLocation(user ? "/app/private" : "/signup");
   };
+
+  const handleCloseAuthDrawer = (nextOpen: boolean) => {
+    if (nextOpen) return;
+    setLocation("/");
+  };
+
+  const handleAuthModeChange = (mode: "login" | "signup") => {
+    setLocation(mode === "signup" ? "/signup" : "/login");
+  };
+
+  const handleAuthSuccess = () => {
+    setLocation("/app/private");
+  };
+
+  useEffect(() => {
+    if (!user) return;
+    if (!isAuthDrawerOpen) return;
+    setLocation("/app/private");
+  }, [user, isAuthDrawerOpen, setLocation]);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -52,11 +84,47 @@ export default function LandingV2() {
               <span className="text-base font-semibold tracking-tight">Splanno</span>
             </a>
           </Link>
-          <Link href={user ? "/app/private" : "/login"}>
-            <a>
-              <Button variant="ghost" size="sm">Log in</Button>
-            </a>
-          </Link>
+          <div className="flex items-center gap-2">
+            {!isAuthenticated ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setPreference(theme === "dark" ? "light" : "dark")}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+                  title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                  aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                >
+                  {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                </button>
+                <div className="flex rounded-lg border border-border overflow-hidden">
+                  {SELECTABLE_LANGUAGES.map((lang) => (
+                    <button
+                      key={`landing-language-${lang.code}`}
+                      type="button"
+                      onClick={() => setLanguage(lang.code)}
+                      className={`px-2 py-1 text-[11px] font-semibold transition-colors ${
+                        language === lang.code
+                          ? "bg-primary text-primary-foreground"
+                          : "text-muted-foreground hover:bg-muted/60"
+                      }`}
+                    >
+                      {lang.label}
+                    </button>
+                  ))}
+                </div>
+                <Button variant="ghost" size="sm" onClick={() => openAuth("login")}>
+                  Log in
+                </Button>
+                <Button size="sm" onClick={() => openAuth("signup")}>
+                  Sign up
+                </Button>
+              </>
+            ) : (
+              <Button size="sm" onClick={() => setLocation("/app/private")}>
+                Open app
+              </Button>
+            )}
+          </div>
         </div>
       </header>
 
@@ -152,6 +220,14 @@ export default function LandingV2() {
           </div>
         </div>
       </footer>
+
+      <AuthDrawer
+        open={isAuthDrawerOpen}
+        mode={authMode ?? "login"}
+        onOpenChange={handleCloseAuthDrawer}
+        onModeChange={handleAuthModeChange}
+        onSuccess={handleAuthSuccess}
+      />
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { Link, useLocation } from "wouter";
 import { normalizeCountryCode } from "@shared/lib/country-code";
-import { useLanguage, getCurrency, SELECTABLE_LANGUAGES, type CurrencyCode, convertCurrency } from "@/hooks/use-language";
+import { useLanguage, getCurrency, type CurrencyCode, convertCurrency } from "@/hooks/use-language";
 import { useAuth } from "@/hooks/use-auth";
 import { useUserProfile } from "@/hooks/use-user-profile";
 import {
@@ -14,7 +14,7 @@ import {
 import { useExpenses, useDeleteExpense, useExpenseShares, useSetExpenseShare } from "@/hooks/use-expenses";
 import { useBarbecues, useCreateBarbecue, useDeleteBarbecue, useUpdateBarbecue, useEnsureInviteToken, useSettleUp, useEventNotifications, useMarkEventNotificationRead, useCheckoutPublicListing, useDeactivateListing, useExploreEvents, usePublicEventRsvpRequests, useUpdatePublicEventRsvpRequest, useConversations, useConversation, useSendConversationMessage, useUpdateConversationStatus, useUploadEventBanner, useDeleteEventBanner, type EventNotification, type ExploreEvent } from "@/hooks/use-bbq-data";
 import { useQueryClient } from "@tanstack/react-query";
-import { useFriends, useFriendRequests, useAllPendingRequests, useAcceptFriendRequest, useRemoveFriend } from "@/hooks/use-friends";
+import { useFriends, useFriendRequests, useAllPendingRequests, useAcceptFriendRequest, useRemoveFriend, useSearchUsers, useSendFriendRequest } from "@/hooks/use-friends";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -66,9 +66,8 @@ import {
   ArrowLeft,
   UserCheck, UserX, LogOut, Crown, Clock, UserCircle, ChevronDown,
   Lock, Globe, UserPlus, X, Eye, EyeOff, Compass,
-  Bell, UserPlus2, Search, Heart, Sun, Moon, MessageCircle, Star, Plane, PartyPopper,
+  Bell, UserPlus2, Search, Heart, MessageCircle, Star, Plane, PartyPopper, Settings,
 } from "lucide-react";
-import { useTheme } from "@/hooks/use-theme";
 import { useEventHeaderPreferences } from "@/hooks/use-event-header-preferences";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { useToast } from "@/hooks/use-toast";
@@ -547,7 +546,7 @@ export function AuthDialog({
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 type HomeRouteMode = "legacy" | "private" | "public" | "event";
-type AccountView = "profile" | "friends" | "editBio" | "changePhoto" | "settings";
+type AccountView = "profile" | "friends" | "addFriend" | "friendProfile" | "editBio" | "changePhoto" | "settings" | "deleteAccountConfirm";
 type HomeProps = {
   appRouteMode?: HomeRouteMode;
   routeEventId?: number | null;
@@ -555,8 +554,7 @@ type HomeProps = {
 };
 
 export default function Home({ appRouteMode = "legacy", routeEventId = null, debugDisableDiscoverModal = false }: HomeProps) {
-  const { language, setLanguage, t } = useLanguage();
-  const { theme, setPreference } = useTheme();
+  const { t } = useLanguage();
   const { prefs: eventHeaderPrefs } = useEventHeaderPreferences();
   const { user, isLoading: isAuthLoading, logout, resendVerification, updateProfile, deleteAccount } = useAuth();
   const [, setLocation] = useLocation();
@@ -650,14 +648,22 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
   const markEventNotifRead = useMarkEventNotificationRead();
   const acceptFriendReq = useAcceptFriendRequest();
   const removeFriendMut = useRemoveFriend();
+  const sendFriendRequest = useSendFriendRequest();
   const [profileTargetUsername, setProfileTargetUsername] = useState<string | null>(null);
   const [isAccountDrawerOpen, setIsAccountDrawerOpen] = useState(false);
   const [accountView, setAccountView] = useState<AccountView>("profile");
   const [draftBio, setDraftBio] = useState("");
   const [draftProfileImageUrl, setDraftProfileImageUrl] = useState("");
-  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const [deleteConfirmUsername, setDeleteConfirmUsername] = useState("");
+  const avatarFileInputRef = useRef<HTMLInputElement | null>(null);
+  const [avatarUploadFile, setAvatarUploadFile] = useState<File | null>(null);
+  const [avatarUploadPreviewUrl, setAvatarUploadPreviewUrl] = useState<string | null>(null);
+  const [avatarUploadError, setAvatarUploadError] = useState<string | null>(null);
+  const [avatarUploadPending, setAvatarUploadPending] = useState(false);
+  const [useAvatarUrlInput, setUseAvatarUrlInput] = useState(false);
+  const [avatarDragActive, setAvatarDragActive] = useState(false);
+  const [deleteConfirmPhrase, setDeleteConfirmPhrase] = useState("");
   const [selectedFriendId, setSelectedFriendId] = useState<number | null>(null);
+  const [addFriendQuery, setAddFriendQuery] = useState("");
   const [notifOpen, setNotifOpen] = useState(false);
   const [showAuthDialog, setShowAuthDialog] = useState(true);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
@@ -824,9 +830,18 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
     if (isAccountDrawerOpen) return;
     setAccountView("profile");
     setProfileTargetUsername(null);
-    setDeleteConfirmOpen(false);
-    setDeleteConfirmUsername("");
+    setDeleteConfirmPhrase("");
     setSelectedFriendId(null);
+    setAddFriendQuery("");
+    setAvatarUploadFile(null);
+    setAvatarUploadPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+    setAvatarUploadError(null);
+    setAvatarUploadPending(false);
+    setUseAvatarUrlInput(false);
+    setAvatarDragActive(false);
   }, [isAccountDrawerOpen]);
 
   useEffect(() => {
@@ -835,8 +850,16 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
     if (profileTargetUsername) return;
     setDraftBio((user.bio ?? "").slice(0, 160));
     setDraftProfileImageUrl((user.profileImageUrl ?? user.avatarUrl ?? "").trim());
-    setDeleteConfirmOpen(false);
-    setDeleteConfirmUsername("");
+    setAvatarUploadFile(null);
+    setAvatarUploadPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+    setAvatarUploadError(null);
+    setAvatarUploadPending(false);
+    setUseAvatarUrlInput(false);
+    setAvatarDragActive(false);
+    setDeleteConfirmPhrase("");
     setSelectedFriendId(null);
   }, [
     isAccountDrawerOpen,
@@ -856,6 +879,17 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
     isError: profileTargetError,
     refetch: refetchProfileTarget,
   } = useUserProfile(profileQueryUsername);
+  const selectedFriend = useMemo(
+    () => friends.find((friend) => friend.userId === selectedFriendId) ?? null,
+    [friends, selectedFriendId],
+  );
+  const {
+    data: selectedFriendProfile,
+    isLoading: selectedFriendProfileLoading,
+    isError: selectedFriendProfileError,
+    refetch: refetchSelectedFriendProfile,
+  } = useUserProfile(accountView === "friendProfile" ? (selectedFriend?.username ?? null) : null);
+  const { data: addFriendResults = [], isLoading: addFriendSearchLoading, isError: addFriendSearchError } = useSearchUsers(addFriendQuery);
   const isViewingOwnAccount = !profileTargetUsername;
   const accountProfileUser = isViewingOwnAccount
     ? {
@@ -866,12 +900,57 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
         profileImageUrl: user?.profileImageUrl ?? user?.avatarUrl ?? profileTargetData?.user.profileImageUrl ?? profileTargetData?.user.avatarUrl ?? null,
       }
     : profileTargetData?.user ?? null;
-  const accountProfileStats = profileTargetData?.stats
-    ?? {
-      eventsCount: 0,
-      friendsCount: friends.length,
-      totalSpent: 0,
+  const accountFriendsCount = profileTargetData?.stats?.friendsCount ?? friends.length;
+  const changePhotoPreview = avatarUploadPreviewUrl
+    || (useAvatarUrlInput ? draftProfileImageUrl.trim() : "")
+    || user?.profileImageUrl
+    || user?.avatarUrl
+    || "";
+  const hasValidAvatarUrlInput = useMemo(() => {
+    if (!useAvatarUrlInput) return false;
+    const trimmed = draftProfileImageUrl.trim();
+    if (!trimmed) return true;
+    const normalized = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+    try {
+      new URL(normalized);
+      return true;
+    } catch {
+      return false;
+    }
+  }, [useAvatarUrlInput, draftProfileImageUrl]);
+  const canSaveAvatar = !!avatarUploadFile || hasValidAvatarUrlInput;
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+
+  const handleAvatarFileChange = (file: File | null) => {
+    if (!file) return;
+    const isImage = file.type.startsWith("image/");
+    if (!isImage) {
+      setAvatarUploadError(t.auth.invalidImageType);
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setAvatarUploadError(t.auth.fileTooLarge);
+      return;
+    }
+    setAvatarUploadPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(file);
+    });
+    setAvatarUploadFile(file);
+    setAvatarUploadError(null);
+    setUseAvatarUrlInput(false);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (avatarUploadPreviewUrl) URL.revokeObjectURL(avatarUploadPreviewUrl);
     };
+  }, [avatarUploadPreviewUrl]);
 
   const {
     data: barbecues = [],
@@ -1854,34 +1933,6 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
           </div>
 
           <div className="flex items-center gap-1.5 sm:gap-2 flex-shrink-0">
-            {/* Theme toggle */}
-            <button
-              type="button"
-              onClick={() => setPreference(theme === "dark" ? "light" : "dark")}
-              className="p-2 rounded-lg border border-border text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-              title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-              aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-            >
-              {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-            </button>
-            {/* Language Tabs */}
-            <div className="flex rounded-lg border border-border overflow-hidden" data-testid="language-tabs">
-              {SELECTABLE_LANGUAGES.map(lang => (
-                <button
-                  key={lang.code}
-                  onClick={() => setLanguage(lang.code)}
-                  className={`px-2.5 py-1.5 text-xs font-bold transition-colors ${
-                    language === lang.code
-                      ? 'bg-primary text-primary-foreground'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
-                  }`}
-                  data-testid={`button-lang-${lang.code}`}
-                >
-                  {lang.label}
-                </button>
-              ))}
-            </div>
-
             {/* User area */}
             {user ? (
               <div className="flex items-center gap-1">
@@ -2022,10 +2073,16 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                       ? "Profile"
                       : accountView === "friends"
                         ? "Friends"
+                        : accountView === "addFriend"
+                          ? "Add friend"
+                          : accountView === "friendProfile"
+                            ? "Friend profile"
                         : accountView === "editBio"
                           ? "Edit bio"
                           : accountView === "changePhoto"
                             ? "Change photo"
+                            : accountView === "deleteAccountConfirm"
+                              ? "Delete account"
                             : "Settings"}
                   </SheetDescription>
                 </SheetHeader>
@@ -2033,7 +2090,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
 
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
               {accountView === "profile" ? (
-                <div className="space-y-4">
+                <div className="flex min-h-full flex-col gap-4">
                   {profileTargetLoading ? (
                     <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
                       <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-neutral-400">
@@ -2058,137 +2115,155 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                     </div>
                   ) : (
                     <>
-                      <div className="rounded-2xl border border-slate-200 bg-white p-4 text-center dark:border-neutral-800 dark:bg-neutral-900">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!isViewingOwnAccount) return;
-                            setAccountView("changePhoto");
-                          }}
-                          className={`mx-auto grid h-20 w-20 place-items-center overflow-hidden rounded-full bg-amber-100 text-lg font-semibold text-slate-700 dark:bg-amber-300/25 dark:text-amber-100 ${isViewingOwnAccount ? "cursor-pointer ring-2 ring-transparent transition hover:ring-amber-300/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" : "cursor-default"}`}
-                        >
-                          {accountProfileUser?.profileImageUrl ? (
-                            <img src={accountProfileUser.profileImageUrl} alt="" className="h-full w-full object-cover" />
-                          ) : (
-                            (accountProfileUser?.displayName || accountProfileUser?.username || "U").slice(0, 2).toUpperCase()
-                          )}
-                        </button>
-                        <p className="mt-3 truncate text-base font-semibold text-slate-900 dark:text-neutral-100">
-                          {accountProfileUser?.displayName || accountProfileUser?.username || "User"}
-                        </p>
-                        {accountProfileUser?.username ? (
-                          <p className="text-sm text-slate-500 dark:text-neutral-400">@{accountProfileUser.username}</p>
-                        ) : null}
-                        {isViewingOwnAccount && user?.email ? (
-                          <p className="mt-1 truncate text-xs text-slate-500 dark:text-neutral-400">{user.email}</p>
-                        ) : null}
-                      </div>
+                      <div className="overflow-hidden rounded-2xl border border-border/70 bg-card">
+                        <div className="p-4">
+                          <div className="flex items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (!isViewingOwnAccount) return;
+                                setAccountView("changePhoto");
+                              }}
+                              className={`grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-full bg-primary/10 text-base font-semibold text-primary ${isViewingOwnAccount ? "cursor-pointer ring-2 ring-transparent transition hover:ring-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" : "cursor-default"}`}
+                            >
+                              {accountProfileUser?.profileImageUrl ? (
+                                <img src={accountProfileUser.profileImageUrl} alt="" className="h-full w-full object-cover" />
+                              ) : (
+                                (accountProfileUser?.displayName || accountProfileUser?.username || "U").slice(0, 2).toUpperCase()
+                              )}
+                            </button>
+                            <div className="min-w-0">
+                              <p className="truncate text-base font-semibold text-foreground">
+                                {accountProfileUser?.displayName || accountProfileUser?.username || "User"}
+                              </p>
+                              {accountProfileUser?.username ? (
+                                <p className="truncate text-sm text-muted-foreground">@{accountProfileUser.username}</p>
+                              ) : null}
+                              {isViewingOwnAccount && user?.email ? (
+                                <p className="mt-0.5 truncate text-xs text-muted-foreground">{user.email}</p>
+                              ) : null}
+                            </div>
+                          </div>
+                        </div>
 
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          type="button"
-                          onClick={() => toastInfo("Plans details view coming soon.")}
-                          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-left transition hover:border-slate-300 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary dark:border-neutral-800 dark:bg-neutral-900"
-                        >
-                          <p className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-neutral-400">Plans</p>
-                          <p className="mt-1 text-base font-semibold text-slate-900 dark:text-neutral-100">{accountProfileStats.eventsCount}</p>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setAccountView("friends")}
-                          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-left transition hover:border-slate-300 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary dark:border-neutral-800 dark:bg-neutral-900"
-                        >
-                          <p className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-neutral-400">Friends</p>
-                          <p className="mt-1 text-base font-semibold text-slate-900 dark:text-neutral-100">{accountProfileStats.friendsCount}</p>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => toastInfo("Spending details view coming soon.")}
-                          className="col-span-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-left transition hover:border-slate-300 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary dark:border-neutral-800 dark:bg-neutral-900"
-                        >
-                          <p className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-neutral-400">Total spent</p>
-                          <p className="mt-1 text-base font-semibold text-slate-900 dark:text-neutral-100">{formatMoney(accountProfileStats.totalSpent)}</p>
-                        </button>
-                      </div>
+                        <div className="border-t border-border/70">
+                          <button
+                            type="button"
+                            onClick={() => setAccountView("friends")}
+                            className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                          >
+                            <div>
+                              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Friends</p>
+                              <p className="mt-1 text-sm font-semibold text-foreground">{accountFriendsCount}</p>
+                            </div>
+                            <ChevronDown className="-rotate-90 h-4 w-4 text-muted-foreground" />
+                          </button>
+                        </div>
 
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (!isViewingOwnAccount) return;
-                          setAccountView("editBio");
-                        }}
-                        className={`w-full rounded-xl border border-slate-200 bg-white p-3 text-left transition dark:border-neutral-800 dark:bg-neutral-900 ${isViewingOwnAccount ? "hover:border-slate-300 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" : ""}`}
-                      >
-                        <p className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-neutral-400">Bio</p>
-                        <p className="mt-1 text-sm text-slate-700 dark:text-neutral-300">
-                          {(accountProfileUser?.bio && accountProfileUser.bio.trim().length > 0)
-                            ? accountProfileUser.bio
-                            : "Add a short bio…"}
-                        </p>
-                      </button>
+                        <div className="border-t border-border/70">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!isViewingOwnAccount) return;
+                              setAccountView("editBio");
+                            }}
+                            className={`flex w-full items-center justify-between px-4 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${isViewingOwnAccount ? "hover:bg-muted/50" : ""}`}
+                            disabled={!isViewingOwnAccount}
+                            aria-label="Edit bio"
+                          >
+                            <div className="min-w-0">
+                              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Bio</p>
+                              <p className="mt-1 truncate text-sm text-foreground/90">
+                                {(accountProfileUser?.bio && accountProfileUser.bio.trim().length > 0)
+                                  ? accountProfileUser.bio
+                                  : "Add a bio…"}
+                              </p>
+                            </div>
+                            <ChevronDown className="-rotate-90 h-4 w-4 text-muted-foreground" />
+                          </button>
+                        </div>
+                      </div>
 
                       {isViewingOwnAccount ? (
-                        <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-destructive">Delete account</p>
-                          <p className="mt-1 text-xs text-muted-foreground">This action is permanent and cannot be undone.</p>
-                          {!deleteConfirmOpen ? (
+                        <div className="sticky bottom-0 z-10 mt-auto bg-gradient-to-t from-background via-background to-transparent pt-4">
+                          <div className="flex items-center justify-end gap-2">
                             <Button
                               type="button"
-                              variant="destructive"
-                              size="sm"
-                              className="mt-3"
-                              onClick={() => setDeleteConfirmOpen(true)}
+                              variant="outline"
+                              size="icon"
+                              className="h-9 w-9 rounded-full border-border/70 bg-card text-muted-foreground hover:bg-muted hover:text-foreground"
+                              onClick={() => setAccountView("settings")}
+                              aria-label="Open settings"
                             >
-                              Delete account
+                              <Settings className="h-4 w-4" />
                             </Button>
-                          ) : (
-                            <div className="mt-3 space-y-2">
-                              <Label htmlFor="delete-account-username" className="text-xs text-destructive">
-                                Type @{user?.username} to confirm
-                              </Label>
-                              <Input
-                                id="delete-account-username"
-                                value={deleteConfirmUsername}
-                                onChange={(event) => setDeleteConfirmUsername(event.target.value)}
-                                className="h-9"
-                              />
-                              <div className="flex items-center gap-2">
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => {
-                                    setDeleteConfirmOpen(false);
-                                    setDeleteConfirmUsername("");
-                                  }}
-                                >
-                                  Cancel
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="destructive"
-                                  size="sm"
-                                  disabled={deleteConfirmUsername.trim() !== user?.username || deleteAccount.isPending}
-                                  onClick={() =>
-                                    deleteAccount.mutate(undefined, {
-                                      onSuccess: () => {
-                                        setIsAccountDrawerOpen(false);
-                                        window.location.href = "/";
-                                      },
-                                      onError: () => toastError("Couldn’t delete account. Try again."),
-                                    })
-                                  }
-                                >
-                                  {deleteAccount.isPending ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
-                                  Confirm delete
-                                </Button>
-                              </div>
-                            </div>
-                          )}
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="icon"
+                              className="h-9 w-9 rounded-full border-border/70 bg-card text-muted-foreground hover:border-destructive/50 hover:bg-destructive/10 hover:text-destructive"
+                              onClick={() => {
+                                setDeleteConfirmPhrase("");
+                                setAccountView("deleteAccountConfirm");
+                              }}
+                              aria-label="Delete account"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </div>
                       ) : null}
                     </>
                   )}
+                </div>
+              ) : accountView === "deleteAccountConfirm" ? (
+                <div className="space-y-4">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="w-fit px-2"
+                    onClick={() => setAccountView("profile")}
+                  >
+                    <ArrowLeft className="mr-1.5 h-4 w-4" />
+                    Back to profile
+                  </Button>
+                  <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3">
+                    <p className="text-sm font-semibold text-destructive">Delete account</p>
+                    <p className="mt-1 text-xs text-muted-foreground">This action is permanent and cannot be undone.</p>
+                    <Label htmlFor="delete-account-confirm" className="mt-3 block text-xs text-destructive">
+                      Type DELETE to confirm
+                    </Label>
+                    <Input
+                      id="delete-account-confirm"
+                      value={deleteConfirmPhrase}
+                      onChange={(event) => setDeleteConfirmPhrase(event.target.value)}
+                      className="mt-1 h-9"
+                    />
+                    <div className="mt-3 flex items-center gap-2">
+                      <Button type="button" variant="outline" size="sm" onClick={() => setAccountView("profile")}>
+                        Cancel
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="sm"
+                        disabled={deleteConfirmPhrase.trim().toUpperCase() !== "DELETE" || deleteAccount.isPending}
+                        onClick={() =>
+                          deleteAccount.mutate(undefined, {
+                            onSuccess: () => {
+                              setIsAccountDrawerOpen(false);
+                              window.location.href = "/";
+                            },
+                            onError: () => toastError("Couldn’t delete account. Try again."),
+                          })
+                        }
+                      >
+                        {deleteAccount.isPending ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
+                        Delete account
+                      </Button>
+                    </div>
+                  </div>
                 </div>
               ) : accountView === "friends" ? (
                 <div className="space-y-4">
@@ -2201,6 +2276,14 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                   >
                     <ArrowLeft className="mr-1.5 h-4 w-4" />
                     Back to profile
+                  </Button>
+                  <Button
+                    type="button"
+                    className="w-full bg-primary text-primary-foreground font-medium hover:bg-primary/90"
+                    onClick={() => setAccountView("addFriend")}
+                  >
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add friend
                   </Button>
                   {!isViewingOwnAccount ? (
                     <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300">
@@ -2216,21 +2299,155 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                         <button
                           type="button"
                           key={`account-friend-${friend.friendshipId}`}
-                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-left transition hover:border-slate-300 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary dark:border-neutral-800 dark:bg-neutral-900"
-                          onClick={() => setSelectedFriendId((prev) => (prev === friend.friendshipId ? null : friend.friendshipId))}
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-left transition hover:border-slate-300 hover:bg-slate-50 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary dark:border-neutral-800 dark:bg-neutral-900 dark:hover:bg-neutral-800"
+                          onClick={() => {
+                            setSelectedFriendId(friend.userId);
+                            setAccountView("friendProfile");
+                          }}
                         >
-                          <p className="text-sm font-semibold text-slate-900 dark:text-neutral-100">
-                            {friend.displayName || friend.username}
-                          </p>
-                          <p className="text-xs text-slate-500 dark:text-neutral-400">@{friend.username}</p>
-                          {selectedFriendId === friend.friendshipId ? (
-                            <div className="mt-2 rounded-lg border border-slate-200/80 bg-slate-50 px-2 py-1.5 text-xs text-slate-600 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
-                              <p>Status: {friend.status}</p>
-                              <p>User id: {friend.userId}</p>
+                          <div className="flex items-center justify-between gap-2">
+                            <div>
+                              <p className="text-sm font-semibold text-slate-900 dark:text-neutral-100">
+                                {friend.displayName || friend.username}
+                              </p>
+                              <p className="text-xs text-slate-500 dark:text-neutral-400">@{friend.username}</p>
                             </div>
-                          ) : null}
+                            <ChevronDown className="-rotate-90 h-4 w-4 text-slate-400" />
+                          </div>
                         </button>
                       ))}
+                    </div>
+                  )}
+                </div>
+              ) : accountView === "addFriend" ? (
+                <div className="space-y-4">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="w-fit px-2"
+                    onClick={() => setAccountView("friends")}
+                  >
+                    <ArrowLeft className="mr-1.5 h-4 w-4" />
+                    Back to friends
+                  </Button>
+                  <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900">
+                    <Label htmlFor="account-add-friend-search" className="text-sm font-medium">Search users</Label>
+                    <Input
+                      id="account-add-friend-search"
+                      value={addFriendQuery}
+                      onChange={(event) => setAddFriendQuery(event.target.value)}
+                      className="mt-2"
+                      placeholder="Search by name or username…"
+                    />
+                    <p className="mt-2 text-xs text-muted-foreground">Type at least 2 characters.</p>
+                    <div className="mt-3 space-y-2">
+                      {addFriendQuery.trim().length < 2 ? (
+                        <p className="text-xs text-slate-500 dark:text-neutral-400">Start typing to find people.</p>
+                      ) : addFriendSearchLoading ? (
+                        <p className="text-xs text-slate-500 dark:text-neutral-400">Searching…</p>
+                      ) : addFriendSearchError ? (
+                        <p className="text-xs text-red-600 dark:text-red-400">Couldn’t search right now. Try again.</p>
+                      ) : addFriendResults.length === 0 ? (
+                        <p className="text-xs text-slate-500 dark:text-neutral-400">No users found.</p>
+                      ) : (
+                        addFriendResults.map((result) => {
+                          const alreadyFriend = friends.some((friend) => friend.userId === result.id);
+                          return (
+                            <div key={`account-add-friend-${result.id}`} className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 px-2.5 py-2 dark:border-neutral-700">
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-medium text-slate-900 dark:text-neutral-100">
+                                  {result.displayName || result.username}
+                                </p>
+                                <p className="truncate text-xs text-slate-500 dark:text-neutral-400">@{result.username}</p>
+                              </div>
+                              <Button
+                                type="button"
+                                size="sm"
+                                disabled={alreadyFriend || sendFriendRequest.isPending}
+                                onClick={() =>
+                                  sendFriendRequest.mutate(result.username, {
+                                    onSuccess: () => {
+                                      toastSuccess("Friend request sent");
+                                      setAddFriendQuery("");
+                                      setAccountView("friends");
+                                    },
+                                    onError: (error) => {
+                                      toastError(error instanceof Error ? error.message : "Couldn’t send friend request.");
+                                    },
+                                  })
+                                }
+                              >
+                                {alreadyFriend ? "Added" : "Add"}
+                              </Button>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : accountView === "friendProfile" ? (
+                <div className="space-y-4">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="w-fit px-2"
+                    onClick={() => setAccountView("friends")}
+                  >
+                    <ArrowLeft className="mr-1.5 h-4 w-4" />
+                    Back to friends
+                  </Button>
+                  {!selectedFriend ? (
+                    <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300">
+                      Friend not found.
+                    </div>
+                  ) : selectedFriendProfileLoading ? (
+                    <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300">
+                      Loading profile…
+                    </div>
+                  ) : selectedFriendProfileError ? (
+                    <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+                      <p className="text-sm text-red-600 dark:text-red-400">Couldn’t load friend profile.</p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="mt-2"
+                        onClick={() => {
+                          void refetchSelectedFriendProfile();
+                        }}
+                      >
+                        Retry
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+                      <div className="flex items-center gap-3">
+                        <span className="grid h-12 w-12 place-items-center overflow-hidden rounded-full bg-amber-100 text-sm font-semibold text-slate-700 dark:bg-amber-300/25 dark:text-amber-100">
+                          {selectedFriendProfile?.user?.avatarUrl || selectedFriendProfile?.user?.profileImageUrl ? (
+                            <img
+                              src={selectedFriendProfile.user.profileImageUrl || selectedFriendProfile.user.avatarUrl || ""}
+                              alt=""
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            (selectedFriendProfile?.user?.displayName || selectedFriend.displayName || selectedFriend.username || "U").slice(0, 2).toUpperCase()
+                          )}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="truncate text-base font-semibold text-slate-900 dark:text-neutral-100">
+                            {selectedFriendProfile?.user?.displayName || selectedFriend.displayName || selectedFriend.username}
+                          </p>
+                          <p className="text-sm text-slate-500 dark:text-neutral-400">@{selectedFriendProfile?.user?.username || selectedFriend.username}</p>
+                        </div>
+                      </div>
+                      {selectedFriendProfile?.user?.bio ? (
+                        <p className="mt-3 text-sm text-slate-700 dark:text-neutral-300">{selectedFriendProfile.user.bio}</p>
+                      ) : (
+                        <p className="mt-3 text-sm text-slate-500 dark:text-neutral-400">No bio yet.</p>
+                      )}
                     </div>
                   )}
                 </div>
@@ -2297,18 +2514,126 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                     Back to profile
                   </Button>
                   <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900">
-                    <Label htmlFor="account-photo-url" className="text-sm font-medium">Profile photo URL</Label>
-                    <Input
-                      id="account-photo-url"
-                      value={draftProfileImageUrl}
-                      onChange={(event) => setDraftProfileImageUrl(event.target.value)}
-                      className="mt-2"
-                      placeholder="https://example.com/photo.jpg"
+                    <Label htmlFor="account-photo-upload" className="text-sm font-medium">{t.auth.uploadImage}</Label>
+                    <input
+                      ref={avatarFileInputRef}
+                      id="account-photo-upload"
+                      type="file"
+                      accept="image/*"
+                      className="sr-only"
+                      onChange={(event) => {
+                        handleAvatarFileChange(event.target.files?.[0] ?? null);
+                        event.currentTarget.value = "";
+                      }}
                     />
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      className={`mt-2 rounded-lg border border-dashed p-3 transition ${avatarDragActive ? "border-primary bg-primary/5" : "border-slate-300 bg-slate-50/70 dark:border-neutral-700 dark:bg-neutral-900/60"}`}
+                      onDragOver={(event) => {
+                        event.preventDefault();
+                        setAvatarDragActive(true);
+                      }}
+                      onDragLeave={() => setAvatarDragActive(false)}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        setAvatarDragActive(false);
+                        const file = event.dataTransfer.files?.[0] ?? null;
+                        handleAvatarFileChange(file);
+                      }}
+                      onClick={() => avatarFileInputRef.current?.click()}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          avatarFileInputRef.current?.click();
+                        }
+                      }}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-slate-900 dark:text-neutral-100">{t.auth.uploadDropHint}</p>
+                          <p className="text-xs text-muted-foreground">{t.auth.uploadImageMax}</p>
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="bg-primary text-primary-foreground hover:bg-primary/90"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            avatarFileInputRef.current?.click();
+                          }}
+                        >
+                          {t.auth.chooseImage}
+                        </Button>
+                      </div>
+                      {avatarUploadFile ? (
+                        <div className="mt-2 flex items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs dark:border-neutral-700 dark:bg-neutral-900">
+                          <p className="truncate text-slate-700 dark:text-neutral-200">
+                            {avatarUploadFile.name} · {formatFileSize(avatarUploadFile.size)}
+                          </p>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-1.5 text-xs"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setAvatarUploadFile(null);
+                              setAvatarUploadPreviewUrl((prev) => {
+                                if (prev) URL.revokeObjectURL(prev);
+                                return null;
+                              });
+                              setAvatarUploadError(null);
+                            }}
+                          >
+                            {t.auth.removeImage}
+                          </Button>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="mt-2 h-7 px-2 text-xs"
+                      onClick={() => {
+                        setUseAvatarUrlInput((prev) => !prev);
+                        setAvatarUploadError(null);
+                      }}
+                    >
+                      {useAvatarUrlInput ? t.auth.hideUrlInput : t.auth.useUrlInstead}
+                    </Button>
+
+                    {useAvatarUrlInput ? (
+                      <div className="mt-2">
+                        <Label htmlFor="account-photo-url" className="text-xs font-medium text-muted-foreground">{t.auth.profilePictureUrl}</Label>
+                        <Input
+                          id="account-photo-url"
+                          value={draftProfileImageUrl}
+                          onChange={(event) => {
+                            setDraftProfileImageUrl(event.target.value);
+                            setAvatarUploadFile(null);
+                            setAvatarUploadPreviewUrl((prev) => {
+                              if (prev) URL.revokeObjectURL(prev);
+                              return null;
+                            });
+                            setAvatarUploadError(null);
+                          }}
+                          className="mt-1"
+                          placeholder="https://example.com/photo.jpg"
+                        />
+                      </div>
+                    ) : null}
+
+                    {avatarUploadError ? (
+                      <p className="mt-2 text-xs text-red-600 dark:text-red-400">{avatarUploadError}</p>
+                    ) : null}
+
                     <div className="mt-3 flex justify-center">
                       <span className="grid h-20 w-20 place-items-center overflow-hidden rounded-full bg-amber-100 text-lg font-semibold text-slate-700 dark:bg-amber-300/25 dark:text-amber-100">
-                        {draftProfileImageUrl.trim() ? (
-                          <img src={draftProfileImageUrl.trim()} alt="" className="h-full w-full object-cover" />
+                        {changePhotoPreview ? (
+                          <img src={changePhotoPreview} alt="" className="h-full w-full object-cover" />
                         ) : (
                           (user?.displayName || user?.username || "U").slice(0, 2).toUpperCase()
                         )}
@@ -2321,21 +2646,76 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                       <Button
                         type="button"
                         size="sm"
-                        disabled={updateProfile.isPending}
-                        onClick={() =>
-                          updateProfile.mutate(
-                            { profileImageUrl: draftProfileImageUrl.trim() || null },
-                            {
-                              onSuccess: () => {
-                                toastSuccess("Photo updated");
-                                setAccountView("profile");
-                              },
-                              onError: () => toastError("Couldn’t update photo. Try again."),
-                            },
-                          )
-                        }
+                        disabled={!canSaveAvatar || updateProfile.isPending || avatarUploadPending}
+                        onClick={async () => {
+                          setAvatarUploadError(null);
+                          try {
+                            let nextAvatarUrl: string | null = null;
+                            if (avatarUploadFile) {
+                              setAvatarUploadPending(true);
+                              const dataUrl = await new Promise<string>((resolve, reject) => {
+                                const reader = new FileReader();
+                                reader.onload = () => {
+                                  const result = typeof reader.result === "string" ? reader.result : null;
+                                  if (!result || !result.startsWith("data:image/")) {
+                                    reject(new Error(t.auth.invalidImageType));
+                                    return;
+                                  }
+                                  resolve(result);
+                                };
+                                reader.onerror = () => reject(new Error(t.auth.invalidImageType));
+                                reader.readAsDataURL(avatarUploadFile);
+                              });
+                              const uploadRes = await fetch("/api/uploads/avatar", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                credentials: "include",
+                                body: JSON.stringify({ dataUrl }),
+                              });
+                              const uploadPayload = await uploadRes.json().catch(() => ({}));
+                              if (!uploadRes.ok) {
+                                throw new Error((uploadPayload as { message?: string }).message || t.auth.avatarUploadFailed);
+                              }
+                              nextAvatarUrl = String((uploadPayload as { url?: string }).url ?? "");
+                              if (!nextAvatarUrl) throw new Error(t.auth.avatarUploadFailed);
+                            } else if (useAvatarUrlInput) {
+                              const trimmed = draftProfileImageUrl.trim();
+                              if (!trimmed) {
+                                nextAvatarUrl = null;
+                              } else {
+                                const normalized = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+                                try {
+                                  // validate URL early for cleaner UX before save
+                                  new URL(normalized);
+                                } catch {
+                                  throw new Error(t.auth.invalidImageUrl);
+                                }
+                                nextAvatarUrl = normalized;
+                              }
+                            } else {
+                              throw new Error(t.auth.chooseImageOrUrl);
+                            }
+
+                            await updateProfile.mutateAsync({
+                              avatarUrl: nextAvatarUrl,
+                              profileImageUrl: nextAvatarUrl,
+                            });
+                            toastSuccess(t.modals.profileSaved);
+                            setAvatarUploadFile(null);
+                            setAvatarUploadPreviewUrl((prev) => {
+                              if (prev) URL.revokeObjectURL(prev);
+                              return null;
+                            });
+                            setAvatarUploadPending(false);
+                            setAccountView("profile");
+                          } catch (error) {
+                            setAvatarUploadPending(false);
+                            setAvatarUploadError(error instanceof Error ? error.message : t.auth.avatarUpdateFailed);
+                            toastError(error instanceof Error ? error.message : t.auth.avatarUpdateFailed);
+                          }
+                        }}
                       >
-                        {updateProfile.isPending ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
+                        {updateProfile.isPending || avatarUploadPending ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
                         Save
                       </Button>
                     </div>
@@ -2760,12 +3140,12 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
             );
             const heroImage = selectedBbq.bannerImageUrl || "https://images.unsplash.com/photo-1559339352-11d035aa65de?auto=format&fit=crop&w=1600&q=80";
             return (
-              <div className="mx-auto w-full max-w-[1400px] px-4 sm:px-6 lg:px-10 py-6 bg-[#FAF7F2] rounded-2xl">
+              <div className="mx-auto w-full max-w-[1400px] rounded-2xl border border-border/60 bg-background px-4 py-6 sm:px-6 lg:px-10">
                 <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
                   <section className="min-w-0 space-y-8">
                     <button
                       type="button"
-                      className="relative min-h-[300px] w-full overflow-hidden rounded-3xl border border-slate-200 text-left shadow-sm transition-all duration-200 hover:border-slate-300 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                      className="relative min-h-[300px] w-full overflow-hidden rounded-3xl border border-border/70 bg-card text-left shadow-sm transition-all duration-200 hover:border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
                       onClick={() => setIsPlanDetailsOpen(true)}
                       aria-label="Open plan details"
                     >
@@ -2774,7 +3154,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                         alt={selectedBbq.name}
                         className="absolute inset-0 h-full w-full object-cover"
                       />
-                      <div className="absolute inset-0 rounded-3xl bg-gradient-to-b from-black/40 via-black/10 to-transparent" />
+                      <div className="absolute inset-0 rounded-3xl bg-gradient-to-b from-black/35 via-black/10 to-transparent dark:from-black/65 dark:via-black/35 dark:to-black/10" />
                       <div className="pointer-events-none absolute left-6 top-6 z-10 md:left-8 md:top-8">
                         <h2 className="text-2xl font-semibold tracking-tight text-white drop-shadow-sm md:text-3xl lg:text-4xl">
                           {selectedBbq.name}
@@ -2787,7 +3167,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
 
                     <button
                       type="button"
-                      className="w-full rounded-2xl border border-amber-200/60 bg-gradient-to-r from-amber-100/80 to-rose-100/70 p-5 text-left shadow-sm transition-all duration-200 hover:border-amber-300/80 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 dark:from-amber-900/25 dark:to-rose-900/20"
+                      className="w-full rounded-2xl border border-border/70 bg-gradient-to-r from-amber-100/85 to-rose-100/75 p-5 text-left shadow-sm transition-all duration-200 hover:border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 dark:from-amber-950/45 dark:to-rose-950/40"
                       onClick={() => setIsPlanTypeOpen(true)}
                       onKeyDown={(event) => {
                         if (event.key === "Enter" || event.key === " ") {
@@ -2797,22 +3177,22 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                       }}
                       aria-label="Open plan type editor"
                     >
-                      <p className="text-base font-medium text-slate-800 dark:text-slate-100">
+                      <p className="text-base font-medium text-foreground">
                         {selectedPlanTypeHeadline}
                       </p>
-                      <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+                      <p className="mt-1 text-sm text-muted-foreground">
                         {pendingCount} friend{pendingCount === 1 ? "" : "s"} still need to respond.
                       </p>
-                      <div className="mt-4 rounded-xl border border-white/40 bg-white/50 px-3 py-2 dark:border-white/10 dark:bg-black/10">
-                        <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500 dark:text-slate-300">Recent activity</p>
+                      <div className="mt-4 rounded-xl border border-border/60 bg-background/70 px-3 py-2 dark:bg-background/40">
+                        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Recent activity</p>
                         {planActivityLoading ? (
-                          <p className="mt-1 text-xs text-slate-500 dark:text-slate-300">Loading updates...</p>
+                          <p className="mt-1 text-xs text-muted-foreground">Loading updates...</p>
                         ) : latestPlanActivity.length > 0 ? (
                           <ul className="mt-1 space-y-1">
                             {latestPlanActivity.map((activity) => (
                               <li
                                 key={`plan-activity-${activity.id}`}
-                                className={`truncate text-xs text-slate-700 transition-colors duration-700 dark:text-slate-200 ${highlightedActivityId === activity.id ? "bg-primary/5" : ""}`}
+                                className={`truncate text-xs text-foreground transition-colors duration-700 ${highlightedActivityId === activity.id ? "bg-primary/10" : ""}`}
                                 title={activity.message}
                               >
                                 • {activity.message} {activity.createdAt ? `· ${formatRelativeShort(activity.createdAt)}` : ""}
@@ -2820,18 +3200,18 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                             ))}
                           </ul>
                         ) : (
-                          <p className="mt-1 text-xs text-slate-500 dark:text-slate-300">
+                          <p className="mt-1 text-xs text-muted-foreground">
                             No updates yet — start by adding an expense or inviting your crew.
                           </p>
                         )}
                       </div>
-                      <div className="mt-5 h-2 rounded-full bg-white/70 overflow-hidden">
-                        <div className="h-full rounded-full bg-amber-400/90 transition-all duration-300" style={{ width: `${responseProgress}%` }} />
+                      <div className="mt-5 h-2 overflow-hidden rounded-full bg-muted/60">
+                        <div className="h-full rounded-full bg-primary/80 transition-all duration-300" style={{ width: `${responseProgress}%` }} />
                       </div>
                     </button>
 
                     <div className="grid gap-4 md:grid-cols-3">
-                      <GuestsWidget eventId={selectedBbq.id} />
+                      <GuestsWidget eventId={selectedBbq.id} canInvite={canEditEvent} />
 
                       <SharedCostsWidget
                         eventId={selectedBbq.id}
@@ -2846,40 +3226,34 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                         balances={balances}
                         settlements={settlements}
                         formatMoney={formatMoney}
+                        canAddExpense={canManage}
                       />
 
-                      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
-                        <p className="text-xs font-medium tracking-wide text-slate-500 uppercase">Quick actions</p>
-                        <div className="mt-3 flex flex-wrap gap-2">
+                      <div className="rounded-2xl border border-border/70 bg-card p-4 shadow-sm">
+                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Next action</p>
+                        <p className="mt-2 text-sm text-foreground">
+                          {pendingCount > 0
+                            ? `Invite your crew to confirm the plan (${pendingCount} pending).`
+                            : expenses.length === 0
+                              ? "Add the first expense to start shared costs."
+                              : "Open shared costs to review balances and settle up."}
+                        </p>
+                        <div className="mt-3">
                           <Button
                             type="button"
                             size="sm"
                             variant="outline"
-                            className="rounded-xl border-amber-200/80 bg-amber-50 text-slate-700 hover:bg-amber-100"
+                            className="rounded-xl border-border/70 bg-background text-foreground hover:bg-muted"
                             onClick={() => {
-                              setRecommendedExpenseTemplate({ item: "Wine", category: "Drinks" });
+                              if (pendingCount > 0) {
+                                setActiveEventTab("people");
+                                return;
+                              }
+                              setRecommendedExpenseTemplate({ item: "Expense", category: "Other" });
                               setIsAddExpenseOpen(true);
                             }}
                           >
-                            Add wine
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="rounded-xl border-amber-200/80 bg-amber-50 text-slate-700 hover:bg-amber-100"
-                            onClick={() => setActiveEventTab("people")}
-                          >
-                            Assign dishes
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="rounded-xl border-amber-200/80 bg-amber-50 text-slate-700 hover:bg-amber-100"
-                            onClick={() => setActiveEventTab("split")}
-                          >
-                            Start vote
+                            {pendingCount > 0 ? "Open people" : "Add expense"}
                           </Button>
                         </div>
                       </div>
@@ -2907,7 +3281,6 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                         await queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] });
                         await queryClient.refetchQueries({ queryKey: ["/api/barbecues"] });
                         toastSuccess("Plan details updated");
-                        setIsPlanDetailsOpen(false);
                       }}
                     />
                     <PlanTypeDrawer

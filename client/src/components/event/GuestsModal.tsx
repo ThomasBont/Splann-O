@@ -164,15 +164,15 @@ export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
-        className="h-full w-[420px] max-w-[92vw] border-l border-slate-200 bg-white p-0 shadow-2xl dark:border-neutral-800 dark:bg-[#121212]"
+        className="h-full w-[420px] max-w-[92vw] border-l border-border bg-background p-0 shadow-xl"
       >
           <div className="flex h-full flex-col">
-            <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-5 py-4 backdrop-blur dark:border-neutral-800 dark:bg-[#121212]/95">
+            <header className="sticky top-0 z-10 border-b border-border bg-background/95 px-5 py-4 backdrop-blur">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <SheetHeader className="space-y-1 text-left">
-                    <SheetTitle className="text-lg font-semibold text-slate-900 dark:text-neutral-100">Crew</SheetTitle>
-                    <SheetDescription className="text-sm text-slate-500 dark:text-neutral-400">
+                    <SheetTitle className="text-lg font-semibold text-foreground">Crew</SheetTitle>
+                    <SheetDescription className="text-sm text-muted-foreground">
                       Manage people and invites
                     </SheetDescription>
                   </SheetHeader>
@@ -198,29 +198,29 @@ export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
                   </Button>
 
                   {selectedMember ? (
-                    <section className="rounded-2xl border border-slate-200 bg-white p-4">
+                    <section className="rounded-2xl border border-border bg-card p-4">
                       <div className="flex items-center gap-3">
-                        <span className="grid h-12 w-12 place-items-center rounded-full bg-amber-100 text-sm font-semibold text-slate-700">
+                        <span className="grid h-12 w-12 place-items-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
                           {initials(selectedMember.name)}
                         </span>
                         <div className="min-w-0">
-                          <p className="truncate text-base font-semibold text-slate-900">{selectedMember.name}</p>
+                          <p className="truncate text-base font-semibold text-foreground">{selectedMember.name}</p>
                           {selectedMember.username ? (
-                            <p className="text-sm text-slate-500">@{selectedMember.username}</p>
+                            <p className="text-sm text-muted-foreground">@{selectedMember.username}</p>
                           ) : (
-                            <p className="text-sm text-slate-500">No username available</p>
+                            <p className="text-sm text-muted-foreground">No username available</p>
                           )}
                         </div>
                       </div>
                     </section>
                   ) : (
-                    <section className="rounded-2xl border border-slate-200 bg-white p-4">
-                      <p className="text-sm text-slate-500">Member not found.</p>
+                    <section className="rounded-2xl border border-border bg-card p-4">
+                      <p className="text-sm text-muted-foreground">Member not found.</p>
                     </section>
                   )}
 
                   {profileQuery.isLoading ? (
-                    <section className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
+                    <section className="rounded-2xl border border-border bg-card p-4 space-y-3">
                       <SkeletonLine className="h-5 w-1/3 rounded-lg" />
                       <SkeletonLine className="h-4 w-2/3 rounded-lg" />
                       <SkeletonLine className="h-4 w-1/2 rounded-lg" />
@@ -239,29 +239,29 @@ export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
                       </button>
                     </section>
                   ) : (
-                    <section className="rounded-2xl border border-slate-200 bg-white p-4">
-                      <h3 className="text-sm font-semibold text-slate-900">Profile details</h3>
+                    <section className="rounded-2xl border border-border bg-card p-4">
+                      <h3 className="text-sm font-semibold text-foreground">Profile details</h3>
                       <div className="mt-3 space-y-2 text-sm">
                         <div className="flex items-center justify-between gap-3">
-                          <span className="text-slate-500">Role</span>
-                          <span className="font-medium text-slate-800">{selectedMember?.role ?? "member"}</span>
+                          <span className="text-muted-foreground">Role</span>
+                          <span className="font-medium text-foreground">{selectedMember?.role ?? "member"}</span>
                         </div>
                         {selectedMember?.joinedAt ? (
                           <div className="flex items-center justify-between gap-3">
-                            <span className="text-slate-500">Joined</span>
-                            <span className="font-medium text-slate-800">{formatRelativeTime(selectedMember.joinedAt)}</span>
+                            <span className="text-muted-foreground">Joined</span>
+                            <span className="font-medium text-foreground">{formatRelativeTime(selectedMember.joinedAt)}</span>
                           </div>
                         ) : null}
                         {profileQuery.data?.user?.displayName ? (
                           <div className="flex items-center justify-between gap-3">
-                            <span className="text-slate-500">Display name</span>
-                            <span className="font-medium text-slate-800 truncate">{profileQuery.data.user.displayName}</span>
+                            <span className="text-muted-foreground">Display name</span>
+                            <span className="truncate font-medium text-foreground">{profileQuery.data.user.displayName}</span>
                           </div>
                         ) : null}
                         {profileQuery.data?.user?.bio ? (
                           <div className="pt-1">
-                            <p className="text-slate-500">Bio</p>
-                            <p className="mt-1 text-slate-700">{profileQuery.data.user.bio}</p>
+                            <p className="text-muted-foreground">Bio</p>
+                            <p className="mt-1 text-foreground/90">{profileQuery.data.user.bio}</p>
                           </div>
                         ) : null}
                       </div>
@@ -276,16 +276,17 @@ export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
           </div>
         ) : null}
 
-        <section className="rounded-2xl border border-slate-200 bg-white p-4">
+        <section className="rounded-2xl border border-border bg-card p-4">
           <div className="mb-3 flex items-center gap-2">
-            <UserPlus2 className="h-4 w-4 text-slate-500" />
-            <h3 className="text-sm font-semibold text-slate-900">Add people</h3>
+            <UserPlus2 className="h-4 w-4 text-muted-foreground" />
+            <h3 className="text-sm font-semibold text-foreground">Add people</h3>
           </div>
           <div className="space-y-2">
             <Input
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder="Search Splanno users…"
+              className="border-border bg-background text-foreground placeholder:text-muted-foreground focus-visible:ring-primary"
             />
             {debouncedSearch.length >= 2 ? (
               userSearch.isLoading ? (
@@ -294,15 +295,15 @@ export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
                   <SkeletonLine className="h-9 rounded-xl" />
                 </div>
               ) : userSearch.data && userSearch.data.length > 0 ? (
-                <div className="max-h-44 space-y-1 overflow-y-auto rounded-xl border border-slate-200 p-1">
+                <div className="max-h-44 space-y-1 overflow-y-auto rounded-xl border border-border bg-background/40 p-1">
                   {userSearch.data.slice(0, 10).map((user: { id: number; displayName?: string | null; username: string; avatarUrl?: string | null }) => {
                     const alreadyMember = memberIds.has(user.id);
                     const label = user.displayName || user.username;
                     return (
-                      <div key={`search-user-${user.id}`} className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 hover:bg-slate-50">
+                      <div key={`search-user-${user.id}`} className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 hover:bg-muted/40">
                         <div className="min-w-0">
-                          <p className="truncate text-sm text-slate-800">{label}</p>
-                          <p className="text-[11px] text-slate-500">@{user.username}</p>
+                          <p className="truncate text-sm text-foreground">{label}</p>
+                          <p className="text-[11px] text-muted-foreground">@{user.username}</p>
                         </div>
                         <Button
                           type="button"
@@ -318,18 +319,18 @@ export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
                   })}
                 </div>
               ) : (
-                <p className="text-xs text-slate-500">No users found.</p>
+                <p className="text-xs text-muted-foreground">No users found.</p>
               )
             ) : (
-              <p className="text-xs text-slate-500">Type at least 2 characters to search.</p>
+              <p className="text-xs text-muted-foreground">Type at least 2 characters to search.</p>
             )}
           </div>
         </section>
 
-        <section className="rounded-2xl border border-slate-200 bg-white p-4">
+        <section className="rounded-2xl border border-border bg-card p-4">
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-slate-900">Members</h3>
-            <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600">{members.length}</span>
+            <h3 className="text-sm font-semibold text-foreground">Members</h3>
+            <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">{members.length}</span>
           </div>
           {loading ? (
             <div className="space-y-2">
@@ -350,39 +351,39 @@ export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
                       openProfileView(member.userId);
                     }
                   }}
-                  className="flex w-full cursor-pointer items-center justify-between rounded-xl border border-slate-200/80 px-3 py-2 text-left transition-colors hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                  className="flex w-full cursor-pointer items-center justify-between rounded-xl border border-border/70 px-3 py-2 text-left transition-colors hover:border-border hover:bg-muted/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                 >
                   <div className="flex min-w-0 items-center gap-2.5">
-                    <span className="grid h-8 w-8 place-items-center rounded-full bg-amber-100 text-xs font-semibold text-slate-700">
+                    <span className="grid h-8 w-8 place-items-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
                       {initials(member.name)}
                     </span>
                     <div className="min-w-0">
-                      <p className="truncate text-sm text-slate-800">{member.name}</p>
-                      {member.username ? <p className="text-[11px] text-slate-500">@{member.username}</p> : null}
+                      <p className="truncate text-sm text-foreground">{member.name}</p>
+                      {member.username ? <p className="text-[11px] text-muted-foreground">@{member.username}</p> : null}
                     </div>
                   </div>
-                  <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] text-emerald-700">In group</span>
+                  <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-700 dark:text-emerald-300">In group</span>
                 </button>
               ))}
             </div>
           ) : (
-            <p className="text-sm text-slate-500">Invite your circle to get this plan moving.</p>
+            <p className="text-sm text-muted-foreground">Invite your circle to get this plan moving.</p>
           )}
         </section>
 
-        <section className="rounded-2xl border border-slate-200 bg-white p-4">
+        <section className="rounded-2xl border border-border bg-card p-4">
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-slate-900">Pending invites</h3>
-            <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600">{pendingCountLabel}</span>
+            <h3 className="text-sm font-semibold text-foreground">Pending invites</h3>
+            <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">{pendingCountLabel}</span>
           </div>
           {hasInvites ? (
             <div className="space-y-2">
               {invitesPending.map((invite) => (
-                <div key={`invite-${invite.id}`} className="rounded-xl border border-slate-200/80 px-3 py-2">
+                <div key={`invite-${invite.id}`} className="rounded-xl border border-border/70 bg-background/40 px-3 py-2">
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="truncate text-sm text-slate-800">{invite.email || "Invite link"}</p>
-                      <p className="text-[11px] text-slate-500">sent {formatRelativeTime(invite.createdAt)}</p>
+                      <p className="truncate text-sm text-foreground">{invite.email || "Invite link"}</p>
+                      <p className="text-[11px] text-muted-foreground">sent {formatRelativeTime(invite.createdAt)}</p>
                     </div>
                     <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] text-amber-700">Invite sent</span>
                   </div>
@@ -403,14 +404,14 @@ export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
               ))}
             </div>
           ) : (
-            <p className="text-sm text-slate-500">No pending invites.</p>
+            <p className="text-sm text-muted-foreground">No pending invites.</p>
           )}
         </section>
 
-        <section className="rounded-2xl border border-slate-200 bg-white p-4">
+        <section className="rounded-2xl border border-border bg-card p-4">
           <div className="mb-3 flex items-center gap-2">
-            <UserRoundPlus className="h-4 w-4 text-slate-500" />
-            <h3 className="text-sm font-semibold text-slate-900">Invite</h3>
+            <UserRoundPlus className="h-4 w-4 text-muted-foreground" />
+            <h3 className="text-sm font-semibold text-foreground">Invite</h3>
           </div>
           <div className="space-y-2">
             <Input
@@ -418,6 +419,7 @@ export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
               placeholder="friend@example.com (optional)"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              className="border-border bg-background text-foreground placeholder:text-muted-foreground focus-visible:ring-primary"
             />
             <div className="flex flex-wrap gap-2">
               <Button type="button" onClick={() => void handleSendInvite()} disabled={inviteMutating}>
@@ -436,7 +438,7 @@ export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
               )}
             </div>
 
-            <footer className="border-t border-slate-200 bg-white px-5 py-3 dark:border-neutral-800 dark:bg-[#121212]">
+            <footer className="border-t border-border bg-background px-5 py-3">
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                 Close
               </Button>

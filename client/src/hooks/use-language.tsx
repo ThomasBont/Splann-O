@@ -295,6 +295,19 @@ interface Translations {
     profile: string;
     bio: string;
     profilePictureUrl: string;
+    uploadImage: string;
+    chooseImage: string;
+    uploadDropHint: string;
+    uploadImageMax: string;
+    removeImage: string;
+    useUrlInstead: string;
+    hideUrlInput: string;
+    invalidImageType: string;
+    fileTooLarge: string;
+    invalidImageUrl: string;
+    chooseImageOrUrl: string;
+    avatarUploadFailed: string;
+    avatarUpdateFailed: string;
     editProfile: string;
     usernameHint: string;
     passwordHint: string;
@@ -680,7 +693,21 @@ const translations: Record<Language, Translations> = {
       invalidCredentials: "Invalid username or password",
       passwordsNoMatch: "Passwords do not match",
       loggedInAs: "Signed in as", profile: "Profile",
-      bio: "Bio", profilePictureUrl: "Profile picture URL", editProfile: "Edit profile",
+      bio: "Bio", profilePictureUrl: "Profile picture URL",
+      uploadImage: "Upload image",
+      chooseImage: "Choose image",
+      uploadDropHint: "Drag & drop or click to choose",
+      uploadImageMax: "PNG, JPG, WEBP or GIF — max 5MB",
+      removeImage: "Remove",
+      useUrlInstead: "Use URL instead",
+      hideUrlInput: "Hide URL input",
+      invalidImageType: "Please choose an image file.",
+      fileTooLarge: "Image must be 5MB or smaller.",
+      invalidImageUrl: "Please enter a valid image URL.",
+      chooseImageOrUrl: "Choose an image to upload or use a URL.",
+      avatarUploadFailed: "Avatar upload failed.",
+      avatarUpdateFailed: "Couldn’t update photo. Try again.",
+      editProfile: "Edit profile",
       usernameHint: "2–30 characters, letters/numbers/_/-",
       passwordHint: "At least 8 characters",
       forgotPassword: "Forgot password?",
@@ -1125,7 +1152,21 @@ const translations: Record<Language, Translations> = {
       invalidCredentials: "Usuario o contraseña inválidos",
       passwordsNoMatch: "Las contraseñas no coinciden",
       loggedInAs: "Sesión iniciada como", profile: "Perfil",
-      bio: "Biografía", profilePictureUrl: "URL de foto de perfil", editProfile: "Editar perfil",
+      bio: "Biografía", profilePictureUrl: "URL de foto de perfil",
+      uploadImage: "Subir imagen",
+      chooseImage: "Elegir imagen",
+      uploadDropHint: "Arrastra y suelta o haz clic para elegir",
+      uploadImageMax: "PNG, JPG, WEBP o GIF — máximo 5MB",
+      removeImage: "Eliminar",
+      useUrlInstead: "Usar URL en su lugar",
+      hideUrlInput: "Ocultar URL",
+      invalidImageType: "Selecciona un archivo de imagen.",
+      fileTooLarge: "La imagen debe ser de 5MB o menos.",
+      invalidImageUrl: "Introduce una URL de imagen válida.",
+      chooseImageOrUrl: "Elige una imagen o usa una URL.",
+      avatarUploadFailed: "No se pudo subir el avatar.",
+      avatarUpdateFailed: "No se pudo actualizar la foto. Inténtalo de nuevo.",
+      editProfile: "Editar perfil",
       usernameHint: "2–30 caracteres, letras/números/_/-",
       passwordHint: "Al menos 8 caracteres",
       forgotPassword: "¿Olvidaste tu contraseña?",
@@ -1570,7 +1611,21 @@ const translations: Record<Language, Translations> = {
       invalidCredentials: "Nome utente o password non validi",
       passwordsNoMatch: "Le password non corrispondono",
       loggedInAs: "Connesso come", profile: "Profilo",
-      bio: "Bio", profilePictureUrl: "URL foto profilo", editProfile: "Modifica profilo",
+      bio: "Bio", profilePictureUrl: "URL foto profilo",
+      uploadImage: "Carica immagine",
+      chooseImage: "Scegli immagine",
+      uploadDropHint: "Trascina qui o fai clic per scegliere",
+      uploadImageMax: "PNG, JPG, WEBP o GIF — max 5MB",
+      removeImage: "Rimuovi",
+      useUrlInstead: "Usa URL invece",
+      hideUrlInput: "Nascondi URL",
+      invalidImageType: "Seleziona un file immagine.",
+      fileTooLarge: "L'immagine deve essere 5MB o meno.",
+      invalidImageUrl: "Inserisci un URL immagine valido.",
+      chooseImageOrUrl: "Scegli un'immagine o usa un URL.",
+      avatarUploadFailed: "Caricamento avatar non riuscito.",
+      avatarUpdateFailed: "Impossibile aggiornare la foto. Riprova.",
+      editProfile: "Modifica profilo",
       usernameHint: "2–30 caratteri, lettere/numeri/_/-",
       passwordHint: "Almeno 8 caratteri",
       forgotPassword: "Password dimenticata?",
@@ -2015,7 +2070,21 @@ const translations: Record<Language, Translations> = {
       invalidCredentials: "Ongeldige gebruikersnaam of wachtwoord",
       passwordsNoMatch: "Wachtwoorden komen niet overeen",
       loggedInAs: "Ingelogd als", profile: "Profiel",
-      bio: "Bio", profilePictureUrl: "URL profielfoto", editProfile: "Profiel bewerken",
+      bio: "Bio", profilePictureUrl: "URL profielfoto",
+      uploadImage: "Afbeelding uploaden",
+      chooseImage: "Afbeelding kiezen",
+      uploadDropHint: "Sleep en zet neer of klik om te kiezen",
+      uploadImageMax: "PNG, JPG, WEBP of GIF — max 5MB",
+      removeImage: "Verwijderen",
+      useUrlInstead: "Gebruik URL in plaats daarvan",
+      hideUrlInput: "URL verbergen",
+      invalidImageType: "Kies een afbeeldingsbestand.",
+      fileTooLarge: "Afbeelding moet 5MB of kleiner zijn.",
+      invalidImageUrl: "Voer een geldige afbeeldings-URL in.",
+      chooseImageOrUrl: "Kies een afbeelding of gebruik een URL.",
+      avatarUploadFailed: "Avatar uploaden mislukt.",
+      avatarUpdateFailed: "Foto kon niet worden bijgewerkt. Probeer opnieuw.",
+      editProfile: "Profiel bewerken",
       usernameHint: "2–30 tekens, letters/cijfers/_/-",
       passwordHint: "Minimaal 8 tekens",
       forgotPassword: "Wachtwoord vergeten?",

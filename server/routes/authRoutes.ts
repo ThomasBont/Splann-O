@@ -1,5 +1,8 @@
 import { Router, type Request } from "express";
 import { z } from "zod";
+import fs from "fs/promises";
+import path from "path";
+import { randomUUID } from "crypto";
 import * as authService from "../services/authService";
 import * as userService from "../services/userService";
 import { userRepo } from "../repositories/userRepo";
@@ -11,6 +14,8 @@ import { badRequest, forbidden, notFound } from "../lib/errors";
 const router = Router();
 const currencyCodeSchema = z.string().regex(/^[A-Z]{3}$/, "Currency code must be 3 uppercase letters");
 const publicHandleSchema = z.string().min(2).max(30).regex(/^[a-z0-9][a-z0-9_-]*$/, "Handle can only use lowercase letters, numbers, _ and -");
+const AVATAR_UPLOAD_DIR = path.resolve(process.cwd(), "public/uploads/avatars");
+const MAX_AVATAR_SIZE_BYTES = 5 * 1024 * 1024;
 
 /** Build proxy-safe origin: x-forwarded-proto/host → req.protocol/host → localhost:(PORT|5001) */
 function getRequestOrigin(req: Request): string {
@@ -155,6 +160,40 @@ router.get(
     } else {
       res.redirect(`${base}/verify-error`);
     }
+  })
+);
+
+router.post(
+  "/uploads/avatar",
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const payload = z.object({ dataUrl: z.string().min(1) }).parse(req.body ?? {});
+    const match = payload.dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+    if (!match) badRequest("Invalid avatar image");
+
+    const mime = match[1].toLowerCase();
+    const base64 = match[2];
+    const allowedMime = new Set(["image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"]);
+    if (!allowedMime.has(mime)) badRequest("Unsupported image type");
+
+    const buffer = Buffer.from(base64, "base64");
+    if (!buffer.length) badRequest("Invalid image payload");
+    if (buffer.length > MAX_AVATAR_SIZE_BYTES) badRequest("Avatar image must be 5MB or smaller");
+
+    const extensionByMime: Record<string, string> = {
+      "image/jpeg": "jpg",
+      "image/jpg": "jpg",
+      "image/png": "png",
+      "image/webp": "webp",
+      "image/gif": "gif",
+    };
+    const ext = extensionByMime[mime] ?? "jpg";
+    const fileName = `avatar-${req.session!.userId}-${randomUUID()}.${ext}`;
+    await fs.mkdir(AVATAR_UPLOAD_DIR, { recursive: true });
+    const filePath = path.join(AVATAR_UPLOAD_DIR, fileName);
+    await fs.writeFile(filePath, buffer);
+
+    res.json({ url: `/uploads/avatars/${fileName}` });
   })
 );
 

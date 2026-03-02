@@ -1,0 +1,344 @@
+import { useEffect, useState } from "react";
+import { CheckCircle2, Eye, EyeOff, Loader2 } from "lucide-react";
+import { useLanguage } from "@/hooks/use-language";
+import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
+import { SplannoLogo } from "@/components/splanno-logo";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+
+type AuthMode = "login" | "signup";
+type AuthTab = "login" | "register" | "forgot" | "sent";
+
+type AuthDrawerProps = {
+  open: boolean;
+  mode: AuthMode;
+  onOpenChange: (open: boolean) => void;
+  onModeChange: (mode: AuthMode) => void;
+  onSuccess?: () => void;
+};
+
+export function AuthDrawer({
+  open,
+  mode,
+  onOpenChange,
+  onModeChange,
+  onSuccess,
+}: AuthDrawerProps) {
+  const { t } = useLanguage();
+  const { toast } = useToast();
+  const { login, register, forgotPassword } = useAuth();
+
+  const [tab, setTab] = useState<AuthTab>(mode === "signup" ? "register" : "login");
+  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState("");
+  const [showPw, setShowPw] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setTab(mode === "signup" ? "register" : "login");
+    setError("");
+  }, [open, mode]);
+
+  const switchTab = (next: AuthTab) => {
+    setTab(next);
+    setError("");
+    if (next === "login") onModeChange("login");
+    if (next === "register") onModeChange("signup");
+  };
+
+  const handleLogin = async () => {
+    setError("");
+    if (!username || !password) return;
+    try {
+      await login.mutateAsync({ username, password });
+      onSuccess?.();
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "login_failed";
+      setError(message === "invalid_credentials" ? t.auth.invalidCredentials : message);
+    }
+  };
+
+  const handleRegister = async () => {
+    setError("");
+    if (!username || !email || !password) return;
+    if (password.length < 8) {
+      setError(t.auth.passwordHint);
+      return;
+    }
+    if (password !== confirm) {
+      setError(t.auth.passwordsNoMatch);
+      return;
+    }
+    try {
+      const result = (await register.mutateAsync({
+        username,
+        email,
+        displayName: displayName || undefined,
+        password,
+      })) as { emailSent?: boolean };
+      if (result?.emailSent === false) toast({ title: t.auth.welcomeEmailNotSent, variant: "default" });
+      onSuccess?.();
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : "register_failed";
+      if (message === "username_taken") setError(t.auth.usernameTaken);
+      else if (message === "email_taken") setError(t.auth.emailTaken);
+      else setError(message);
+    }
+  };
+
+  const handleForgot = async () => {
+    setError("");
+    if (!email) return;
+    try {
+      await forgotPassword.mutateAsync({ email });
+      switchTab("sent");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "forgot_failed");
+    }
+  };
+
+  const isLoading = login.isPending || register.isPending || forgotPassword.isPending;
+
+  const titleByTab: Record<AuthTab, string> = {
+    login: t.auth.loginTitle,
+    register: t.auth.registerTitle,
+    forgot: t.auth.forgotPasswordTitle,
+    sent: t.auth.checkEmail,
+  };
+  const subtitleByTab: Record<AuthTab, string> = {
+    login: t.auth.welcomeBack,
+    register: t.auth.createAccount,
+    forgot: t.auth.forgotPasswordSubtitle,
+    sent: t.auth.checkEmailDesc,
+  };
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side="right"
+        className="h-full w-[420px] max-w-[92vw] border-l border-slate-200 bg-white p-0 shadow-2xl dark:border-neutral-800 dark:bg-[#121212]"
+      >
+        <div className="flex h-full flex-col">
+          <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-5 py-4 backdrop-blur dark:border-neutral-800 dark:bg-[#121212]/95">
+            <SheetHeader className="space-y-1 text-left">
+              <SheetTitle className="text-lg font-semibold text-slate-900 dark:text-neutral-100">{titleByTab[tab]}</SheetTitle>
+              <SheetDescription className="text-sm text-slate-500 dark:text-neutral-400">{subtitleByTab[tab]}</SheetDescription>
+            </SheetHeader>
+          </header>
+
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+            <div className="mb-4 flex items-center justify-center">
+              <SplannoLogo variant="full" size={54} className="pointer-events-none" />
+            </div>
+
+            {(tab === "login" || tab === "register") ? (
+              <div className="mb-4 flex rounded-lg border border-slate-200 overflow-hidden dark:border-neutral-800">
+                <button
+                  type="button"
+                  onClick={() => switchTab("login")}
+                  className={`flex-1 py-2 text-sm font-semibold transition-colors ${tab === "login" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-slate-50 dark:hover:bg-neutral-900"}`}
+                >
+                  {t.auth.login}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => switchTab("register")}
+                  className={`flex-1 py-2 text-sm font-semibold transition-colors ${tab === "register" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-slate-50 dark:hover:bg-neutral-900"}`}
+                >
+                  {t.auth.register}
+                </button>
+              </div>
+            ) : null}
+
+            {tab === "login" ? (
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">{t.auth.username}</Label>
+                  <Input
+                    placeholder={t.user.usernamePlaceholder}
+                    value={username}
+                    onChange={(event) => setUsername(event.target.value)}
+                    onKeyDown={(event) => event.key === "Enter" && void handleLogin()}
+                    autoFocus
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">{t.auth.password}</Label>
+                  <div className="relative">
+                    <Input
+                      type={showPw ? "text" : "password"}
+                      placeholder="••••••"
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      onKeyDown={(event) => event.key === "Enter" && void handleLogin()}
+                      className="pr-9"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPw((prev) => !prev)}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    >
+                      {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    className="float-right text-[11px] text-primary hover:underline"
+                    onClick={() => {
+                      setEmail("");
+                      switchTab("forgot");
+                    }}
+                  >
+                    {t.auth.forgotPassword}
+                  </button>
+                </div>
+                {error ? <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
+                <Button
+                  onClick={() => void handleLogin()}
+                  disabled={isLoading || !username || !password}
+                  className="w-full bg-primary text-primary-foreground font-bold"
+                >
+                  {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : t.auth.login}
+                </Button>
+                <p className="text-center text-xs text-muted-foreground">
+                  {t.auth.dontHaveAccount}{" "}
+                  <button type="button" onClick={() => switchTab("register")} className="font-semibold text-primary hover:underline">
+                    {t.auth.register}
+                  </button>
+                </p>
+              </div>
+            ) : null}
+
+            {tab === "register" ? (
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">{t.auth.displayName}</Label>
+                  <Input
+                    placeholder={t.auth.displayNamePlaceholder}
+                    value={displayName}
+                    onChange={(event) => setDisplayName(event.target.value)}
+                    autoFocus
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">{t.auth.username}</Label>
+                  <Input
+                    placeholder={t.user.usernamePlaceholder}
+                    value={username}
+                    onChange={(event) => setUsername(event.target.value)}
+                  />
+                  <p className="text-[10px] text-muted-foreground">{t.auth.usernameHint}</p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">{t.auth.email}</Label>
+                  <Input
+                    type="email"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">{t.auth.password}</Label>
+                  <div className="relative">
+                    <Input
+                      type={showPw ? "text" : "password"}
+                      placeholder="••••••"
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      className="pr-9"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPw((prev) => !prev)}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    >
+                      {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">{t.auth.passwordHint}</p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">{t.auth.confirmPassword}</Label>
+                  <Input
+                    type={showPw ? "text" : "password"}
+                    placeholder="••••••"
+                    value={confirm}
+                    onChange={(event) => setConfirm(event.target.value)}
+                    onKeyDown={(event) => event.key === "Enter" && void handleRegister()}
+                  />
+                </div>
+                {error ? <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
+                <Button
+                  onClick={() => void handleRegister()}
+                  disabled={isLoading || !username || !email || !password || !confirm}
+                  className="w-full bg-primary text-primary-foreground font-bold"
+                >
+                  {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : t.auth.register}
+                </Button>
+                <p className="text-center text-xs text-muted-foreground">
+                  {t.auth.alreadyHaveAccount}{" "}
+                  <button type="button" onClick={() => switchTab("login")} className="font-semibold text-primary hover:underline">
+                    {t.auth.login}
+                  </button>
+                </p>
+              </div>
+            ) : null}
+
+            {tab === "forgot" ? (
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">{t.auth.email}</Label>
+                  <Input
+                    type="email"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    onKeyDown={(event) => event.key === "Enter" && void handleForgot()}
+                    autoFocus
+                  />
+                </div>
+                {error ? <p className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
+                <Button
+                  onClick={() => void handleForgot()}
+                  disabled={isLoading || !email}
+                  className="w-full bg-primary text-primary-foreground font-bold"
+                >
+                  {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : t.auth.sendResetLink}
+                </Button>
+                <button
+                  type="button"
+                  className="w-full text-xs text-muted-foreground hover:text-foreground"
+                  onClick={() => switchTab("login")}
+                >
+                  ← {t.auth.backToLogin}
+                </button>
+              </div>
+            ) : null}
+
+            {tab === "sent" ? (
+              <div className="space-y-3 py-4 text-center">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-green-500/10">
+                  <CheckCircle2 className="h-6 w-6 text-green-500" />
+                </div>
+                <p className="text-sm text-muted-foreground">{t.auth.forgotPasswordSuccessGeneric}</p>
+                <button type="button" onClick={() => switchTab("login")} className="text-xs font-semibold text-primary hover:underline">
+                  {t.auth.backToLogin}
+                </button>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+export default AuthDrawer;

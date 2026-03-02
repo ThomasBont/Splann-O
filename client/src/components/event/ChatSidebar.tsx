@@ -72,7 +72,7 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }:
     if (isLocked) return { text: "Locked", cls: "bg-rose-500" };
     if (connectionStatus === "connected") return { text: "Live", cls: "bg-emerald-500" };
     if (connectionStatus === "reconnecting" || connectionStatus === "connecting") return { text: "Reconnecting…", cls: "bg-amber-500" };
-    return { text: "Offline", cls: "bg-slate-400" };
+    return { text: "Offline", cls: "bg-muted-foreground/70" };
   }, [connectionStatus, isLocked]);
 
   const handleSubmit = async () => {
@@ -151,17 +151,17 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }:
   }, [eventId]);
 
   return (
-    <aside className="pointer-events-auto h-full min-h-[380px] rounded-lg border border-slate-200 bg-white flex flex-col overflow-hidden">
-      <header className="px-4 py-3 border-b border-slate-200 bg-slate-50/80">
+    <aside className="pointer-events-auto flex h-full min-h-[380px] flex-col overflow-hidden rounded-lg border border-border/70 bg-card">
+      <header className="border-b border-border/70 bg-background/70 px-4 py-3">
         <div className="flex items-center justify-between gap-2">
           <div>
-            <p className="text-sm font-semibold text-slate-900">Plan chat</p>
-            <p className="text-xs text-slate-500">
+            <p className="text-sm font-semibold text-foreground">Plan chat</p>
+            <p className="text-xs text-muted-foreground">
               {eventName ? `${eventName} room` : "Plan room"}
               {membersQuery.data ? ` · ${membersQuery.data.length} people` : ""}
             </p>
           </div>
-          <div className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2 py-1 text-[10px] text-slate-600">
+          <div className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-card px-2 py-1 text-[10px] text-muted-foreground">
             <span className={`inline-block h-1.5 w-1.5 rounded-full ${liveLabel.cls}`} />
             {liveLabel.text}
           </div>
@@ -170,7 +170,7 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }:
 
       <div
         ref={listRef}
-        className="flex-1 min-h-0 overflow-y-auto px-3 py-3 space-y-2 bg-slate-50"
+        className="min-h-0 flex-1 space-y-2 overflow-y-auto bg-background/40 px-3 py-3"
         onScroll={(e) => {
           const el = e.currentTarget;
           const delta = el.scrollHeight - (el.scrollTop + el.clientHeight);
@@ -185,7 +185,7 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }:
           </div>
         ) : isLocked ? (
           <div className="h-full min-h-[180px] flex items-center justify-center text-center px-4">
-            <div className="space-y-1 text-slate-500">
+            <div className="space-y-1 text-muted-foreground">
               <MessageCircle className="h-4 w-4 mx-auto" />
               <p className="text-sm">Plan chat is locked.</p>
             </div>
@@ -194,7 +194,7 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }:
           <InlineQueryError message="Messages unavailable." onRetry={retry} />
         ) : messages.length === 0 ? (
           <div className="h-full min-h-[180px] flex items-center justify-center text-center px-4">
-            <div className="space-y-1 text-slate-500">
+            <div className="space-y-1 text-muted-foreground">
               <MessageCircle className="h-4 w-4 mx-auto" />
               <p className="text-sm">No messages yet.</p>
             </div>
@@ -204,7 +204,7 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }:
             if (msg.type === "system") {
               return (
                 <div key={msg.id} className="flex justify-center">
-                  <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] text-slate-500 italic">
+                  <span className="rounded-full border border-border/70 bg-card px-3 py-1 text-[11px] italic text-muted-foreground">
                     {msg.text}
                   </span>
                 </div>
@@ -234,9 +234,9 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }:
                   <div className="mr-2 flex w-8 flex-col items-center pt-0.5">
                     {!groupedWithPrev ? (
                       senderAvatar ? (
-                        <img src={senderAvatar} alt="" className="h-7 w-7 rounded-full border border-slate-200 object-cover" />
+                        <img src={senderAvatar} alt="" className="h-7 w-7 rounded-full border border-border/70 object-cover" />
                       ) : (
-                        <span className="grid h-7 w-7 place-items-center rounded-full border border-slate-200 bg-white text-[10px] font-semibold text-slate-600">
+                        <span className="grid h-7 w-7 place-items-center rounded-full border border-border/70 bg-card text-[10px] font-semibold text-muted-foreground">
                           {getInitials(senderName)}
                         </span>
                       )
@@ -245,15 +245,15 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }:
                 ) : null}
                 <div className={`${mine ? "max-w-[84%] items-end" : "max-w-[82%] items-start"} flex flex-col`}>
                   {!groupedWithPrev ? (
-                    <p className={`mb-1 px-1 text-[11px] ${mine ? "text-slate-400" : "text-slate-500"}`}>
+                    <p className={`mb-1 px-1 text-[11px] ${mine ? "text-muted-foreground/80" : "text-muted-foreground"}`}>
                       {mine ? "You" : senderName}
                     </p>
                   ) : null}
-                  <div className={`rounded-2xl px-3 py-2 text-sm ${mine ? "bg-primary text-primary-foreground" : "border border-slate-200 bg-white text-slate-800"}`}>
+                  <div className={`rounded-2xl px-3 py-2 text-sm ${mine ? "bg-primary text-primary-foreground" : "border border-border/70 bg-card text-foreground"}`}>
                     <p className="whitespace-pre-wrap break-words">{msg.text}</p>
                   </div>
                   {!groupedWithNext ? (
-                    <p className={`mt-1 px-1 text-[10px] ${mine ? "text-primary/70" : "text-slate-500"}`}>
+                    <p className={`mt-1 px-1 text-[10px] ${mine ? "text-primary/70" : "text-muted-foreground"}`}>
                       {formatMessageTime(msg.createdAt)}
                     </p>
                   ) : null}
@@ -264,10 +264,10 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }:
         )}
       </div>
 
-      <div className="border-t border-slate-200 bg-white p-3">
+      <div className="border-t border-border/70 bg-card p-3">
         <div className="flex items-end gap-2">
           <div
-            className="min-h-[44px] max-h-[120px] flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2"
+            className="min-h-[44px] max-h-[120px] flex-1 rounded-xl border border-border/70 bg-background/70 px-3 py-2"
             onMouseDown={(e) => {
               if (isLocked) return;
               e.preventDefault();
@@ -280,7 +280,7 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }:
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               placeholder="Message…"
-              className="w-full min-h-[28px] max-h-[104px] resize-none bg-transparent text-sm text-slate-900 caret-primary outline-none pointer-events-auto placeholder:text-slate-500 disabled:cursor-not-allowed disabled:text-slate-400 dark:text-neutral-100 dark:placeholder:text-neutral-500"
+              className="pointer-events-auto min-h-[28px] max-h-[104px] w-full resize-none bg-transparent text-sm text-foreground caret-primary outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:text-muted-foreground/70"
               rows={1}
               disabled={isLocked}
               onKeyDown={(e) => {

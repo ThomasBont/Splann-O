@@ -22,6 +22,7 @@ type SharedCostsDrawerProps = {
   eventId: number | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  initialView?: "overview" | "expense-form";
   planName: string;
   peopleCount: number;
   totalSpentLabel: string;
@@ -38,6 +39,7 @@ export function SharedCostsDrawer({
   eventId,
   open,
   onOpenChange,
+  initialView = "overview",
   planName,
   peopleCount,
   totalSpentLabel,
@@ -54,7 +56,7 @@ export function SharedCostsDrawer({
   const createExpense = useCreateExpense(eventId);
   const updateExpense = useUpdateExpense(eventId);
   const deleteExpense = useDeleteExpense(eventId);
-  const [view, setView] = useState<"overview" | "expense-form">("overview");
+  const [view, setView] = useState<"overview" | "expense-form" | "settle-up">("overview");
   const [editingExpenseId, setEditingExpenseId] = useState<number | null>(null);
   const [participantId, setParticipantId] = useState<string>("");
   const [category, setCategory] = useState<string>("");
@@ -93,6 +95,7 @@ export function SharedCostsDrawer({
     if (category && !categories.includes(category)) return [...categories, category];
     return categories;
   }, [categories, category]);
+  const canSettle = useMemo(() => balances.some((balance) => Math.abs(balance.balance) > 0.01), [balances]);
 
   const resetAddForm = () => {
     setEditingExpenseId(null);
@@ -104,7 +107,7 @@ export function SharedCostsDrawer({
 
   useEffect(() => {
     if (open && !prevOpenRef.current) {
-      setView("overview");
+      setView(initialView);
       resetAddForm();
     }
     if (!open) {
@@ -112,11 +115,15 @@ export function SharedCostsDrawer({
       resetAddForm();
     }
     prevOpenRef.current = open;
-  }, [open, categories, participants]);
+  }, [open, categories, participants, initialView]);
 
   const openAddExpenseView = () => {
     resetAddForm();
     setView("expense-form");
+  };
+
+  const openSettleUpView = () => {
+    setView("settle-up");
   };
 
   const openEditExpenseView = (expense: ExpenseWithParticipant) => {
@@ -125,6 +132,16 @@ export function SharedCostsDrawer({
     setCategory(expense.category || categories[0] || "Other");
     setItem(expense.item || "");
     setAmount(String(expense.amount));
+    setView("expense-form");
+  };
+
+  const openSettlementExpenseForm = (settlement: Settlement) => {
+    const payer = participants.find((participant) => participant.name === settlement.from);
+    setEditingExpenseId(null);
+    setParticipantId(payer ? String(payer.id) : participants[0] ? String(participants[0].id) : "");
+    setCategory(categories.includes("Other") ? "Other" : categories[0] ?? "Other");
+    setItem(`Settlement to ${settlement.to}`);
+    setAmount(String(settlement.amount));
     setView("expense-form");
   };
 
@@ -292,27 +309,72 @@ export function SharedCostsDrawer({
                   </div>
                 </form>
               </div>
+            ) : view === "settle-up" ? (
+              <div className="space-y-4">
+                <Button type="button" variant="ghost" size="sm" onClick={() => setView("overview")}>
+                  <ArrowLeft className="mr-1.5 h-4 w-4" />
+                  Back to costs
+                </Button>
+
+                <section className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+                  <h3 className="text-sm font-semibold text-slate-900 dark:text-neutral-100">Settle up</h3>
+                  {!canSettle ? (
+                    <p className="mt-2 text-sm text-slate-500 dark:text-neutral-400">Nothing to settle.</p>
+                  ) : settlements.length > 0 ? (
+                    <div className="mt-3 space-y-2">
+                      {settlements.map((settlement, index) => (
+                        <div
+                          key={`settle-up-row-${index}-${settlement.from}-${settlement.to}`}
+                          className="rounded-xl border border-slate-200/80 px-3 py-2 dark:border-neutral-700"
+                        >
+                          <p className="text-sm text-slate-800 dark:text-neutral-100">
+                            <span className="font-medium">{settlement.from}</span>
+                            <span className="text-slate-500 dark:text-neutral-400"> pays </span>
+                            <span className="font-medium">{settlement.to}</span>
+                            <span className="text-slate-500 dark:text-neutral-400"> · {formatMoney(settlement.amount)}</span>
+                          </p>
+                          <div className="mt-2">
+                            <Button type="button" size="sm" variant="outline" onClick={() => openSettlementExpenseForm(settlement)}>
+                              Record as expense
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-sm text-slate-500 dark:text-neutral-400">
+                      Suggested paybacks appear once balances are uneven.
+                    </p>
+                  )}
+                </section>
+              </div>
             ) : (
               <div className="space-y-4">
-              <section className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
-                <p className="text-xs font-medium uppercase tracking-wide text-slate-500 dark:text-neutral-400">Summary</p>
-                <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-xl border border-slate-200/80 bg-slate-50 p-3 dark:border-neutral-700 dark:bg-neutral-800">
-                    <p className="text-xs text-slate-500 dark:text-neutral-400">Total spent</p>
-                    <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-neutral-100">{totalSpentLabel}</p>
-                  </div>
-                  <div className="rounded-xl border border-slate-200/80 bg-slate-50 p-3 dark:border-neutral-700 dark:bg-neutral-800">
-                    <p className="text-xs text-slate-500 dark:text-neutral-400">Logged expenses</p>
-                    <p className="mt-1 text-lg font-semibold text-slate-900 dark:text-neutral-100">{expenseCount}</p>
-                  </div>
-                </div>
-                <div className="mt-4">
-                  <Button type="button" onClick={openAddExpenseView} disabled={participants.length === 0}>
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    type="button"
+                    className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
+                    onClick={openAddExpenseView}
+                    disabled={participants.length === 0}
+                  >
                     <Receipt className="mr-1.5 h-4 w-4" />
                     Add expense
                   </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={openSettleUpView}
+                    disabled={!canSettle}
+                    title={!canSettle ? "Nothing to settle" : undefined}
+                  >
+                    <Scale className="mr-1.5 h-4 w-4" />
+                    Settle up
+                  </Button>
                 </div>
-              </section>
+                {!canSettle ? (
+                  <p className="text-xs text-slate-500 dark:text-neutral-400">Nothing to settle.</p>
+                ) : null}
 
               <section className="rounded-2xl border border-slate-200 bg-white p-4 transition-colors hover:border-slate-300 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-neutral-700">
                 <h3 className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-neutral-100">

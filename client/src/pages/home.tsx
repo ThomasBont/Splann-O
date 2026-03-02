@@ -55,9 +55,9 @@ import { IndividualContributions } from "@/components/split/IndividualContributi
 import { SettlementPlan } from "@/components/split/SettlementPlan";
 import { ConfettiCelebration } from "@/components/basic/ConfettiCelebration";
 import { generateSettleCardData, generateRecapCardData } from "@/utils/shareCard";
-import { WelcomeModal } from "@/components/welcome-modal";
 import { DiscoverModal } from "@/components/discover-modal";
 import { SplannoLogo } from "@/components/splanno-logo";
+import { resolveAssetUrl, withCacheBust } from "@/lib/asset-url";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import {
   Receipt, Trash2, Edit2,
@@ -671,7 +671,6 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
   const [addFriendQuery, setAddFriendQuery] = useState("");
   const [notifOpen, setNotifOpen] = useState(false);
   const [showAuthDialog, setShowAuthDialog] = useState(true);
-  const [showWelcomeModal, setShowWelcomeModal] = useState(false);
   const [discoverOpen, setDiscoverOpen] = useState(false);
   const prevPendingCountRef = useRef(allPendingRequests.length);
   const queryClient = useQueryClient();
@@ -776,16 +775,13 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
   }, [recentLocationOptions, recentLocationsStorageKey]);
 
   useEffect(() => {
-    if (user) {
-      try {
-        if (sessionStorage.getItem("ortega_show_welcome") === "1") {
-          setShowWelcomeModal(true);
-        }
-      } catch {
-        // ignore
-      }
-    }
-  }, [user]);
+    if (typeof window === "undefined") return;
+    // Welcome onboarding is disabled for MVP; clear stale client-side trigger flags.
+    sessionStorage.removeItem("ortega_show_welcome");
+  }, []);
+
+  // TODO: optionally re-add onboarding modal only on first-ever login,
+  // gated by a server-backed flag (e.g. user.onboardingSeenAt).
 
   useEffect(() => {
     if (allPendingRequests.length > prevPendingCountRef.current) {
@@ -910,18 +906,17 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
     : profileTargetData?.user ?? null;
   const accountFriendsCount = profileTargetData?.stats?.friendsCount ?? friends.length;
   const changePhotoPreview = avatarUploadPreviewUrl
-    || (useAvatarUrlInput ? draftProfileImageUrl.trim() : "")
-    || user?.profileImageUrl
-    || user?.avatarUrl
+    || (useAvatarUrlInput ? (resolveAssetUrl(draftProfileImageUrl.trim()) ?? "") : "")
+    || resolveAssetUrl(user?.profileImageUrl)
+    || resolveAssetUrl(user?.avatarUrl)
     || "";
   const hasValidAvatarUrlInput = useMemo(() => {
     if (!useAvatarUrlInput) return false;
     const trimmed = draftProfileImageUrl.trim();
     if (!trimmed) return true;
-    const normalized = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+    const normalized = trimmed.startsWith("/") ? trimmed : (/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
     try {
-      new URL(normalized);
-      return true;
+      return !!resolveAssetUrl(normalized);
     } catch {
       return false;
     }
@@ -932,6 +927,10 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  };
+  const toVersionToken = (value: string | number | Date | null | undefined) => {
+    if (value instanceof Date) return value.getTime();
+    return value ?? null;
   };
 
   const handleAvatarFileChange = (file: File | null) => {
@@ -1049,10 +1048,6 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
         .some((v) => String(v).toLowerCase().includes(q))
     );
   }, [allEventsForArea, allEventsSearch]);
-  const pinnedBarbecuesForArea = useMemo(() => {
-    return listBarbecuesForArea.filter((b: Barbecue) => pinnedEventIds.includes(b.id));
-  }, [listBarbecuesForArea, pinnedEventIds]);
-  const hasPinnedEvents = pinnedEventIds.length > 0;
   const createBbq = useCreateBarbecue();
   const deleteBbq = useDeleteBarbecue();
   const updateBbq = useUpdateBarbecue();
@@ -1899,22 +1894,6 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
         isCheckingAuth={isAuthLoading}
       />
 
-      {user && (
-        <WelcomeModal
-          open={showWelcomeModal}
-          onOpenChange={setShowWelcomeModal}
-          userName={user.displayName || user.username}
-          onGetStarted={() => {
-            try {
-              sessionStorage.removeItem("ortega_show_welcome");
-            } catch {
-              // ignore
-            }
-            setShowWelcomeModal(false);
-          }}
-        />
-      )}
-
       {!debugDisableDiscoverModal && (
         <DiscoverModal
           open={discoverOpen}
@@ -2208,7 +2187,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                               className={`grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-full bg-primary/10 text-base font-semibold text-primary ${isViewingOwnAccount ? "cursor-pointer ring-2 ring-transparent transition hover:ring-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" : "cursor-default"}`}
                             >
                               {accountProfileUser?.profileImageUrl ? (
-                                <img src={accountProfileUser.profileImageUrl} alt="" className="h-full w-full object-cover" />
+                                <img src={resolveAssetUrl(accountProfileUser.profileImageUrl) ?? ""} alt="" className="h-full w-full object-cover" />
                               ) : (
                                 (accountProfileUser?.displayName || accountProfileUser?.username || "U").slice(0, 2).toUpperCase()
                               )}
@@ -2509,7 +2488,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                         <span className="grid h-12 w-12 place-items-center overflow-hidden rounded-full bg-amber-100 text-sm font-semibold text-slate-700 dark:bg-amber-300/25 dark:text-amber-100">
                           {selectedFriendProfile?.user?.avatarUrl || selectedFriendProfile?.user?.profileImageUrl ? (
                             <img
-                              src={selectedFriendProfile.user.profileImageUrl || selectedFriendProfile.user.avatarUrl || ""}
+                              src={resolveAssetUrl(selectedFriendProfile.user.profileImageUrl || selectedFriendProfile.user.avatarUrl || "") ?? ""}
                               alt=""
                               className="h-full w-full object-cover"
                             />
@@ -2758,20 +2737,18 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                               if (!uploadRes.ok) {
                                 throw new Error((uploadPayload as { message?: string }).message || t.auth.avatarUploadFailed);
                               }
-                              nextAvatarAssetId = String((uploadPayload as { assetId?: string }).assetId ?? "").trim();
-                              if (!nextAvatarAssetId) throw new Error(t.auth.avatarUploadFailed);
-                              nextAvatarUrl = null;
+                              const uploadedPath = String((uploadPayload as { path?: string; url?: string }).path ?? (uploadPayload as { url?: string }).url ?? "").trim();
+                              if (!uploadedPath) throw new Error(t.auth.avatarUploadFailed);
+                              nextAvatarUrl = uploadedPath;
+                              nextAvatarAssetId = null;
                             } else if (useAvatarUrlInput) {
                               const trimmed = draftProfileImageUrl.trim();
                               if (!trimmed) {
                                 nextAvatarUrl = null;
                                 nextAvatarAssetId = null;
                               } else {
-                                const normalized = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
-                                try {
-                                  // validate URL early for cleaner UX before save
-                                  new URL(normalized);
-                                } catch {
+                                const normalized = trimmed.startsWith("/") ? trimmed : (/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
+                                if (!resolveAssetUrl(normalized)) {
                                   throw new Error(t.auth.invalidImageUrl);
                                 }
                                 nextAvatarUrl = normalized;
@@ -2781,11 +2758,20 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                               throw new Error(t.auth.chooseImageOrUrl);
                             }
 
-                            await updateProfile.mutateAsync({
-                              avatarUrl: nextAvatarUrl,
-                              avatarAssetId: nextAvatarAssetId,
-                              profileImageUrl: nextAvatarUrl,
-                            });
+                            const profileUpdates: {
+                              avatarUrl?: string | null;
+                              avatarAssetId?: string | null;
+                              profileImageUrl?: string | null;
+                            } = {};
+
+                            if (nextAvatarAssetId) {
+                              profileUpdates.avatarAssetId = nextAvatarAssetId;
+                            } else {
+                              profileUpdates.avatarUrl = nextAvatarUrl;
+                              profileUpdates.profileImageUrl = nextAvatarUrl;
+                            }
+
+                            await updateProfile.mutateAsync(profileUpdates);
                             toastSuccess(t.modals.profileSaved);
                             setAvatarUploadFile(null);
                             setAvatarUploadPreviewUrl((prev) => {
@@ -2993,144 +2979,6 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
       </div>
       )}
 
-      {/* Event strip (Pinned only) */}
-      {hasPinnedEvents && (
-      <div className="sticky top-[114px] z-30 bg-[hsl(var(--surface-0))]/90 backdrop-blur-md border-b border-[hsl(var(--border-subtle))]" data-testid="section-bbq-selector">
-        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-2">
-          <p className="px-1 pb-1 text-[11px] text-muted-foreground hidden sm:block">
-            Pinned plans
-          </p>
-          <div className="overflow-x-auto -mx-1 px-1 pb-1">
-            <div className="flex gap-2 items-center min-w-max">
-              {isLoadingBbqs ? (
-                <Loader2 className="w-4 h-4 animate-spin text-muted-foreground mx-2" />
-              ) : pinnedBarbecuesForArea.length === 0 ? (
-                <span className="text-xs text-muted-foreground px-2 py-1.5 italic">
-                  {eventVisibilityTab === "private" ? "No pinned plans yet" : "No pinned plans yet"}
-                </span>
-              ) : (
-                pinnedBarbecuesForArea.map((bbq: Barbecue) => {
-                  const isSelected = bbq.id === selectedBbqId;
-                  const chipThemeCategory = getEventCategoryFromData({
-                    eventType: bbq.eventType,
-                    templateData: bbq.templateData,
-                    visibilityOrigin: bbq.visibilityOrigin,
-                  });
-                  const chipTheme = getCategoryTheme(chipThemeCategory);
-                  const isBbqCreator = !!(username && bbq.creatorId === username);
-                  const membership = getMembershipStatus(bbq.id);
-                  const memberStatus = membership?.status || null;
-                  const participantId = membership?.participantId;
-                  const isPublicCard = (bbq.visibility as string | undefined) === "public";
-                  const pendingPublishCard = shouldShowPendingPublish(bbq);
-                  const listingBadgeLabel = getListingBadgeLabel(bbq);
-                  const isPinned = pinnedEventIds.includes(bbq.id);
-
-                  return (
-                    <div key={bbq.id} className="flex items-center gap-1.5 flex-shrink-0">
-                      <button
-                        onClick={() => handleSelectEvent(isSelected ? null : bbq.id)}
-                        style={getEventThemeStyle(chipThemeCategory)}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all border ${
-                          isSelected
-                            ? `bg-primary text-primary-foreground border-primary/60 shadow-sm shadow-primary/20 ${chipTheme.classes.surface}`
-                            : isPublicCard
-                              ? `bg-sky-500/5 border-sky-500/20 text-muted-foreground hover:border-sky-400/40 hover:text-foreground hover:bg-sky-500/10 ${chipTheme.classes.surface}`
-                              : `bg-amber-500/5 border-amber-500/15 text-muted-foreground hover:border-amber-400/30 hover:text-foreground hover:bg-amber-500/10 ${chipTheme.classes.surface}`
-                        }`}
-                        data-testid={`button-bbq-${bbq.id}`}
-                      >
-                        {isPublicCard ? (
-                          <Globe className="w-3 h-3 flex-shrink-0 opacity-70" />
-                        ) : (
-                          <Lock className="w-3 h-3 flex-shrink-0 opacity-70" />
-                        )}
-                        <span className="max-w-[160px] truncate">{bbq.name}</span>
-                        <span className={`hidden md:inline-flex h-1.5 w-1.5 rounded-full ${chipTheme.classes.strip}`} aria-hidden />
-                        {pendingPublishCard && listingBadgeLabel && (
-                          <span className="text-[10px] hidden sm:inline px-1.5 py-0.5 rounded-full border bg-amber-200 text-amber-950 border-amber-500/80 dark:bg-amber-500/20 dark:text-amber-200 dark:border-amber-400/40">
-                            {listingBadgeLabel}
-                          </span>
-                        )}
-                      </button>
-
-                      {/* Invited: Accept/Decline inline */}
-                      {memberStatus === 'invited' && participantId && (
-                        <div className="flex gap-1" onClick={e => e.stopPropagation()}>
-                          <button
-                            onClick={() => acceptInvite.mutate({ id: participantId, bbqId: bbq.id })}
-                            disabled={acceptInvite.isPending}
-                            className="text-[10px] bg-green-500/20 text-green-400 hover:bg-green-500/30 px-2 py-1 rounded-md font-semibold transition-colors"
-                            data-testid={`button-accept-invite-${bbq.id}`}
-                          >{t.bbq.acceptInvite}</button>
-                          <button
-                            onClick={() => declineInvite.mutate({ id: participantId, bbqId: bbq.id })}
-                            disabled={declineInvite.isPending}
-                            className="text-[10px] text-muted-foreground hover:text-destructive px-1 py-1 rounded-md transition-colors"
-                            data-testid={`button-decline-invite-${bbq.id}`}
-                          ><X className="w-3 h-3" /></button>
-                        </div>
-                      )}
-
-                      {/* Public unjoined: join button inline */}
-                      {!isBbqCreator && !memberStatus && bbq.isPublic && user && (
-                        <button
-                          onClick={() => handleJoin(bbq.id)}
-                          disabled={joinBbq.isPending}
-                          className="text-[10px] bg-white/5 hover:bg-primary/20 hover:text-primary border border-white/10 hover:border-primary/30 px-2 py-1 rounded-md font-semibold transition-colors text-muted-foreground"
-                          data-testid={`button-join-bbq-${bbq.id}`}
-                        >{joinBbq.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : t.user.joinBbq}</button>
-                      )}
-
-                      {/* Non-creator: leave event (remove from my tabs) */}
-                      {!isBbqCreator && membership && participantId && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            deleteParticipant.mutate(participantId, {
-                              onSuccess: () => {
-                                queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] });
-                                if (selectedBbqId === bbq.id) setSelectedBbqId(null);
-                              },
-                            });
-                          }}
-                          disabled={deleteParticipant.isPending}
-                          className="text-muted-foreground/40 hover:text-destructive transition-colors p-0.5"
-                          title={t.user.leave}
-                          data-testid={`button-leave-bbq-${bbq.id}`}
-                        ><X className="w-3 h-3" /></button>
-                      )}
-
-                      {/* Creator: pin + delete buttons */}
-                      {isBbqCreator && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); togglePinnedEvent(bbq.id); }}
-                          className={`transition-colors p-0.5 ${isPinned ? "text-yellow-400 hover:text-yellow-300" : "text-muted-foreground/50 hover:text-yellow-400"}`}
-                          data-testid={`button-pin-bbq-${bbq.id}`}
-                          title={isPinned ? "Unpin event" : "Pin event"}
-                        ><Star className={`w-3 h-3 ${isPinned ? "fill-current" : ""}`} /></button>
-                      )}
-                      {isBbqCreator && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleDeleteBbq(bbq.id); }}
-                          className="text-muted-foreground/40 hover:text-destructive transition-colors p-0.5"
-                          data-testid={`button-delete-bbq-${bbq.id}`}
-                          title={t.bbq.delete}
-                        ><Trash2 className="w-3 h-3" /></button>
-                      )}
-                    </div>
-                  );
-                })
-              )}
-
-              {/* Separator */}
-              {pinnedBarbecuesForArea.length > 0 && <div className="w-px h-5 bg-white/10 flex-shrink-0 mx-1" />}
-            </div>
-          </div>
-        </div>
-      </div>
-      )}
-
       <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8 space-y-6 sm:space-y-8">
         {
         <>
@@ -3199,8 +3047,12 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
           if (appRouteMode === "event" && isPrivateContext && selectedBbq) {
             const pendingCount = Math.max(invitedParticipants.length, pendingRequests.length);
             const fallbackHeroImage = "https://images.unsplash.com/photo-1559339352-11d035aa65de?auto=format&fit=crop&w=1600&q=80";
-            const heroImage = !dashboardHeroBannerFailed && selectedBbq.bannerImageUrl
-              ? selectedBbq.bannerImageUrl
+            const resolvedDashboardBanner = withCacheBust(
+              resolveAssetUrl(selectedBbq.bannerImageUrl),
+              toVersionToken((selectedBbq as { updatedAt?: string | Date | null }).updatedAt ?? selectedBbq.id),
+            );
+            const heroImage = !dashboardHeroBannerFailed && resolvedDashboardBanner
+              ? resolvedDashboardBanner
               : fallbackHeroImage;
             return (
               <div className="mx-auto w-full max-w-[1400px] rounded-2xl border border-border/60 bg-background px-4 py-6 sm:px-6 lg:px-10">
@@ -3942,7 +3794,10 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                 >
                   {!privateHeroBannerFailed && selectedBbq.bannerImageUrl ? (
                     <img
-                      src={selectedBbq.bannerImageUrl}
+                      src={withCacheBust(
+                        resolveAssetUrl(selectedBbq.bannerImageUrl),
+                        toVersionToken((selectedBbq as { updatedAt?: string | Date | null }).updatedAt ?? selectedBbq.id),
+                      ) ?? ""}
                       alt={selectedBbq.name}
                       className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 hover:scale-[1.02]"
                       onLoad={() => setPrivateHeroBannerFailed(false)}
@@ -4027,7 +3882,10 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                       <div className="aspect-[16/7] rounded-xl border border-border/60 bg-muted/20 overflow-hidden flex items-center justify-center text-xs text-muted-foreground">
                         {!publicOverviewBannerFailed && selectedBbq.bannerImageUrl ? (
                           <img
-                            src={selectedBbq.bannerImageUrl}
+                            src={withCacheBust(
+                              resolveAssetUrl(selectedBbq.bannerImageUrl),
+                              toVersionToken((selectedBbq as { updatedAt?: string | Date | null }).updatedAt ?? selectedBbq.id),
+                            ) ?? ""}
                             alt={selectedBbq.name}
                             className="h-full w-full object-cover"
                             onLoad={() => setPublicOverviewBannerFailed(false)}

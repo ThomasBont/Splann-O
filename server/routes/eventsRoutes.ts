@@ -11,6 +11,7 @@ import { listPlanActivity, logPlanActivity } from "../lib/planActivity";
 import { log } from "../lib/logger";
 import { AppError, badRequest, forbidden, notFound } from "../lib/errors";
 import { eventInvites, eventMembers, participants, users } from "@shared/schema";
+import { resolveLegacyAssetIdToPublicPath } from "../lib/assets";
 
 const router = Router();
 
@@ -51,7 +52,7 @@ function getAppOrigin(req: Request) {
 function resolveUserAvatarUrl(input: { avatarUrl?: string | null; profileImageUrl?: string | null; avatarAssetId?: string | null }): string | null {
   if (input.avatarUrl) return input.avatarUrl;
   if (input.profileImageUrl) return input.profileImageUrl;
-  if (input.avatarAssetId) return `/api/assets/${encodeURIComponent(input.avatarAssetId)}`;
+  if (input.avatarAssetId) return resolveLegacyAssetIdToPublicPath(input.avatarAssetId);
   return null;
 }
 

@@ -50,6 +50,7 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }:
     typingUsers,
     wsReadyState,
     sendMessage,
+    retrySend,
     sendTyping,
     loadOlder,
     retry,
@@ -153,10 +154,8 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }:
           isSubscribed: result.isSubscribed,
         });
       }
-      if (result.reason === "not-subscribed" || result.reason === "not-open" || result.reason === "no-ws") {
-        toastInfo("Connecting… try again.");
-        return;
-      }
+      if (result.reason === "no-eventId") toastInfo("Plan is still loading.");
+      if (result.reason === "locked") toastInfo("Chat is locked.");
       toastError(`Couldn’t send message (${result.reason ?? "unknown"}). Try again.`);
       return;
     }
@@ -300,6 +299,27 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }:
                       : "border border-border/70 bg-muted/40 text-foreground dark:bg-muted/20"}`}
                   >
                     <p className="whitespace-pre-wrap break-words">{msg.text}</p>
+                    {msg.status === "sending" ? (
+                      <p className={`mt-1 text-[10px] ${mine ? "text-white/80" : "text-muted-foreground"}`}>sending…</p>
+                    ) : null}
+                    {msg.status === "failed" && msg.clientMessageId ? (
+                      <div className="mt-1 flex items-center gap-2">
+                        <p className={`text-[10px] ${mine ? "text-white/90" : "text-destructive"}`}>failed</p>
+                        <button
+                          type="button"
+                          className={`text-[10px] underline underline-offset-2 ${mine ? "text-white" : "text-foreground"}`}
+                          onClick={() => {
+                            void retrySend(msg.clientMessageId!, {
+                              id: currentUser?.id ?? null,
+                              name: currentUser?.username ?? "You",
+                              avatarUrl: currentUser?.avatarUrl ?? null,
+                            });
+                          }}
+                        >
+                          Retry
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                   {!groupedWithNext ? (
                     <p

@@ -89,6 +89,10 @@ export function createApp() {
     express.static(path.resolve(process.cwd(), "public/uploads"), {
       maxAge: "1y",
       immutable: true,
+      setHeaders: (res) => {
+        res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        res.setHeader("Access-Control-Allow-Origin", "*");
+      },
     }),
   );
 

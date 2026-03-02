@@ -265,12 +265,16 @@ export const eventChatMessages = pgTable("event_chat_messages", {
   authorUserId: integer("author_user_id").references(() => users.id, { onDelete: "set null" }),
   authorName: text("author_name"),
   authorAvatarUrl: text("author_avatar_url"),
+  clientMessageId: uuid("client_message_id").defaultRandom().notNull(),
   type: text("type").notNull().default("user"), // user | system
   content: text("content").notNull(),
-  createdAt: timestamp("created_at").defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  editedAt: timestamp("edited_at", { withTimezone: true }),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
 }, (table) => ({
   eventCreatedAtIdx: index("event_chat_messages_event_created_at_idx").on(table.eventId, table.createdAt),
   eventIdIdx: index("event_chat_messages_event_id_idx").on(table.eventId, table.id),
+  eventClientMessageIdUnique: unique("event_chat_messages_event_client_message_id_unique").on(table.eventId, table.clientMessageId),
 }));
 
 export const insertNoteSchema = createInsertSchema(notes)

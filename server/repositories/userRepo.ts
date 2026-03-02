@@ -3,11 +3,12 @@ import { users, barbecues, participants, expenses, passwordResetTokens, friendsh
 import { eq, and, or, inArray } from "drizzle-orm";
 import { isPublicListingActive } from "../lib/public-listing";
 import type { User, InsertUser, PasswordResetToken } from "@shared/schema";
+import { resolveLegacyAssetIdToPublicPath } from "../lib/assets";
 
 function resolveAvatarUrl(user: { avatarUrl?: string | null; profileImageUrl?: string | null; avatarAssetId?: string | null }): string | null {
   if (user.avatarUrl) return user.avatarUrl;
   if (user.profileImageUrl) return user.profileImageUrl;
-  if (user.avatarAssetId) return `/api/assets/${encodeURIComponent(user.avatarAssetId)}`;
+  if (user.avatarAssetId) return resolveLegacyAssetIdToPublicPath(user.avatarAssetId);
   return null;
 }
 

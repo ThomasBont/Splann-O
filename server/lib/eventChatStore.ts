@@ -5,9 +5,11 @@ import { eventChatMessages } from "@shared/schema";
 export type EventChatMessage = {
   id: string;
   eventId: string;
+  clientMessageId: string;
   type: "user" | "system";
   text: string;
   createdAt: string;
+  serverCreatedAt: string;
   user?: {
     id: string;
     name: string;
@@ -23,12 +25,15 @@ export type EventChatPage = {
 const MAX_PAGE_SIZE = 200;
 
 function toMessage(row: typeof eventChatMessages.$inferSelect): EventChatMessage {
+  const createdAtIso = row.createdAt ? row.createdAt.toISOString() : new Date().toISOString();
   return {
     id: row.id,
     eventId: String(row.eventId),
+    clientMessageId: row.clientMessageId,
     type: row.type === "system" ? "system" : "user",
     text: row.content,
-    createdAt: row.createdAt ? row.createdAt.toISOString() : new Date().toISOString(),
+    createdAt: createdAtIso,
+    serverCreatedAt: createdAtIso,
     user: row.authorUserId
       ? {
           id: String(row.authorUserId),
@@ -91,24 +96,41 @@ export async function appendEventChatMessage(
   input: {
     type?: "user" | "system";
     text: string;
+    clientMessageId: string;
     user?: {
       id: string;
       name: string;
       avatarUrl?: string | null;
     };
   },
-): Promise<EventChatMessage> {
+): Promise<{ message: EventChatMessage; inserted: boolean }> {
   const authorId = input.user?.id ? Number(input.user.id) : null;
   const [created] = await db.insert(eventChatMessages).values({
     eventId,
     authorUserId: Number.isFinite(authorId) ? authorId : null,
     authorName: input.user?.name ?? null,
     authorAvatarUrl: input.user?.avatarUrl ?? null,
+    clientMessageId: input.clientMessageId,
     type: input.type ?? "user",
     content: input.text,
     createdAt: new Date(),
+  }).onConflictDoNothing({
+    target: [eventChatMessages.eventId, eventChatMessages.clientMessageId],
   }).returning();
 
-  return toMessage(created);
-}
+  if (created) return { message: toMessage(created), inserted: true };
 
+  const [existing] = await db
+    .select()
+    .from(eventChatMessages)
+    .where(and(
+      eq(eventChatMessages.eventId, eventId),
+      eq(eventChatMessages.clientMessageId, input.clientMessageId),
+    ))
+    .limit(1);
+
+  if (!existing) {
+    throw new Error("Message persistence conflict without existing row");
+  }
+  return { message: toMessage(existing), inserted: false };
+}

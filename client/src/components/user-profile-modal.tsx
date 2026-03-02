@@ -14,6 +14,7 @@ import {
 import { useUserProfile } from "@/hooks/use-user-profile";
 import { usePlan } from "@/hooks/use-plan";
 import { useTheme } from "@/hooks/use-theme";
+import { resolveAssetUrl } from "@/lib/asset-url";
 import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -208,7 +209,7 @@ export function UserProfileModal({ open, onOpenChange, username: usernameProp, o
                   }}
                 >
                   {displayUser?.profileImageUrl || (displayUser as any)?.avatarUrl ? (
-                    <img src={displayUser.profileImageUrl || (displayUser as any).avatarUrl} alt="" className="w-full h-full object-cover" />
+                    <img src={resolveAssetUrl(displayUser.profileImageUrl || (displayUser as any).avatarUrl) ?? ""} alt="" className="w-full h-full object-cover" />
                   ) : (
                     displayUser ? getInitials(displayUser.displayName, displayUser.username) : <UserCircle className="w-12 h-12" />
                   )}

@@ -164,7 +164,14 @@ chatWss.on("connection", (ws, req) => {
   ws.send(JSON.stringify({ type: "hello", eventId: meta.eventId }));
 
   ws.on("message", (raw: RawData) => {
-    let parsed: { type?: string; text?: string; eventId?: number; user?: { id?: string | number; name?: string } } | null = null;
+    let parsed: {
+      type?: string;
+      text?: string;
+      content?: string;
+      clientMessageId?: string;
+      eventId?: number;
+      user?: { id?: string | number; name?: string };
+    } | null = null;
     try {
       parsed = JSON.parse(String(raw));
     } catch {
@@ -215,15 +222,21 @@ chatWss.on("connection", (ws, req) => {
       });
       return;
     }
-    if (parsed?.type !== "send") return;
+    if (parsed?.type !== "send" && parsed?.type !== "chat:send") return;
     if (!meta.subscribed) {
       ws.send(JSON.stringify({ type: "event:error", code: "CHAT_LOCKED", eventId: meta.eventId }));
       return;
     }
-    const text = typeof parsed.text === "string" ? parsed.text.trim() : "";
+    const textRaw = typeof parsed.content === "string" ? parsed.content : (typeof parsed.text === "string" ? parsed.text : "");
+    const text = textRaw.trim();
     if (!text) return;
-    if (text.length > 4000) {
+    if (text.length > 2000) {
       ws.send(JSON.stringify({ type: "error", code: "VALIDATION_ERROR", message: "Message too long" }));
+      return;
+    }
+    const clientMessageId = typeof parsed.clientMessageId === "string" ? parsed.clientMessageId.trim() : "";
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clientMessageId)) {
+      ws.send(JSON.stringify({ type: "chat:error", code: "VALIDATION_ERROR", clientMessageId: clientMessageId || null, message: "Invalid clientMessageId" }));
       return;
     }
 
@@ -238,15 +251,21 @@ chatWss.on("connection", (ws, req) => {
           ws.send(JSON.stringify({ type: "event:error", code: "CHAT_LOCKED", eventId: meta.eventId }));
           return;
         }
-        const message = await appendEventChatMessage(meta.eventId, {
+        const result = await appendEventChatMessage(meta.eventId, {
           type: "user",
           text,
+          clientMessageId,
           user: { id: String(meta.userId), name: meta.username },
         });
-        broadcastEventRealtime(meta.eventId, { type: "message", message });
+        if (result.inserted) {
+          broadcastEventRealtime(meta.eventId, { type: "chat:new", message: result.message });
+          // Backward compatibility for older clients.
+          broadcastEventRealtime(meta.eventId, { type: "message", message: result.message });
+        }
+        ws.send(JSON.stringify({ type: "chat:ack", clientMessageId, message: result.message }));
       })
       .catch(() => {
-        ws.send(JSON.stringify({ type: "error", code: "INTERNAL_ERROR", message: "Message failed" }));
+        ws.send(JSON.stringify({ type: "chat:error", code: "INTERNAL_ERROR", clientMessageId, message: "Message failed" }));
       });
   });
 

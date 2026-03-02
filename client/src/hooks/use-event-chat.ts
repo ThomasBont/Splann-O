@@ -3,9 +3,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 export type ChatMessage = {
   id: string;
   eventId: string;
+  clientMessageId?: string;
   type: "user" | "system";
   text: string;
   createdAt: string;
+  serverCreatedAt?: string;
+  status?: "sending" | "sent" | "failed";
+  optimistic?: boolean;
   user?: { id: string; name: string; avatarUrl?: string | null };
 };
 
@@ -14,8 +18,8 @@ export type TypingUser = {
   name: string;
 };
 
-type ConnectionStatus = "idle" | "connecting" | "connected" | "reconnecting" | "error" | "locked";
-type SendBlockReason = "empty" | "locked" | "no-eventId" | "no-ws" | "not-open" | "not-subscribed" | "send-failed";
+type ConnectionStatus = "idle" | "connecting" | "connected" | "reconnecting" | "disconnected" | "error" | "locked";
+type SendBlockReason = "empty" | "locked" | "no-eventId";
 
 export type SendMessageResult = {
   ok: boolean;
@@ -24,14 +28,108 @@ export type SendMessageResult = {
   isSubscribed: boolean;
 };
 
+type IncomingServerMessage = {
+  id: string;
+  eventId: string;
+  clientMessageId?: string;
+  type?: "user" | "system";
+  text?: string;
+  content?: string;
+  createdAt: string;
+  serverCreatedAt?: string;
+  user?: { id?: string | number | null; name?: string | null; avatarUrl?: string | null };
+};
+
 function getWsUrl(eventId: number): string {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${window.location.host}/ws/events/${eventId}/chat`;
 }
 
-function mergeWithoutTempDuplicates(next: ChatMessage[]): ChatMessage[] {
-  const hasStable = new Set(next.filter((m) => !m.id.startsWith("temp-")).map((m) => `${m.user?.id ?? "anon"}:${m.text}`));
-  return next.filter((m) => !m.id.startsWith("temp-") || !hasStable.has(`${m.user?.id ?? "anon"}:${m.text}`));
+function createClientMessageId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return `cid-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function normalizeIncomingMessage(raw: IncomingServerMessage): ChatMessage | null {
+  const content = typeof raw.text === "string" ? raw.text : (typeof raw.content === "string" ? raw.content : "");
+  if (!raw.id || !content) return null;
+  const createdAt = raw.createdAt || new Date().toISOString();
+  return {
+    id: raw.id,
+    eventId: String(raw.eventId ?? ""),
+    clientMessageId: typeof raw.clientMessageId === "string" ? raw.clientMessageId : undefined,
+    type: raw.type === "system" ? "system" : "user",
+    text: content,
+    createdAt,
+    serverCreatedAt: raw.serverCreatedAt ?? createdAt,
+    status: "sent",
+    optimistic: false,
+    user: raw.user?.id != null
+      ? {
+          id: String(raw.user.id),
+          name: raw.user?.name || "Unknown user",
+          avatarUrl: raw.user?.avatarUrl ?? null,
+        }
+      : undefined,
+  };
+}
+
+function compareMessages(a: ChatMessage, b: ChatMessage): number {
+  const at = new Date(a.serverCreatedAt ?? a.createdAt).getTime();
+  const bt = new Date(b.serverCreatedAt ?? b.createdAt).getTime();
+  const aTime = Number.isFinite(at) ? at : 0;
+  const bTime = Number.isFinite(bt) ? bt : 0;
+  if (aTime !== bTime) return aTime - bTime;
+  if (a.id === b.id) return 0;
+  return a.id < b.id ? -1 : 1;
+}
+
+function dedupeAndSort(messages: ChatMessage[]): ChatMessage[] {
+  const byId = new Map<string, ChatMessage>();
+  const byClient = new Map<string, string>();
+
+  for (const message of messages) {
+    const existingById = byId.get(message.id);
+    if (existingById) {
+      byId.set(message.id, {
+        ...existingById,
+        ...message,
+        status: message.status ?? existingById.status,
+        optimistic: message.optimistic ?? existingById.optimistic,
+      });
+      continue;
+    }
+
+    const clientId = message.clientMessageId?.trim();
+    if (clientId && byClient.has(clientId)) {
+      const winnerId = byClient.get(clientId)!;
+      const winner = byId.get(winnerId);
+      if (!winner) {
+        byId.set(message.id, message);
+        byClient.set(clientId, message.id);
+        continue;
+      }
+      const preferServer = !winner.optimistic && !!winner.id && !winner.id.startsWith("optimistic:");
+      const nextPreferServer = !message.optimistic && !!message.id && !message.id.startsWith("optimistic:");
+      if (nextPreferServer || !preferServer) {
+        byId.delete(winnerId);
+        byId.set(message.id, { ...winner, ...message, status: message.status ?? "sent", optimistic: false });
+        byClient.set(clientId, message.id);
+      }
+      continue;
+    }
+
+    byId.set(message.id, message);
+    if (clientId) byClient.set(clientId, message.id);
+  }
+
+  return Array.from(byId.values()).sort(compareMessages);
+}
+
+function randomBackoffMs(attempt: number): number {
+  const base = Math.min(10000, Math.max(1000, 1000 * 2 ** (attempt - 1)));
+  const jitter = Math.floor(Math.random() * 250);
+  return base + jitter;
 }
 
 export function useEventChat(eventId: number | null, enabled = true) {
@@ -51,6 +149,34 @@ export function useEventChat(eventId: number | null, enabled = true) {
   const reconnectAttemptRef = useRef(0);
   const isLockedRef = useRef(false);
 
+  const mergeMessages = useCallback((incoming: ChatMessage[] | ChatMessage, mode: "append" | "prepend" = "append") => {
+    const list = Array.isArray(incoming) ? incoming : [incoming];
+    setMessages((prev) => {
+      const next = mode === "prepend" ? [...list, ...prev] : [...prev, ...list];
+      return dedupeAndSort(next);
+    });
+  }, []);
+
+  const markFailed = useCallback((clientMessageId?: string) => {
+    if (!clientMessageId) return;
+    setMessages((prev) => prev.map((msg) => (
+      msg.clientMessageId === clientMessageId ? { ...msg, status: "failed", optimistic: true } : msg
+    )));
+  }, []);
+
+  const reconcileServerMessage = useCallback((serverMessage: ChatMessage, hintedClientMessageId?: string) => {
+    setMessages((prev) => {
+      const candidateClientMessageId = hintedClientMessageId || serverMessage.clientMessageId;
+      const next = prev.filter((msg) => {
+        if (msg.id === serverMessage.id) return false;
+        if (candidateClientMessageId && msg.clientMessageId === candidateClientMessageId) return false;
+        return true;
+      });
+      next.push({ ...serverMessage, status: "sent", optimistic: false });
+      return dedupeAndSort(next);
+    });
+  }, []);
+
   const fetchHistoryPage = useCallback(async (before?: string | null) => {
     if (!eventId || !enabled) return { messages: [] as ChatMessage[], nextCursor: null as string | null, locked: false };
     const url = before
@@ -58,11 +184,13 @@ export function useEventChat(eventId: number | null, enabled = true) {
       : `/api/plans/${eventId}/chat/messages?limit=50`;
     const res = await fetch(url, { credentials: "include" });
     const body = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      throw new Error((body as { message?: string })?.message || "Failed to load chat");
-    }
+    if (!res.ok) throw new Error((body as { message?: string })?.message || "Failed to load chat");
     const raw = body as { messages?: unknown; nextCursor?: unknown; locked?: unknown };
-    const incoming = Array.isArray(raw.messages) ? (raw.messages as ChatMessage[]) : [];
+    const incoming = Array.isArray(raw.messages)
+      ? (raw.messages as IncomingServerMessage[])
+        .map(normalizeIncomingMessage)
+        .filter((message): message is ChatMessage => !!message)
+      : [];
     return {
       messages: incoming,
       nextCursor: typeof raw.nextCursor === "string" && raw.nextCursor ? raw.nextCursor : null,
@@ -82,7 +210,7 @@ export function useEventChat(eventId: number | null, enabled = true) {
     isLockedRef.current = false;
     try {
       const page = await fetchHistoryPage(null);
-      setMessages(page.messages);
+      setMessages(dedupeAndSort(page.messages));
       setNextCursor(page.nextCursor);
       setIsLocked(page.locked);
       if (page.locked) setConnectionStatus("locked");
@@ -100,14 +228,30 @@ export function useEventChat(eventId: number | null, enabled = true) {
     setHistoryLoadingOlder(true);
     try {
       const page = await fetchHistoryPage(nextCursor);
-      setMessages((prev) => [...page.messages, ...prev]);
+      mergeMessages(page.messages, "prepend");
       setNextCursor(page.nextCursor);
     } catch (error) {
       setHistoryError(error instanceof Error ? error.message : "Failed to load older chat history");
     } finally {
       setHistoryLoadingOlder(false);
     }
-  }, [enabled, eventId, fetchHistoryPage, historyLoadingOlder, nextCursor]);
+  }, [enabled, eventId, fetchHistoryPage, historyLoadingOlder, mergeMessages, nextCursor]);
+
+  const sendViaHttp = useCallback(async (clientMessageId: string, text: string) => {
+    if (!eventId) throw new Error("No event id");
+    const res = await fetch(`/api/plans/${eventId}/chat/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ content: text, clientMessageId }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error((body as { message?: string }).message || "Failed to send message");
+    const raw = (body as { message?: IncomingServerMessage }).message;
+    const normalized = raw ? normalizeIncomingMessage(raw) : null;
+    if (!normalized) throw new Error("Invalid message response");
+    reconcileServerMessage(normalized, clientMessageId);
+  }, [eventId, reconcileServerMessage]);
 
   useEffect(() => {
     void fetchInitialHistory();
@@ -145,7 +289,7 @@ export function useEventChat(eventId: number | null, enabled = true) {
     };
 
     ws.onmessage = (ev) => {
-      let payload: { type?: string; message?: ChatMessage; eventId?: number; code?: string; text?: string; user?: TypingUser } | null = null;
+      let payload: any = null;
       try {
         payload = JSON.parse(ev.data as string);
       } catch {
@@ -163,14 +307,17 @@ export function useEventChat(eventId: number | null, enabled = true) {
         return;
       }
       if (payload?.type === "chat:system" && payload.text) {
-        const systemText = payload.text;
-        setMessages((prev) => [...prev, {
+        const systemMessage: ChatMessage = {
           id: `system-${Date.now()}-${Math.random().toString(16).slice(2)}`,
           eventId: String(payload.eventId ?? eventId ?? ""),
           type: "system",
-          text: systemText,
+          text: payload.text,
           createdAt: new Date().toISOString(),
-        }]);
+          serverCreatedAt: new Date().toISOString(),
+          status: "sent",
+          optimistic: false,
+        };
+        mergeMessages(systemMessage);
         return;
       }
       if (payload?.type === "chat:typing" && payload.user?.id) {
@@ -184,11 +331,21 @@ export function useEventChat(eventId: number | null, enabled = true) {
         }, 3000);
         return;
       }
-      if (payload?.type !== "message" || !payload.message) return;
-      setMessages((prev) => {
-        const deduped = prev.filter((m) => m.id !== payload!.message!.id);
-        return mergeWithoutTempDuplicates([...deduped, payload.message!]);
-      });
+      if (payload?.type === "chat:error") {
+        markFailed(payload.clientMessageId);
+        return;
+      }
+      if (payload?.type === "chat:ack") {
+        const incoming = normalizeIncomingMessage(payload.message as IncomingServerMessage);
+        if (!incoming) return;
+        reconcileServerMessage(incoming, typeof payload.clientMessageId === "string" ? payload.clientMessageId : incoming.clientMessageId);
+        return;
+      }
+      if (payload?.type === "chat:new" || payload?.type === "message") {
+        const incoming = normalizeIncomingMessage(payload.message as IncomingServerMessage);
+        if (!incoming) return;
+        reconcileServerMessage(incoming, incoming.clientMessageId);
+      }
     };
 
     ws.onclose = () => {
@@ -197,7 +354,7 @@ export function useEventChat(eventId: number | null, enabled = true) {
       if (isLockedRef.current) return;
       setConnectionStatus("reconnecting");
       reconnectAttemptRef.current += 1;
-      const delay = Math.min(2000 * reconnectAttemptRef.current, 10000);
+      const delay = randomBackoffMs(reconnectAttemptRef.current);
       reconnectTimerRef.current = window.setTimeout(() => {
         setRetryTick((n) => n + 1);
       }, delay);
@@ -218,41 +375,70 @@ export function useEventChat(eventId: number | null, enabled = true) {
         wsRef.current = null;
       }
     };
-  }, [enabled, eventId, retryTick]);
+  }, [enabled, eventId, markFailed, mergeMessages, reconcileServerMessage, retryTick]);
 
-  const sendMessage = useCallback(async (text: string, actor?: { id?: string | number | null; name?: string | null; avatarUrl?: string | null }): Promise<SendMessageResult> => {
+  const sendMessageWithClientId = useCallback(async (
+    text: string,
+    clientMessageId: string,
+    actor?: { id?: string | number | null; name?: string | null; avatarUrl?: string | null },
+  ): Promise<SendMessageResult> => {
     const trimmed = text.trim();
     const ws = wsRef.current;
     const wsReadyState = ws?.readyState ?? -1;
     if (!trimmed) return { ok: false, reason: "empty", wsReadyState, isSubscribed };
     if (!eventId) return { ok: false, reason: "no-eventId", wsReadyState, isSubscribed };
     if (isLocked) return { ok: false, reason: "locked", wsReadyState, isSubscribed };
-    if (!ws) return { ok: false, reason: "no-ws", wsReadyState, isSubscribed };
-    if (ws.readyState !== WebSocket.OPEN) return { ok: false, reason: "not-open", wsReadyState, isSubscribed };
-    if (!isSubscribed) return { ok: false, reason: "not-subscribed", wsReadyState, isSubscribed };
 
     const optimistic: ChatMessage = {
-      id: `temp-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      eventId: String(eventId ?? ""),
+      id: `optimistic:${clientMessageId}`,
+      clientMessageId,
+      eventId: String(eventId),
       type: "user",
       text: trimmed,
       createdAt: new Date().toISOString(),
+      serverCreatedAt: new Date().toISOString(),
+      status: "sending",
+      optimistic: true,
       user: {
         id: String(actor?.id ?? "me"),
         name: actor?.name ?? "You",
         avatarUrl: actor?.avatarUrl ?? null,
       },
     };
+    mergeMessages(optimistic);
 
-    setMessages((prev) => [...prev, optimistic]);
-    try {
-      ws.send(JSON.stringify({ type: "send", text: trimmed }));
-      return { ok: true, wsReadyState: ws.readyState, isSubscribed };
-    } catch {
-      setMessages((prev) => prev.filter((message) => message.id !== optimistic.id));
-      return { ok: false, reason: "send-failed", wsReadyState: ws.readyState, isSubscribed };
+    const sendViaSocket = ws && ws.readyState === WebSocket.OPEN && isSubscribed;
+    if (sendViaSocket) {
+      try {
+        ws.send(JSON.stringify({ type: "chat:send", eventId, content: trimmed, clientMessageId }));
+        return { ok: true, wsReadyState: ws.readyState, isSubscribed };
+      } catch {
+        // Fall through to HTTP fallback.
+      }
     }
-  }, [eventId, isLocked, isSubscribed]);
+
+    try {
+      await sendViaHttp(clientMessageId, trimmed);
+      return { ok: true, wsReadyState, isSubscribed };
+    } catch {
+      markFailed(clientMessageId);
+      return { ok: true, wsReadyState, isSubscribed };
+    }
+  }, [eventId, isLocked, isSubscribed, markFailed, mergeMessages, sendViaHttp]);
+
+  const sendMessage = useCallback(async (text: string, actor?: { id?: string | number | null; name?: string | null; avatarUrl?: string | null }): Promise<SendMessageResult> => {
+    return sendMessageWithClientId(text, createClientMessageId(), actor);
+  }, [sendMessageWithClientId]);
+
+  const retrySend = useCallback(async (clientMessageId: string, actor?: { id?: string | number | null; name?: string | null; avatarUrl?: string | null }) => {
+    const snapshot = messages.find((msg) => msg.clientMessageId === clientMessageId);
+    if (!snapshot) return;
+    setMessages((prev) => prev.map((msg) => (
+      msg.clientMessageId === clientMessageId ? { ...msg, status: "sending", optimistic: true } : msg
+    )));
+    const result = await sendMessageWithClientId(snapshot.text, clientMessageId, actor);
+    if (!result.ok) markFailed(clientMessageId);
+  }, [markFailed, messages, sendMessageWithClientId]);
 
   const sendTyping = useCallback((actor?: { id?: string | number | null; name?: string | null }) => {
     const ws = wsRef.current;
@@ -287,8 +473,25 @@ export function useEventChat(eventId: number | null, enabled = true) {
     typingUsers,
     wsReadyState: wsRef.current?.readyState ?? -1,
     sendMessage,
+    retrySend,
     sendTyping,
     loadOlder,
     retry,
-  }), [messages, historyLoading, historyLoadingOlder, historyError, nextCursor, connectionStatus, isLocked, isSubscribed, typingUsers, sendMessage, sendTyping, loadOlder, retry]);
+  }), [
+    messages,
+    historyLoading,
+    historyLoadingOlder,
+    historyError,
+    nextCursor,
+    connectionStatus,
+    isLocked,
+    isSubscribed,
+    typingUsers,
+    sendMessage,
+    retrySend,
+    sendTyping,
+    loadOlder,
+    retry,
+  ]);
 }
+

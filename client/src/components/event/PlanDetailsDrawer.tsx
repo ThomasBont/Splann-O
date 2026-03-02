@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useAppToast } from "@/hooks/use-app-toast";
+import { resolveAssetUrl, withCacheBust } from "@/lib/asset-url";
 
 type PlanDetailsValues = {
   name: string;
@@ -47,10 +48,13 @@ function normalizeBannerUrl(input: string): string {
   if (/^blob:/i.test(trimmed)) return "";
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
   if (/^[a-z]+:\/\//i.test(trimmed)) return "";
-  if (trimmed.startsWith("/") && typeof window !== "undefined") {
-    return new URL(trimmed, window.location.origin).toString();
-  }
+  if (trimmed.startsWith("/")) return trimmed;
   return `https://${trimmed}`;
+}
+
+function toVersionToken(value: string | number | Date | null | undefined): string | number | null {
+  if (value instanceof Date) return value.getTime();
+  return value ?? null;
 }
 
 export function PlanDetailsDrawer({ open, onOpenChange, plan, saving = false, onSave }: PlanDetailsDrawerProps) {
@@ -123,7 +127,10 @@ export function PlanDetailsDrawer({ open, onOpenChange, plan, saving = false, on
     () => (bannerAssetId ? `/api/assets/${encodeURIComponent(bannerAssetId)}` : ""),
     [bannerAssetId],
   );
-  const bannerPreviewUrl = bannerUploadPreviewUrl || normalizedBannerImageUrl || resolvedAssetBannerUrl || "";
+  const bannerPreviewUrl = bannerUploadPreviewUrl
+    || resolveAssetUrl(normalizedBannerImageUrl)
+    || resolveAssetUrl(resolvedAssetBannerUrl)
+    || "";
   const hasUrlInputValue = useMemo(
     () => useBannerUrlInput && bannerImageUrl.trim().length > 0,
     [useBannerUrlInput, bannerImageUrl],
@@ -210,12 +217,12 @@ export function PlanDetailsDrawer({ open, onOpenChange, plan, saving = false, on
         if (!uploadRes.ok) {
           throw new Error((uploadPayload as { message?: string }).message || "Couldn’t upload banner image.");
         }
-        const uploadedAssetId = String((uploadPayload as { assetId?: string }).assetId ?? "").trim();
-        if (!uploadedAssetId) {
+        const uploadedPath = String((uploadPayload as { path?: string; url?: string }).path ?? (uploadPayload as { url?: string }).url ?? "").trim();
+        if (!uploadedPath) {
           throw new Error("Banner image URL could not be saved.");
         }
-        nextBannerAssetId = uploadedAssetId;
-        nextBannerImageUrl = null;
+        nextBannerImageUrl = uploadedPath;
+        nextBannerAssetId = null;
       } else if (removeBannerRequested) {
         nextBannerImageUrl = null;
         nextBannerAssetId = null;
@@ -264,7 +271,7 @@ export function PlanDetailsDrawer({ open, onOpenChange, plan, saving = false, on
     }
   };
 
-  const debugBannerUrl = bannerUploadFile ? "" : (normalizedBannerImageUrl || resolvedAssetBannerUrl || plan?.bannerImageUrl || "");
+  const debugBannerUrl = bannerUploadFile ? "" : (resolveAssetUrl(normalizedBannerImageUrl || resolvedAssetBannerUrl || plan?.bannerImageUrl || "") || "");
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -342,7 +349,10 @@ export function PlanDetailsDrawer({ open, onOpenChange, plan, saving = false, on
                             </div>
                           ) : null}
                           <img
-                            src={bannerPreviewUrl}
+                            src={withCacheBust(
+                              bannerPreviewUrl,
+                              toVersionToken((plan as { updatedAt?: string | Date | null } | null)?.updatedAt ?? plan?.id),
+                            ) ?? ""}
                             alt="Banner preview"
                             className={`aspect-video w-full object-cover ${bannerPreviewLoaded ? "block" : "hidden"}`}
                             onLoad={() => setBannerPreviewLoaded(true)}

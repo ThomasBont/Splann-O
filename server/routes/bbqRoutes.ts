@@ -204,19 +204,15 @@ function getAppOrigin(req: Request) {
   return getPublicBaseUrl(req);
 }
 
-function shouldStoreRelativeUploadPath(publicBaseUrl: string): boolean {
-  try {
-    const host = new URL(publicBaseUrl).hostname.toLowerCase();
-    return host === "localhost" || host === "127.0.0.1" || host === "::1";
-  } catch {
-    return false;
-  }
-}
-
 function toPublicUploadsUrl(req: Request, relativePath: string): string {
   const publicBaseUrl = getPublicBaseUrl(req);
   return new URL(relativePath, `${publicBaseUrl}/`).toString();
 }
+
+const publicImagePathOrUrlSchema = z
+  .string()
+  .trim()
+  .refine((value) => /^https?:\/\//i.test(value) || value.startsWith("/"), "Invalid image URL");
 
 function getEventBannerFileNameFromUrl(value: string | null | undefined): string | null {
   if (!value) return null;
@@ -303,7 +299,7 @@ router.post(p(api.barbecues.create.path), asyncHandler(async (req, res) => {
     publicListingExpiresAt: z.coerce.date().nullable().optional(),
     organizationName: z.string().max(160).nullable().optional(),
     publicDescription: z.string().max(5000).nullable().optional(),
-    bannerImageUrl: z.string().url().nullable().optional(),
+    bannerImageUrl: z.union([publicImagePathOrUrlSchema, z.literal("")]).nullable().optional(),
     bannerAssetId: z.string().min(1).nullable().optional(),
   });
   const parsed = bodySchema.parse(req.body);
@@ -323,6 +319,7 @@ router.post(p(api.barbecues.create.path), asyncHandler(async (req, res) => {
   }
   const input = {
     ...parsed,
+    bannerImageUrl: parsed.bannerImageUrl === "" ? null : parsed.bannerImageUrl,
     currencySource: (parsed.currencySource as "auto" | "manual" | undefined) ?? "auto",
   };
   const created = await bbqService.createBarbecue(input, req.session?.username);
@@ -474,6 +471,7 @@ router.get("/events/:eventId/chat", requireAuth, asyncHandler(async (req, res) =
   const limit = Number(req.query.limit ?? 50);
   const before = typeof req.query.before === "string" ? req.query.before : undefined;
   const bbq = await getBarbecueOr404(req, eventId, "Event not found");
+  await assertEventAccessOrThrow(req, eventId);
   const page = await listEventChatMessages(eventId, { limit, before });
   res.json({ messages: page.messages, nextCursor: page.nextCursor, locked: isEventChatLocked({ date: bbq.date }) });
 }));
@@ -484,6 +482,7 @@ router.get("/plans/:planId/chat/messages", requireAuth, asyncHandler(async (req,
   const limit = Number(req.query.limit ?? 50);
   const before = typeof req.query.before === "string" ? req.query.before : undefined;
   const bbq = await getBarbecueOr404(req, planId, "Event not found");
+  await assertEventAccessOrThrow(req, planId);
   const page = await listEventChatMessages(planId, { limit, before });
   res.json({ messages: page.messages, nextCursor: page.nextCursor, locked: isEventChatLocked({ date: bbq.date }) });
 }));
@@ -491,49 +490,68 @@ router.get("/plans/:planId/chat/messages", requireAuth, asyncHandler(async (req,
 router.post("/plans/:planId/chat/messages", requireAuth, asyncHandler(async (req, res) => {
   const planId = Number(req.params.planId);
   if (!Number.isInteger(planId) || planId <= 0) badRequest("Invalid plan id");
+  const uuidLike = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
   const body = z.object({
-    text: z.string().trim().min(1).max(4000),
+    content: z.string().trim().min(1).max(2000).optional(),
+    text: z.string().trim().min(1).max(2000).optional(),
+    clientMessageId: uuidLike.optional(),
   }).parse(req.body ?? {});
+  const content = (body.content ?? body.text ?? "").trim();
+  if (!content) badRequest("Message cannot be empty");
   const bbq = await getBarbecueOr404(req, planId, "Event not found");
   await assertEventAccessOrThrow(req, planId);
   if (isEventChatLocked({ date: bbq.date })) {
     return res.status(423).json({ code: "CHAT_LOCKED", message: "Chat closed after event. History remains visible." });
   }
 
-  const message = await appendEventChatMessage(planId, {
+  const result = await appendEventChatMessage(planId, {
     type: "user",
-    text: body.text,
+    text: content,
+    clientMessageId: body.clientMessageId ?? randomUUID(),
     user: {
       id: String(req.session!.userId!),
       name: req.session!.username!,
     },
   });
-  broadcastEventRealtime(planId, { type: "message", message });
-  res.status(201).json({ message });
+  if (result.inserted) {
+    broadcastEventRealtime(planId, { type: "chat:new", message: result.message });
+    // Backward compatibility for older clients.
+    broadcastEventRealtime(planId, { type: "message", message: result.message });
+  }
+  res.status(result.inserted ? 201 : 200).json({ message: result.message });
 }));
 
 router.post("/events/:eventId/chat/messages", requireAuth, asyncHandler(async (req, res) => {
   const eventId = Number(req.params.eventId);
   if (!Number.isInteger(eventId) || eventId <= 0) badRequest("Invalid event id");
+  const uuidLike = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
   const body = z.object({
-    text: z.string().trim().min(1).max(4000),
+    content: z.string().trim().min(1).max(2000).optional(),
+    text: z.string().trim().min(1).max(2000).optional(),
+    clientMessageId: uuidLike.optional(),
   }).parse(req.body ?? {});
+  const content = (body.content ?? body.text ?? "").trim();
+  if (!content) badRequest("Message cannot be empty");
   const bbq = await getBarbecueOr404(req, eventId, "Event not found");
   await assertEventAccessOrThrow(req, eventId);
   if (isEventChatLocked({ date: bbq.date })) {
     return res.status(423).json({ code: "CHAT_LOCKED", message: "Chat closed after event. History remains visible." });
   }
 
-  const message = await appendEventChatMessage(eventId, {
+  const result = await appendEventChatMessage(eventId, {
     type: "user",
-    text: body.text,
+    text: content,
+    clientMessageId: body.clientMessageId ?? randomUUID(),
     user: {
       id: String(req.session!.userId!),
       name: req.session!.username!,
     },
   });
-  broadcastEventRealtime(eventId, { type: "message", message });
-  res.status(201).json({ message });
+  if (result.inserted) {
+    broadcastEventRealtime(eventId, { type: "chat:new", message: result.message });
+    broadcastEventRealtime(eventId, { type: "message", message: result.message });
+  }
+  res.status(result.inserted ? 201 : 200).json({ message: result.message });
 }));
 
 router.get("/plans/:id/activity", requireAuth, asyncHandler(async (req, res) => {
@@ -1057,10 +1075,11 @@ router.patch(p(api.barbecues.update.path), requireAuth, asyncHandler(async (req,
     publicListingExpiresAt: z.coerce.date().nullable().optional(),
     organizationName: z.string().max(160).nullable().optional(),
     publicDescription: z.string().max(5000).nullable().optional(),
-    bannerImageUrl: z.string().url().nullable().optional(),
+    bannerImageUrl: z.union([publicImagePathOrUrlSchema, z.literal("")]).nullable().optional(),
     bannerAssetId: z.string().min(1).nullable().optional(),
   });
   const body = schema.parse(req.body);
+  if (body.bannerImageUrl === "") body.bannerImageUrl = null;
   if (body.bannerAssetId !== undefined && body.bannerAssetId !== null && body.bannerAssetId !== "") {
     body.bannerImageUrl = null;
   }
@@ -1764,7 +1783,7 @@ router.post("/barbecues/:bbqId/banner", requireAuth, asyncHandler(async (req, re
   const prevBannerUrl = bbq.bannerImageUrl ?? null;
   const relativeBannerPath = `/uploads/event-banners/${fileName}`;
   const publicBannerUrl = toPublicUploadsUrl(req, relativeBannerPath);
-  const bannerImageUrl = shouldStoreRelativeUploadPath(getPublicBaseUrl(req)) ? null : publicBannerUrl;
+  const bannerImageUrl = relativeBannerPath;
   if (process.env.NODE_ENV !== "production") {
     log("info", "Banner uploaded", {
       route: "POST /api/barbecues/:bbqId/banner",
@@ -1790,8 +1809,10 @@ router.post("/barbecues/:bbqId/banner", requireAuth, asyncHandler(async (req, re
   res.json({
     bbqId,
     assetId: fileName,
-    url: `/api/assets/${encodeURIComponent(fileName)}`,
+    url: relativeBannerPath,
     path: relativeBannerPath,
+    mime,
+    size: buffer.length,
     bannerImageUrl: updated.bannerImageUrl ?? null,
     bannerAssetId: updated.bannerAssetId ?? null,
   });

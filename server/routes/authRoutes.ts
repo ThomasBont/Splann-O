@@ -18,6 +18,10 @@ const AVATAR_UPLOAD_DIR = path.resolve(process.cwd(), "public/uploads/avatars");
 const EVENT_BANNER_UPLOAD_DIR = path.resolve(process.cwd(), "public/uploads/event-banners");
 const MAX_AVATAR_SIZE_BYTES = 5 * 1024 * 1024;
 const ASSET_ID_REGEX = /^[a-zA-Z0-9._-]+$/;
+const publicImagePathOrUrlSchema = z
+  .string()
+  .trim()
+  .refine((value) => /^https?:\/\//i.test(value) || value.startsWith("/"), "Invalid image URL");
 
 /** Build proxy-safe origin: x-forwarded-proto/host → req.protocol/host → localhost:(PORT|5001) */
 function getRequestOrigin(req: Request): string {
@@ -219,7 +223,14 @@ router.post(
     const filePath = path.join(AVATAR_UPLOAD_DIR, fileName);
     await fs.writeFile(filePath, buffer);
 
-    res.json({ assetId: fileName, path: `/uploads/avatars/${fileName}`, url: `/api/assets/${encodeURIComponent(fileName)}` });
+    const publicPath = `/uploads/avatars/${fileName}`;
+    res.json({
+      assetId: fileName,
+      path: publicPath,
+      url: publicPath,
+      mime,
+      size: buffer.length,
+    });
   })
 );
 
@@ -229,9 +240,9 @@ router.patch(
   asyncHandler(async (req, res) => {
     const schema = z.object({
       displayName: z.string().max(50).optional(),
-      avatarUrl: z.union([z.string().url(), z.literal("")]).nullable().optional(),
+      avatarUrl: z.union([publicImagePathOrUrlSchema, z.literal("")]).nullable().optional(),
       avatarAssetId: z.union([z.string().min(1), z.literal("")]).nullable().optional(),
-      profileImageUrl: z.union([z.string().url(), z.literal("")]).nullable().optional(),
+      profileImageUrl: z.union([publicImagePathOrUrlSchema, z.literal("")]).nullable().optional(),
       bio: z.string().max(500).nullable().optional(),
       publicHandle: z.union([publicHandleSchema, z.literal("")]).nullable().optional(),
       publicProfileEnabled: z.boolean().optional(),

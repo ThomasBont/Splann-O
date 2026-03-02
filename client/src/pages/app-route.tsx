@@ -608,22 +608,11 @@ function AppDashboardHome({ onCreatePlan }: { onCreatePlan: () => void }) {
 
 function PrivateHomePage({ user, onCreatePlan }: { user: { id?: number | null; username?: string | null } | null; onCreatePlan: () => void }) {
   const { data: events = [], isLoading, error, refetch } = useBarbecues();
-  const { pinnedEventIds, setPinnedEventIds, recentEventIds } = useEventLocalLists(user);
+  const { pinnedEventIds, setPinnedEventIds } = useEventLocalLists(user);
   const privateEvents = useMemo(
     () => events.filter((e) => isPrivateEvent(e)).sort((a, b) => getEventDateMs(b) - getEventDateMs(a)),
     [events],
   );
-  const recentPrivateById = useMemo(() => new Map(privateEvents.map((e) => [e.id, e])), [privateEvents]);
-  const pinnedPrivate = useMemo(
-    () => pinnedEventIds.map((id) => recentPrivateById.get(id)).filter((e): e is Barbecue => !!e),
-    [pinnedEventIds, recentPrivateById],
-  );
-  const fallbackPinned = useMemo(() => {
-    if (pinnedPrivate.length > 0) return [];
-    const recentIds = recentEventIds.filter((id) => recentPrivateById.has(id));
-    return recentIds.map((id) => recentPrivateById.get(id)).filter((e): e is Barbecue => !!e).slice(0, 6);
-  }, [pinnedPrivate.length, recentEventIds, recentPrivateById]);
-
   const togglePin = (eventId: number) => {
     setPinnedEventIds((prev) => (prev.includes(eventId) ? prev.filter((id) => id !== eventId) : [eventId, ...prev]));
   };
@@ -636,36 +625,6 @@ function PrivateHomePage({ user, onCreatePlan }: { user: { id?: number | null; u
           <p className="text-sm text-muted-foreground">A plan buddy for friend groups.</p>
         </div>
       </div>
-
-      {(pinnedPrivate.length > 0 || fallbackPinned.length > 0) && (
-        <section className="rounded-2xl border border-border/60 bg-card p-4 sm:p-5">
-          <div className="flex items-center justify-between gap-2 mb-3">
-            <h2 className="text-sm font-semibold">Pinned plans</h2>
-            {pinnedPrivate.length === 0 && <span className="text-xs text-muted-foreground">Showing recent until you pin one</span>}
-          </div>
-          <div className="space-y-2">
-            {(pinnedPrivate.length > 0 ? pinnedPrivate : fallbackPinned).map((event) => (
-              <EventRow
-                key={`private-pinned-${event.id}`}
-                event={event}
-                href={`/app/e/${event.id}`}
-                trailing={
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="ghost"
-                    className="h-8 w-8 shrink-0"
-                    onClick={() => togglePin(event.id)}
-                    aria-label={pinnedEventIds.includes(event.id) ? "Unpin event" : "Pin event"}
-                  >
-                    {pinnedEventIds.includes(event.id) ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
-                  </Button>
-                }
-              />
-            ))}
-          </div>
-        </section>
-      )}
 
       <section className="rounded-2xl border border-border/60 bg-card p-4 sm:p-5">
         <div className="flex items-center justify-between gap-2 mb-3">

@@ -10,6 +10,7 @@ import { db } from "../db";
 import { eventMembers, type Barbecue } from "@shared/schema";
 import { normalizeCountryCode } from "@shared/lib/country-code";
 import { and, eq } from "drizzle-orm";
+import { resolveLegacyAssetIdToPublicPath } from "../lib/assets";
 
 const DEFAULT_LISTING_DURATION_DAYS = Number(process.env.PUBLIC_LISTING_DAYS ?? 30);
 const warnedPrivatePollutionIds = new Set<number>();
@@ -25,10 +26,7 @@ function hasPublicIntentEvidence(event: Barbecue): boolean {
 }
 
 function resolveBannerUrlFromAsset(assetId?: string | null): string | null {
-  if (!assetId) return null;
-  const trimmed = assetId.trim();
-  if (!trimmed) return null;
-  return `/api/assets/${encodeURIComponent(trimmed)}`;
+  return resolveLegacyAssetIdToPublicPath(assetId);
 }
 
 function shouldTreatAsPollutedPrivate(event: Barbecue): boolean {

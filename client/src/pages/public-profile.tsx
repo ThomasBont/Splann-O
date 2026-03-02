@@ -21,6 +21,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { EventCategoryBadge } from "@/components/event/EventCategoryBadge";
 import { cn } from "@/lib/utils";
+import { resolveAssetUrl } from "@/lib/asset-url";
 
 function initials(name: string) {
   return name
@@ -293,7 +294,7 @@ export default function PublicProfilePage() {
                             <div className="flex items-start gap-3">
                               <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-muted/50 shrink-0 overflow-hidden">
                                 {event.bannerImageUrl ? (
-                                  <img src={event.bannerImageUrl} alt="" className="h-full w-full object-cover" />
+                                  <img src={resolveAssetUrl(event.bannerImageUrl) ?? ""} alt="" className="h-full w-full object-cover" />
                                 ) : (
                                   <EventCategoryBadge category={event.themeCategory} compact />
                                 )}

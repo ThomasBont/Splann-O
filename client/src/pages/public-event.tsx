@@ -16,6 +16,7 @@ import { copyText } from "@/lib/copy-text";
 import { buildIcs, downloadIcs, inferEventDateRange } from "@/lib/calendar-ics";
 import { buildMapsUrl, openMaps } from "@/lib/maps";
 import { EMPTY_COPY, UI_COPY } from "@/lib/emotional-copy";
+import { resolveAssetUrl } from "@/lib/asset-url";
 
 export default function PublicEventPage() {
   const [, params] = useRoute("/events/:slug");
@@ -244,7 +245,7 @@ export default function PublicEventPage() {
               {data.bannerImageUrl ? (
                 <>
                   <img
-                    src={data.bannerImageUrl}
+                    src={resolveAssetUrl(data.bannerImageUrl) ?? ""}
                     alt={data.title}
                     onLoad={() => setBannerLoaded(true)}
                     className={`h-full w-full object-cover rounded-2xl transition-opacity duration-200 ${bannerLoaded ? "opacity-100" : "opacity-0"}`}

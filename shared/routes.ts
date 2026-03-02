@@ -3,6 +3,11 @@ import { insertBarbecueSchema, insertParticipantSchema, insertExpenseSchema } fr
 import type { Barbecue, Participant, ExpenseWithParticipant, NoteWithAuthor, Membership } from './schema';
 import { optionalCountryCodeSchema } from './lib/country-code-schema';
 
+const publicImagePathOrUrlSchema = z
+  .string()
+  .trim()
+  .refine((value) => /^https?:\/\//i.test(value) || value.startsWith('/'), "Invalid image URL");
+
 export const errorSchemas = {
   validation: z.object({
     message: z.string(),
@@ -74,7 +79,7 @@ export const api = {
         publicListingExpiresAt: z.union([z.string(), z.date(), z.null()]).optional(),
         organizationName: z.string().max(160).nullable().optional(),
         publicDescription: z.string().max(5000).nullable().optional(),
-        bannerImageUrl: z.string().url().nullable().optional(),
+        bannerImageUrl: z.union([publicImagePathOrUrlSchema, z.literal('')]).nullable().optional(),
         bannerAssetId: z.string().min(1).nullable().optional(),
       }),
       responses: {

@@ -3,6 +3,7 @@ import { api, buildUrl } from "@shared/routes";
 import type { Barbecue } from "@shared/schema";
 import { normalizeCountryCode } from "@shared/lib/country-code";
 import { UpgradeRequiredError, type UpgradeRequiredPayload } from "@/lib/upgrade";
+import { resolveAssetUrl } from "@/lib/asset-url";
 
 export type ExploreEvent = {
   id: number;
@@ -307,15 +308,10 @@ export function useUpdateBarbecue() {
         } else {
           const raw = String(rest.bannerImageUrl).trim();
           if (raw.length > 0 && !raw.startsWith("blob:")) {
-            let candidate = raw;
-            if (candidate.startsWith("/") && typeof window !== "undefined") {
-              candidate = new URL(candidate, window.location.origin).toString();
-            }
-            if (/^https?:\/\//i.test(candidate)) {
-              body.bannerImageUrl = candidate;
-            } else {
-              throw new Error("bannerImageUrl must be an absolute http(s) URL");
-            }
+            const candidate = resolveAssetUrl(raw);
+            if (!candidate) throw new Error("bannerImageUrl is invalid");
+            // Preserve relative upload paths in persistence to avoid host-coupling across environments.
+            body.bannerImageUrl = raw.startsWith("/") ? raw : candidate;
           }
         }
       }

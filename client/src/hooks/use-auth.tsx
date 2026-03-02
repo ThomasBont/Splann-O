@@ -48,11 +48,6 @@ export function useAuth() {
       queryClient.invalidateQueries({ queryKey: ['/api/auth/me'] });
       queryClient.invalidateQueries({ queryKey: ['/api/barbecues'] });
       queryClient.invalidateQueries({ queryKey: ['/api/memberships'] });
-      try {
-        sessionStorage.setItem('ortega_show_welcome', '1');
-      } catch {
-        // ignore
-      }
     },
   });
 
@@ -71,11 +66,6 @@ export function useAuth() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/auth/me'] });
       queryClient.invalidateQueries({ queryKey: ['/api/barbecues'] });
-      try {
-        sessionStorage.setItem('ortega_show_welcome', '1');
-      } catch {
-        // ignore
-      }
     },
   });
 
@@ -131,10 +121,24 @@ export function useAuth() {
       defaultCurrencyCode?: string;
       favoriteCurrencyCodes?: string[];
     }) => {
+      const payload: Record<string, unknown> = { ...updates };
+      // Keep avatar contract aligned with banner: uploaded assets are persisted via asset id.
+      if (typeof updates.avatarAssetId === 'string' && updates.avatarAssetId.trim().length > 0) {
+        payload.avatarAssetId = updates.avatarAssetId.trim();
+        payload.avatarUrl = null;
+        payload.profileImageUrl = null;
+      }
+      if (typeof payload.avatarUrl === 'string') {
+        payload.avatarUrl = payload.avatarUrl.trim();
+      }
+      if (typeof payload.profileImageUrl === 'string') {
+        payload.profileImageUrl = payload.profileImageUrl.trim();
+      }
+
       const res = await fetch('/api/users/me', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates),
+        body: JSON.stringify(payload),
         credentials: 'include',
       });
       const data = await res.json();

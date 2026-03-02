@@ -24,6 +24,13 @@ function hasPublicIntentEvidence(event: Barbecue): boolean {
   return !!(tpl && (tpl.publicCategory || tpl.publicRsvpTiers || tpl.publicCapacity || tpl.publicExternalLink));
 }
 
+function resolveBannerUrlFromAsset(assetId?: string | null): string | null {
+  if (!assetId) return null;
+  const trimmed = assetId.trim();
+  if (!trimmed) return null;
+  return `/api/assets/${encodeURIComponent(trimmed)}`;
+}
+
 function shouldTreatAsPollutedPrivate(event: Barbecue): boolean {
   if (event.visibility === "public") return false;
   if ((event.visibilityOrigin as string | undefined) !== "public") return false;
@@ -48,11 +55,14 @@ function privatePublicFieldChanges(event: Barbecue): Array<string> {
 }
 
 export function normalizeEventForClient(event: Barbecue): Barbecue {
+  const withResolvedBanner: Barbecue = event.bannerImageUrl || !event.bannerAssetId
+    ? event
+    : { ...event, bannerImageUrl: resolveBannerUrlFromAsset(event.bannerAssetId) };
   const suspiciousPollution = shouldTreatAsPollutedPrivate(event);
-  if (!suspiciousPollution) return event;
+  if (!suspiciousPollution) return withResolvedBanner;
 
   const normalized: Barbecue = {
-    ...event,
+    ...withResolvedBanner,
     visibility: "private",
     visibilityOrigin: "private",
     isPublic: false,
@@ -291,6 +301,7 @@ export async function createBarbecue(
     organizationName?: string | null;
     publicDescription?: string | null;
     bannerImageUrl?: string | null;
+    bannerAssetId?: string | null;
   },
   sessionUsername?: string
 ): Promise<Barbecue> {
@@ -410,6 +421,7 @@ export async function updateBarbecue(
     organizationName?: string | null;
     publicDescription?: string | null;
     bannerImageUrl?: string | null;
+    bannerAssetId?: string | null;
   },
   sessionUsername?: string,
   sessionUserId?: number,
@@ -473,6 +485,7 @@ export async function updateBarbecue(
     organizationName: updates.organizationName,
     publicDescription: updates.publicDescription,
     bannerImageUrl: updates.bannerImageUrl,
+    bannerAssetId: updates.bannerAssetId,
   };
 
   if (updates.currency !== undefined) {

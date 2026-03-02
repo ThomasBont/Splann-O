@@ -246,6 +246,13 @@ export type EventInviteView = {
   inviteUrl?: string | null;
   email?: string | null;
   inviteeUserId?: number | null;
+  inviteType?: "user" | "link" | string;
+  invitee?: {
+    userId: number;
+    name: string;
+    username?: string | null;
+    avatarUrl?: string | null;
+  } | null;
   status: "pending" | "accepted" | "declined" | "revoked" | "expired" | string;
   createdAt?: string | null;
   expiresAt?: string | null;

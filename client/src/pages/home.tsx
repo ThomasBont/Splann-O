@@ -2099,8 +2099,16 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                             disabled={acceptPlanInvite.isPending}
                             onClick={() => {
                               acceptPlanInvite.mutate(invite.id, {
-                                onSuccess: (payload) => {
+                                onSuccess: async (payload) => {
+                                  await Promise.all([
+                                    queryClient.invalidateQueries({ queryKey: ["/api/memberships"] }),
+                                    queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] }),
+                                    queryClient.invalidateQueries({ queryKey: ["/api/events", payload.eventId, "members"] }),
+                                    queryClient.refetchQueries({ queryKey: ["/api/barbecues"] }),
+                                  ]);
                                   setSelectedBbqId(payload.eventId);
+                                  setNotifOpen(false);
+                                  setLocation(`/app/e/${payload.eventId}`);
                                   toastSuccess("Invite accepted");
                                 },
                                 onError: (error) => toastError(error instanceof Error ? error.message : "Couldn’t accept invite."),
@@ -2726,6 +2734,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                           setAvatarUploadError(null);
                           try {
                             let nextAvatarUrl: string | null = null;
+                            let nextAvatarAssetId: string | null = null;
                             if (avatarUploadFile) {
                               setAvatarUploadPending(true);
                               const dataUrl = await new Promise<string>((resolve, reject) => {
@@ -2751,12 +2760,14 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                               if (!uploadRes.ok) {
                                 throw new Error((uploadPayload as { message?: string }).message || t.auth.avatarUploadFailed);
                               }
-                              nextAvatarUrl = String((uploadPayload as { url?: string }).url ?? "");
-                              if (!nextAvatarUrl) throw new Error(t.auth.avatarUploadFailed);
+                              nextAvatarAssetId = String((uploadPayload as { assetId?: string }).assetId ?? "").trim();
+                              if (!nextAvatarAssetId) throw new Error(t.auth.avatarUploadFailed);
+                              nextAvatarUrl = null;
                             } else if (useAvatarUrlInput) {
                               const trimmed = draftProfileImageUrl.trim();
                               if (!trimmed) {
                                 nextAvatarUrl = null;
+                                nextAvatarAssetId = null;
                               } else {
                                 const normalized = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
                                 try {
@@ -2766,6 +2777,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                                   throw new Error(t.auth.invalidImageUrl);
                                 }
                                 nextAvatarUrl = normalized;
+                                nextAvatarAssetId = null;
                               }
                             } else {
                               throw new Error(t.auth.chooseImageOrUrl);
@@ -2773,6 +2785,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
 
                             await updateProfile.mutateAsync({
                               avatarUrl: nextAvatarUrl,
+                              avatarAssetId: nextAvatarAssetId,
                               profileImageUrl: nextAvatarUrl,
                             });
                             toastSuccess(t.modals.profileSaved);
@@ -3209,10 +3222,6 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
         ) : selectedBbqId ? (() => {
           if (appRouteMode === "event" && isPrivateContext && selectedBbq) {
             const pendingCount = Math.max(invitedParticipants.length, pendingRequests.length);
-            const responseProgress = Math.max(
-              8,
-              Math.min(100, Math.round((participantCount / Math.max(participantCount + pendingCount, 1)) * 100)),
-            );
             const fallbackHeroImage = "https://images.unsplash.com/photo-1559339352-11d035aa65de?auto=format&fit=crop&w=1600&q=80";
             const heroImage = !dashboardHeroBannerFailed && selectedBbq.bannerImageUrl
               ? selectedBbq.bannerImageUrl
@@ -3264,10 +3273,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                       <p className="text-base font-medium text-foreground">
                         {selectedPlanTypeHeadline}
                       </p>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        {pendingCount} friend{pendingCount === 1 ? "" : "s"} still need to respond.
-                      </p>
-                      <div className="mt-4 rounded-xl border border-border/60 bg-background/70 px-3 py-2 dark:bg-background/40">
+                      <div className="mt-3 rounded-xl border border-border/60 bg-background/70 px-3 py-2 dark:bg-background/40">
                         <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Recent activity</p>
                         {planActivityLoading ? (
                           <p className="mt-1 text-xs text-muted-foreground">Loading updates...</p>
@@ -3289,9 +3295,6 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                           </p>
                         )}
                       </div>
-                      <div className="mt-5 h-2 overflow-hidden rounded-full bg-muted/60">
-                        <div className="h-full rounded-full bg-primary/80 transition-all duration-300" style={{ width: `${responseProgress}%` }} />
-                      </div>
                     </button>
 
                     <div className="grid gap-4 md:grid-cols-3">
@@ -3303,7 +3306,6 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                         peopleCount={participantCount}
                         totalSpentLabel={formatMoney(totalSpent)}
                         expenseCount={expenses.length}
-                        progressPercent={Math.min(100, Math.max(10, Math.round((expenses.length / Math.max(participantCount * 2, 1)) * 100)))}
                         categories={getCategoriesForEvent((selectedBbq as any)?.eventType, customCategories)}
                         participants={participants}
                         expenses={expenses}
@@ -3356,6 +3358,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                           locationText: string;
                           date: string;
                           bannerImageUrl?: string | null;
+                          bannerAssetId?: string | null;
                         } = {
                           id: selectedBbq.id,
                           name: updates.name,
@@ -3365,10 +3368,15 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                         if ("bannerImageUrl" in updates) {
                           payload.bannerImageUrl = updates.bannerImageUrl ?? null;
                         }
+                        if ("bannerAssetId" in updates) {
+                          payload.bannerAssetId = updates.bannerAssetId ?? null;
+                        }
                         const updatedPlan = await updateBbq.mutateAsync(payload);
-                        if ("bannerImageUrl" in updates) {
+                        if ("bannerImageUrl" in updates || "bannerAssetId" in updates) {
                           const expectedBanner = updates.bannerImageUrl ?? null;
                           const savedBanner = updatedPlan?.bannerImageUrl ?? null;
+                          const expectedAsset = updates.bannerAssetId ?? null;
+                          const savedAsset = (updatedPlan as { bannerAssetId?: string | null })?.bannerAssetId ?? null;
                           const normalizeBannerForCompare = (value: string | null) => {
                             if (!value) return null;
                             try {
@@ -3377,7 +3385,10 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                               return value;
                             }
                           };
-                          if (normalizeBannerForCompare(savedBanner) !== normalizeBannerForCompare(expectedBanner)) {
+                          if (
+                            normalizeBannerForCompare(savedBanner) !== normalizeBannerForCompare(expectedBanner)
+                            || savedAsset !== expectedAsset
+                          ) {
                             throw new Error("Banner image URL could not be saved. Try again.");
                           }
                         }
@@ -3982,15 +3993,8 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="text-sm font-semibold">{selectedPlanTypeHeadline}</p>
-                      <p className="text-xs text-muted-foreground mt-1">{Math.max(invitedParticipants.length, pendingRequests.length)} friend{Math.max(invitedParticipants.length, pendingRequests.length) === 1 ? "" : "s"} still need to respond.</p>
                     </div>
                     <span className="text-lg" aria-hidden>✨</span>
-                  </div>
-                  <div className="mt-3 h-2 rounded-full bg-muted/40 overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-primary transition-all duration-300"
-                      style={{ width: `${Math.min(100, Math.round((participantCount / Math.max(participantCount + Math.max(invitedParticipants.length, pendingRequests.length), 1)) * 100))}%` }}
-                    />
                   </div>
                 </div>
 
@@ -4009,10 +4013,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                   <div className="rounded-2xl border border-border/60 bg-card p-4">
                     <p className="text-xs uppercase tracking-wide text-muted-foreground">Shared pot</p>
                     <p className="mt-2 text-xl font-semibold">{formatMoney(totalSpent)}</p>
-                    <div className="mt-3 h-2 rounded-full bg-muted/40 overflow-hidden">
-                      <div className="h-full rounded-full bg-primary/80" style={{ width: `${Math.min(100, Math.round((expenses.length / Math.max(participantCount * 2, 1)) * 100))}%` }} />
-                    </div>
-                    <p className="mt-2 text-xs text-muted-foreground">{expenses.length} logged expense{expenses.length === 1 ? "" : "s"}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{expenses.length} logged expense{expenses.length === 1 ? "" : "s"}</p>
                   </div>
                   <div className="rounded-2xl border border-border/60 bg-card p-4">
                     <p className="text-xs uppercase tracking-wide text-muted-foreground">Quick actions</p>

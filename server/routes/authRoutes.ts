@@ -15,7 +15,9 @@ const router = Router();
 const currencyCodeSchema = z.string().regex(/^[A-Z]{3}$/, "Currency code must be 3 uppercase letters");
 const publicHandleSchema = z.string().min(2).max(30).regex(/^[a-z0-9][a-z0-9_-]*$/, "Handle can only use lowercase letters, numbers, _ and -");
 const AVATAR_UPLOAD_DIR = path.resolve(process.cwd(), "public/uploads/avatars");
+const EVENT_BANNER_UPLOAD_DIR = path.resolve(process.cwd(), "public/uploads/event-banners");
 const MAX_AVATAR_SIZE_BYTES = 5 * 1024 * 1024;
+const ASSET_ID_REGEX = /^[a-zA-Z0-9._-]+$/;
 
 /** Build proxy-safe origin: x-forwarded-proto/host → req.protocol/host → localhost:(PORT|5001) */
 function getRequestOrigin(req: Request): string {
@@ -41,6 +43,30 @@ function requireAdmin(req: Request): void {
 function asyncHandler(fn: (req: Request, res: any, next: any) => Promise<void>) {
   return (req: Request, res: any, next: any) => fn(req, res, next).catch(next);
 }
+
+router.get(
+  "/assets/:assetId",
+  asyncHandler(async (req, res) => {
+    const assetId = String(req.params.assetId ?? "").trim();
+    if (!ASSET_ID_REGEX.test(assetId)) {
+      return res.status(400).json({ code: "INVALID_ASSET_ID", message: "Invalid asset id" });
+    }
+    const candidates = [
+      path.join(AVATAR_UPLOAD_DIR, assetId),
+      path.join(EVENT_BANNER_UPLOAD_DIR, assetId),
+    ];
+    for (const candidate of candidates) {
+      try {
+        await fs.stat(candidate);
+        res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+        return res.sendFile(candidate);
+      } catch {
+        // Try next location.
+      }
+    }
+    return res.status(404).json({ code: "ASSET_NOT_FOUND", message: "Asset not found" });
+  }),
+);
 
 router.get(
   "/auth/me",
@@ -193,7 +219,7 @@ router.post(
     const filePath = path.join(AVATAR_UPLOAD_DIR, fileName);
     await fs.writeFile(filePath, buffer);
 
-    res.json({ url: `/uploads/avatars/${fileName}` });
+    res.json({ assetId: fileName, path: `/uploads/avatars/${fileName}`, url: `/api/assets/${encodeURIComponent(fileName)}` });
   })
 );
 
@@ -204,6 +230,7 @@ router.patch(
     const schema = z.object({
       displayName: z.string().max(50).optional(),
       avatarUrl: z.union([z.string().url(), z.literal("")]).nullable().optional(),
+      avatarAssetId: z.union([z.string().min(1), z.literal("")]).nullable().optional(),
       profileImageUrl: z.union([z.string().url(), z.literal("")]).nullable().optional(),
       bio: z.string().max(500).nullable().optional(),
       publicHandle: z.union([publicHandleSchema, z.literal("")]).nullable().optional(),
@@ -218,6 +245,10 @@ router.patch(
         .optional(),
     });
     const body = schema.parse(req.body);
+    if (body.avatarAssetId !== undefined && body.avatarAssetId !== null && body.avatarAssetId !== "") {
+      body.avatarUrl = null;
+      body.profileImageUrl = null;
+    }
     if (body.publicHandle !== undefined) {
       const normalized = (body.publicHandle ?? "").trim().toLowerCase();
       const nextHandle = normalized || null;

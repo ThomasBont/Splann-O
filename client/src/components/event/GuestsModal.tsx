@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Copy, Loader2, Mail, UserRoundPlus, UserPlus2, XCircle } from "lucide-react";
+import { ArrowLeft, Copy, Mail, UserPlus2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SkeletonLine } from "@/components/ui/load-states";
@@ -43,7 +43,6 @@ export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
   const { toastError, toastInfo, toastSuccess } = useAppToast();
   const [view, setView] = useState<"list" | "profile">("list");
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
-  const [email, setEmail] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const {
@@ -83,30 +82,27 @@ export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
     () => members.find((member) => String(member.userId) === selectedMemberId) ?? null,
     [members, selectedMemberId],
   );
-  const profileQuery = useUserProfile(view === "profile" ? (selectedMember?.username ?? null) : null);
-
-  const handleSendInvite = async () => {
-    try {
-      await createInvite({ email: email.trim() || undefined });
-      toastSuccess(email.trim() ? "Invite sent" : "Invite created");
-      setEmail("");
-      await refresh();
-    } catch (err) {
-      toastError((err as Error).message || "Couldn’t send invite. Try again.");
-    }
-  };
-
-  const handleCreateLink = async () => {
-    try {
-      const result = await createInvite({});
-      const copied = await copyText(result.inviteUrl);
-      if (copied) toastSuccess("Invite link copied");
-      else toastInfo("Copy failed — select and copy manually.");
-      await refresh();
-    } catch (err) {
-      toastError((err as Error).message || "Couldn’t create invite link.");
-    }
-  };
+  const pendingInviteUsersById = useMemo(() => {
+    const entries = invitesPending
+      .filter((invite) => invite.invitee && typeof invite.invitee.userId === "number")
+      .map((invite) => [invite.invitee!.userId, invite.invitee!] as const);
+    return new Map(entries);
+  }, [invitesPending]);
+  const selectedProfile = useMemo(() => {
+    if (selectedMember) return selectedMember;
+    if (!selectedMemberId) return null;
+    const pendingInviteUser = pendingInviteUsersById.get(Number(selectedMemberId));
+    if (!pendingInviteUser) return null;
+    return {
+      userId: pendingInviteUser.userId,
+      name: pendingInviteUser.name,
+      username: pendingInviteUser.username ?? null,
+      avatarUrl: pendingInviteUser.avatarUrl ?? null,
+      role: "pending",
+      joinedAt: null,
+    };
+  }, [pendingInviteUsersById, selectedMember, selectedMemberId]);
+  const profileQuery = useUserProfile(view === "profile" ? (selectedProfile?.username ?? null) : null);
 
   const handleCopyInviteLink = async (inviteUrl?: string | null) => {
     if (!inviteUrl) return;
@@ -160,10 +156,18 @@ export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
     () => new Set(invitesPending.map((invite) => invite.inviteeUserId).filter((id): id is number => typeof id === "number")),
     [invitesPending],
   );
-  const openProfileView = (memberUserId: number) => {
-    setSelectedMemberId(String(memberUserId));
+  const openProfileView = (userId: number) => {
+    setSelectedMemberId(String(userId));
     setView("profile");
   };
+  const pendingUserInvites = useMemo(
+    () => invitesPending.filter((invite) => invite.inviteeUserId && invite.invitee),
+    [invitesPending],
+  );
+  const pendingLinkInvites = useMemo(
+    () => invitesPending.filter((invite) => !invite.inviteeUserId || !invite.invitee),
+    [invitesPending],
+  );
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -202,16 +206,16 @@ export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
                     Back to members
                   </Button>
 
-                  {selectedMember ? (
+                  {selectedProfile ? (
                     <section className="rounded-2xl border border-border bg-card p-4">
                       <div className="flex items-center gap-3">
                         <span className="grid h-12 w-12 place-items-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
-                          {initials(selectedMember.name)}
+                          {initials(selectedProfile.name)}
                         </span>
                         <div className="min-w-0">
-                          <p className="truncate text-base font-semibold text-foreground">{selectedMember.name}</p>
-                          {selectedMember.username ? (
-                            <p className="text-sm text-muted-foreground">@{selectedMember.username}</p>
+                          <p className="truncate text-base font-semibold text-foreground">{selectedProfile.name}</p>
+                          {selectedProfile.username ? (
+                            <p className="text-sm text-muted-foreground">@{selectedProfile.username}</p>
                           ) : (
                             <p className="text-sm text-muted-foreground">No username available</p>
                           )}
@@ -249,12 +253,12 @@ export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
                       <div className="mt-3 space-y-2 text-sm">
                         <div className="flex items-center justify-between gap-3">
                           <span className="text-muted-foreground">Role</span>
-                          <span className="font-medium text-foreground">{selectedMember?.role ?? "member"}</span>
+                          <span className="font-medium text-foreground">{selectedProfile?.role ?? "member"}</span>
                         </div>
-                        {selectedMember?.joinedAt ? (
+                        {selectedProfile?.joinedAt ? (
                           <div className="flex items-center justify-between gap-3">
                             <span className="text-muted-foreground">Joined</span>
-                            <span className="font-medium text-foreground">{formatRelativeTime(selectedMember.joinedAt)}</span>
+                            <span className="font-medium text-foreground">{formatRelativeTime(selectedProfile.joinedAt)}</span>
                           </div>
                         ) : null}
                         {profileQuery.data?.user?.displayName ? (
@@ -384,60 +388,73 @@ export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
           </div>
           {hasInvites ? (
             <div className="space-y-2">
-              {invitesPending.map((invite) => (
-                <div key={`invite-${invite.id}`} className="rounded-xl border border-border/70 bg-background/40 px-3 py-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm text-foreground">{invite.email || "Invite link"}</p>
-                      <p className="text-[11px] text-muted-foreground">sent {formatRelativeTime(invite.createdAt)}</p>
+              {pendingUserInvites.length > 0 ? (
+                <div className="space-y-2">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">People invited</p>
+                  {pendingUserInvites.map((invite) => (
+                    <div key={`pending-user-invite-${invite.id}`} className="rounded-xl border border-border/70 bg-background/40 px-3 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <button
+                          type="button"
+                          onClick={() => openProfileView(Number(invite.inviteeUserId))}
+                          className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg text-left transition-colors hover:bg-muted/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                        >
+                          <span className="grid h-8 w-8 place-items-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                            {initials(invite.invitee?.name || "User")}
+                          </span>
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm text-foreground">{invite.invitee?.name || "Unknown user"}</span>
+                            {invite.invitee?.username ? <span className="block text-[11px] text-muted-foreground">@{invite.invitee.username}</span> : null}
+                          </span>
+                        </button>
+                        <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] text-amber-700">Pending</span>
+                      </div>
+                      <div className="mt-2 flex items-center justify-between gap-2">
+                        <p className="text-[11px] text-muted-foreground">sent {formatRelativeTime(invite.createdAt)}</p>
+                        <Button type="button" size="sm" variant="ghost" onClick={() => void handleRevokeInvite(invite.id)} disabled={revokeMutating}>
+                          <XCircle className="mr-1 h-3.5 w-3.5" /> Revoke
+                        </Button>
+                      </div>
                     </div>
-                    <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] text-amber-700">Invite sent</span>
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    <Button type="button" size="sm" variant="ghost" onClick={() => void handleCopyInviteLink(invite.inviteUrl)}>
-                      <Copy className="mr-1 h-3.5 w-3.5" /> Copy link
-                    </Button>
-                    {invite.email ? (
-                      <Button type="button" size="sm" variant="ghost" onClick={() => void handleResendInvite(invite.email)} disabled={inviteMutating}>
-                        <Mail className="mr-1 h-3.5 w-3.5" /> Resend
-                      </Button>
-                    ) : null}
-                    <Button type="button" size="sm" variant="ghost" onClick={() => void handleRevokeInvite(invite.id)} disabled={revokeMutating}>
-                      <XCircle className="mr-1 h-3.5 w-3.5" /> Revoke
-                    </Button>
-                  </div>
+                  ))}
                 </div>
-              ))}
+              ) : (
+                <p className="text-sm text-muted-foreground">No pending invites.</p>
+              )}
+
+              {pendingLinkInvites.length > 0 ? (
+                <div className="space-y-2 pt-2">
+                  <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Invite links</p>
+                  {pendingLinkInvites.map((invite) => (
+                    <div key={`invite-link-${invite.id}`} className="rounded-xl border border-border/70 bg-background/40 px-3 py-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm text-foreground">{invite.email || "Invite link"}</p>
+                          <p className="text-[11px] text-muted-foreground">sent {formatRelativeTime(invite.createdAt)}</p>
+                        </div>
+                        <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] text-amber-700">Pending</span>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        <Button type="button" size="sm" variant="ghost" onClick={() => void handleCopyInviteLink(invite.inviteUrl)}>
+                          <Copy className="mr-1 h-3.5 w-3.5" /> Copy link
+                        </Button>
+                        {invite.email ? (
+                          <Button type="button" size="sm" variant="ghost" onClick={() => void handleResendInvite(invite.email)} disabled={inviteMutating}>
+                            <Mail className="mr-1 h-3.5 w-3.5" /> Resend
+                          </Button>
+                        ) : null}
+                        <Button type="button" size="sm" variant="ghost" onClick={() => void handleRevokeInvite(invite.id)} disabled={revokeMutating}>
+                          <XCircle className="mr-1 h-3.5 w-3.5" /> Revoke
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">No pending invites.</p>
           )}
-        </section>
-
-        <section className="rounded-2xl border border-border bg-card p-4">
-          <div className="mb-3 flex items-center gap-2">
-            <UserRoundPlus className="h-4 w-4 text-muted-foreground" />
-            <h3 className="text-sm font-semibold text-foreground">Invite</h3>
-          </div>
-          <div className="space-y-2">
-            <Input
-              type="email"
-              placeholder="friend@example.com (optional)"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="border-border bg-background text-foreground placeholder:text-muted-foreground focus-visible:ring-primary"
-            />
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" onClick={() => void handleSendInvite()} disabled={inviteMutating}>
-                {inviteMutating ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Mail className="mr-1.5 h-4 w-4" />}
-                Send invite
-              </Button>
-              <Button type="button" variant="outline" onClick={() => void handleCreateLink()} disabled={inviteMutating}>
-                <Copy className="mr-1.5 h-4 w-4" />
-                Create link
-              </Button>
-            </div>
-          </div>
         </section>
 
                 </div>

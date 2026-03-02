@@ -27,6 +27,7 @@ export async function updateProfile(
   updates: {
     displayName?: string;
     avatarUrl?: string | null;
+    avatarAssetId?: string | null;
     profileImageUrl?: string | null;
     bio?: string | null;
     publicHandle?: string | null;
@@ -40,6 +41,7 @@ export async function updateProfile(
   const mapped: Record<string, unknown> = {};
   if (updates.displayName !== undefined) mapped.displayName = updates.displayName;
   if (updates.avatarUrl !== undefined) mapped.avatarUrl = updates.avatarUrl === "" ? null : updates.avatarUrl;
+  if (updates.avatarAssetId !== undefined) mapped.avatarAssetId = updates.avatarAssetId === "" ? null : updates.avatarAssetId;
   if (updates.profileImageUrl !== undefined) mapped.profileImageUrl = updates.profileImageUrl === "" ? null : updates.profileImageUrl;
   if (updates.bio !== undefined) mapped.bio = updates.bio;
   if (updates.publicHandle !== undefined) mapped.publicHandle = updates.publicHandle;

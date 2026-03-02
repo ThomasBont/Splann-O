@@ -6,6 +6,7 @@ export type AuthUser = {
   email: string;
   displayName: string | null;
   avatarUrl?: string;
+  avatarAssetId?: string;
   profileImageUrl?: string;
   bio?: string;
   publicHandle?: string;
@@ -120,6 +121,7 @@ export function useAuth() {
     mutationFn: async (updates: {
       displayName?: string;
       avatarUrl?: string | null;
+      avatarAssetId?: string | null;
       profileImageUrl?: string | null;
       bio?: string | null;
       publicHandle?: string | null;

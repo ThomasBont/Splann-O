@@ -75,6 +75,7 @@ export const api = {
         organizationName: z.string().max(160).nullable().optional(),
         publicDescription: z.string().max(5000).nullable().optional(),
         bannerImageUrl: z.string().url().nullable().optional(),
+        bannerAssetId: z.string().min(1).nullable().optional(),
       }),
       responses: {
         200: z.custom<Barbecue>(),

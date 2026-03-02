@@ -48,6 +48,13 @@ function getAppOrigin(req: Request) {
   return (process.env.APP_URL ?? process.env.APP_BASE_URL ?? "").replace(/\/$/, "") || `${req.protocol}://${req.get("host")}`;
 }
 
+function resolveUserAvatarUrl(input: { avatarUrl?: string | null; profileImageUrl?: string | null; avatarAssetId?: string | null }): string | null {
+  if (input.avatarUrl) return input.avatarUrl;
+  if (input.profileImageUrl) return input.profileImageUrl;
+  if (input.avatarAssetId) return `/api/assets/${encodeURIComponent(input.avatarAssetId)}`;
+  return null;
+}
+
 async function assertEventAccessOrThrow(req: Request, eventId: number) {
   const userId = req.session?.userId;
   const username = req.session?.username;
@@ -102,6 +109,7 @@ router.get("/:eventId/members", requireAuth, asyncHandler(async (req, res) => {
         username: users.username,
         displayName: users.displayName,
         avatarUrl: users.avatarUrl,
+        avatarAssetId: users.avatarAssetId,
         profileImageUrl: users.profileImageUrl,
       })
       .from(eventMembers)
@@ -113,7 +121,7 @@ router.get("/:eventId/members", requireAuth, asyncHandler(async (req, res) => {
       userId: Number(row.userId),
       name: row.displayName || row.username,
       username: row.username,
-      avatarUrl: row.avatarUrl ?? row.profileImageUrl ?? null,
+      avatarUrl: resolveUserAvatarUrl(row),
       role: row.role,
       joinedAt: row.joinedAt ? row.joinedAt.toISOString() : null,
     })));
@@ -165,7 +173,7 @@ router.post("/:eventId/members", requireAuth, asyncHandler(async (req, res) => {
       userId: Number(targetUser.id),
       name: targetUser.displayName || targetUser.username,
       username: targetUser.username,
-      avatarUrl: targetUser.avatarUrl ?? targetUser.profileImageUrl ?? null,
+      avatarUrl: resolveUserAvatarUrl(targetUser),
       role: "member" as "member" | "owner",
       joinedAt: (inserted[0]?.joinedAt ?? now).toISOString(),
     };
@@ -208,11 +216,32 @@ router.get("/:eventId/invites", requireAuth, asyncHandler(async (req, res) => {
       .where(and(eq(eventInvites.eventId, eventId), eq(eventInvites.status, status)))
       .orderBy(desc(eventInvites.createdAt));
 
+    const inviteeIds = Array.from(
+      new Set(
+        rows
+          .map((row) => row.acceptedByUserId)
+          .filter((value): value is number => typeof value === "number"),
+      ),
+    );
+    const invitees = inviteeIds.length > 0
+      ? await Promise.all(inviteeIds.map(async (id) => userRepo.findById(id)))
+      : [];
+    const inviteeById = new Map(invitees.filter((user): user is NonNullable<typeof user> => !!user).map((user) => [user.id, user]));
+
     const appOrigin = getAppOrigin(req);
     res.json(rows.map((row) => ({
       id: row.id,
       email: row.email,
       inviteeUserId: row.acceptedByUserId ? Number(row.acceptedByUserId) : null,
+      inviteType: row.acceptedByUserId ? "user" : "link",
+      invitee: row.acceptedByUserId && inviteeById.get(Number(row.acceptedByUserId))
+        ? {
+            userId: Number(row.acceptedByUserId),
+            name: inviteeById.get(Number(row.acceptedByUserId))!.displayName || inviteeById.get(Number(row.acceptedByUserId))!.username,
+            username: inviteeById.get(Number(row.acceptedByUserId))!.username,
+            avatarUrl: resolveUserAvatarUrl(inviteeById.get(Number(row.acceptedByUserId))!),
+          }
+        : null,
       token: row.token,
       inviteUrl: `${appOrigin}/invite/${row.token}`,
       status: row.status,
@@ -262,6 +291,15 @@ router.post("/:eventId/invites", requireAuth, asyncHandler(async (req, res) => {
         id: invite.id,
         email: invite.email,
         inviteeUserId: invite.acceptedByUserId ? Number(invite.acceptedByUserId) : null,
+        inviteType: invite.acceptedByUserId ? "user" : "link",
+        invitee: invite.acceptedByUserId && invitee
+          ? {
+              userId: Number(invitee.id),
+              name: invitee.displayName || invitee.username,
+              username: invitee.username,
+              avatarUrl: resolveUserAvatarUrl(invitee),
+            }
+          : null,
         status: invite.status,
         createdAt: invite.createdAt ? invite.createdAt.toISOString() : null,
         expiresAt: invite.expiresAt.toISOString(),

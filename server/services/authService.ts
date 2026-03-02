@@ -18,6 +18,7 @@ export function serializeUser(user: {
   email: string;
   displayName: string | null;
   avatarUrl?: string | null;
+  avatarAssetId?: string | null;
   profileImageUrl?: string | null;
   bio?: string | null;
   publicHandle?: string | null;
@@ -37,12 +38,14 @@ export function serializeUser(user: {
     }
   }
   return {
+    // Expose a browser-loadable URL while allowing DB storage via asset id.
+    avatarUrl: user.avatarUrl ?? (user.avatarAssetId ? `/api/assets/${encodeURIComponent(user.avatarAssetId)}` : undefined),
+    profileImageUrl: user.profileImageUrl ?? (user.avatarAssetId ? `/api/assets/${encodeURIComponent(user.avatarAssetId)}` : undefined),
+    avatarAssetId: user.avatarAssetId ?? undefined,
     id: user.id,
     username: user.username,
     email: user.email,
     displayName: user.displayName,
-    avatarUrl: user.avatarUrl ?? undefined,
-    profileImageUrl: user.profileImageUrl ?? undefined,
     bio: user.bio ?? undefined,
     publicHandle: user.publicHandle ?? user.username,
     publicProfileEnabled: user.publicProfileEnabled ?? true,

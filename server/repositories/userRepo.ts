@@ -4,6 +4,13 @@ import { eq, and, or, inArray } from "drizzle-orm";
 import { isPublicListingActive } from "../lib/public-listing";
 import type { User, InsertUser, PasswordResetToken } from "@shared/schema";
 
+function resolveAvatarUrl(user: { avatarUrl?: string | null; profileImageUrl?: string | null; avatarAssetId?: string | null }): string | null {
+  if (user.avatarUrl) return user.avatarUrl;
+  if (user.profileImageUrl) return user.profileImageUrl;
+  if (user.avatarAssetId) return `/api/assets/${encodeURIComponent(user.avatarAssetId)}`;
+  return null;
+}
+
 export const userRepo = {
   async createUser(u: InsertUser): Promise<User> {
     const [user] = await db.insert(users).values(u).returning();
@@ -39,6 +46,7 @@ export const userRepo = {
     updates: {
       displayName?: string;
       avatarUrl?: string | null;
+      avatarAssetId?: string | null;
       profileImageUrl?: string | null;
       bio?: string | null;
       publicHandle?: string | null;
@@ -52,6 +60,7 @@ export const userRepo = {
     const set: Record<string, unknown> = {};
     if (updates.displayName !== undefined) set.displayName = updates.displayName;
     if (updates.avatarUrl !== undefined) set.avatarUrl = updates.avatarUrl;
+    if (updates.avatarAssetId !== undefined) set.avatarAssetId = updates.avatarAssetId;
     if (updates.profileImageUrl !== undefined) set.profileImageUrl = updates.profileImageUrl;
     if (updates.bio !== undefined) set.bio = updates.bio;
     if (updates.publicHandle !== undefined) set.publicHandle = updates.publicHandle;
@@ -144,7 +153,14 @@ export const userRepo = {
       .where(eq(participants.userId, username));
     const totalSpent = spentRows.reduce((s, r) => s + parseFloat(String(r.amount || 0)), 0);
     return {
-      user: { id: u.id, username: u.username, displayName: u.displayName, profileImageUrl: u.profileImageUrl, avatarUrl: u.avatarUrl, bio: u.bio },
+      user: {
+        id: u.id,
+        username: u.username,
+        displayName: u.displayName,
+        profileImageUrl: u.profileImageUrl ?? resolveAvatarUrl(u),
+        avatarUrl: resolveAvatarUrl(u),
+        bio: u.bio,
+      },
       stats: { eventsCount, friendsCount, totalSpent },
     };
   },
@@ -244,7 +260,7 @@ export const userRepo = {
         handle: user.publicHandle ?? user.username,
         displayName: user.displayName ?? null,
         profileImageUrl: user.profileImageUrl ?? null,
-        avatarUrl: user.avatarUrl ?? null,
+        avatarUrl: resolveAvatarUrl(user),
         bio: user.bio ?? null,
         createdAt: user.createdAt ?? null,
       },

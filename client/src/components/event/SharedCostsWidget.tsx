@@ -11,7 +11,6 @@ type SharedCostsWidgetProps = {
   peopleCount: number;
   totalSpentLabel: string;
   expenseCount: number;
-  progressPercent: number;
   categories: string[];
   participants: Array<{ id: number; name: string }>;
   expenses: ExpenseWithParticipant[];
@@ -27,7 +26,6 @@ export function SharedCostsWidget({
   peopleCount,
   totalSpentLabel,
   expenseCount,
-  progressPercent,
   categories,
   participants,
   expenses,
@@ -85,12 +83,6 @@ export function SharedCostsWidget({
         <p className="mt-1 text-xs text-muted-foreground">
           {expenseCount} logged expense{expenseCount === 1 ? "" : "s"}
         </p>
-        <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
-          <div
-            className="h-full rounded-full bg-primary/80 transition-all duration-200"
-            style={{ width: `${Math.max(0, Math.min(100, progressPercent))}%` }}
-          />
-        </div>
       </div>
 
       <SharedCostsDrawer

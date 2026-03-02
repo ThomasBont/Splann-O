@@ -1,4 +1,4 @@
-import { pgTable, text, serial, numeric, integer, timestamp, boolean, unique, json, real, uuid } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, numeric, integer, timestamp, boolean, unique, json, real, uuid, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { sql } from "drizzle-orm";
@@ -10,6 +10,7 @@ export const users = pgTable("users", {
   displayName: text("display_name"),
   passwordHash: text("password_hash").notNull(),
   avatarUrl: text("avatar_url"),
+  avatarAssetId: text("avatar_asset_id"),
   profileImageUrl: text("profile_image_url"),
   bio: text("bio"),
   /** Shareable public creator profile handle (separate from username to avoid username migrations). */
@@ -123,6 +124,7 @@ export const barbecues = pgTable("barbecues", {
   organizationName: text("organization_name"),
   publicDescription: text("public_description"),
   bannerImageUrl: text("banner_image_url"),
+  bannerAssetId: text("banner_asset_id"),
   publicViewCount: integer("public_view_count").notNull().default(0),
   /** Stable invite token for /join/:token links. Generated on create. */
   inviteToken: text("invite_token").unique(),
@@ -257,6 +259,20 @@ export const planActivity = pgTable("plan_activity", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+export const eventChatMessages = pgTable("event_chat_messages", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  eventId: integer("event_id").references(() => barbecues.id, { onDelete: "cascade" }).notNull(),
+  authorUserId: integer("author_user_id").references(() => users.id, { onDelete: "set null" }),
+  authorName: text("author_name"),
+  authorAvatarUrl: text("author_avatar_url"),
+  type: text("type").notNull().default("user"), // user | system
+  content: text("content").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  eventCreatedAtIdx: index("event_chat_messages_event_created_at_idx").on(table.eventId, table.createdAt),
+  eventIdIdx: index("event_chat_messages_event_id_idx").on(table.eventId, table.id),
+}));
+
 export const insertNoteSchema = createInsertSchema(notes)
   .omit({ id: true, createdAt: true, updatedAt: true })
   .extend({
@@ -297,6 +313,7 @@ export type InsertExpense = z.infer<typeof insertExpenseSchema>;
 export type EventMember = typeof eventMembers.$inferSelect;
 export type EventInvite = typeof eventInvites.$inferSelect;
 export type PlanActivity = typeof planActivity.$inferSelect;
+export type EventChatMessageRow = typeof eventChatMessages.$inferSelect;
 
 export type ExpenseWithParticipant = Expense & {
   participantName: string;

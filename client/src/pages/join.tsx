@@ -2,7 +2,7 @@
 
 import { useRoute, useLocation } from "wouter";
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { useJoinBarbecue } from "@/hooks/use-participants";
 import { useUpgrade } from "@/contexts/UpgradeContext";
@@ -25,6 +25,7 @@ export default function JoinPage() {
   const token = paramsInvite?.token ?? paramsJoin?.token;
   const { user, isLoading: isAuthLoading } = useAuth();
   const [joined, setJoined] = useState(false);
+  const queryClient = useQueryClient();
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["/api/invites", token],
@@ -46,7 +47,7 @@ export default function JoinPage() {
 
   useEffect(() => {
     if (joined && data) {
-      setLocation(`/app?event=${data.bbqId}`);
+      setLocation(`/app/e/${data.bbqId}`);
     }
   }, [joined, data, setLocation]);
 
@@ -58,6 +59,19 @@ export default function JoinPage() {
           if (!res.ok) {
             const body = await res.json().catch(() => ({}));
             throw new Error((body as { message?: string }).message || "Invite accept failed");
+          }
+          const body = await res.json().catch(() => ({})) as { eventId?: number };
+          await Promise.all([
+            queryClient.invalidateQueries({ queryKey: ["/api/memberships"] }),
+            queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] }),
+            body.eventId
+              ? queryClient.invalidateQueries({ queryKey: ["/api/events", body.eventId, "members"] })
+              : Promise.resolve(),
+            queryClient.refetchQueries({ queryKey: ["/api/barbecues"] }),
+          ]);
+          if (body.eventId) {
+            setLocation(`/app/e/${body.eventId}`);
+            return;
           }
           setJoined(true);
         })

@@ -40,6 +40,7 @@ import { barbecues, eventMembers, users, session as sessionTable } from "@shared
 import { createHmac, timingSafeEqual } from "crypto";
 import { appendEventChatMessage } from "./lib/eventChatStore";
 import { broadcastEventRealtime, registerEventSocket, unregisterEventSocket } from "./lib/eventRealtime";
+import { isEventChatLocked } from "./lib/eventChatPolicy";
 
 const runtimeBuildId =
   process.env.BUILD_ID
@@ -144,6 +145,16 @@ async function canAccessEventChat(eventId: number, user: { id: number; username:
   return false;
 }
 
+async function isEventChatLockedById(eventId: number): Promise<boolean> {
+  const [eventRow] = await db
+    .select({ date: barbecues.date })
+    .from(barbecues)
+    .where(eq(barbecues.id, eventId))
+    .limit(1);
+  if (!eventRow) return false;
+  return isEventChatLocked({ date: eventRow.date ?? null });
+}
+
 chatWss.on("connection", (ws, req) => {
   const meta = (req as import("http").IncomingMessage & { chatMeta?: WsClientMeta }).chatMeta;
   if (!meta) {
@@ -153,7 +164,7 @@ chatWss.on("connection", (ws, req) => {
   ws.send(JSON.stringify({ type: "hello", eventId: meta.eventId }));
 
   ws.on("message", (raw: RawData) => {
-    let parsed: { type?: string; text?: string; eventId?: number } | null = null;
+    let parsed: { type?: string; text?: string; eventId?: number; user?: { id?: string | number; name?: string } } | null = null;
     try {
       parsed = JSON.parse(String(raw));
     } catch {
@@ -178,10 +189,30 @@ chatWss.on("connection", (ws, req) => {
             meta.subscribed = true;
           }
           ws.send(JSON.stringify({ type: "event:subscribed", eventId: meta.eventId }));
+          isEventChatLockedById(meta.eventId)
+            .then((locked) => {
+              if (!locked) return;
+              ws.send(JSON.stringify({ type: "event:chat_locked", code: "CHAT_LOCKED", eventId: meta.eventId }));
+            })
+            .catch(() => {
+              // Ignore lock-state fetch errors; subscription still valid.
+            });
         })
         .catch(() => {
           ws.send(JSON.stringify({ type: "event:error", code: "INTERNAL_ERROR", eventId: meta.eventId }));
         });
+      return;
+    }
+    if (parsed?.type === "typing") {
+      if (!meta.subscribed) return;
+      broadcastEventRealtime(meta.eventId, {
+        type: "chat:typing",
+        eventId: meta.eventId,
+        user: {
+          id: String(meta.userId),
+          name: meta.username,
+        },
+      });
       return;
     }
     if (parsed?.type !== "send") return;
@@ -197,12 +228,17 @@ chatWss.on("connection", (ws, req) => {
     }
 
     canAccessEventChat(meta.eventId, { id: meta.userId, username: meta.username })
-      .then((allowed) => {
+      .then(async (allowed) => {
         if (!allowed) {
           ws.send(JSON.stringify({ type: "error", code: "NOT_AUTHORIZED", message: "Membership required" }));
           return;
         }
-        const message = appendEventChatMessage(meta.eventId, {
+        const locked = await isEventChatLockedById(meta.eventId);
+        if (locked) {
+          ws.send(JSON.stringify({ type: "event:error", code: "CHAT_LOCKED", eventId: meta.eventId }));
+          return;
+        }
+        const message = await appendEventChatMessage(meta.eventId, {
           type: "user",
           text,
           user: { id: String(meta.userId), name: meta.username },

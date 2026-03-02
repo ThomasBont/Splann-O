@@ -251,6 +251,7 @@ export function useUpdateBarbecue() {
       organizationName?: string | null;
       publicDescription?: string | null;
       bannerImageUrl?: string | null;
+      bannerAssetId?: string | null;
     }) => {
       const { id, ...rest } = updates;
       const url = buildUrl(api.barbecues.update.path, { id });
@@ -296,6 +297,10 @@ export function useUpdateBarbecue() {
       if (rest.publicListingExpiresAt !== undefined) body.publicListingExpiresAt = rest.publicListingExpiresAt;
       if (rest.organizationName !== undefined) body.organizationName = rest.organizationName;
       if (rest.publicDescription !== undefined) body.publicDescription = rest.publicDescription;
+      if (rest.bannerAssetId !== undefined) {
+        body.bannerAssetId = rest.bannerAssetId;
+        if (rest.bannerAssetId) body.bannerImageUrl = null;
+      }
       if (rest.bannerImageUrl !== undefined) {
         if (rest.bannerImageUrl === null) {
           body.bannerImageUrl = null;

@@ -123,6 +123,7 @@ export const bbqRepo = {
       organizationName?: string | null;
       publicDescription?: string | null;
       bannerImageUrl?: string | null;
+      bannerAssetId?: string | null;
       updatedAt?: Date;
     }
   ): Promise<Barbecue | undefined> {
@@ -161,6 +162,7 @@ export const bbqRepo = {
     if (updates.organizationName !== undefined) set.organizationName = updates.organizationName;
     if (updates.publicDescription !== undefined) set.publicDescription = updates.publicDescription;
     if (updates.bannerImageUrl !== undefined) set.bannerImageUrl = updates.bannerImageUrl;
+    if (updates.bannerAssetId !== undefined) set.bannerAssetId = updates.bannerAssetId;
     if (Object.keys(set).length > 0) set.updatedAt = updates.updatedAt ?? new Date();
     if (Object.keys(set).length === 0) return this.getById(id);
     const [b] = await db.update(barbecues).set(set as Record<string, unknown>).where(eq(barbecues.id, id)).returning();

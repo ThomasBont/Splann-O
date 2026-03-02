@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Loader2, MessageCircle } from "lucide-react";
+import { Loader2, MessageCircle, SendHorizontal } from "lucide-react";
 import { InlineQueryError, SkeletonLine } from "@/components/ui/load-states";
 import { useEventChat } from "@/hooks/use-event-chat";
 import { useAppToast } from "@/hooks/use-app-toast";
@@ -14,7 +14,7 @@ type ChatSidebarProps = {
   enabled?: boolean;
 };
 
-const GROUP_WINDOW_MS = 4 * 60 * 1000;
+const GROUP_WINDOW_MS = 5 * 60 * 1000;
 
 function formatMessageTime(value: string) {
   const date = new Date(value);
@@ -36,16 +36,22 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }:
   const [sending, setSending] = useState(false);
   const listRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const typingEmitTimerRef = useRef<number | null>(null);
   const [isNearBottom, setIsNearBottom] = useState(true);
   const {
     messages,
     historyLoading,
+    historyLoadingOlder,
+    hasMoreHistory,
     historyError,
     connectionStatus,
     isLocked,
     isSubscribed,
+    typingUsers,
     wsReadyState,
     sendMessage,
+    sendTyping,
+    loadOlder,
     retry,
   } = useEventChat(eventId, enabled && !!eventId);
   const membersQuery = useEventMembers(eventId);
@@ -67,6 +73,33 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }:
     if (!isNearBottom) return;
     el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [messages, isNearBottom]);
+
+  useEffect(() => {
+    if (!draft.trim() || isLocked || !eventId) return;
+    if (typingEmitTimerRef.current != null) return;
+    typingEmitTimerRef.current = window.setTimeout(() => {
+      sendTyping({
+        id: currentUser?.id ?? null,
+        name: currentUser?.username ?? "Someone",
+      });
+      typingEmitTimerRef.current = null;
+    }, 300);
+    return () => {
+      if (typingEmitTimerRef.current != null) {
+        window.clearTimeout(typingEmitTimerRef.current);
+        typingEmitTimerRef.current = null;
+      }
+    };
+  }, [currentUser?.id, currentUser?.username, draft, eventId, isLocked, sendTyping]);
+
+  useEffect(() => {
+    return () => {
+      if (typingEmitTimerRef.current != null) {
+        window.clearTimeout(typingEmitTimerRef.current);
+        typingEmitTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const liveLabel = useMemo(() => {
     if (isLocked) return { text: "Locked", cls: "bg-rose-500" };
@@ -150,6 +183,11 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }:
     }, 0);
   }, [eventId]);
 
+  const visibleTypingUsers = useMemo(() => {
+    const meId = String(currentUser?.id ?? "");
+    return typingUsers.filter((user) => String(user.id) !== meId);
+  }, [currentUser?.id, typingUsers]);
+
   return (
     <aside className="pointer-events-auto flex h-full min-h-[380px] flex-col overflow-hidden rounded-lg border border-border/70 bg-card">
       <header className="border-b border-border/70 bg-background/70 px-4 py-3">
@@ -177,18 +215,25 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }:
           setIsNearBottom(delta < 64);
         }}
       >
+        {hasMoreHistory ? (
+          <div className="flex justify-center pb-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 rounded-full px-3 text-xs text-muted-foreground"
+              onClick={() => void loadOlder()}
+              disabled={historyLoadingOlder}
+            >
+              {historyLoadingOlder ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Load older messages"}
+            </Button>
+          </div>
+        ) : null}
         {historyLoading ? (
           <div className="space-y-3">
             <SkeletonLine className="h-10 w-3/4 rounded-xl" />
             <SkeletonLine className="h-10 w-2/3 rounded-xl ml-auto" />
             <SkeletonLine className="h-10 w-4/5 rounded-xl" />
-          </div>
-        ) : isLocked ? (
-          <div className="h-full min-h-[180px] flex items-center justify-center text-center px-4">
-            <div className="space-y-1 text-muted-foreground">
-              <MessageCircle className="h-4 w-4 mx-auto" />
-              <p className="text-sm">Plan chat is locked.</p>
-            </div>
           </div>
         ) : historyError ? (
           <InlineQueryError message="Messages unavailable." onRetry={retry} />
@@ -229,7 +274,7 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }:
               && Number.isFinite(nextTime) && Number.isFinite(currentTime)
               && (nextTime - currentTime) < GROUP_WINDOW_MS;
             return (
-              <div key={msg.id} className={`flex ${mine ? "justify-end" : "justify-start"} ${groupedWithPrev ? "mt-1" : "mt-2.5"}`}>
+              <div key={msg.id} className={`group/message flex ${mine ? "justify-end" : "justify-start"} ${groupedWithPrev ? "mt-1" : "mt-2.5"}`}>
                 {!mine ? (
                   <div className="mr-2 flex w-8 flex-col items-center pt-0.5">
                     {!groupedWithPrev ? (
@@ -249,11 +294,19 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }:
                       {mine ? "You" : senderName}
                     </p>
                   ) : null}
-                  <div className={`rounded-2xl px-3 py-2 text-sm ${mine ? "bg-primary text-primary-foreground" : "border border-border/70 bg-card text-foreground"}`}>
+                  <div
+                    className={`rounded-lg px-3 py-2 text-sm ${mine
+                      ? "bg-[#D4A017] text-white shadow-md dark:bg-[#C99613]"
+                      : "border border-border/70 bg-muted/40 text-foreground dark:bg-muted/20"}`}
+                  >
                     <p className="whitespace-pre-wrap break-words">{msg.text}</p>
                   </div>
                   {!groupedWithNext ? (
-                    <p className={`mt-1 px-1 text-[10px] ${mine ? "text-primary/70" : "text-muted-foreground"}`}>
+                    <p
+                      className={`mt-1 px-1 text-xs opacity-60 transition-opacity md:opacity-0 md:group-hover/message:opacity-60 ${
+                        mine ? "text-primary/80" : "text-muted-foreground"
+                      }`}
+                    >
                       {formatMessageTime(msg.createdAt)}
                     </p>
                   ) : null}
@@ -265,9 +318,27 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }:
       </div>
 
       <div className="border-t border-border/70 bg-card p-3">
+        {isLocked ? (
+          <p className="mb-2 text-xs text-muted-foreground">
+            Chat closed after event. History remains visible.
+          </p>
+        ) : null}
+        {visibleTypingUsers.length > 0 ? (
+          <p className="mb-2 inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span className="truncate">
+              {visibleTypingUsers[0]?.name}
+              {visibleTypingUsers.length > 1 ? ` +${visibleTypingUsers.length - 1}` : ""} is typing…
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/70 [animation-delay:-0.2s]" />
+              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/70 [animation-delay:-0.1s]" />
+              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/70" />
+            </span>
+          </p>
+        ) : null}
         <div className="flex items-end gap-2">
           <div
-            className="min-h-[44px] max-h-[120px] flex-1 rounded-xl border border-border/70 bg-background/70 px-3 py-2"
+            className="min-h-[44px] max-h-[120px] flex-1 rounded-full border border-border/70 bg-background/70 px-4 py-2"
             onMouseDown={(e) => {
               if (isLocked) return;
               e.preventDefault();
@@ -291,8 +362,15 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }:
               }}
             />
           </div>
-          <Button type="button" size="sm" onClick={() => void handleSubmit()} disabled={isLocked || sending || !draft.trim() || !eventId}>
-            {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : "Send"}
+          <Button
+            type="button"
+            size="icon"
+            className="h-10 w-10 rounded-full bg-[#D4A017] text-white hover:bg-[#BF9013] disabled:bg-muted disabled:text-muted-foreground"
+            onClick={() => void handleSubmit()}
+            disabled={isLocked || sending || !draft.trim() || !eventId}
+            aria-label="Send message"
+          >
+            {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <SendHorizontal className="h-4 w-4" />}
           </Button>
         </div>
       </div>

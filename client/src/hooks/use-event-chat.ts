@@ -9,6 +9,11 @@ export type ChatMessage = {
   user?: { id: string; name: string; avatarUrl?: string | null };
 };
 
+export type TypingUser = {
+  id: string;
+  name: string;
+};
+
 type ConnectionStatus = "idle" | "connecting" | "connected" | "reconnecting" | "error" | "locked";
 type SendBlockReason = "empty" | "locked" | "no-eventId" | "no-ws" | "not-open" | "not-subscribed" | "send-failed";
 
@@ -32,50 +37,88 @@ function mergeWithoutTempDuplicates(next: ChatMessage[]): ChatMessage[] {
 export function useEventChat(eventId: number | null, enabled = true) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyLoadingOlder, setHistoryLoadingOlder] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("idle");
   const [isLocked, setIsLocked] = useState(false);
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [retryTick, setRetryTick] = useState(0);
+  const [typingUsers, setTypingUsers] = useState<TypingUser[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimerRef = useRef<number | null>(null);
   const reconnectAttemptRef = useRef(0);
   const isLockedRef = useRef(false);
 
-  const fetchHistory = useCallback(async () => {
+  const fetchHistoryPage = useCallback(async (before?: string | null) => {
+    if (!eventId || !enabled) return { messages: [] as ChatMessage[], nextCursor: null as string | null, locked: false };
+    const url = before
+      ? `/api/plans/${eventId}/chat/messages?limit=50&before=${encodeURIComponent(before)}`
+      : `/api/plans/${eventId}/chat/messages?limit=50`;
+    const res = await fetch(url, { credentials: "include" });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error((body as { message?: string })?.message || "Failed to load chat");
+    }
+    const raw = body as { messages?: unknown; nextCursor?: unknown; locked?: unknown };
+    const incoming = Array.isArray(raw.messages) ? (raw.messages as ChatMessage[]) : [];
+    return {
+      messages: incoming,
+      nextCursor: typeof raw.nextCursor === "string" && raw.nextCursor ? raw.nextCursor : null,
+      locked: raw.locked === true,
+    };
+  }, [enabled, eventId]);
+
+  const fetchInitialHistory = useCallback(async () => {
     if (!eventId || !enabled) {
       setMessages([]);
+      setNextCursor(null);
       return;
     }
     setHistoryLoading(true);
     setHistoryError(null);
+    setIsLocked(false);
+    isLockedRef.current = false;
     try {
-      const res = await fetch(`/api/events/${eventId}/chat?limit=50`, { credentials: "include" });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error((body as { message?: string })?.message || "Failed to load chat");
-      }
-      const raw = body as { messages?: unknown };
-      const incoming = Array.isArray(raw.messages) ? (raw.messages as ChatMessage[]) : [];
-      setMessages(incoming);
+      const page = await fetchHistoryPage(null);
+      setMessages(page.messages);
+      setNextCursor(page.nextCursor);
+      setIsLocked(page.locked);
+      if (page.locked) setConnectionStatus("locked");
     } catch (error) {
       setHistoryError(error instanceof Error ? error.message : "Failed to load chat history");
       setMessages([]);
+      setNextCursor(null);
     } finally {
       setHistoryLoading(false);
     }
-  }, [enabled, eventId]);
+  }, [enabled, eventId, fetchHistoryPage]);
+
+  const loadOlder = useCallback(async () => {
+    if (!eventId || !enabled || !nextCursor || historyLoadingOlder) return;
+    setHistoryLoadingOlder(true);
+    try {
+      const page = await fetchHistoryPage(nextCursor);
+      setMessages((prev) => [...page.messages, ...prev]);
+      setNextCursor(page.nextCursor);
+    } catch (error) {
+      setHistoryError(error instanceof Error ? error.message : "Failed to load older chat history");
+    } finally {
+      setHistoryLoadingOlder(false);
+    }
+  }, [enabled, eventId, fetchHistoryPage, historyLoadingOlder, nextCursor]);
 
   useEffect(() => {
-    void fetchHistory();
-  }, [fetchHistory, retryTick]);
+    void fetchInitialHistory();
+  }, [fetchInitialHistory, retryTick]);
 
   useEffect(() => {
     if (!enabled || !eventId) {
       setConnectionStatus("idle");
       setIsLocked(false);
       setIsSubscribed(false);
+      setTypingUsers([]);
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
@@ -89,7 +132,6 @@ export function useEventChat(eventId: number | null, enabled = true) {
     }
 
     let closedByCleanup = false;
-    setIsLocked(false);
     isLockedRef.current = false;
     setIsSubscribed(false);
     setConnectionStatus(reconnectAttemptRef.current > 0 ? "reconnecting" : "connecting");
@@ -103,21 +145,19 @@ export function useEventChat(eventId: number | null, enabled = true) {
     };
 
     ws.onmessage = (ev) => {
-      let payload: { type?: string; message?: ChatMessage; eventId?: number; code?: string; text?: string } | null = null;
+      let payload: { type?: string; message?: ChatMessage; eventId?: number; code?: string; text?: string; user?: TypingUser } | null = null;
       try {
         payload = JSON.parse(ev.data as string);
       } catch {
         return;
       }
       if (payload?.type === "event:subscribed") {
-        setIsLocked(false);
         setIsSubscribed(true);
-        setConnectionStatus("connected");
+        if (!isLockedRef.current) setConnectionStatus("connected");
         return;
       }
-      if (payload?.type === "event:error" && payload.code === "CHAT_LOCKED") {
+      if (payload?.type === "event:chat_locked" || (payload?.type === "event:error" && payload.code === "CHAT_LOCKED")) {
         setIsLocked(true);
-        setIsSubscribed(false);
         isLockedRef.current = true;
         setConnectionStatus("locked");
         return;
@@ -131,6 +171,17 @@ export function useEventChat(eventId: number | null, enabled = true) {
           text: systemText,
           createdAt: new Date().toISOString(),
         }]);
+        return;
+      }
+      if (payload?.type === "chat:typing" && payload.user?.id) {
+        const nextUser = { id: String(payload.user.id), name: payload.user.name || "Someone" };
+        setTypingUsers((prev) => {
+          const existing = prev.filter((u) => u.id !== nextUser.id);
+          return [...existing, nextUser];
+        });
+        window.setTimeout(() => {
+          setTypingUsers((prev) => prev.filter((u) => u.id !== nextUser.id));
+        }, 3000);
         return;
       }
       if (payload?.type !== "message" || !payload.message) return;
@@ -203,6 +254,22 @@ export function useEventChat(eventId: number | null, enabled = true) {
     }
   }, [eventId, isLocked, isSubscribed]);
 
+  const sendTyping = useCallback((actor?: { id?: string | number | null; name?: string | null }) => {
+    const ws = wsRef.current;
+    if (!eventId || isLocked || !isSubscribed || !ws || ws.readyState !== WebSocket.OPEN) return;
+    try {
+      ws.send(JSON.stringify({
+        type: "typing",
+        user: {
+          id: String(actor?.id ?? "unknown"),
+          name: actor?.name ?? "Someone",
+        },
+      }));
+    } catch {
+      // no-op
+    }
+  }, [eventId, isLocked, isSubscribed]);
+
   const retry = useCallback(() => {
     reconnectAttemptRef.current = 0;
     setRetryTick((n) => n + 1);
@@ -211,12 +278,17 @@ export function useEventChat(eventId: number | null, enabled = true) {
   return useMemo(() => ({
     messages,
     historyLoading,
+    historyLoadingOlder,
     historyError,
+    hasMoreHistory: !!nextCursor,
     connectionStatus,
     isLocked,
     isSubscribed,
+    typingUsers,
     wsReadyState: wsRef.current?.readyState ?? -1,
     sendMessage,
+    sendTyping,
+    loadOlder,
     retry,
-  }), [messages, historyLoading, historyError, connectionStatus, isLocked, isSubscribed, sendMessage, retry]);
+  }), [messages, historyLoading, historyLoadingOlder, historyError, nextCursor, connectionStatus, isLocked, isSubscribed, typingUsers, sendMessage, sendTyping, loadOlder, retry]);
 }

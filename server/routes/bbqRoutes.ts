@@ -19,7 +19,7 @@ import { participantRepo } from "../repositories/participantRepo";
 import { expenseRepo } from "../repositories/expenseRepo";
 import { userRepo } from "../repositories/userRepo";
 import { publicInboxRepo } from "../repositories/publicInboxRepo";
-import { listEventChatMessages } from "../lib/eventChatStore";
+import { appendEventChatMessage, listEventChatMessages } from "../lib/eventChatStore";
 import * as bbqService from "../services/bbqService";
 import { requireAuth } from "../middleware/requireAuth";
 import { publicRateLimit } from "../middleware/publicRateLimit";
@@ -32,6 +32,7 @@ import { log } from "../lib/logger";
 import { auditLog, auditSecurity } from "../lib/audit";
 import { AppError, badRequest, conflict, forbidden, gone, notFound, unauthorized, upgradeRequired } from "../lib/errors";
 import { createStripeCheckoutSession, verifyStripeWebhookSignature } from "../lib/stripe";
+import { isEventChatLocked } from "../lib/eventChatPolicy";
 
 const router = Router();
 const RECEIPT_UPLOAD_DIR = path.resolve(process.cwd(), "public/uploads/receipts");
@@ -303,6 +304,7 @@ router.post(p(api.barbecues.create.path), asyncHandler(async (req, res) => {
     organizationName: z.string().max(160).nullable().optional(),
     publicDescription: z.string().max(5000).nullable().optional(),
     bannerImageUrl: z.string().url().nullable().optional(),
+    bannerAssetId: z.string().min(1).nullable().optional(),
   });
   const parsed = bodySchema.parse(req.body);
   if ((parsed.visibilityOrigin ?? "public") === "private" && parsed.templateData && typeof parsed.templateData === "object") {
@@ -470,9 +472,68 @@ router.get("/events/:eventId/chat", requireAuth, asyncHandler(async (req, res) =
   const eventId = Number(req.params.eventId);
   if (!Number.isInteger(eventId) || eventId <= 0) badRequest("Invalid event id");
   const limit = Number(req.query.limit ?? 50);
-  await getBarbecueOr404(req, eventId, "Event not found");
-  const messages = listEventChatMessages(eventId, limit);
-  res.json({ messages, nextCursor: undefined });
+  const before = typeof req.query.before === "string" ? req.query.before : undefined;
+  const bbq = await getBarbecueOr404(req, eventId, "Event not found");
+  const page = await listEventChatMessages(eventId, { limit, before });
+  res.json({ messages: page.messages, nextCursor: page.nextCursor, locked: isEventChatLocked({ date: bbq.date }) });
+}));
+
+router.get("/plans/:planId/chat/messages", requireAuth, asyncHandler(async (req, res) => {
+  const planId = Number(req.params.planId);
+  if (!Number.isInteger(planId) || planId <= 0) badRequest("Invalid plan id");
+  const limit = Number(req.query.limit ?? 50);
+  const before = typeof req.query.before === "string" ? req.query.before : undefined;
+  const bbq = await getBarbecueOr404(req, planId, "Event not found");
+  const page = await listEventChatMessages(planId, { limit, before });
+  res.json({ messages: page.messages, nextCursor: page.nextCursor, locked: isEventChatLocked({ date: bbq.date }) });
+}));
+
+router.post("/plans/:planId/chat/messages", requireAuth, asyncHandler(async (req, res) => {
+  const planId = Number(req.params.planId);
+  if (!Number.isInteger(planId) || planId <= 0) badRequest("Invalid plan id");
+  const body = z.object({
+    text: z.string().trim().min(1).max(4000),
+  }).parse(req.body ?? {});
+  const bbq = await getBarbecueOr404(req, planId, "Event not found");
+  await assertEventAccessOrThrow(req, planId);
+  if (isEventChatLocked({ date: bbq.date })) {
+    return res.status(423).json({ code: "CHAT_LOCKED", message: "Chat closed after event. History remains visible." });
+  }
+
+  const message = await appendEventChatMessage(planId, {
+    type: "user",
+    text: body.text,
+    user: {
+      id: String(req.session!.userId!),
+      name: req.session!.username!,
+    },
+  });
+  broadcastEventRealtime(planId, { type: "message", message });
+  res.status(201).json({ message });
+}));
+
+router.post("/events/:eventId/chat/messages", requireAuth, asyncHandler(async (req, res) => {
+  const eventId = Number(req.params.eventId);
+  if (!Number.isInteger(eventId) || eventId <= 0) badRequest("Invalid event id");
+  const body = z.object({
+    text: z.string().trim().min(1).max(4000),
+  }).parse(req.body ?? {});
+  const bbq = await getBarbecueOr404(req, eventId, "Event not found");
+  await assertEventAccessOrThrow(req, eventId);
+  if (isEventChatLocked({ date: bbq.date })) {
+    return res.status(423).json({ code: "CHAT_LOCKED", message: "Chat closed after event. History remains visible." });
+  }
+
+  const message = await appendEventChatMessage(eventId, {
+    type: "user",
+    text: body.text,
+    user: {
+      id: String(req.session!.userId!),
+      name: req.session!.username!,
+    },
+  });
+  broadcastEventRealtime(eventId, { type: "message", message });
+  res.status(201).json({ message });
 }));
 
 router.get("/plans/:id/activity", requireAuth, asyncHandler(async (req, res) => {
@@ -997,8 +1058,12 @@ router.patch(p(api.barbecues.update.path), requireAuth, asyncHandler(async (req,
     organizationName: z.string().max(160).nullable().optional(),
     publicDescription: z.string().max(5000).nullable().optional(),
     bannerImageUrl: z.string().url().nullable().optional(),
+    bannerAssetId: z.string().min(1).nullable().optional(),
   });
   const body = schema.parse(req.body);
+  if (body.bannerAssetId !== undefined && body.bannerAssetId !== null && body.bannerAssetId !== "") {
+    body.bannerImageUrl = null;
+  }
   if ((body.visibilityOrigin ?? bbq.visibilityOrigin ?? "private") === "private" && body.templateData && typeof body.templateData === "object") {
     const templateData = body.templateData as Record<string, unknown>;
     const rawMainCategory = templateData.mainCategory ?? templateData.privateMainCategory ?? null;
@@ -1699,19 +1764,21 @@ router.post("/barbecues/:bbqId/banner", requireAuth, asyncHandler(async (req, re
   const prevBannerUrl = bbq.bannerImageUrl ?? null;
   const relativeBannerPath = `/uploads/event-banners/${fileName}`;
   const publicBannerUrl = toPublicUploadsUrl(req, relativeBannerPath);
-  const bannerImageUrl = shouldStoreRelativeUploadPath(getPublicBaseUrl(req))
-    ? relativeBannerPath
-    : publicBannerUrl;
+  const bannerImageUrl = shouldStoreRelativeUploadPath(getPublicBaseUrl(req)) ? null : publicBannerUrl;
   if (process.env.NODE_ENV !== "production") {
     log("info", "Banner uploaded", {
       route: "POST /api/barbecues/:bbqId/banner",
       uploadDir: EVENT_BANNER_UPLOAD_DIR,
       fileName,
       storedBannerImageUrl: bannerImageUrl,
+      storedBannerAssetId: fileName,
       publicBannerUrl,
     });
   }
-  const updated = await bbqRepo.update(bbqId, { bannerImageUrl });
+  const updated = await bbqRepo.update(bbqId, {
+    bannerImageUrl,
+    bannerAssetId: fileName,
+  });
   if (!updated) notFound("Event not found");
 
   const prevFileName = getEventBannerFileNameFromUrl(prevBannerUrl);
@@ -1722,9 +1789,11 @@ router.post("/barbecues/:bbqId/banner", requireAuth, asyncHandler(async (req, re
 
   res.json({
     bbqId,
-    url: publicBannerUrl,
+    assetId: fileName,
+    url: `/api/assets/${encodeURIComponent(fileName)}`,
     path: relativeBannerPath,
     bannerImageUrl: updated.bannerImageUrl ?? null,
+    bannerAssetId: updated.bannerAssetId ?? null,
   });
 }));
 
@@ -1739,15 +1808,15 @@ router.delete("/barbecues/:bbqId/banner", requireAuth, asyncHandler(async (req, 
     await assertEventAccessOrThrow(req, bbqId);
   }
 
-  const oldFileName = getEventBannerFileNameFromUrl(bbq.bannerImageUrl ?? null);
+  const oldFileName = bbq.bannerAssetId ?? getEventBannerFileNameFromUrl(bbq.bannerImageUrl ?? null);
   if (oldFileName) {
     const oldPath = path.join(EVENT_BANNER_UPLOAD_DIR, oldFileName);
     await fs.unlink(oldPath).catch(() => undefined);
   }
 
-  const updated = await bbqRepo.update(bbqId, { bannerImageUrl: null });
+  const updated = await bbqRepo.update(bbqId, { bannerImageUrl: null, bannerAssetId: null });
   if (!updated) notFound("Event not found");
-  res.json({ bbqId, bannerImageUrl: null });
+  res.json({ bbqId, bannerImageUrl: null, bannerAssetId: null });
 }));
 
 router.get("/barbecues/:bbqId/expense-shares", asyncHandler(async (req, res) => {

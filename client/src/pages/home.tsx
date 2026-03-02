@@ -556,7 +556,7 @@ type HomeProps = {
 export default function Home({ appRouteMode = "legacy", routeEventId = null, debugDisableDiscoverModal = false }: HomeProps) {
   const { t } = useLanguage();
   const { prefs: eventHeaderPrefs } = useEventHeaderPreferences();
-  const { user, isLoading: isAuthLoading, logout, resendVerification, updateProfile, deleteAccount } = useAuth();
+  const { user, isLoading: isAuthLoading, logout, updateProfile, deleteAccount } = useAuth();
   const [, setLocation] = useLocation();
   const username = user?.username ?? null;
   const { toast } = useToast();
@@ -1745,8 +1745,6 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
   const canManage = isCreator || (!!selectedBbq && !!myParticipant);
   const canEditEvent = canManage;
   const isAcceptedMember = !isCreator && !!myParticipant;
-  const verifyBannerFlag = import.meta.env.VITE_SHOW_VERIFY_BANNER;
-  const showVerifyBanner = verifyBannerFlag != null ? verifyBannerFlag !== "false" : !import.meta.env.DEV;
 
   const eventStatus = (selectedBbq?.status as "draft" | "active" | "settling" | "settled") ?? "active";
   const showEventStatusPill = isPublicBuilderContext || eventStatus !== "active";
@@ -2844,28 +2842,6 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
           </div>
         </SheetContent>
       </Sheet>
-
-      {/* Email verification banner */}
-      {showVerifyBanner && user && !user.emailVerifiedAt && (
-        <div
-          className="flex items-center justify-between gap-3 px-3 sm:px-6 lg:px-8 py-2 bg-amber-500/15 border-b border-amber-500/30 text-amber-700 dark:text-amber-300"
-          data-testid="banner-verify-email"
-        >
-          <p className="text-sm font-medium">Verify your email to unlock all features.</p>
-          <Button
-            size="sm"
-            variant="outline"
-            className="border-amber-500/50 text-amber-700 dark:text-amber-300 hover:bg-amber-500/20"
-            onClick={() => resendVerification.mutate(undefined, {
-              onSuccess: (data) => toastInfo(data?.sent ? "Verification email sent" : "Check your profile"),
-              onError: () => toastError("Couldn’t send verification email. Try again."),
-            })}
-            disabled={resendVerification.isPending}
-          >
-            {resendVerification.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : "Resend"}
-          </Button>
-        </div>
-      )}
 
       {/* Legacy top controls (hidden in managed /app routes, moved to sidebar) */}
       {!isManagedAppRoute && (

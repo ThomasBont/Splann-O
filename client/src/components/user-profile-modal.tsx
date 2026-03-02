@@ -35,7 +35,6 @@ import {
   CalendarDays,
   Heart,
   Receipt,
-  Mail,
   LogOut,
   User,
 } from "lucide-react";
@@ -70,7 +69,7 @@ export function UserProfileModal({ open, onOpenChange, username: usernameProp, o
   const { t, language, setLanguage } = useLanguage();
   const { preference: themePreference, setPreference: setThemePreference } = useTheme();
   const { toast } = useToast();
-  const { user: authUser, updateProfile, deleteAccount, resendVerification, logout } = useAuth();
+  const { user: authUser, updateProfile, deleteAccount, logout } = useAuth();
   const isOwnProfile = !usernameProp || usernameProp === authUser?.username;
   const effectiveUsername = usernameProp ?? authUser?.username ?? null;
 
@@ -241,29 +240,6 @@ export function UserProfileModal({ open, onOpenChange, username: usernameProp, o
                   )}
                   {isOwnProfile && authUser?.email && (
                     <p className="text-xs text-muted-foreground" data-testid="text-profile-email">{authUser.email}</p>
-                  )}
-                  {isOwnProfile && authUser?.email && !authUser?.emailVerifiedAt && (
-                    <div className="mt-2 flex flex-col items-center gap-1">
-                      <span className="text-xs text-amber-500">Email not verified</span>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 text-xs"
-                        onClick={() =>
-                          resendVerification.mutate(undefined, {
-                            onSuccess: (data) => {
-                              toast({ variant: "success", title: data.sent ? "Verification email sent. Check your inbox." : "Already verified." });
-                              if (data.sent) window.location.href = "/check-email";
-                            },
-                            onError: () => toast({ variant: "destructive", title: "Failed to send verification email." }),
-                          })
-                        }
-                        disabled={resendVerification.isPending}
-                      >
-                        {resendVerification.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Mail className="w-3 h-3 mr-1" />}
-                        {resendVerification.isPending ? "Sending…" : "Send verification email"}
-                      </Button>
-                    </div>
                   )}
                   {!editMode && displayUser?.bio && (
                     <p className="text-sm text-muted-foreground mt-2 max-w-xs mx-auto">{displayUser.bio}</p>

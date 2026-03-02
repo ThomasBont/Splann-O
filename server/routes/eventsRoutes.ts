@@ -212,6 +212,7 @@ router.get("/:eventId/invites", requireAuth, asyncHandler(async (req, res) => {
     res.json(rows.map((row) => ({
       id: row.id,
       email: row.email,
+      inviteeUserId: row.acceptedByUserId ? Number(row.acceptedByUserId) : null,
       token: row.token,
       inviteUrl: `${appOrigin}/invite/${row.token}`,
       status: row.status,
@@ -229,16 +230,26 @@ router.post("/:eventId/invites", requireAuth, asyncHandler(async (req, res) => {
     if (!Number.isFinite(eventId)) badRequest("Invalid event id");
     await assertEventAccessOrThrow(req, eventId);
 
-    const parsed = z.object({ email: z.string().email().optional() }).parse(req.body ?? {});
+    const parsed = z.object({
+      email: z.string().email().optional(),
+      userId: z.coerce.number().int().positive().optional(),
+    }).parse(req.body ?? {});
+    if (!parsed.email && !parsed.userId) badRequest("Provide email or userId");
+    if (parsed.email && parsed.userId) badRequest("Provide either email or userId, not both");
+    const invitee = parsed.userId ? await userRepo.findById(parsed.userId) : null;
+    if (parsed.userId && !invitee) notFound("User not found");
+
     const token = randomBytes(32).toString("base64url");
     const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
     const [invite] = await db.insert(eventInvites).values({
       eventId,
       inviterUserId: req.session!.userId!,
-      email: parsed.email ?? null,
+      email: parsed.email ?? (invitee?.email ?? null),
       token,
       status: "pending",
       expiresAt,
+      // Reuse acceptedByUserId as invite target user for in-app invite flow.
+      acceptedByUserId: invitee?.id ?? null,
     }).returning();
 
     const appOrigin = getAppOrigin(req);
@@ -250,6 +261,7 @@ router.post("/:eventId/invites", requireAuth, asyncHandler(async (req, res) => {
       invite: {
         id: invite.id,
         email: invite.email,
+        inviteeUserId: invite.acceptedByUserId ? Number(invite.acceptedByUserId) : null,
         status: invite.status,
         createdAt: invite.createdAt ? invite.createdAt.toISOString() : null,
         expiresAt: invite.expiresAt.toISOString(),
@@ -262,6 +274,11 @@ router.post("/:eventId/invites", requireAuth, asyncHandler(async (req, res) => {
       inviteId: invite.id,
       token,
       inviteUrl,
+      inviteeUserId: invite.acceptedByUserId ? Number(invite.acceptedByUserId) : null,
+      email: invite.email,
+      status: invite.status,
+      createdAt: invite.createdAt ? invite.createdAt.toISOString() : null,
+      expiresAt: invite.expiresAt.toISOString(),
     });
   } catch (err) {
     return handleEventsRouteError("POST /api/events/:eventId/invites", req, err, res);

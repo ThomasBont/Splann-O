@@ -245,7 +245,8 @@ export type EventInviteView = {
   token?: string | null;
   inviteUrl?: string | null;
   email?: string | null;
-  status: "pending" | "accepted" | "revoked" | "expired" | string;
+  inviteeUserId?: number | null;
+  status: "pending" | "accepted" | "declined" | "revoked" | "expired" | string;
   createdAt?: string | null;
   expiresAt?: string | null;
 };
@@ -279,7 +280,7 @@ export function usePendingEventInvites(eventId: number | null) {
 export function useCreateEventInvite(eventId: number | null) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (payload: { email?: string }) => {
+    mutationFn: async (payload: { email?: string; userId?: number }) => {
       if (!eventId) throw new Error("No event selected");
       const res = await fetch(`/api/events/${eventId}/invites`, {
         method: "POST",
@@ -289,7 +290,16 @@ export function useCreateEventInvite(eventId: number | null) {
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error((body as { message?: string }).message || "Failed to create invite");
-      return body as { inviteId: string; token: string; inviteUrl: string };
+      return body as {
+        inviteId: string;
+        token: string;
+        inviteUrl: string;
+        inviteeUserId?: number | null;
+        email?: string | null;
+        status?: string;
+        createdAt?: string | null;
+        expiresAt?: string | null;
+      };
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/events", eventId, "invites", "pending"] });

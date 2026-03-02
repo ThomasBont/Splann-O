@@ -684,6 +684,12 @@ router.post("/invites/:token/accept", requireAuth, asyncHandler(async (req, res)
     if (!invite) notFound("Invite not found");
     if (invite.status !== "pending") conflict("Invite already handled");
     if (invite.expiresAt.getTime() <= Date.now()) gone("Invite expired");
+    const me = await userRepo.findById(userId);
+    const canAcceptInvite =
+      (invite.acceptedByUserId && invite.acceptedByUserId === userId)
+      || (!invite.acceptedByUserId && invite.email && me?.email && invite.email.toLowerCase() === me.email.toLowerCase())
+      || (!invite.acceptedByUserId && !invite.email);
+    if (!canAcceptInvite) forbidden("Invite does not belong to this user");
 
     const eventId = invite.eventId;
     const now = new Date();
@@ -719,7 +725,6 @@ router.post("/invites/:token/accept", requireAuth, asyncHandler(async (req, res)
       acceptedAt: now,
     }).where(eq(eventInvites.id, invite.id));
 
-    const me = await userRepo.findById(userId);
     broadcastEventRealtime(eventId, {
       type: "event:member_joined",
       eventId,
@@ -1237,6 +1242,148 @@ router.patch("/notifications/events/:id/read", requireAuth, asyncHandler(async (
   res.status(204).send();
 }));
 
+async function listPendingPlanInvitesForUser(userId: number) {
+  const me = await userRepo.findById(userId);
+  if (!me) return [];
+  const rows = await db
+    .select()
+    .from(eventInvites)
+    .where(eq(eventInvites.status, "pending"))
+    .orderBy(desc(eventInvites.createdAt));
+
+  const visible = rows.filter((invite) => {
+    if (invite.acceptedByUserId && invite.acceptedByUserId === userId) return true;
+    if (!invite.acceptedByUserId && invite.email && me.email) {
+      return invite.email.toLowerCase() === me.email.toLowerCase();
+    }
+    return false;
+  });
+
+  return Promise.all(visible.map(async (invite) => {
+    const event = await bbqRepo.getById(invite.eventId);
+    const inviter = invite.inviterUserId ? await userRepo.findById(invite.inviterUserId) : null;
+    return {
+      id: invite.id,
+      eventId: invite.eventId,
+      eventName: event?.name ?? "Plan",
+      inviterName: inviter?.displayName || inviter?.username || null,
+      email: invite.email ?? null,
+      status: invite.status,
+      createdAt: invite.createdAt ? invite.createdAt.toISOString() : null,
+    };
+  }));
+}
+
+router.get("/notifications", requireAuth, asyncHandler(async (req, res) => {
+  const userId = req.session!.userId!;
+  const friendRequests = await participantRepo.getFriendRequests(userId);
+  const planInvites = await listPendingPlanInvitesForUser(userId);
+  res.json({ friendRequests, planInvites });
+}));
+
+router.get("/plans/invites/pending", requireAuth, asyncHandler(async (req, res) => {
+  const userId = req.session!.userId!;
+  const items = await listPendingPlanInvitesForUser(userId);
+  res.json(items);
+}));
+
+router.post("/plans/invites/:inviteId/accept", requireAuth, asyncHandler(async (req, res) => {
+  const inviteId = String(req.params.inviteId ?? "").trim();
+  if (!inviteId) badRequest("Invalid invite id");
+  const userId = req.session!.userId!;
+  const me = await userRepo.findById(userId);
+  if (!me) unauthorized("Not authenticated");
+
+  const invite = await db.transaction(async (tx) => {
+    const row = await tx.select().from(eventInvites).where(eq(eventInvites.id, inviteId)).limit(1);
+    const current = row[0];
+    if (!current) notFound("Invite not found");
+    if (current.status !== "pending") conflict("Invite already handled");
+    if (current.expiresAt.getTime() <= Date.now()) gone("Invite expired");
+    const canHandle =
+      (current.acceptedByUserId && current.acceptedByUserId === userId)
+      || (!current.acceptedByUserId && current.email && me.email && current.email.toLowerCase() === me.email.toLowerCase());
+    if (!canHandle) forbidden("Invite does not belong to this user");
+
+    const now = new Date();
+    await tx.update(eventInvites).set({
+      status: "accepted",
+      acceptedByUserId: userId,
+      acceptedAt: now,
+    }).where(eq(eventInvites.id, current.id));
+    await tx.insert(eventMembers).values({
+      eventId: current.eventId,
+      userId,
+      role: "member",
+      joinedAt: now,
+    }).onConflictDoNothing({ target: [eventMembers.eventId, eventMembers.userId] });
+    await tx.insert(participants).values({
+      barbecueId: current.eventId,
+      name: me.displayName || me.username,
+      userId: me.username,
+      invitedUserId: me.id,
+      status: "accepted",
+    }).onConflictDoNothing();
+    return { ...current, acceptedAt: now };
+  });
+
+  broadcastEventRealtime(invite.eventId, {
+    type: "event:member_joined",
+    eventId: Number(invite.eventId),
+    member: {
+      userId: Number(userId),
+      name: me.displayName || me.username,
+      username: me.username,
+      avatarUrl: me.avatarUrl ?? me.profileImageUrl ?? null,
+      role: "member",
+      joinedAt: (invite.acceptedAt ?? new Date()).toISOString(),
+    },
+  });
+  await logPlanActivity({
+    eventId: invite.eventId,
+    type: "MEMBER_JOINED",
+    actorUserId: userId,
+    actorName: me.displayName || me.username,
+    message: `${me.displayName || me.username} joined the plan`,
+    meta: { userId },
+  });
+
+  const event = await bbqRepo.getById(invite.eventId);
+  res.json({
+    inviteId: invite.id,
+    eventId: invite.eventId,
+    eventName: event?.name ?? "Plan",
+    membership: {
+      eventId: invite.eventId,
+      userId,
+      role: "member",
+    },
+  });
+}));
+
+router.post("/plans/invites/:inviteId/decline", requireAuth, asyncHandler(async (req, res) => {
+  const inviteId = String(req.params.inviteId ?? "").trim();
+  if (!inviteId) badRequest("Invalid invite id");
+  const userId = req.session!.userId!;
+  const me = await userRepo.findById(userId);
+  if (!me) unauthorized("Not authenticated");
+
+  const [invite] = await db.select().from(eventInvites).where(eq(eventInvites.id, inviteId)).limit(1);
+  if (!invite) notFound("Invite not found");
+  if (invite.status !== "pending") conflict("Invite already handled");
+  const canHandle =
+    (invite.acceptedByUserId && invite.acceptedByUserId === userId)
+    || (!invite.acceptedByUserId && invite.email && me.email && invite.email.toLowerCase() === me.email.toLowerCase());
+  if (!canHandle) forbidden("Invite does not belong to this user");
+
+  await db.update(eventInvites).set({
+    status: "declined",
+    acceptedByUserId: invite.acceptedByUserId ?? userId,
+  }).where(eq(eventInvites.id, invite.id));
+
+  res.json({ inviteId: invite.id, status: "declined" });
+}));
+
 // Participants
 router.get(p(api.participants.list.path), asyncHandler(async (req, res) => {
   const bbq = await getBarbecueOr404(req, Number(req.params.bbqId));
@@ -1713,6 +1860,16 @@ router.post("/friends/request", requireAuth, asyncHandler(async (req, res) => {
 
 router.patch("/friends/:id/accept", requireAuth, asyncHandler(async (req, res) => {
   await participantRepo.acceptFriendRequest(Number(req.params.id));
+  res.json({ ok: true });
+}));
+
+router.post("/friends/requests/:id/accept", requireAuth, asyncHandler(async (req, res) => {
+  await participantRepo.acceptFriendRequest(Number(req.params.id));
+  res.json({ ok: true });
+}));
+
+router.post("/friends/requests/:id/decline", requireAuth, asyncHandler(async (req, res) => {
+  await participantRepo.declineFriendRequest(Number(req.params.id));
   res.json({ ok: true });
 }));
 

@@ -12,7 +12,7 @@ import {
   useAcceptInvite, useDeclineInvite,
 } from "@/hooks/use-participants";
 import { useExpenses, useDeleteExpense, useExpenseShares, useSetExpenseShare } from "@/hooks/use-expenses";
-import { useBarbecues, useCreateBarbecue, useDeleteBarbecue, useUpdateBarbecue, useEnsureInviteToken, useSettleUp, useEventNotifications, useMarkEventNotificationRead, useCheckoutPublicListing, useDeactivateListing, useExploreEvents, usePublicEventRsvpRequests, useUpdatePublicEventRsvpRequest, useConversations, useConversation, useSendConversationMessage, useUpdateConversationStatus, useUploadEventBanner, useDeleteEventBanner, type EventNotification, type ExploreEvent } from "@/hooks/use-bbq-data";
+import { useBarbecues, useCreateBarbecue, useDeleteBarbecue, useUpdateBarbecue, useEnsureInviteToken, useSettleUp, useCheckoutPublicListing, useDeactivateListing, useExploreEvents, usePublicEventRsvpRequests, useUpdatePublicEventRsvpRequest, useConversations, useConversation, useSendConversationMessage, useUpdateConversationStatus, useUploadEventBanner, useDeleteEventBanner, useNotifications, useAcceptPlanInvite, useDeclinePlanInvite, useAcceptFriendRequestNotification, useDeclineFriendRequestNotification, type ExploreEvent, type PlanInviteNotification } from "@/hooks/use-bbq-data";
 import { useQueryClient } from "@tanstack/react-query";
 import { useFriends, useFriendRequests, useAllPendingRequests, useAcceptFriendRequest, useRemoveFriend, useSearchUsers, useSendFriendRequest } from "@/hooks/use-friends";
 import { Button } from "@/components/ui/button";
@@ -644,8 +644,13 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
   const { data: friends = [] } = useFriends();
   const { data: friendRequests = [] } = useFriendRequests();
   const { data: allPendingRequests = [] } = useAllPendingRequests();
-  const { data: eventNotifications = [] } = useEventNotifications(!!user);
-  const markEventNotifRead = useMarkEventNotificationRead();
+  const { data: notificationsPayload } = useNotifications(!!user);
+  const pendingPlanInvites = notificationsPayload?.planInvites ?? [];
+  const pendingFriendRequests = notificationsPayload?.friendRequests ?? [];
+  const acceptPlanInvite = useAcceptPlanInvite();
+  const declinePlanInvite = useDeclinePlanInvite();
+  const acceptFriendRequestNotif = useAcceptFriendRequestNotification();
+  const declineFriendRequestNotif = useDeclineFriendRequestNotification();
   const acceptFriendReq = useAcceptFriendRequest();
   const removeFriendMut = useRemoveFriend();
   const sendFriendRequest = useSendFriendRequest();
@@ -1946,88 +1951,20 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
             {user ? (
               <div className="flex items-center gap-1">
                 {/* Notification Bell */}
-                <Popover open={notifOpen} onOpenChange={setNotifOpen}>
-                  <PopoverTrigger asChild>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="relative"
-                      data-testid="button-notifications"
-                    >
-                      <Bell className="w-4 h-4" />
-                      {(allPendingRequests.length > 0 || eventNotifications.filter((n: EventNotification) => !n.readAt).length > 0) && (
-                        <span className="absolute -top-0.5 -right-0.5 bg-destructive text-destructive-foreground text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center" data-testid="badge-notifications">
-                          {allPendingRequests.length + eventNotifications.filter((n: EventNotification) => !n.readAt).length}
-                        </span>
-                      )}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent align="end" className="w-72 p-3 space-y-4">
-                    {/* Settle-up notifications */}
-                    {eventNotifications.length > 0 && (
-                      <>
-                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{t.settleUp.statusSettling}</p>
-                        {eventNotifications.slice(0, 5).map((n: EventNotification) => {
-                          const p = n.payload as { creatorName?: string; amountOwed?: number; eventName?: string; currency?: string } | null;
-                          const isRead = !!n.readAt;
-                          return (
-                            <button
-                              key={n.id}
-                              type="button"
-                              onClick={() => {
-                                markEventNotifRead.mutate(n.id);
-                                const bbq = barbecues.find((b: Barbecue) => b.id === n.barbecueId);
-                                if (bbq) setArea(getEventArea(bbq));
-                                setSelectedBbqId(n.barbecueId);
-                                setNotifOpen(false);
-                                setActiveEventTab("split");
-                              }}
-                              className={`w-full text-left bg-secondary/20 border border-white/5 rounded-xl px-2.5 py-2 transition-colors hover:bg-secondary/30 ${isRead ? "opacity-70" : ""}`}
-                              data-testid={`notif-settle-${n.id}`}
-                            >
-                              <p className="text-sm font-medium truncate">
-                                {(p?.creatorName ?? "Someone")} {t.settleUp.participantBanner} 💸
-                              </p>
-                              <p className="text-[11px] text-muted-foreground">
-                                {t.settleUp.tapToSettle} {(getCurrency(p?.currency ?? "EUR") ?? getCurrency("EUR"))!.symbol}{(p?.amountOwed ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                              </p>
-                            </button>
-                          );
-                        })}
-                        {eventNotifications.length > 5 && (
-                          <p className="text-[11px] text-muted-foreground">+{eventNotifications.length - 5} more</p>
-                        )}
-                      </>
-                    )}
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{t.user.pendingRequests}</p>
-                    {allPendingRequests.length === 0 && eventNotifications.length === 0 ? (
-                      <p className="text-xs text-muted-foreground text-center py-2">{t.friends.noRequests}</p>
-                    ) : allPendingRequests.length === 0 ? (
-                      <p className="text-xs text-muted-foreground text-center py-2">{t.friends.noRequests}</p>
-                    ) : (
-                      allPendingRequests.map((req: PendingRequestWithBbq) => (
-                        <div key={req.id} className="flex items-center justify-between gap-2 bg-secondary/20 border border-white/5 rounded-xl px-2.5 py-2" data-testid={`notif-request-${req.id}`}>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-medium truncate">{req.name}</p>
-                            <p className="text-[11px] text-muted-foreground truncate">{t.notifications.wantsToJoin} {req.bbqName}</p>
-                          </div>
-                          <div className="flex gap-1 flex-shrink-0">
-                            <Button size="icon" variant="ghost"
-                              onClick={() => acceptParticipant.mutate(req.id)}
-                              data-testid={`button-notif-accept-${req.id}`}>
-                              <UserCheck className="w-3.5 h-3.5 text-green-400" />
-                            </Button>
-                            <Button size="icon" variant="ghost"
-                              onClick={() => rejectParticipant.mutate(req.id)}
-                              data-testid={`button-notif-reject-${req.id}`}>
-                              <UserX className="w-3.5 h-3.5 text-red-400" />
-                            </Button>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </PopoverContent>
-                </Popover>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="relative"
+                  data-testid="button-notifications"
+                  onClick={() => setNotifOpen(true)}
+                >
+                  <Bell className="w-4 h-4" />
+                  {(pendingFriendRequests.length + pendingPlanInvites.length > 0) && (
+                    <span className="absolute -top-0.5 -right-0.5 bg-destructive text-destructive-foreground text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center" data-testid="badge-notifications">
+                      {pendingFriendRequests.length + pendingPlanInvites.length}
+                    </span>
+                  )}
+                </Button>
 
                 <Button
                   variant="ghost"
@@ -2067,6 +2004,135 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
           </div>
         </div>
       </header>
+
+      <Sheet open={notifOpen} onOpenChange={setNotifOpen}>
+        <SheetContent
+          side="right"
+          className="h-full w-[420px] max-w-[92vw] border-l border-slate-200 bg-white p-0 shadow-2xl dark:border-neutral-800 dark:bg-[#121212]"
+        >
+          <div className="flex h-full flex-col">
+            <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-5 py-4 backdrop-blur dark:border-neutral-800 dark:bg-[#121212]/95">
+              <SheetHeader className="space-y-1 text-left">
+                <SheetTitle className="text-lg font-semibold text-slate-900 dark:text-neutral-100">Notifications</SheetTitle>
+                <SheetDescription className="text-sm text-slate-500 dark:text-neutral-400">
+                  Friend requests and plan invites
+                </SheetDescription>
+              </SheetHeader>
+            </header>
+
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 space-y-4">
+              <section className="rounded-2xl border border-border bg-card p-4">
+                <h3 className="text-sm font-semibold text-foreground">Friend requests</h3>
+                <div className="mt-3 space-y-2">
+                  {pendingFriendRequests.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No friend requests</p>
+                  ) : (
+                    pendingFriendRequests.map((request) => {
+                      const displayName = request.displayName || request.username;
+                      return (
+                        <div key={request.friendshipId} className="flex items-center justify-between gap-2 rounded-xl border border-border/70 bg-background/40 px-3 py-2">
+                          <div className="min-w-0 flex items-center gap-2.5">
+                            <span className="grid h-8 w-8 place-items-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                              {(displayName[0] || "?").toUpperCase()}
+                            </span>
+                            <div className="min-w-0">
+                              <p className="truncate text-sm text-foreground">{displayName}</p>
+                              <p className="text-[11px] text-muted-foreground">@{request.username}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              disabled={acceptFriendRequestNotif.isPending}
+                              onClick={() => {
+                                acceptFriendRequestNotif.mutate(request.friendshipId, {
+                                  onSuccess: () => toastSuccess("Friend request accepted"),
+                                  onError: (error) => toastError(error instanceof Error ? error.message : "Couldn’t accept request."),
+                                });
+                              }}
+                            >
+                              <UserCheck className="w-3.5 h-3.5 text-green-500" />
+                            </Button>
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              disabled={declineFriendRequestNotif.isPending}
+                              onClick={() => {
+                                declineFriendRequestNotif.mutate(request.friendshipId, {
+                                  onSuccess: () => toastInfo("Friend request declined"),
+                                  onError: (error) => toastError(error instanceof Error ? error.message : "Couldn’t decline request."),
+                                });
+                              }}
+                            >
+                              <UserX className="w-3.5 h-3.5 text-red-500" />
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </section>
+
+              <section className="rounded-2xl border border-border bg-card p-4">
+                <h3 className="text-sm font-semibold text-foreground">Plan invites</h3>
+                <div className="mt-3 space-y-2">
+                  {pendingPlanInvites.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No plan invites</p>
+                  ) : (
+                    pendingPlanInvites.map((invite: PlanInviteNotification) => (
+                      <div key={invite.id} className="flex items-center justify-between gap-2 rounded-xl border border-border/70 bg-background/40 px-3 py-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-foreground">{invite.eventName}</p>
+                          <p className="text-[11px] text-muted-foreground truncate">
+                            {invite.inviterName ? `${invite.inviterName} invited you` : "Pending invite"}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            disabled={acceptPlanInvite.isPending}
+                            onClick={() => {
+                              acceptPlanInvite.mutate(invite.id, {
+                                onSuccess: (payload) => {
+                                  setSelectedBbqId(payload.eventId);
+                                  toastSuccess("Invite accepted");
+                                },
+                                onError: (error) => toastError(error instanceof Error ? error.message : "Couldn’t accept invite."),
+                              });
+                            }}
+                          >
+                            <UserCheck className="w-3.5 h-3.5 text-green-500" />
+                          </Button>
+                          <Button
+                            type="button"
+                            size="icon"
+                            variant="ghost"
+                            disabled={declinePlanInvite.isPending}
+                            onClick={() => {
+                              declinePlanInvite.mutate(invite.id, {
+                                onSuccess: () => toastInfo("Invite declined"),
+                                onError: (error) => toastError(error instanceof Error ? error.message : "Couldn’t decline invite."),
+                              });
+                            }}
+                          >
+                            <UserX className="w-3.5 h-3.5 text-red-500" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </section>
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
 
       <Sheet open={isAccountDrawerOpen} onOpenChange={(next) => setIsAccountDrawerOpen(next)}>
         <SheetContent

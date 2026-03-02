@@ -139,9 +139,10 @@ export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
   const handleAddMember = async (userId: number, displayName: string) => {
     try {
       await addMember(userId);
-      toastSuccess(`Added ${displayName} to the plan`);
+      toastSuccess(`Invited ${displayName} to the plan`);
       setSearchInput("");
       setDebouncedSearch("");
+      await refresh();
     } catch (err) {
       console.error("[guests] add member failed", err);
       const e = err as Error & { status?: number; code?: string };
@@ -155,6 +156,10 @@ export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
   };
 
   const memberIds = useMemo(() => new Set(members.map((m) => m.userId)), [members]);
+  const pendingInviteUserIds = useMemo(
+    () => new Set(invitesPending.map((invite) => invite.inviteeUserId).filter((id): id is number => typeof id === "number")),
+    [invitesPending],
+  );
   const openProfileView = (memberUserId: number) => {
     setSelectedMemberId(String(memberUserId));
     setView("profile");
@@ -298,6 +303,7 @@ export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
                 <div className="max-h-44 space-y-1 overflow-y-auto rounded-xl border border-border bg-background/40 p-1">
                   {userSearch.data.slice(0, 10).map((user: { id: number; displayName?: string | null; username: string; avatarUrl?: string | null }) => {
                     const alreadyMember = memberIds.has(user.id);
+                    const alreadyInvited = pendingInviteUserIds.has(user.id);
                     const label = user.displayName || user.username;
                     return (
                       <div key={`search-user-${user.id}`} className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5 hover:bg-muted/40">
@@ -309,10 +315,10 @@ export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
                           type="button"
                           size="sm"
                           variant="outline"
-                          disabled={alreadyMember || addMemberMutating}
+                          disabled={alreadyMember || alreadyInvited || addMemberMutating}
                           onClick={() => void handleAddMember(user.id, label)}
                         >
-                          {alreadyMember ? "Added" : "Add"}
+                          {alreadyMember ? "In group" : alreadyInvited ? "Invited" : "Invite"}
                         </Button>
                       </div>
                     );

@@ -7,7 +7,6 @@ import {
   useEventMembers,
   usePendingEventInvites,
   useRevokeEventInvite,
-  useAddEventMember,
 } from "@/hooks/use-participants";
 
 function eventWsUrl(eventId: number) {
@@ -24,7 +23,7 @@ type MemberJoinedPayload = {
 type InviteCreatedPayload = {
   type?: string;
   eventId?: number;
-  invite?: EventInviteView;
+  invite?: EventInviteView & { inviteeUserId?: number | null };
 };
 
 type InviteRevokedPayload = {
@@ -39,7 +38,6 @@ export function useEventGuests(eventId: number | null) {
   const pendingInvitesQuery = usePendingEventInvites(eventId);
   const createInviteMutation = useCreateEventInvite(eventId);
   const revokeInviteMutation = useRevokeEventInvite(eventId);
-  const addMemberMutation = useAddEventMember(eventId);
 
   useEffect(() => {
     if (!eventId) return;
@@ -93,8 +91,11 @@ export function useEventGuests(eventId: number | null) {
     ]);
   }, [eventId, queryClient]);
 
-  const createInvite = useCallback(async ({ email }: { email?: string }) => {
-    const payload = email?.trim() ? { email: email.trim() } : { email: undefined };
+  const createInvite = useCallback(async ({ email, userId }: { email?: string; userId?: number }) => {
+    const payload = {
+      email: email?.trim() ? email.trim() : undefined,
+      userId,
+    };
     return createInviteMutation.mutateAsync(payload);
   }, [createInviteMutation]);
 
@@ -103,14 +104,8 @@ export function useEventGuests(eventId: number | null) {
   }, [revokeInviteMutation]);
 
   const addMember = useCallback(async (userId: number) => {
-    if (!eventId) throw new Error("No event selected");
-    const added = await addMemberMutation.mutateAsync({ userId });
-    queryClient.setQueryData<EventMemberView[]>(["/api/events", eventId, "members"], (prev = []) => {
-      if (prev.some((m) => m.userId === added.userId)) return prev;
-      return [added, ...prev];
-    });
-    return added;
-  }, [addMemberMutation, eventId, queryClient]);
+    return createInvite({ userId });
+  }, [createInvite]);
 
   const loading = membersQuery.isLoading || pendingInvitesQuery.isLoading;
   const error = membersQuery.isError ? membersQuery.error : pendingInvitesQuery.isError ? pendingInvitesQuery.error : null;
@@ -128,7 +123,7 @@ export function useEventGuests(eventId: number | null) {
     addMember,
     inviteMutating: createInviteMutation.isPending,
     revokeMutating: revokeInviteMutation.isPending,
-    addMemberMutating: addMemberMutation.isPending,
+    addMemberMutating: createInviteMutation.isPending,
   };
 }
 

@@ -661,6 +661,27 @@ export type EventNotification = {
   readAt: string | null;
 };
 
+export type PlanInviteNotification = {
+  id: string;
+  eventId: number;
+  eventName: string;
+  inviterName: string | null;
+  email: string | null;
+  status: "pending" | "accepted" | "declined" | "revoked" | "expired" | string;
+  createdAt: string | null;
+};
+
+export type AppNotificationsPayload = {
+  friendRequests: Array<{
+    friendshipId: number;
+    userId: number;
+    username: string;
+    displayName: string | null;
+    status: string;
+  }>;
+  planInvites: PlanInviteNotification[];
+};
+
 export function useEventNotifications(enabled = true) {
   return useQuery({
     queryKey: ["/api/notifications/events"],
@@ -682,6 +703,143 @@ export function useMarkEventNotificationRead() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/notifications/events"] });
+    },
+  });
+}
+
+export function usePendingPlanInvites(enabled = true) {
+  return useQuery({
+    queryKey: ["/api/plans/invites/pending"],
+    queryFn: async () => {
+      const res = await fetch("/api/plans/invites/pending", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch pending invites");
+      return res.json() as Promise<PlanInviteNotification[]>;
+    },
+    enabled,
+  });
+}
+
+export function useNotifications(enabled = true) {
+  return useQuery({
+    queryKey: ["/api/notifications"],
+    queryFn: async () => {
+      const res = await fetch("/api/notifications", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to fetch notifications");
+      return res.json() as Promise<AppNotificationsPayload>;
+    },
+    enabled,
+    refetchInterval: 15000,
+  });
+}
+
+export function useAcceptFriendRequestNotification() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (friendshipId: number) => {
+      const res = await fetch(`/api/friends/requests/${friendshipId}/accept`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((body as { message?: string }).message || "Failed to accept friend request");
+      return body as { ok: true };
+    },
+    onSuccess: (_result, friendshipId) => {
+      queryClient.setQueryData<AppNotificationsPayload>(["/api/notifications"], (prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          friendRequests: prev.friendRequests.filter((request) => request.friendshipId !== friendshipId),
+        };
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/friends"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/friends/requests"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/friends/sent"] });
+    },
+  });
+}
+
+export function useDeclineFriendRequestNotification() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (friendshipId: number) => {
+      const res = await fetch(`/api/friends/requests/${friendshipId}/decline`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((body as { message?: string }).message || "Failed to decline friend request");
+      return body as { ok: true };
+    },
+    onSuccess: (_result, friendshipId) => {
+      queryClient.setQueryData<AppNotificationsPayload>(["/api/notifications"], (prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          friendRequests: prev.friendRequests.filter((request) => request.friendshipId !== friendshipId),
+        };
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/friends"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/friends/requests"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/friends/sent"] });
+    },
+  });
+}
+
+export function useAcceptPlanInvite() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (inviteId: string) => {
+      const res = await fetch(`/api/plans/invites/${inviteId}/accept`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((body as { message?: string }).message || "Failed to accept invite");
+      return body as { eventId: number };
+    },
+    onSuccess: (_result, inviteId) => {
+      queryClient.setQueryData<AppNotificationsPayload>(["/api/notifications"], (prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          planInvites: prev.planInvites.filter((invite) => invite.id !== inviteId),
+        };
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/plans/invites/pending"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/memberships"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+    },
+  });
+}
+
+export function useDeclinePlanInvite() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (inviteId: string) => {
+      const res = await fetch(`/api/plans/invites/${inviteId}/decline`, {
+        method: "POST",
+        credentials: "include",
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((body as { message?: string }).message || "Failed to decline invite");
+      return body as { inviteId: string };
+    },
+    onSuccess: (_result, inviteId) => {
+      queryClient.setQueryData<AppNotificationsPayload>(["/api/notifications"], (prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          planInvites: prev.planInvites.filter((invite) => invite.id !== inviteId),
+        };
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/plans/invites/pending"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/memberships"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
     },
   });
 }

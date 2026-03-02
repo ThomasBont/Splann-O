@@ -51,12 +51,14 @@ function normalizeBannerUrl(input: string): string {
   return `https://${trimmed}`;
 }
 
-function toAbsoluteHttpUrl(input: string): string {
+function toAbsoluteHttpUrl(input: string, baseUrl?: string): string {
   const trimmed = input.trim();
   if (!trimmed) return "";
   if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  if (trimmed.startsWith("/") && typeof window !== "undefined") {
-    return new URL(trimmed, window.location.origin).toString();
+  if (trimmed.startsWith("/")) {
+    const base = baseUrl || (typeof window !== "undefined" ? window.location.origin : "");
+    if (!base) return "";
+    return new URL(trimmed, base).toString();
   }
   return "";
 }
@@ -67,12 +69,15 @@ export function PlanDetailsDrawer({ open, onOpenChange, plan, saving = false, on
   const [locationText, setLocationText] = useState("");
   const [dateTimeLocal, setDateTimeLocal] = useState("");
   const [bannerImageUrl, setBannerImageUrl] = useState("");
+  const [baseline, setBaseline] = useState<{ name: string; locationText: string; dateTimeLocal: string; bannerImageUrl: string } | null>(null);
   const [useBannerUrlInput, setUseBannerUrlInput] = useState(false);
   const [bannerUploadFile, setBannerUploadFile] = useState<File | null>(null);
   const [bannerUploadPreviewUrl, setBannerUploadPreviewUrl] = useState<string | null>(null);
   const [bannerUploadError, setBannerUploadError] = useState<string | null>(null);
   const [bannerUploadPending, setBannerUploadPending] = useState(false);
   const [removeBannerRequested, setRemoveBannerRequested] = useState(false);
+  const [bannerPreviewFailed, setBannerPreviewFailed] = useState(false);
+  const [bannerPreviewLoaded, setBannerPreviewLoaded] = useState(false);
   const bannerFileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -84,25 +89,42 @@ export function PlanDetailsDrawer({ open, onOpenChange, plan, saving = false, on
       || [plan.city, plan.countryName].filter(Boolean).join(", ").trim()
       || "",
     );
-    setDateTimeLocal(toDateTimeLocalValue(plan.date));
-    setBannerImageUrl(plan.bannerImageUrl ?? "");
+    const nextDateTime = toDateTimeLocalValue(plan.date);
+    const nextBanner = plan.bannerImageUrl ?? "";
+    setDateTimeLocal(nextDateTime);
+    setBannerImageUrl(nextBanner);
+    setBaseline({
+      name: plan.name ?? "",
+      locationText:
+        plan.locationText?.trim()
+        || plan.locationName?.trim()
+        || [plan.city, plan.countryName].filter(Boolean).join(", ").trim()
+        || "",
+      dateTimeLocal: nextDateTime,
+      bannerImageUrl: nextBanner,
+    });
     setUseBannerUrlInput(false);
     setBannerUploadFile(null);
     setBannerUploadError(null);
     setRemoveBannerRequested(false);
+    setBannerPreviewFailed(false);
+    setBannerPreviewLoaded(false);
     setBannerUploadPreviewUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return null;
     });
   }, [open, plan]);
 
-  const initialName = plan?.name ?? "";
-  const initialLocation = plan?.locationText?.trim()
-    || plan?.locationName?.trim()
-    || [plan?.city, plan?.countryName].filter(Boolean).join(", ").trim()
-    || "";
-  const initialDate = toDateTimeLocalValue(plan?.date ?? null);
-  const initialBanner = plan?.bannerImageUrl ?? "";
+  const initialName = baseline?.name ?? plan?.name ?? "";
+  const initialLocation = baseline?.locationText
+    ?? (
+      plan?.locationText?.trim()
+      || plan?.locationName?.trim()
+      || [plan?.city, plan?.countryName].filter(Boolean).join(", ").trim()
+      || ""
+    );
+  const initialDate = baseline?.dateTimeLocal ?? toDateTimeLocalValue(plan?.date ?? null);
+  const initialBanner = baseline?.bannerImageUrl ?? plan?.bannerImageUrl ?? "";
   const normalizedInitialBannerImageUrl = useMemo(() => normalizeBannerUrl(initialBanner), [initialBanner]);
   const normalizedBannerImageUrl = useMemo(() => normalizeBannerUrl(bannerImageUrl), [bannerImageUrl]);
   const bannerPreviewUrl = bannerUploadPreviewUrl || normalizedBannerImageUrl || "";
@@ -141,6 +163,11 @@ export function PlanDetailsDrawer({ open, onOpenChange, plan, saving = false, on
       if (bannerUploadPreviewUrl) URL.revokeObjectURL(bannerUploadPreviewUrl);
     };
   }, [bannerUploadPreviewUrl]);
+
+  useEffect(() => {
+    setBannerPreviewFailed(false);
+    setBannerPreviewLoaded(false);
+  }, [bannerPreviewUrl]);
 
   const isValid = name.trim().length > 0 && locationText.trim().length > 0 && dateTimeLocal.trim().length > 0;
   const isDirty = useMemo(
@@ -186,8 +213,10 @@ export function PlanDetailsDrawer({ open, onOpenChange, plan, saving = false, on
         if (!uploadRes.ok) {
           throw new Error((uploadPayload as { message?: string }).message || "Couldn’t upload banner image.");
         }
-        const uploadedRaw = String((uploadPayload as { bannerImageUrl?: string }).bannerImageUrl ?? "");
-        const uploadedAbsolute = toAbsoluteHttpUrl(uploadedRaw);
+        const uploadedRaw = String((uploadPayload as { url?: string; bannerImageUrl?: string }).url
+          ?? (uploadPayload as { url?: string; bannerImageUrl?: string }).bannerImageUrl
+          ?? "");
+        const uploadedAbsolute = toAbsoluteHttpUrl(uploadedRaw, uploadRes.url);
         if (!uploadedAbsolute) {
           throw new Error("Banner image URL could not be saved.");
         }
@@ -212,9 +241,6 @@ export function PlanDetailsDrawer({ open, onOpenChange, plan, saving = false, on
         date: isoDate,
       };
       if (nextBannerImageUrl !== undefined) payload.bannerImageUrl = nextBannerImageUrl;
-      if (import.meta.env.DEV) {
-        console.debug("[plan-details-save] payload", payload);
-      }
       await onSave(payload);
       setBannerUploadPending(false);
       setBannerUploadFile(null);
@@ -225,12 +251,21 @@ export function PlanDetailsDrawer({ open, onOpenChange, plan, saving = false, on
         if (prev) URL.revokeObjectURL(prev);
         return null;
       });
-      setBannerImageUrl(nextBannerImageUrl ?? normalizedInitialBannerImageUrl);
+      const savedBanner = nextBannerImageUrl ?? normalizedInitialBannerImageUrl;
+      setBannerImageUrl(savedBanner);
+      setBaseline({
+        name: name.trim(),
+        locationText: locationText.trim(),
+        dateTimeLocal,
+        bannerImageUrl: savedBanner,
+      });
     } catch (error) {
       setBannerUploadPending(false);
       toastError((error as Error).message || "Couldn’t save plan details. Try again.");
     }
   };
+
+  const debugBannerUrl = bannerUploadFile ? "" : (normalizedBannerImageUrl || plan?.bannerImageUrl || "");
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -296,11 +331,29 @@ export function PlanDetailsDrawer({ open, onOpenChange, plan, saving = false, on
                 <div className="space-y-2 rounded-xl border border-border bg-card p-3">
                   {bannerPreviewUrl ? (
                     <div className="overflow-hidden rounded-lg border border-border/70">
-                      <img
-                        src={bannerPreviewUrl}
-                        alt="Banner preview"
-                        className="aspect-video w-full object-cover"
-                      />
+                      {bannerPreviewFailed ? (
+                        <div className="grid aspect-video w-full place-items-center bg-muted/40 text-xs text-muted-foreground">
+                          Banner failed to load
+                        </div>
+                      ) : (
+                        <>
+                          {!bannerPreviewLoaded ? (
+                            <div className="grid aspect-video w-full place-items-center bg-muted/30 text-xs text-muted-foreground">
+                              Loading banner…
+                            </div>
+                          ) : null}
+                          <img
+                            src={bannerPreviewUrl}
+                            alt="Banner preview"
+                            className={`aspect-video w-full object-cover ${bannerPreviewLoaded ? "block" : "hidden"}`}
+                            onLoad={() => setBannerPreviewLoaded(true)}
+                            onError={() => {
+                              setBannerPreviewFailed(true);
+                              console.error("BANNER_LOAD_FAILED", bannerPreviewUrl);
+                            }}
+                          />
+                        </>
+                      )}
                     </div>
                   ) : (
                     <div className="grid aspect-video w-full place-items-center rounded-lg border border-dashed border-border/70 bg-muted/30 text-xs text-muted-foreground">
@@ -382,6 +435,23 @@ export function PlanDetailsDrawer({ open, onOpenChange, plan, saving = false, on
                   ) : null}
                   {bannerUploadError ? (
                     <p className="text-xs text-destructive">{bannerUploadError}</p>
+                  ) : null}
+                  {import.meta.env.DEV ? (
+                    <div className="space-y-1">
+                      <p className="break-all text-[10px] text-muted-foreground">
+                        {debugBannerUrl || "No persisted banner URL"}
+                      </p>
+                      {/^https?:\/\//i.test(debugBannerUrl) ? (
+                        <a
+                          href={debugBannerUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[10px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                        >
+                          Open image
+                        </a>
+                      ) : null}
+                    </div>
                   ) : null}
                 </div>
               </div>

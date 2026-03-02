@@ -182,7 +182,29 @@ async function assertEventAccessOrThrow(req: Request, eventId: number) {
 }
 
 function getAppOrigin(req: Request) {
-  return (process.env.APP_URL ?? process.env.APP_BASE_URL ?? "").replace(/\/$/, "") || `${req.protocol}://${req.get("host")}`;
+  return (process.env.PUBLIC_BASE_URL ?? process.env.APP_URL ?? process.env.APP_BASE_URL ?? "").replace(/\/$/, "") || `${req.protocol}://${req.get("host")}`;
+}
+
+function toPublicUploadsUrl(req: Request, relativePath: string): string {
+  const origin = getAppOrigin(req);
+  return new URL(relativePath, `${origin}/`).toString();
+}
+
+function getEventBannerFileNameFromUrl(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  let pathname = trimmed;
+  if (/^https?:\/\//i.test(trimmed)) {
+    try {
+      pathname = new URL(trimmed).pathname;
+    } catch {
+      return null;
+    }
+  }
+  if (!pathname.startsWith("/uploads/event-banners/")) return null;
+  const fileName = path.basename(pathname);
+  return fileName || null;
 }
 
 function isMissingSchemaError(err: unknown): boolean {
@@ -1501,17 +1523,20 @@ router.post("/barbecues/:bbqId/banner", requireAuth, asyncHandler(async (req, re
   await fs.writeFile(filePath, buffer);
 
   const prevBannerUrl = bbq.bannerImageUrl ?? null;
-  const bannerImageUrl = `/uploads/event-banners/${fileName}`;
+  const relativeBannerPath = `/uploads/event-banners/${fileName}`;
+  const bannerImageUrl = toPublicUploadsUrl(req, relativeBannerPath);
   const updated = await bbqRepo.update(bbqId, { bannerImageUrl });
   if (!updated) notFound("Event not found");
 
-  if (prevBannerUrl?.startsWith("/uploads/event-banners/")) {
-    const oldPath = path.join(EVENT_BANNER_UPLOAD_DIR, path.basename(prevBannerUrl));
+  const prevFileName = getEventBannerFileNameFromUrl(prevBannerUrl);
+  if (prevFileName) {
+    const oldPath = path.join(EVENT_BANNER_UPLOAD_DIR, prevFileName);
     await fs.unlink(oldPath).catch(() => undefined);
   }
 
   res.json({
     bbqId,
+    url: updated.bannerImageUrl ?? null,
     bannerImageUrl: updated.bannerImageUrl ?? null,
   });
 }));
@@ -1527,8 +1552,9 @@ router.delete("/barbecues/:bbqId/banner", requireAuth, asyncHandler(async (req, 
     await assertEventAccessOrThrow(req, bbqId);
   }
 
-  if (bbq.bannerImageUrl?.startsWith("/uploads/event-banners/")) {
-    const oldPath = path.join(EVENT_BANNER_UPLOAD_DIR, path.basename(bbq.bannerImageUrl));
+  const oldFileName = getEventBannerFileNameFromUrl(bbq.bannerImageUrl ?? null);
+  if (oldFileName) {
+    const oldPath = path.join(EVENT_BANNER_UPLOAD_DIR, oldFileName);
     await fs.unlink(oldPath).catch(() => undefined);
   }
 

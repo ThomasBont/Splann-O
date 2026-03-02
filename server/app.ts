@@ -3,6 +3,7 @@ import cors from "cors";
 import helmet from "helmet";
 import session from "express-session";
 import ConnectPgSimple from "connect-pg-simple";
+import path from "path";
 import { pool } from "./db";
 import { requestContext } from "./middleware/requestContext";
 import { errorHandler } from "./middleware/errorHandler";
@@ -81,6 +82,9 @@ export function createApp() {
   );
 
   app.use(requestContext);
+
+  // Uploaded assets must be directly browser-loadable in both dev and prod.
+  app.use("/uploads", express.static(path.resolve(process.cwd(), "public/uploads")));
 
   // Temporary feature lock: disable public/explore surfaces while private UX is being polished.
   if (!publicSectionEnabled) {

@@ -296,7 +296,24 @@ export function useUpdateBarbecue() {
       if (rest.publicListingExpiresAt !== undefined) body.publicListingExpiresAt = rest.publicListingExpiresAt;
       if (rest.organizationName !== undefined) body.organizationName = rest.organizationName;
       if (rest.publicDescription !== undefined) body.publicDescription = rest.publicDescription;
-      if (rest.bannerImageUrl !== undefined) body.bannerImageUrl = rest.bannerImageUrl;
+      if (rest.bannerImageUrl !== undefined) {
+        if (rest.bannerImageUrl === null) {
+          body.bannerImageUrl = null;
+        } else {
+          const raw = String(rest.bannerImageUrl).trim();
+          if (raw.length > 0 && !raw.startsWith("blob:")) {
+            let candidate = raw;
+            if (candidate.startsWith("/") && typeof window !== "undefined") {
+              candidate = new URL(candidate, window.location.origin).toString();
+            }
+            if (/^https?:\/\//i.test(candidate)) {
+              body.bannerImageUrl = candidate;
+            } else {
+              throw new Error("bannerImageUrl must be an absolute http(s) URL");
+            }
+          }
+        }
+      }
       const res = await fetch(url, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },

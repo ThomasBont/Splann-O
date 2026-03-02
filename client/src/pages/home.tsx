@@ -683,6 +683,9 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
   const [eventSettingsOpen, setEventSettingsOpen] = useState(false);
   const [expensesCollapsed, setExpensesCollapsed] = useState(false);
   const [breakdownCollapsed, setBreakdownCollapsed] = useState(false);
+  const [dashboardHeroBannerFailed, setDashboardHeroBannerFailed] = useState(false);
+  const [privateHeroBannerFailed, setPrivateHeroBannerFailed] = useState(false);
+  const [publicOverviewBannerFailed, setPublicOverviewBannerFailed] = useState(false);
   const [allEventsSelectorOpen, setAllEventsSelectorOpen] = useState(false);
   const [allEventsSearch, setAllEventsSearch] = useState("");
   const [pinnedEventIds, setPinnedEventIds] = useState<number[]>([]);
@@ -1057,6 +1060,12 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
 
   const selectedBbq = barbecuesForArea.find((b: Barbecue) => b.id === selectedBbqId) ?? (barbecues.find((b: Barbecue) => b.id === selectedBbqId) || null);
   const eventViewRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setDashboardHeroBannerFailed(false);
+    setPrivateHeroBannerFailed(false);
+    setPublicOverviewBannerFailed(false);
+  }, [selectedBbq?.id, selectedBbq?.bannerImageUrl]);
 
   useEffect(() => {
     if (!isManagedAppRoute || appRouteMode !== "event" || !routeEventId) return;
@@ -3138,7 +3147,10 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
               8,
               Math.min(100, Math.round((participantCount / Math.max(participantCount + pendingCount, 1)) * 100)),
             );
-            const heroImage = selectedBbq.bannerImageUrl || "https://images.unsplash.com/photo-1559339352-11d035aa65de?auto=format&fit=crop&w=1600&q=80";
+            const fallbackHeroImage = "https://images.unsplash.com/photo-1559339352-11d035aa65de?auto=format&fit=crop&w=1600&q=80";
+            const heroImage = !dashboardHeroBannerFailed && selectedBbq.bannerImageUrl
+              ? selectedBbq.bannerImageUrl
+              : fallbackHeroImage;
             return (
               <div className="mx-auto w-full max-w-[1400px] rounded-2xl border border-border/60 bg-background px-4 py-6 sm:px-6 lg:px-10">
                 <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -3153,6 +3165,12 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                         src={heroImage}
                         alt={selectedBbq.name}
                         className="absolute inset-0 h-full w-full object-cover"
+                        onLoad={() => setDashboardHeroBannerFailed(false)}
+                        onError={(event) => {
+                          const failedUrl = event.currentTarget.currentSrc || event.currentTarget.src || heroImage;
+                          console.error("BANNER_LOAD_FAILED", failedUrl);
+                          setDashboardHeroBannerFailed(true);
+                        }}
                       />
                       <div className="absolute inset-0 rounded-3xl bg-gradient-to-b from-black/35 via-black/10 to-transparent dark:from-black/65 dark:via-black/35 dark:to-black/10" />
                       <div className="pointer-events-none absolute left-6 top-6 z-10 md:left-8 md:top-8">
@@ -3861,11 +3879,17 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                 <div
                   className={`relative overflow-hidden rounded-3xl border border-border/60 bg-gradient-to-br from-amber-50 to-orange-50 dark:from-slate-900 dark:to-slate-800 min-h-[220px] transition-all duration-300 ${selectedEventVibeTheme.gradientClass}`}
                 >
-                  {selectedBbq.bannerImageUrl ? (
+                  {!privateHeroBannerFailed && selectedBbq.bannerImageUrl ? (
                     <img
                       src={selectedBbq.bannerImageUrl}
                       alt={selectedBbq.name}
                       className="absolute inset-0 h-full w-full object-cover transition-transform duration-300 hover:scale-[1.02]"
+                      onLoad={() => setPrivateHeroBannerFailed(false)}
+                      onError={(event) => {
+                        const failedUrl = event.currentTarget.currentSrc || event.currentTarget.src || selectedBbq.bannerImageUrl;
+                        console.error("BANNER_LOAD_FAILED", failedUrl);
+                        setPrivateHeroBannerFailed(true);
+                      }}
                     />
                   ) : null}
                   <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/20 to-transparent" />
@@ -3950,8 +3974,18 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                   <EventTabsContent value="overview" className="space-y-4">
                     <div className="rounded-2xl border border-border/60 bg-card p-4 space-y-4 shadow-sm">
                       <div className="aspect-[16/7] rounded-xl border border-border/60 bg-muted/20 overflow-hidden flex items-center justify-center text-xs text-muted-foreground">
-                        {selectedBbq.bannerImageUrl ? (
-                          <img src={selectedBbq.bannerImageUrl} alt={selectedBbq.name} className="h-full w-full object-cover" />
+                        {!publicOverviewBannerFailed && selectedBbq.bannerImageUrl ? (
+                          <img
+                            src={selectedBbq.bannerImageUrl}
+                            alt={selectedBbq.name}
+                            className="h-full w-full object-cover"
+                            onLoad={() => setPublicOverviewBannerFailed(false)}
+                            onError={(event) => {
+                              const failedUrl = event.currentTarget.currentSrc || event.currentTarget.src || selectedBbq.bannerImageUrl;
+                              console.error("BANNER_LOAD_FAILED", failedUrl);
+                              setPublicOverviewBannerFailed(true);
+                            }}
+                          />
                         ) : (
                           "Add a banner in Settings to brand your public page"
                         )}

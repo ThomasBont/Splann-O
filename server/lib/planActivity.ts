@@ -3,7 +3,7 @@ import { db } from "../db";
 import { planActivity } from "@shared/schema";
 import { broadcastEventRealtime } from "./eventRealtime";
 
-export type PlanActivityType = "PLAN_UPDATED" | "EXPENSE_ADDED" | "MEMBER_JOINED";
+export type PlanActivityType = "PLAN_UPDATED" | "EXPENSE_ADDED" | "EXPENSE_DELETED" | "MEMBER_JOINED";
 
 type LogPlanActivityInput = {
   eventId: number;

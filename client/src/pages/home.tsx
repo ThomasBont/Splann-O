@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useMemo } from "react";
 import { Link, useLocation } from "wouter";
 import { normalizeCountryCode } from "@shared/lib/country-code";
 import { useLanguage, getCurrency, type CurrencyCode, convertCurrency } from "@/hooks/use-language";
@@ -609,7 +609,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
     if (appRouteMode === "public" && FEATURE_PUBLIC_PLANS) setEventVisibilityTab("public");
   }, [appRouteMode]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isManagedAppRoute) return;
     if (appRouteMode !== "private") return;
     setSelectedBbqId(null);
@@ -1101,7 +1101,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
     };
   }, [resolvedDashboardBannerUrl]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isManagedAppRoute || appRouteMode !== "event" || !routeEventId) return;
     setSelectedBbqId(routeEventId);
   }, [isManagedAppRoute, appRouteMode, routeEventId]);
@@ -3095,6 +3095,35 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
             }}
           />
         ) : selectedBbqId ? (() => {
+          if (appRouteMode === "event" && !selectedBbq) {
+            return (
+              <div className="mx-auto w-full max-w-[1400px] rounded-2xl border border-border/60 bg-background px-4 py-6 sm:px-6 lg:px-10">
+                <div className="space-y-4">
+                  <SkeletonCard className="h-64 rounded-3xl" />
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <SkeletonCard className="h-40 rounded-2xl" />
+                    <SkeletonCard className="h-40 rounded-2xl" />
+                    <SkeletonCard className="h-40 rounded-2xl" />
+                  </div>
+                </div>
+              </div>
+            );
+          }
+
+          if (appRouteMode === "event" && selectedBbq && !isPrivateContext) {
+            if (import.meta.env.DEV) {
+              console.warn("[LEGACY] Prevented legacy plan dashboard render for non-private event route", {
+                eventId: selectedBbq.id,
+                routeEventId,
+              });
+            }
+            return (
+              <div className="rounded-2xl border border-border/60 bg-card p-6 text-sm text-muted-foreground">
+                This plan is not available in this view.
+              </div>
+            );
+          }
+
           if (appRouteMode === "event" && isPrivateContext && selectedBbq) {
             const pendingCount = Math.max(invitedParticipants.length, pendingRequests.length);
             const fallbackHeroImage = "https://images.unsplash.com/photo-1559339352-11d035aa65de?auto=format&fit=crop&w=1600&q=80";
@@ -3323,6 +3352,10 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                 </div>
               </div>
             );
+          }
+
+          if (import.meta.env.DEV && appRouteMode === "event") {
+            console.warn("[LEGACY] Plan dashboard legacy render path reached in event mode");
           }
 
           const eventTemplate = getEventTemplate(selectedBbq?.eventType);

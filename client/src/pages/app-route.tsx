@@ -968,6 +968,7 @@ export default function AppRoute() {
               ? <div className="p-6 text-sm text-muted-foreground">Home effects disabled via kill switch.</div>
               : (
                 <Home
+                  key={`event-route-${routeEventId ?? "none"}`}
                   appRouteMode="event"
                   routeEventId={routeEventId}
                   debugDisableDiscoverModal={devDisable.discoverModal}

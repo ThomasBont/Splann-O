@@ -7,7 +7,7 @@ import { isIP } from "node:net";
 import path from "path";
 import { randomUUID, randomBytes } from "crypto";
 import { api } from "@shared/routes";
-import { users, barbecues, expenses, notes, stripeEvents, publicEventRsvps, participants, eventMembers, eventInvites } from "@shared/schema";
+import { users, barbecues, expenses, notes, planActivity, stripeEvents, publicEventRsvps, participants, eventMembers, eventInvites } from "@shared/schema";
 import { optionalCountryCodeSchema } from "@shared/lib/country-code-schema";
 import {
   derivePlanTypeSelection,
@@ -1771,8 +1771,66 @@ router.put(p(api.expenses.update.path), asyncHandler(async (req, res) => {
   res.json(updated);
 }));
 
-router.delete(p(api.expenses.delete.path), asyncHandler(async (req, res) => {
-  await expenseRepo.delete(Number(req.params.id));
+router.delete(p(api.expenses.delete.path), requireAuth, asyncHandler(async (req, res) => {
+  const expenseId = Number(req.params.id);
+  if (!Number.isInteger(expenseId) || expenseId <= 0) badRequest("Invalid expense id");
+  const username = req.session?.username;
+  if (!username) unauthorized("Not authenticated");
+
+  const [expense] = await db.select().from(expenses).where(eq(expenses.id, expenseId)).limit(1);
+  if (!expense) notFound("Expense not found");
+  await assertEventAccessOrThrow(req, expense.barbecueId);
+
+  const [bbq] = await db.select().from(barbecues).where(eq(barbecues.id, expense.barbecueId)).limit(1);
+  if (!bbq) notFound("Event not found");
+
+  const actorName = username || "Someone";
+  const expenseTitle = expense.item?.trim() || "Expense";
+  const amount = Number(expense.amount);
+  const currency = bbq.currency ?? "€";
+  const message = `${actorName} deleted an expense: ${expenseTitle} (${currency}${Number.isFinite(amount) ? amount.toFixed(2) : "0.00"})`;
+
+  const createdActivity = await db.transaction(async (tx) => {
+    await tx.delete(expenses).where(eq(expenses.id, expenseId));
+    const [activityRow] = await tx.insert(planActivity).values({
+      eventId: expense.barbecueId,
+      type: "EXPENSE_DELETED",
+      actorUserId: req.session?.userId ?? null,
+      actorName,
+      message,
+      meta: {
+        expenseId,
+        amount: Number.isFinite(amount) ? amount : null,
+        currency: bbq.currency ?? null,
+        title: expenseTitle,
+      },
+      createdAt: new Date(),
+    }).returning();
+    return activityRow ?? null;
+  });
+
+  if (createdActivity) {
+    broadcastEventRealtime(expense.barbecueId, {
+      type: "PLAN_ACTIVITY_CREATED",
+      eventId: expense.barbecueId,
+      activity: {
+        id: createdActivity.id,
+        eventId: createdActivity.eventId,
+        type: createdActivity.type,
+        actorUserId: createdActivity.actorUserId ?? null,
+        actorName: createdActivity.actorName ?? null,
+        message: createdActivity.message,
+        meta: createdActivity.meta ?? null,
+        createdAt: createdActivity.createdAt ? createdActivity.createdAt.toISOString() : new Date().toISOString(),
+      },
+    });
+    broadcastEventRealtime(expense.barbecueId, {
+      type: "expense_deleted",
+      eventId: expense.barbecueId,
+      expenseId,
+    });
+  }
+
   res.status(204).send();
 }));
 

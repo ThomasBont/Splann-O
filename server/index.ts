@@ -36,7 +36,7 @@ import { log } from "./lib/logger";
 import { db, pool } from "./db";
 import { WebSocketServer, WebSocket, type RawData } from "ws";
 import { and, eq } from "drizzle-orm";
-import { barbecues, eventMembers, users, session as sessionTable } from "@shared/schema";
+import { barbecues, eventMembers, session as sessionTable } from "@shared/schema";
 import { createHmac, timingSafeEqual } from "crypto";
 import { appendEventChatMessage, toggleEventChatReaction } from "./lib/eventChatStore";
 import { broadcastEventRealtime, registerEventSocket, unregisterEventSocket } from "./lib/eventRealtime";
@@ -107,9 +107,9 @@ async function resolveUserFromRequest(req: import("http").IncomingMessage): Prom
 }
 
 async function canAccessEventChat(eventId: number, user: { id: number; username: string }): Promise<boolean> {
-  const [eventRow] = await db.select({ creatorId: barbecues.creatorId }).from(barbecues).where(eq(barbecues.id, eventId)).limit(1);
+  const [eventRow] = await db.select({ creatorUserId: barbecues.creatorUserId }).from(barbecues).where(eq(barbecues.id, eventId)).limit(1);
   if (!eventRow) return false;
-  if (eventRow.creatorId === user.username) {
+  if (eventRow.creatorUserId === user.id) {
     await db.insert(eventMembers).values({
       eventId,
       userId: user.id,
@@ -126,22 +126,7 @@ async function canAccessEventChat(eventId: number, user: { id: number; username:
     .limit(1);
   if (memberRow) return true;
 
-  // Heal legacy owner rows where username exists but session may be stale.
-  if (!eventRow.creatorId) return false;
-  const [ownerUser] = await db
-    .select({ id: users.id })
-    .from(users)
-    .where(eq(users.username, eventRow.creatorId))
-    .limit(1);
-  if (ownerUser && ownerUser.id === user.id) {
-    await db.insert(eventMembers).values({
-      eventId,
-      userId: user.id,
-      role: "owner",
-      joinedAt: new Date(),
-    }).onConflictDoNothing({ target: [eventMembers.eventId, eventMembers.userId] });
-    return true;
-  }
+  if (!eventRow.creatorUserId) return false;
   return false;
 }
 

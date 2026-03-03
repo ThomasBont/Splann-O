@@ -20,7 +20,7 @@ export interface EventActivityInput {
     name: string;
     date: Date | string;
     currency?: string;
-    creatorId?: string | null;
+    creatorUserId?: number | null;
   };
   expenses: Array<{
     id: number;
@@ -31,9 +31,9 @@ export interface EventActivityInput {
   participants: Array<{
     id: number;
     name: string;
-    userId?: string | null;
+    userId?: number | null;
   }>;
-  /** Display name for creator (e.g. from users table). Falls back to creatorId if omitted. */
+  /** Display name for creator (e.g. from users table). */
   creatorDisplayName?: string | null;
 }
 
@@ -50,7 +50,7 @@ export function getEventActivity(input: EventActivityInput): ActivityItem[] {
   const MS_PER_DAY = 86_400_000;
 
   // 1. Event created (oldest)
-  const creatorName = creatorDisplayName || event.creatorId || "Someone";
+  const creatorName = creatorDisplayName || "Someone";
   items.push({
     id: `event-${event.id}`,
     type: "system",

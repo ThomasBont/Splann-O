@@ -1,44 +1,67 @@
-type InboxBucket = { timestamps: number[] };
+import rateLimit from "express-rate-limit";
+import type { Request, Response, NextFunction } from "express";
 
-const perConversationBuckets = new Map<string, InboxBucket>();
-const perUserBuckets = new Map<string, InboxBucket>();
+// Per-conversation limit: 1 message per 10 minutes for unapproved senders.
+const perConversationLimiter = rateLimit({
+  windowMs: 10 * 60_000,
+  max: 1,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const userId = req.session?.userId ?? "anon";
+    const conversationId = req.params.conversationId ?? "unknown";
+    return `inbox-conv:${userId}:${conversationId}`;
+  },
+  handler: (_req, res) => {
+    res.status(429).json({
+      code: "RATE_LIMITED",
+      message: "Too many messages right now. Please try again later.",
+    });
+  },
+});
 
-function pushAndTrim(bucket: InboxBucket, now: number, windowMs: number) {
-  bucket.timestamps = bucket.timestamps.filter((ts) => now - ts < windowMs);
+// Per-user limit: 3 messages per hour for unapproved senders.
+const perUserLimiter = rateLimit({
+  windowMs: 60 * 60_000,
+  max: 3,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const userId = req.session?.userId ?? "anon";
+    return `inbox-user:${userId}`;
+  },
+  handler: (_req, res) => {
+    res.status(429).json({
+      code: "RATE_LIMITED",
+      message: "Too many messages right now. Please try again later.",
+    });
+  },
+});
+
+/**
+ * Middleware that applies inbox rate limits only to unapproved senders.
+ * Approved senders (req.inboxApproved === true) are not limited.
+ * Attach req.inboxApproved = true before this middleware for approved users.
+ */
+export function publicInboxRateLimit(
+  req: Request,
+  res: Response,
+  next: NextFunction
+): void {
+  if ((req as Request & { inboxApproved?: boolean }).inboxApproved) {
+    return next();
+  }
+  perConversationLimiter(req, res, (err?: unknown) => {
+    if (err) return next(err);
+    perUserLimiter(req, res, next);
+  });
 }
 
-export function checkPublicInboxRateLimit(input: {
+/** @deprecated Use publicInboxRateLimit middleware instead */
+export function checkPublicInboxRateLimit(_input: {
   userId: number;
   conversationId: string;
   approved: boolean;
-}): { ok: true } | { ok: false; retryAfterSeconds: number; scope: "conversation" | "hour" } {
-  if (input.approved) return { ok: true };
-  const now = Date.now();
-  const perConversationWindowMs = 10 * 60_000;
-  const perHourWindowMs = 60 * 60_000;
-
-  const convKey = `${input.userId}:${input.conversationId}`;
-  const convBucket = perConversationBuckets.get(convKey) ?? { timestamps: [] };
-  pushAndTrim(convBucket, now, perConversationWindowMs);
-  if (convBucket.timestamps.length >= 1) {
-    const retryAfter = Math.ceil((convBucket.timestamps[0] + perConversationWindowMs - now) / 1000);
-    perConversationBuckets.set(convKey, convBucket);
-    return { ok: false, retryAfterSeconds: Math.max(1, retryAfter), scope: "conversation" };
-  }
-
-  const hourKey = `${input.userId}:public-inbox`;
-  const hourBucket = perUserBuckets.get(hourKey) ?? { timestamps: [] };
-  pushAndTrim(hourBucket, now, perHourWindowMs);
-  if (hourBucket.timestamps.length >= 3) {
-    const retryAfter = Math.ceil((hourBucket.timestamps[0] + perHourWindowMs - now) / 1000);
-    perUserBuckets.set(hourKey, hourBucket);
-    return { ok: false, retryAfterSeconds: Math.max(1, retryAfter), scope: "hour" };
-  }
-
-  convBucket.timestamps.push(now);
-  hourBucket.timestamps.push(now);
-  perConversationBuckets.set(convKey, convBucket);
-  perUserBuckets.set(hourKey, hourBucket);
+}): { ok: true } {
   return { ok: true };
 }
-

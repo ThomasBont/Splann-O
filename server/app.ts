@@ -8,7 +8,16 @@ import { pool } from "./db";
 import { requestContext } from "./middleware/requestContext";
 import { errorHandler } from "./middleware/errorHandler";
 import authRoutes from "./routes/authRoutes";
-import bbqRoutes from "./routes/bbqRoutes";
+import eventRoutes from "./routes/eventRoutes";
+import participantRoutes from "./routes/participantRoutes";
+import expenseRoutes from "./routes/expenseRoutes";
+import chatRoutes from "./routes/chatRoutes";
+import friendRoutes from "./routes/friendRoutes";
+import notificationRoutes from "./routes/notificationRoutes";
+import inboxRoutes from "./routes/inboxRoutes";
+import noteRoutes from "./routes/noteRoutes";
+import mediaRoutes from "./routes/mediaRoutes";
+import publicEventRoutes from "./routes/publicEventRoutes";
 import eventsRoutes from "./routes/eventsRoutes";
 import healthRoutes from "./routes/healthRoutes";
 import { bbqRepo } from "./repositories/bbqRepo";
@@ -128,7 +137,7 @@ export function createApp() {
     try {
       const results = await Promise.allSettled([
         bbqRepo.listAccessible(sessionUsername, sessionUserId),
-        participantRepo.getAllPendingRequestsForCreator(sessionUsername),
+        sessionUserId ? participantRepo.getAllPendingRequestsForCreator(sessionUserId) : Promise.resolve([]),
         sessionUserId ? userRepo.findById(sessionUserId) : Promise.resolve(null),
       ]);
 
@@ -213,7 +222,16 @@ export function createApp() {
 
   app.use("/api", authRoutes);
   app.use("/api/events", eventsRoutes);
-  app.use("/api", bbqRoutes);
+  app.use("/api", eventRoutes);
+  app.use("/api", participantRoutes);
+  app.use("/api", expenseRoutes);
+  app.use("/api", chatRoutes);
+  app.use("/api", friendRoutes);
+  app.use("/api", notificationRoutes);
+  app.use("/api", inboxRoutes);
+  app.use("/api", noteRoutes);
+  app.use("/api", mediaRoutes);
+  app.use("/api", publicEventRoutes);
   app.use("/api", healthRoutes);
 
   if (!isProd) {

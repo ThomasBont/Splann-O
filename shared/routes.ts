@@ -148,7 +148,7 @@ export const api = {
     join: {
       method: 'POST' as const,
       path: '/api/barbecues/:bbqId/join' as const,
-      input: z.object({ name: z.string(), userId: z.string() }),
+      input: z.object({ name: z.string(), userId: z.number() }),
       responses: {
         201: z.custom<Participant>(),
         400: errorSchemas.validation,

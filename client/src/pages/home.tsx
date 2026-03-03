@@ -1204,7 +1204,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
   const currencyInfo = getCurrency(currency) ?? getCurrency("EUR")!;
   const [displayCurrency, setDisplayCurrency] = useState<CurrencyCode>(currency);
   const displayCurrencyInfo = getCurrency(displayCurrency) ?? getCurrency("EUR")!;
-  const isCreator = !!(username && selectedBbq?.creatorId === username);
+  const isCreator = !!(user?.id && selectedBbq?.creatorUserId === user.id);
   const isPrivate = selectedBbq ? !selectedBbq.isPublic : false;
   const isPrivateContext = !!selectedBbq && isPrivate;
   const isPublicBuilderContext = isPublicEvent(selectedBbq);
@@ -1213,6 +1213,13 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
 
   const { data: participants = [] } = useParticipants(selectedBbqId);
   const { data: eventMembers = [] } = useEventMembers(selectedBbqId);
+  const usernameByUserId = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const member of eventMembers) {
+      if (member.userId && member.username) map.set(member.userId, member.username);
+    }
+    return map;
+  }, [eventMembers]);
   const { data: expenses = [] } = useExpenses(selectedBbqId);
   const [showLocalSuggestionsModal, setShowLocalSuggestionsModal] = useState(false);
   const [privateSuggestionState, setPrivateSuggestionState] = useState(defaultPrivateSuggestionState());
@@ -1357,7 +1364,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
   const shareSet = new Set(expenseSharesList.map(s => `${s.expenseId}:${s.participantId}`));
   const _getFairShareForParticipant = (participantId: number) =>
     getFairShareForParticipant(participantId, expenses, expenseSharesList, participants, allowOptIn);
-  const myParticipant = username ? participants.find((p: Participant) => p.userId === username) : null;
+  const myParticipant = user?.id ? participants.find((p: Participant) => p.userId === user.id) : null;
   const creatorLeaveSuccessorName = useMemo(() => {
     if (!selectedBbqId || !user?.id) return null;
     const successor = [...eventMembers]
@@ -1441,8 +1448,8 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
   const suggestionDeviceId = useMemo(() => getOrCreateSuggestionDeviceId(), []);
   const suggestionVoterKey = user?.id ? `uid:${user.id}` : `dev:${suggestionDeviceId ?? "anon"}`;
   const suggestionVoterLabel = ((): string => {
-    if (username) {
-      const participant = participants.find((p: Participant) => p.userId === username);
+    if (user?.id) {
+      const participant = participants.find((p: Participant) => p.userId === user.id);
       return participant?.name || user?.displayName || username;
     }
     return user?.displayName || "You";
@@ -1637,7 +1644,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
     const payload: Parameters<typeof createBbq.mutate>[0] & { currencySource?: "auto" | "manual" } = {
       name: newBbqName.trim(),
       date: new Date(`${newBbqDate}T${newBbqTime || "19:00"}`).toISOString(),
-      creatorId: username || undefined,
+      creatorUserId: user?.id || undefined,
       isPublic: false,
       visibility: "private",
       visibilityOrigin: requestedVisibilityOriginOnCreate,
@@ -4045,7 +4052,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                 const myBalance = balances.find((b: { id: number }) => b.id === myParticipant.id) as { balance: number } | undefined;
                 const amountOwed = myBalance && myBalance.balance < -0.01 ? Math.abs(myBalance.balance) : 0;
                 if (amountOwed < 0.01) return null;
-                const creatorName = selectedBbq?.creatorId || "Someone";
+                const creatorName = selectedBbq?.creatorUserId === user?.id ? (user?.displayName || user?.username || "Someone") : "Someone";
                 return (
                   <button
                     type="button"
@@ -4456,7 +4463,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                         invited={t.bbq.invited}
                         friends={friends}
                         invitedParticipants={invitedParticipants}
-                        participantUserIds={new Set(participants.map((p: Participant) => p.userId).filter(Boolean) as string[])}
+                        participantUserIds={new Set(participants.map((p: Participant) => p.userId).filter((value: Participant["userId"]): value is number => typeof value === "number"))}
                         onInviteFriend={(username) =>
                           inviteParticipant.mutate(username, {
                             onError: (err: unknown) => {
@@ -4480,7 +4487,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                     const paid = expenses
                       .filter((e: ExpenseWithParticipant) => e.participantId === p.id)
                       .reduce((s: number, e: ExpenseWithParticipant) => s + Number(e.amount), 0);
-                    const isOwn = p.userId === username;
+                    const isOwn = p.userId === user?.id;
                     const isEditing = editingParticipantId === p.id;
                     return (
                       <div
@@ -4540,7 +4547,9 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                               <button
                                 type="button"
                                 onClick={() => {
-                                  setProfileTargetUsername(p.userId!);
+                                  const targetUsername = p.userId ? usernameByUserId.get(p.userId) : null;
+                                  if (!targetUsername) return;
+                                  setProfileTargetUsername(targetUsername);
                                   setAccountView("profile");
                                   setIsAccountDrawerOpen(true);
                                 }}
@@ -4710,7 +4719,9 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                                   <button
                                     type="button"
                                     onClick={() => {
-                                      setProfileTargetUsername(exp.participantUserId!);
+                                      const targetUsername = exp.participantUserId ? usernameByUserId.get(exp.participantUserId) : null;
+                                      if (!targetUsername) return;
+                                      setProfileTargetUsername(targetUsername);
                                       setAccountView("profile");
                                       setIsAccountDrawerOpen(true);
                                     }}
@@ -4843,7 +4854,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                           name: selectedBbq.name,
                           date: selectedBbq.date,
                           currency: selectedBbq.currency,
-                          creatorId: selectedBbq.creatorId,
+                          creatorUserId: selectedBbq.creatorUserId,
                         },
                         expenses: expenses.map((e: ExpenseWithParticipant) => ({
                           id: e.id,
@@ -4856,7 +4867,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                           name: p.name,
                           userId: p.userId,
                         })),
-                        creatorDisplayName: selectedBbq.creatorId === username ? user?.displayName : undefined,
+                        creatorDisplayName: selectedBbq.creatorUserId === user?.id ? user?.displayName : undefined,
                       })}
                       title={t.activity.recentActivity}
                     />

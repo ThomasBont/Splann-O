@@ -106,11 +106,6 @@ export function DiscoverModal({
                         {getEventTypeLabel(normalizeEvent(bbq).type)} ·{" "}
                         {formatDate(bbq.date)}
                       </p>
-                      {bbq.creatorId && (
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {t.discover.creator} {bbq.creatorId}
-                        </p>
-                      )}
                     </div>
                     <div className="flex gap-1.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
                       {isMember ? (

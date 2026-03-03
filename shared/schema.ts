@@ -84,7 +84,7 @@ export const barbecues = pgTable("barbecues", {
   name: text("name").notNull(),
   date: timestamp("date").notNull().defaultNow(),
   currency: text("currency").notNull().default("EUR"),
-  creatorId: text("creator_id"),
+  creatorUserId: integer("creator_user_id").references(() => users.id, { onDelete: "set null" }),
   isPublic: boolean("is_public").notNull().default(true),
   allowOptInExpenses: boolean("allow_opt_in_expenses").notNull().default(false),
   area: text("area").notNull().default("parties"),
@@ -137,7 +137,7 @@ export const barbecues = pgTable("barbecues", {
 
 export const eventNotifications = pgTable("event_notifications", {
   id: serial("id").primaryKey(),
-  userId: text("user_id").notNull(),
+  userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   barbecueId: integer("barbecue_id").references(() => barbecues.id, { onDelete: "cascade" }).notNull(),
   type: text("type").notNull(),
   payload: json("payload").$type<{ creatorName?: string; amountOwed?: number; eventName?: string; currency?: string } | null>().default(null),
@@ -149,9 +149,7 @@ export const participants = pgTable("participants", {
   id: serial("id").primaryKey(),
   barbecueId: integer("barbecue_id").references(() => barbecues.id, { onDelete: 'cascade' }).notNull(),
   name: text("name").notNull(),
-  userId: text("user_id"),
-  /** FK to users.id when status='invited' — links invite to target user. */
-  invitedUserId: integer("invited_user_id").references(() => users.id, { onDelete: "set null" }),
+  userId: integer("user_id").references(() => users.id, { onDelete: "set null" }),
   status: text("status").notNull().default("accepted"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
@@ -335,7 +333,7 @@ export type EventChatMessageRow = typeof eventChatMessages.$inferSelect;
 
 export type ExpenseWithParticipant = Expense & {
   participantName: string;
-  participantUserId?: string | null;
+  participantUserId?: number | null;
 };
 
 export type Note = typeof notes.$inferSelect;

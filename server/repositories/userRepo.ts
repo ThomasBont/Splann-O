@@ -84,11 +84,10 @@ export const userRepo = {
   async deleteUser(userId: number): Promise<void> {
     const [u] = await db.select().from(users).where(eq(users.id, userId));
     if (!u) return;
-    const username = u.username;
     await db.delete(passwordResetTokens).where(eq(passwordResetTokens.userId, userId));
     await db.delete(friendships).where(or(eq(friendships.requesterId, userId), eq(friendships.addresseeId, userId)));
-    await db.delete(barbecues).where(eq(barbecues.creatorId, username));
-    await db.update(participants).set({ userId: null }).where(eq(participants.userId, username));
+    await db.delete(barbecues).where(eq(barbecues.creatorUserId, userId));
+    await db.update(participants).set({ userId: null }).where(eq(participants.userId, userId));
     await db.delete(users).where(eq(users.id, userId));
   },
 
@@ -142,8 +141,8 @@ export const userRepo = {
     const u = await this.findByUsername(username);
     if (!u) return undefined;
     const userId = u.id;
-    const createdIds = (await db.select({ id: barbecues.id }).from(barbecues).where(eq(barbecues.creatorId, username))).map((r) => r.id);
-    const participatedIds = (await db.select({ barbecueId: participants.barbecueId }).from(participants).where(eq(participants.userId, username))).map((r) => r.barbecueId);
+    const createdIds = (await db.select({ id: barbecues.id }).from(barbecues).where(eq(barbecues.creatorUserId, userId))).map((r) => r.id);
+    const participatedIds = (await db.select({ barbecueId: participants.barbecueId }).from(participants).where(eq(participants.userId, userId))).map((r) => r.barbecueId);
     const eventsCount = new Set([...createdIds, ...participatedIds]).size;
     const friendRows = await db.select().from(friendships).where(and(or(eq(friendships.requesterId, userId), eq(friendships.addresseeId, userId)), eq(friendships.status, "accepted")));
     const friendsCount = friendRows.length;
@@ -151,7 +150,7 @@ export const userRepo = {
       .select({ amount: expenses.amount })
       .from(expenses)
       .innerJoin(participants, eq(expenses.participantId, participants.id))
-      .where(eq(participants.userId, username));
+      .where(eq(participants.userId, userId));
     const totalSpent = spentRows.reduce((s, r) => s + parseFloat(String(r.amount || 0)), 0);
     return {
       user: {
@@ -205,7 +204,7 @@ export const userRepo = {
     const viewerIsOwner = !!viewerUsername && viewerUsername === user.username;
     if (!viewerIsOwner && user.publicProfileEnabled === false) return undefined;
 
-    const ownedEvents = await db.select().from(barbecues).where(eq(barbecues.creatorId, user.username));
+    const ownedEvents = await db.select().from(barbecues).where(eq(barbecues.creatorUserId, user.id));
     const visiblePublicEvents = ownedEvents
       .filter((e) => e.visibility === "public")
       .filter((e) => e.status !== "draft")

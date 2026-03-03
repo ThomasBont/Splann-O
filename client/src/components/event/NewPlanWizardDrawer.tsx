@@ -154,7 +154,7 @@ export default function NewPlanWizardDrawer() {
       {
         name: name.trim(),
         date: new Date(`${date}T${time || "19:00"}`).toISOString(),
-        creatorId: user?.username ?? undefined,
+        creatorUserId: user?.id ?? undefined,
         isPublic: false,
         visibility: "private",
         visibilityOrigin: "private",

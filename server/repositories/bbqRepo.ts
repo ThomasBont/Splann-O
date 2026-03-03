@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import { db } from "../db";
-import { barbecues, participants, eventMembers, eventNotifications } from "@shared/schema";
+import { barbecues, participants, eventMembers, eventNotifications, publicEventRsvps } from "@shared/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { desc } from "drizzle-orm";
 import type { Barbecue } from "@shared/schema";
@@ -8,21 +8,16 @@ import type { Barbecue } from "@shared/schema";
 export const bbqRepo = {
   async listAccessible(currentUsername?: string, currentUserId?: number): Promise<Barbecue[]> {
     const all = await db.select().from(barbecues);
-    if (!currentUsername) return all.filter((b) => b.isPublic);
+    if (!currentUserId) return all.filter((b) => b.isPublic);
 
-    const participatingByUsername = await db.select({ bbqId: participants.barbecueId }).from(participants).where(eq(participants.userId, currentUsername));
-    const participatingIds = new Set(participatingByUsername.map((p) => p.bbqId));
-
-    if (currentUserId) {
-      const invitedByUserId = await db.select({ bbqId: participants.barbecueId }).from(participants).where(eq(participants.invitedUserId, currentUserId));
-      invitedByUserId.forEach((p) => participatingIds.add(p.bbqId));
-      const byEventMember = await db.select({ bbqId: eventMembers.eventId }).from(eventMembers).where(eq(eventMembers.userId, currentUserId));
-      byEventMember.forEach((p) => participatingIds.add(p.bbqId));
-    }
+    const participatingByUserId = await db.select({ bbqId: participants.barbecueId }).from(participants).where(eq(participants.userId, currentUserId));
+    const participatingIds = new Set(participatingByUserId.map((p) => p.bbqId));
+    const byEventMember = await db.select({ bbqId: eventMembers.eventId }).from(eventMembers).where(eq(eventMembers.userId, currentUserId));
+    byEventMember.forEach((p) => participatingIds.add(p.bbqId));
 
     return all.filter((b) => {
       if (b.isPublic) return true;
-      if (b.creatorId === currentUsername) return true;
+      if (b.creatorUserId === currentUserId) return true;
       if (participatingIds.has(b.id)) return true;
       return false;
     });
@@ -51,21 +46,17 @@ export const bbqRepo = {
 
   async hasAccess(bbq: Barbecue, currentUsername?: string, currentUserId?: number): Promise<boolean> {
     if (bbq.isPublic) return true;
-    if (!currentUsername) return false;
-    if (bbq.creatorId === currentUsername) return true;
-    const byUsername = await db.select({ id: participants.id }).from(participants).where(and(eq(participants.barbecueId, bbq.id), eq(participants.userId, currentUsername)));
-    if (byUsername.length > 0) return true;
-    if (currentUserId) {
-      const byInvited = await db.select({ id: participants.id }).from(participants).where(and(eq(participants.barbecueId, bbq.id), eq(participants.invitedUserId, currentUserId)));
-      if (byInvited.length > 0) return true;
-      const byEventMember = await db.select({ id: eventMembers.id }).from(eventMembers).where(and(eq(eventMembers.eventId, bbq.id), eq(eventMembers.userId, currentUserId)));
-      if (byEventMember.length > 0) return true;
-    }
+    if (!currentUserId) return false;
+    if (bbq.creatorUserId === currentUserId) return true;
+    const byParticipant = await db.select({ id: participants.id }).from(participants).where(and(eq(participants.barbecueId, bbq.id), eq(participants.userId, currentUserId)));
+    if (byParticipant.length > 0) return true;
+    const byEventMember = await db.select({ id: eventMembers.id }).from(eventMembers).where(and(eq(eventMembers.eventId, bbq.id), eq(eventMembers.userId, currentUserId)));
+    if (byEventMember.length > 0) return true;
     return false;
   },
 
-  async countOwnedByCreator(username: string): Promise<number> {
-    const rows = await db.select({ id: barbecues.id }).from(barbecues).where(eq(barbecues.creatorId, username));
+  async countOwnedByCreatorUserId(userId: number): Promise<number> {
+    const rows = await db.select({ id: barbecues.id }).from(barbecues).where(eq(barbecues.creatorUserId, userId));
     return rows.length;
   },
 
@@ -174,7 +165,7 @@ export const bbqRepo = {
   },
 
   async createEventNotification(
-    userId: string,
+    userId: number,
     barbecueId: number,
     type: string,
     payload?: { creatorName?: string; amountOwed?: number; eventName?: string; currency?: string }
@@ -184,13 +175,13 @@ export const bbqRepo = {
   },
 
   async createEventNotificationsBatch(
-    items: { userId: string; barbecueId: number; type: string; payload?: { creatorName?: string; amountOwed?: number; eventName?: string; currency?: string } }[]
+    items: { userId: number; barbecueId: number; type: string; payload?: { creatorName?: string; amountOwed?: number; eventName?: string; currency?: string } }[]
   ): Promise<void> {
     if (items.length === 0) return;
     await db.insert(eventNotifications).values(items.map((it) => ({ userId: it.userId, barbecueId: it.barbecueId, type: it.type, payload: it.payload ?? null })));
   },
 
-  async getEventNotificationsForUser(userId: string): Promise<{ id: number; barbecueId: number; type: string; payload: unknown; createdAt: Date | null; readAt: Date | null }[]> {
+  async getEventNotificationsForUser(userId: number): Promise<{ id: number; barbecueId: number; type: string; payload: unknown; createdAt: Date | null; readAt: Date | null }[]> {
     const rows = await db
       .select()
       .from(eventNotifications)
@@ -208,5 +199,18 @@ export const bbqRepo = {
       .update(barbecues)
       .set({ publicViewCount: sql`${barbecues.publicViewCount} + 1` })
       .where(eq(barbecues.id, id));
+  },
+
+  async listPublicRsvpRequests(eventId: number) {
+    return db.select().from(publicEventRsvps).where(eq(publicEventRsvps.barbecueId, eventId)).orderBy(desc(publicEventRsvps.createdAt));
+  },
+
+  async updatePublicRsvpRequest(eventId: number, rsvpId: number, status: "approved" | "declined" | "requested" | "going") {
+    const [updated] = await db
+      .update(publicEventRsvps)
+      .set({ status, updatedAt: new Date() })
+      .where(and(eq(publicEventRsvps.id, rsvpId), eq(publicEventRsvps.barbecueId, eventId)))
+      .returning();
+    return updated;
   },
 };

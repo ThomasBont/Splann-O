@@ -1,10 +1,9 @@
 import { db } from "../db";
-import { participants, friendships, barbecues } from "@shared/schema";
+import { participants, friendships, barbecues, users } from "@shared/schema";
 import { eq, and, or } from "drizzle-orm";
 import type { Participant, InsertParticipant } from "@shared/schema";
 import type { Membership } from "@shared/schema";
 import type { FriendInfo, PendingRequestWithBbq } from "@shared/schema";
-import { userRepo } from "./userRepo";
 
 export const participantRepo = {
   async listByBbq(bbqId: number, status: "accepted" | "pending" | "invited"): Promise<Participant[]> {
@@ -21,20 +20,25 @@ export const participantRepo = {
     return p;
   },
 
+  async getBarbecueByToken(token: string) {
+    const [bbq] = await db.select().from(barbecues).where(eq(barbecues.inviteToken, token));
+    return bbq;
+  },
+
   async create(p: InsertParticipant): Promise<Participant> {
     const [participant] = await db.insert(participants).values(p).returning();
     return participant;
   },
 
-  async joinBarbecue(bbqId: number, name: string, userId: string): Promise<Participant> {
+  async joinBarbecue(bbqId: number, name: string, userId: number): Promise<Participant> {
     const [p] = await db.insert(participants).values({ barbecueId: bbqId, name, userId, status: "pending" }).returning();
     return p;
   },
 
-  async inviteUser(bbqId: number, username: string, invitedUserId?: number | null): Promise<Participant> {
+  async inviteUser(bbqId: number, username: string, userId?: number | null): Promise<Participant> {
     const [p] = await db
       .insert(participants)
-      .values({ barbecueId: bbqId, name: username, userId: username, invitedUserId: invitedUserId ?? null, status: "invited" })
+      .values({ barbecueId: bbqId, name: username, userId: userId ?? null, status: "invited" })
       .returning();
     return p;
   },
@@ -53,7 +57,7 @@ export const participantRepo = {
     await db.delete(participants).where(eq(participants.id, id));
   },
 
-  async getMemberships(userId: string): Promise<Membership[]> {
+  async getMemberships(userId: number): Promise<Membership[]> {
     const rows = await db.select().from(participants).where(eq(participants.userId, userId));
     return rows.map((p) => ({ bbqId: p.barbecueId, participantId: p.id, status: p.status, name: p.name }));
   },
@@ -83,45 +87,99 @@ export const participantRepo = {
 
   async getFriends(userId: number): Promise<FriendInfo[]> {
     const rows = await db
-      .select()
+      .select({
+        friendshipId: friendships.id,
+        userId: users.id,
+        username: users.username,
+        displayName: users.displayName,
+      })
       .from(friendships)
-      .where(and(or(eq(friendships.requesterId, userId), eq(friendships.addresseeId, userId)), eq(friendships.status, "accepted")));
-    const result: FriendInfo[] = [];
-    for (const row of rows) {
-      const friendUserId = row.requesterId === userId ? row.addresseeId : row.requesterId;
-      const user = await userRepo.findById(friendUserId);
-      if (user) result.push({ friendshipId: row.id, userId: user.id, username: user.username, displayName: user.displayName, status: "accepted" });
-    }
-    return result;
+      .innerJoin(
+        users,
+        or(
+          and(eq(friendships.requesterId, userId), eq(users.id, friendships.addresseeId)),
+          and(eq(friendships.addresseeId, userId), eq(users.id, friendships.requesterId)),
+        ),
+      )
+      .where(and(
+        or(eq(friendships.requesterId, userId), eq(friendships.addresseeId, userId)),
+        eq(friendships.status, "accepted"),
+      ));
+
+    return rows.map((row) => ({
+      friendshipId: row.friendshipId,
+      userId: row.userId,
+      username: row.username,
+      displayName: row.displayName,
+      status: "accepted",
+    }));
   },
 
   async getFriendRequests(userId: number): Promise<FriendInfo[]> {
-    const rows = await db.select().from(friendships).where(and(eq(friendships.addresseeId, userId), eq(friendships.status, "pending")));
-    const result: FriendInfo[] = [];
-    for (const row of rows) {
-      const user = await userRepo.findById(row.requesterId);
-      if (user) result.push({ friendshipId: row.id, userId: user.id, username: user.username, displayName: user.displayName, status: "pending" });
-    }
-    return result;
+    const rows = await db
+      .select({
+        friendshipId: friendships.id,
+        userId: users.id,
+        username: users.username,
+        displayName: users.displayName,
+      })
+      .from(friendships)
+      .innerJoin(users, eq(users.id, friendships.requesterId))
+      .where(and(eq(friendships.addresseeId, userId), eq(friendships.status, "pending")));
+    return rows.map((row) => ({
+      friendshipId: row.friendshipId,
+      userId: row.userId,
+      username: row.username,
+      displayName: row.displayName,
+      status: "pending",
+    }));
   },
 
   async getSentFriendRequests(userId: number): Promise<FriendInfo[]> {
-    const rows = await db.select().from(friendships).where(and(eq(friendships.requesterId, userId), eq(friendships.status, "pending")));
-    const result: FriendInfo[] = [];
-    for (const row of rows) {
-      const user = await userRepo.findById(row.addresseeId);
-      if (user) result.push({ friendshipId: row.id, userId: user.id, username: user.username, displayName: user.displayName, status: "pending" });
-    }
-    return result;
+    const rows = await db
+      .select({
+        friendshipId: friendships.id,
+        userId: users.id,
+        username: users.username,
+        displayName: users.displayName,
+      })
+      .from(friendships)
+      .innerJoin(users, eq(users.id, friendships.addresseeId))
+      .where(and(eq(friendships.requesterId, userId), eq(friendships.status, "pending")));
+    return rows.map((row) => ({
+      friendshipId: row.friendshipId,
+      userId: row.userId,
+      username: row.username,
+      displayName: row.displayName,
+      status: "pending",
+    }));
   },
 
-  async getAllPendingRequestsForCreator(username: string): Promise<PendingRequestWithBbq[]> {
-    const creatorBbqs = await db.select().from(barbecues).where(eq(barbecues.creatorId, username));
-    const result: PendingRequestWithBbq[] = [];
-    for (const bbq of creatorBbqs) {
-      const pending = await this.listByBbq(bbq.id, "pending");
-      for (const p of pending) result.push({ ...p, bbqName: bbq.name });
-    }
-    return result;
+  async getAllPendingRequestsForCreator(creatorUserId: number): Promise<PendingRequestWithBbq[]> {
+    const rows = await db
+      .select({
+        participantId: participants.id,
+        participantName: participants.name,
+        participantUserId: participants.userId,
+        participantStatus: participants.status,
+        participantCreatedAt: participants.createdAt,
+        bbqId: barbecues.id,
+        bbqName: barbecues.name,
+      })
+      .from(participants)
+      .innerJoin(barbecues, eq(participants.barbecueId, barbecues.id))
+      .where(and(
+        eq(barbecues.creatorUserId, creatorUserId),
+        eq(participants.status, "pending"),
+      ));
+    return rows.map((row) => ({
+      id: row.participantId,
+      name: row.participantName,
+      userId: row.participantUserId,
+      status: row.participantStatus,
+      createdAt: row.participantCreatedAt,
+      barbecueId: row.bbqId,
+      bbqName: row.bbqName,
+    }));
   },
 };

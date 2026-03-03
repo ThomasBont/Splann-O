@@ -33,7 +33,7 @@ export interface InviteSheetProps {
   friends: FriendInfo[];
   invitedParticipants: Participant[];
   /** Participant user IDs (to show "invited" for existing members) */
-  participantUserIds?: Set<string>;
+  participantUserIds?: Set<number>;
   /** Invite friend by username */
   onInviteFriend: (username: string) => void;
   /** Remove/cancel invite */
@@ -59,7 +59,7 @@ export function InviteSheet({
   invited,
   friends,
   invitedParticipants,
-  participantUserIds = new Set(),
+  participantUserIds = new Set<number>(),
   onInviteFriend,
   onRejectInvite,
   onViewUser,
@@ -108,8 +108,8 @@ export function InviteSheet({
               <div className="flex flex-wrap gap-2">
                 {friends.map((f) => {
                   const alreadyInvited =
-                    invitedParticipants.some((p) => p.userId === f.username) ||
-                    participantUserIds.has(f.username);
+                    invitedParticipants.some((p) => p.userId === f.userId) ||
+                    participantUserIds.has(f.userId);
                   return (
                     <div
                       key={f.friendshipId}

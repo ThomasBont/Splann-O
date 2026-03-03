@@ -175,7 +175,8 @@ export async function appendEventChatMessage(
   if (!existing) {
     throw new Error("Message persistence conflict without existing row");
   }
-  const reactions = await listMessageReactions(existing.id, Number.isFinite(authorId) ? authorId : undefined);
+  const viewerUserId = typeof authorId === "number" && Number.isFinite(authorId) ? authorId : undefined;
+  const reactions = await listMessageReactions(existing.id, viewerUserId);
   return { message: toMessage(existing, reactions), inserted: false };
 }
 

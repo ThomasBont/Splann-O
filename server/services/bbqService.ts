@@ -273,6 +273,7 @@ export async function createBarbecue(
     date: Date | string;
     currency?: string;
     creatorId?: string | null;
+    creatorUserId?: number | null;
     isPublic?: boolean;
     allowOptInExpenses?: boolean;
     area?: string;
@@ -304,16 +305,19 @@ export async function createBarbecue(
   sessionUsername?: string
 ): Promise<Barbecue> {
   const creatorId = input.creatorId?.trim() || sessionUsername;
+  const creatorUserIdFromInput = input.creatorUserId ?? null;
   const requestedVisibility = input.visibility ?? (input.isPublic ? "public" : "private");
   const visibilityOrigin = input.visibilityOrigin ?? (requestedVisibility === "public" ? "public" : "private");
-  let creatorUser: Awaited<ReturnType<typeof userRepo.findByUsername>> | undefined;
-  if (creatorId) {
+  let creatorUser: Awaited<ReturnType<typeof userRepo.findById>> | undefined;
+  if (creatorUserIdFromInput) {
+    creatorUser = await userRepo.findById(creatorUserIdFromInput);
+  } else if (creatorId) {
     creatorUser = await userRepo.findByUsername(creatorId);
-    if (requestedVisibility === "public" && process.env.NODE_ENV !== "development") {
-      const limits = getLimits(creatorUser ?? undefined);
-      const count = await bbqRepo.countOwnedByCreator(creatorId);
-      if (count >= limits.maxEvents) upgradeRequired("more_events", { current: count, max: limits.maxEvents });
-    }
+  }
+  if (requestedVisibility === "public" && process.env.NODE_ENV !== "development") {
+    const limits = getLimits(creatorUser ?? undefined);
+    const count = creatorUser ? await bbqRepo.countOwnedByCreatorUserId(creatorUser.id) : 0;
+    if (count >= limits.maxEvents) upgradeRequired("more_events", { current: count, max: limits.maxEvents });
   }
 
   const currencySource = input.currencySource ?? "auto";
@@ -343,6 +347,7 @@ export async function createBarbecue(
 
   const insertValues = stripPublicOnlyFieldsForPrivateMutation({
     ...input,
+    creatorUserId: creatorUser?.id ?? null,
     date: typeof input.date === "string" ? new Date(input.date) : input.date,
     locationName: input.locationName ?? input.locationText ?? null,
     locationText: input.locationText ?? input.locationName ?? null,
@@ -363,11 +368,11 @@ export async function createBarbecue(
   } as Parameters<typeof bbqRepo.create>[0], visibilityOrigin === "private");
   const created = await bbqRepo.create(insertValues as Parameters<typeof bbqRepo.create>[0]);
 
-  if (creatorId) {
+  if (creatorUser) {
     await participantRepo.create({
       barbecueId: created.id,
-      name: creatorId,
-      userId: creatorId,
+      name: creatorUser.displayName || creatorUser.username,
+      userId: creatorUser.id,
       status: "accepted",
     });
   }
@@ -426,7 +431,7 @@ export async function updateBarbecue(
 ): Promise<Barbecue | undefined> {
   const bbq = await bbqRepo.getById(id);
   if (!bbq) return undefined;
-  let canEdit = bbq.creatorId === sessionUsername;
+  let canEdit = !!sessionUserId && bbq.creatorUserId === sessionUserId;
   if (!canEdit && sessionUserId) {
     const rows = await db.select({ id: eventMembers.id }).from(eventMembers)
       .where(and(eq(eventMembers.eventId, id), eq(eventMembers.userId, sessionUserId)))
@@ -492,7 +497,7 @@ export async function updateBarbecue(
   } else if (updates.currencySource !== undefined) {
     set.currencySource = updates.currencySource;
   } else if (updates.countryCode !== undefined && bbq.currencySource === "auto") {
-    const creatorUser = sessionUsername ? await userRepo.findByUsername(sessionUsername) : undefined;
+    const creatorUser = sessionUserId ? await userRepo.findById(sessionUserId) : undefined;
     set.currency = resolveTripCurrency({
       countryCode: normalizedCountryCode,
       userDefaultCurrency: creatorUser?.defaultCurrencyCode,
@@ -553,8 +558,8 @@ export async function getPublicEventBySlug(slug: string): Promise<PublicEventDet
   const event = await bbqRepo.getByPublicSlug(slug);
   if (!event) return null;
   if (event.visibility !== "public" || !isPublicListingActive(event) || !event.publicSlug) return null;
-  const creator = event.creatorId ? await userRepo.findByUsername(event.creatorId) : undefined;
-  const creatorProfile = event.creatorId ? await userRepo.getShareablePublicProfile(event.creatorId) : undefined;
+  const creator = event.creatorUserId ? await userRepo.findById(event.creatorUserId) : undefined;
+  const creatorProfile = creator ? await userRepo.getShareablePublicProfile(creator.username) : undefined;
   return {
     ...toPublicListItem(event),
     locationName: event.locationName ?? (event.city && event.countryName ? `${event.city}, ${event.countryName}` : null),
@@ -584,8 +589,8 @@ export async function getPublicEventBySlugForPublicView(slug: string): Promise<P
     event.publicListingStatus !== "paused";
 
   if (!isListedAndVisible) {
-    const creator = event.creatorId ? await userRepo.findByUsername(event.creatorId) : undefined;
-    const creatorProfile = event.creatorId ? await userRepo.getShareablePublicProfile(event.creatorId) : undefined;
+    const creator = event.creatorUserId ? await userRepo.findById(event.creatorUserId) : undefined;
+    const creatorProfile = creator ? await userRepo.getShareablePublicProfile(creator.username) : undefined;
     return {
       status: "ok",
       eventId: event.id,
@@ -609,8 +614,8 @@ export async function getPublicEventBySlugForPublicView(slug: string): Promise<P
 
   await bbqRepo.incrementPublicViewCount(event.id);
 
-  const creator = event.creatorId ? await userRepo.findByUsername(event.creatorId) : undefined;
-  const creatorProfile = event.creatorId ? await userRepo.getShareablePublicProfile(event.creatorId) : undefined;
+  const creator = event.creatorUserId ? await userRepo.findById(event.creatorUserId) : undefined;
+  const creatorProfile = creator ? await userRepo.getShareablePublicProfile(creator.username) : undefined;
   return {
     status: "ok",
     eventId: event.id,
@@ -632,10 +637,10 @@ export async function getPublicEventBySlugForPublicView(slug: string): Promise<P
   };
 }
 
-export async function activateListing(id: number, sessionUsername?: string): Promise<Barbecue | undefined> {
+export async function activateListing(id: number, sessionUserId?: number): Promise<Barbecue | undefined> {
   const event = await bbqRepo.getById(id);
   if (!event) return undefined;
-  if (event.creatorId !== sessionUsername) return undefined;
+  if (!sessionUserId || event.creatorUserId !== sessionUserId) return undefined;
   const expiresAt = new Date(Date.now() + DEFAULT_LISTING_DURATION_DAYS * 24 * 60 * 60 * 1000);
   const updated = await bbqRepo.update(id, {
     publicListingStatus: "active",
@@ -669,10 +674,10 @@ export async function activateListingBySystem(
   return (await ensurePublicSlug(updated)) ?? updated;
 }
 
-export async function deactivateListing(id: number, sessionUsername?: string): Promise<Barbecue | undefined> {
+export async function deactivateListing(id: number, sessionUserId?: number): Promise<Barbecue | undefined> {
   const event = await bbqRepo.getById(id);
   if (!event) return undefined;
-  if (event.creatorId !== sessionUsername) return undefined;
+  if (!sessionUserId || event.creatorUserId !== sessionUserId) return undefined;
   return bbqRepo.update(id, {
     publicListingStatus: "inactive",
     visibility: "private",

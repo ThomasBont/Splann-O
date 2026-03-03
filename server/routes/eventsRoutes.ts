@@ -1,5 +1,5 @@
 import { Router, type Request } from "express";
-import { and, desc, eq, isNotNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 import { randomBytes } from "crypto";
 import { db } from "../db";
@@ -62,27 +62,15 @@ async function assertEventAccessOrThrow(req: Request, eventId: number) {
   const event = await bbqRepo.getById(eventId);
   if (!event) notFound("Event not found");
 
-  if (event.creatorId) {
-    const owner = await userRepo.findByUsername(event.creatorId);
-    if (owner) {
-      await db.insert(eventMembers).values({
-        eventId,
-        userId: owner.id,
-        role: "owner",
-        joinedAt: new Date(),
-      }).onConflictDoNothing({ target: [eventMembers.eventId, eventMembers.userId] });
-    }
-  }
-
-  if (event.creatorId === username) {
+  if (event.creatorUserId) {
     await db.insert(eventMembers).values({
       eventId,
-      userId,
+      userId: event.creatorUserId,
       role: "owner",
       joinedAt: new Date(),
     }).onConflictDoNothing({ target: [eventMembers.eventId, eventMembers.userId] });
-    return;
   }
+  if (event.creatorUserId === userId) return;
 
   const [member] = await db
     .select({ id: eventMembers.id })
@@ -161,8 +149,7 @@ router.post("/:eventId/members", requireAuth, asyncHandler(async (req, res) => {
     await db.insert(participants).values({
       barbecueId: eventId,
       name: targetUser.displayName || targetUser.username,
-      userId: targetUser.username,
-      invitedUserId: targetUser.id,
+      userId: targetUser.id,
       status: "accepted",
     }).onConflictDoNothing();
 
@@ -221,9 +208,18 @@ router.get("/:eventId/invites", requireAuth, asyncHandler(async (req, res) => {
       ),
     );
     const invitees = inviteeIds.length > 0
-      ? await Promise.all(inviteeIds.map(async (id) => userRepo.findById(id)))
+      ? await db
+          .select({
+            id: users.id,
+            displayName: users.displayName,
+            username: users.username,
+            avatarUrl: users.avatarUrl,
+            profileImageUrl: users.profileImageUrl,
+          })
+          .from(users)
+          .where(inArray(users.id, inviteeIds))
       : [];
-    const inviteeById = new Map(invitees.filter((user): user is NonNullable<typeof user> => !!user).map((user) => [user.id, user]));
+    const inviteeById = new Map(invitees.map((user) => [user.id, user]));
 
     res.json(rows.map((row) => ({
       id: row.id,

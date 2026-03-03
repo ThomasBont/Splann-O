@@ -156,7 +156,7 @@ export function useCreateBarbecue() {
       name: string;
       date: string;
       currency?: string;
-      creatorId?: string;
+      creatorUserId?: number;
       isPublic?: boolean;
       allowOptInExpenses?: boolean;
       area?: string;

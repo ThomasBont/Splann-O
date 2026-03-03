@@ -8,8 +8,8 @@ export async function assertCanAccessBbq(userId: number | undefined, username: s
   if (!hasAccess) throw forbidden("You do not have access to this event");
 }
 
-export async function assertIsBbqOwner(username: string, bbqId: number): Promise<void> {
+export async function assertIsBbqOwner(userId: number, bbqId: number): Promise<void> {
   const bbq = await bbqRepo.getById(bbqId);
   if (!bbq) throw notFound("BBQ not found");
-  if (bbq.creatorId !== username) throw forbidden("Only the creator can perform this action");
+  if (bbq.creatorUserId !== userId) throw forbidden("Only the creator can perform this action");
 }

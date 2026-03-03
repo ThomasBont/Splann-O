@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Lock } from "lucide-react";
 import { FEATURE_PUBLIC_PLANS } from "@/lib/features";
 import { getApiBase, getWsBase } from "@/lib/network";
+import { AppErrorBoundary } from "@/components/AppErrorBoundary";
 
 function PublicDisabledPage() {
   const [, setLocation] = useLocation();
@@ -85,6 +86,36 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const unlockUiInteractivity = () => {
+      const root = document.getElementById("root");
+      document.documentElement.style.pointerEvents = "auto";
+      document.body.style.pointerEvents = "auto";
+      document.documentElement.removeAttribute("inert");
+      document.body.removeAttribute("inert");
+      if (root) {
+        root.style.pointerEvents = "auto";
+        root.removeAttribute("inert");
+      }
+    };
+
+    // Heal once on mount in case stale modal locks survived a prior render.
+    unlockUiInteractivity();
+
+    const observer = new MutationObserver(() => {
+      unlockUiInteractivity();
+    });
+    observer.observe(document.body, { attributes: true, childList: true, subtree: true });
+    const interval = window.setInterval(unlockUiInteractivity, 400);
+
+    return () => {
+      observer.disconnect();
+      window.clearInterval(interval);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!import.meta.env.DEV || typeof window === "undefined") return;
 
     const points = () => ([
@@ -136,16 +167,6 @@ function App() {
       }, 2000);
     };
 
-    const healPointerEvents = () => {
-      const bodyPointer = window.getComputedStyle(document.body).pointerEvents;
-      const openDialog = document.querySelector("[data-state='open'][role='dialog']");
-      const openOverlay = document.querySelector("[data-state='open'][data-radix-dialog-overlay]");
-      if (!openDialog && !openOverlay && bodyPointer === "none") {
-        document.body.style.pointerEvents = "auto";
-        console.warn("[ui-heal] reset body pointer-events to auto");
-      }
-    };
-
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "\\") {
         toggleOutlineDebug();
@@ -154,16 +175,10 @@ function App() {
     };
 
     logHitTest("app-mount");
-    healPointerEvents();
     window.addEventListener("keydown", onKeyDown);
-    const observer = new MutationObserver(() => {
-      healPointerEvents();
-    });
-    observer.observe(document.body, { attributes: true, childList: true, subtree: true });
 
     return () => {
       window.removeEventListener("keydown", onKeyDown);
-      observer.disconnect();
     };
   }, []);
 
@@ -173,8 +188,10 @@ function App() {
         <LanguageProvider>
           <UpgradeProvider>
             <NewPlanWizardProvider>
-              <Router />
-              <Toaster />
+              <AppErrorBoundary>
+                <Router />
+                <Toaster />
+              </AppErrorBoundary>
             </NewPlanWizardProvider>
           </UpgradeProvider>
         </LanguageProvider>

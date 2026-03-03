@@ -895,3 +895,21 @@ export function useDeleteBarbecue() {
     },
   });
 }
+
+export function useLeaveBarbecue() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const url = buildUrl(api.barbecues.leave.path, { id });
+      const res = await fetch(url, { method: "POST", credentials: "include" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((body as { message?: string }).message || "Failed to leave plan");
+      return body as { ok: true; left: true; planDeleted?: boolean; newCreatorId?: number | null };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/barbecues'] });
+      queryClient.invalidateQueries({ queryKey: ["/api/memberships"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+    },
+  });
+}

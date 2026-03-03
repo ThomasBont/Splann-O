@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import SharedCostsDrawer from "@/components/event/SharedCostsDrawer";
+import { cn } from "@/lib/utils";
 import type { ExpenseWithParticipant } from "@shared/schema";
 import type { Balance, Settlement } from "@/lib/split/calc";
 
@@ -18,6 +19,8 @@ type SharedCostsWidgetProps = {
   settlements: Settlement[];
   formatMoney: (amount: number) => string;
   canAddExpense?: boolean;
+  variant?: "default" | "glass";
+  className?: string;
 };
 
 export function SharedCostsWidget({
@@ -33,6 +36,8 @@ export function SharedCostsWidget({
   settlements,
   formatMoney,
   canAddExpense = true,
+  variant = "default",
+  className,
 }: SharedCostsWidgetProps) {
   const [open, setOpen] = useState(false);
   const [initialView, setInitialView] = useState<"overview" | "expense-form">("overview");
@@ -42,21 +47,32 @@ export function SharedCostsWidget({
       <div
         role="button"
         tabIndex={0}
-        className="w-full rounded-2xl border border-border/70 bg-card p-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-        onClick={() => {
+        className={cn(
+          "w-full rounded-2xl p-4 text-left transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+          variant === "glass"
+            ? "border border-white/10 bg-white/5 shadow-sm backdrop-blur-md hover:border-white/20"
+            : "border border-border/70 bg-card shadow-sm hover:-translate-y-0.5 hover:border-border",
+          className,
+        )}
+        onClick={(event) => {
+          event.stopPropagation();
           setInitialView("overview");
           setOpen(true);
         }}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
+            event.stopPropagation();
             setInitialView("overview");
             setOpen(true);
           }
         }}
       >
         <div className="flex items-center justify-between gap-2">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Shared pot</p>
+          <p className={cn(
+            "text-xs font-medium uppercase tracking-wide",
+            variant === "glass" ? "text-white/60" : "text-muted-foreground",
+          )}>Shared pot</p>
           <div className="flex items-center gap-2">
             <span className="grid h-6 w-6 place-items-center rounded-full bg-muted text-xs font-medium text-foreground">
               {expenseCount}
@@ -79,8 +95,8 @@ export function SharedCostsWidget({
             ) : null}
           </div>
         </div>
-        <p className="mt-3 text-2xl font-semibold tracking-tight text-foreground">{totalSpentLabel}</p>
-        <p className="mt-1 text-xs text-muted-foreground">
+        <p className={cn("mt-3 text-2xl font-semibold tracking-tight", variant === "glass" ? "text-white/90" : "text-foreground")}>{totalSpentLabel}</p>
+        <p className={cn("mt-1 text-xs", variant === "glass" ? "text-white/60" : "text-muted-foreground")}>
           {expenseCount} logged expense{expenseCount === 1 ? "" : "s"}
         </p>
       </div>

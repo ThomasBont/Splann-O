@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from "react";
 import { Link, useLocation } from "wouter";
 import { normalizeCountryCode } from "@shared/lib/country-code";
 import { useLanguage, getCurrency, type CurrencyCode, convertCurrency } from "@/hooks/use-language";
@@ -8,11 +8,11 @@ import {
   useParticipants, useCreateParticipant, useDeleteParticipant, useUpdateParticipantName,
   usePendingRequests, useMemberships, useJoinBarbecue,
   useAcceptParticipant, useRejectParticipant,
-  useInvitedParticipants, useInviteParticipant,
+  useInvitedParticipants, useInviteParticipant, useEventMembers,
   useAcceptInvite, useDeclineInvite,
 } from "@/hooks/use-participants";
 import { useExpenses, useDeleteExpense, useExpenseShares, useSetExpenseShare } from "@/hooks/use-expenses";
-import { useBarbecues, useCreateBarbecue, useDeleteBarbecue, useUpdateBarbecue, useEnsureInviteToken, useSettleUp, useCheckoutPublicListing, useDeactivateListing, useExploreEvents, usePublicEventRsvpRequests, useUpdatePublicEventRsvpRequest, useConversations, useConversation, useSendConversationMessage, useUpdateConversationStatus, useUploadEventBanner, useDeleteEventBanner, useNotifications, useAcceptPlanInvite, useDeclinePlanInvite, useAcceptFriendRequestNotification, useDeclineFriendRequestNotification, type ExploreEvent, type PlanInviteNotification } from "@/hooks/use-bbq-data";
+import { useBarbecues, useCreateBarbecue, useDeleteBarbecue, useUpdateBarbecue, useEnsureInviteToken, useSettleUp, useCheckoutPublicListing, useDeactivateListing, useExploreEvents, usePublicEventRsvpRequests, useUpdatePublicEventRsvpRequest, useConversations, useConversation, useSendConversationMessage, useUpdateConversationStatus, useUploadEventBanner, useDeleteEventBanner, useNotifications, useAcceptPlanInvite, useDeclinePlanInvite, useAcceptFriendRequestNotification, useDeclineFriendRequestNotification, useLeaveBarbecue, type ExploreEvent, type PlanInviteNotification } from "@/hooks/use-bbq-data";
 import { useQueryClient } from "@tanstack/react-query";
 import { useFriends, useFriendRequests, useAllPendingRequests, useAcceptFriendRequest, useRemoveFriend, useSearchUsers, useSendFriendRequest } from "@/hooks/use-friends";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,16 @@ import { EventTabsContent } from "@/components/event/EventTabs";
 import { EventPageTabsRouter } from "@/components/event/pages/EventPageTabsRouter";
 import { Modal } from "@/components/ui/modal";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {
   Accordion,
   AccordionContent,
@@ -549,12 +559,13 @@ export function AuthDialog({
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 type HomeRouteMode = "legacy" | "private" | "public" | "event";
-type AccountView = "profile" | "friends" | "addFriend" | "friendProfile" | "editBio" | "changePhoto" | "settings" | "deleteAccountConfirm";
+type AccountView = "profile" | "friends" | "addFriend" | "friendProfile" | "editBio" | "changePhoto" | "settings";
 type HomeProps = {
   appRouteMode?: HomeRouteMode;
   routeEventId?: number | null;
   debugDisableDiscoverModal?: boolean;
 };
+const LEAVE_REDIRECT_MARKER_KEY = "splanno.recentlyLeftPlan";
 
 export default function Home({ appRouteMode = "legacy", routeEventId = null, debugDisableDiscoverModal = false }: HomeProps) {
   const { t } = useLanguage();
@@ -568,6 +579,8 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
   const { openNewPlanWizard } = useNewPlanWizard();
   const shouldReduceMotion = useReducedMotion();
   const isManagedAppRoute = appRouteMode !== "legacy";
+  // Managed event route should render the new dashboard layout.
+  const useNewManagedEventLayout = true;
 
   const [area, setArea] = useState<"parties" | "trips">("parties");
   const [eventVisibilityTab, setEventVisibilityTab] = useState<"private" | "public">("private");
@@ -660,6 +673,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
   const [profileTargetUsername, setProfileTargetUsername] = useState<string | null>(null);
   const [isAccountDrawerOpen, setIsAccountDrawerOpen] = useState(false);
   const [accountView, setAccountView] = useState<AccountView>("profile");
+  const [deleteAccountDialogOpen, setDeleteAccountDialogOpen] = useState(false);
   const [draftBio, setDraftBio] = useState("");
   const [draftProfileImageUrl, setDraftProfileImageUrl] = useState("");
   const avatarFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -680,6 +694,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
   const [showSettledConfetti, setShowSettledConfetti] = useState(false);
   const settledCelebrationShownRef = useRef<number | null>(null);
   const publicSplitGuardedEventRef = useRef<number | null>(null);
+  const missingEventRedirectedRef = useRef<number | null>(null);
   const [whatsAppStarterOpen, setWhatsAppStarterOpen] = useState(false);
   const [whatsAppStarterMessage, setWhatsAppStarterMessage] = useState("");
   const [whatsAppStarterLink, setWhatsAppStarterLink] = useState("");
@@ -851,6 +866,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
   useEffect(() => {
     if (isAccountDrawerOpen) return;
     setAccountView("profile");
+    setDeleteAccountDialogOpen(false);
     setProfileTargetUsername(null);
     setDeleteConfirmPhrase("");
     setSelectedFriendId(null);
@@ -1068,6 +1084,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
   }, [allEventsForArea, allEventsSearch]);
   const createBbq = useCreateBarbecue();
   const deleteBbq = useDeleteBarbecue();
+  const leaveBbq = useLeaveBarbecue();
   const updateBbq = useUpdateBarbecue();
   const uploadEventBanner = useUploadEventBanner(selectedBbqId);
   const deleteEventBanner = useDeleteEventBanner(selectedBbqId);
@@ -1076,7 +1093,39 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
   const checkoutPublicListing = useCheckoutPublicListing();
   const deactivateListing = useDeactivateListing();
 
-  const selectedBbq = barbecuesForArea.find((b: Barbecue) => b.id === selectedBbqId) ?? (barbecues.find((b: Barbecue) => b.id === selectedBbqId) || null);
+  const selectedBbq = barbecuesForArea.find((b: Barbecue) => Number(b.id) === selectedBbqId)
+    ?? (barbecues.find((b: Barbecue) => Number(b.id) === selectedBbqId) || null);
+  const removePlanFromClientState = useCallback((planId: number) => {
+    // Only clear local UI references. Authoritative plans list should come from server refetch.
+    setPinnedEventIds((prev) => prev.filter((id) => id !== planId));
+    setRecentEventIds((prev) => prev.filter((id) => id !== planId));
+    if (typeof window !== "undefined") {
+      const sidebarRecentKey = `splanno.sidebar.recent-opened.v1:${user?.id ?? user?.username ?? "anon"}`;
+      try {
+        const parsed = JSON.parse(localStorage.getItem(sidebarRecentKey) ?? "[]");
+        if (Array.isArray(parsed)) {
+          const next = parsed.filter((id): id is number => Number.isInteger(id) && id !== planId);
+          localStorage.setItem(sidebarRecentKey, JSON.stringify(next));
+        }
+      } catch {
+        // ignore malformed local state
+      }
+    }
+  }, [user?.id, user?.username]);
+
+  useEffect(() => {
+    if (!barbecues.length) return;
+    const validIds = new Set(
+      barbecues
+        .map((plan) => Number(plan.id))
+        .filter((id) => Number.isFinite(id))
+    );
+    setPinnedEventIds((prev) => prev.filter((id) => validIds.has(id)));
+    setRecentEventIds((prev) => prev.filter((id) => validIds.has(id)));
+    if (selectedBbqId != null && !validIds.has(selectedBbqId)) {
+      setSelectedBbqId(null);
+    }
+  }, [barbecues, selectedBbqId]);
   const eventViewRef = useRef<HTMLDivElement | null>(null);
   const resolvedDashboardBannerUrl = useMemo(() => {
     if (!selectedBbq) return null;
@@ -1163,6 +1212,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
   const privateMood = getCircleMoodTokens(isPrivateContext ? getCirclePersonalityFromEvent(selectedBbq) : "minimal");
 
   const { data: participants = [] } = useParticipants(selectedBbqId);
+  const { data: eventMembers = [] } = useEventMembers(selectedBbqId);
   const { data: expenses = [] } = useExpenses(selectedBbqId);
   const [showLocalSuggestionsModal, setShowLocalSuggestionsModal] = useState(false);
   const [privateSuggestionState, setPrivateSuggestionState] = useState(defaultPrivateSuggestionState());
@@ -1308,6 +1358,17 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
   const _getFairShareForParticipant = (participantId: number) =>
     getFairShareForParticipant(participantId, expenses, expenseSharesList, participants, allowOptIn);
   const myParticipant = username ? participants.find((p: Participant) => p.userId === username) : null;
+  const creatorLeaveSuccessorName = useMemo(() => {
+    if (!selectedBbqId || !user?.id) return null;
+    const successor = [...eventMembers]
+      .filter((member) => member.userId !== user.id)
+      .sort((a, b) => {
+        const aJoined = a.joinedAt ? new Date(a.joinedAt).getTime() : Number.MAX_SAFE_INTEGER;
+        const bJoined = b.joinedAt ? new Date(b.joinedAt).getTime() : Number.MAX_SAFE_INTEGER;
+        return aJoined - bJoined;
+      })[0];
+    return successor?.name ?? null;
+  }, [eventMembers, selectedBbqId, user?.id]);
   const fairShare = myParticipant ? _getFairShareForParticipant(myParticipant.id) : (participantCount > 0 ? totalSpent / participantCount : 0);
 
   const canLeave = (p: Participant) => {
@@ -1527,9 +1588,10 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
       toastError("Location is required.");
       return;
     }
-    const requestedPublicOnCreate = newBbqIsPublic;
-    const requestedPublicModeOnCreate = newBbqPublicMode;
-    const requestedVisibilityOriginOnCreate = newBbqVisibilityOrigin;
+    const forcePrivateCreate = appRouteMode === "private";
+    const requestedPublicOnCreate = forcePrivateCreate ? false : newBbqIsPublic;
+    const requestedPublicModeOnCreate = forcePrivateCreate ? "marketing" : newBbqPublicMode;
+    const requestedVisibilityOriginOnCreate = forcePrivateCreate ? "private" : newBbqVisibilityOrigin;
     // Template-specific default data at creation time
     let templateData: unknown | null = null;
     if (newEventType === "barbecue") {
@@ -1651,7 +1713,8 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
       },
       onError: (err: unknown) => {
         if (err instanceof UpgradeRequiredError) { showUpgrade(err.payload); return; }
-        toastError("Couldn’t create event. Try again.");
+        const message = err instanceof Error ? err.message : "Couldn’t create event. Try again.";
+        toastError(message || "Couldn’t create event. Try again.");
       },
     });
   };
@@ -1677,6 +1740,70 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
       toastError("Failed to delete plan");
     }
   };
+
+  const handleLeaveBbq = async (id: number) => {
+    try {
+      await leaveBbq.mutateAsync(id);
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem(LEAVE_REDIRECT_MARKER_KEY, JSON.stringify({ id, at: Date.now() }));
+      }
+      removePlanFromClientState(id);
+      await queryClient.invalidateQueries({ queryKey: ['/api/barbecues'] });
+      await queryClient.refetchQueries({ queryKey: ['/api/barbecues'] });
+      if (selectedBbqId === id) setSelectedBbqId(null);
+      setEventSettingsOpen(false);
+      setIsPlanDetailsOpen(false);
+      setLocation("/app/private", { replace: true });
+      toastSuccess("You left the plan");
+    } catch (error) {
+      const message = (error as Error)?.message ?? "Failed to leave plan";
+      if (/not a member/i.test(message)) {
+        toastError("You are not a member of this plan");
+        return;
+      }
+      if (/not found/i.test(message)) {
+        toastError("Plan not found");
+        return;
+      }
+      toastError("Failed to leave plan");
+    }
+  };
+
+  useEffect(() => {
+    if (!isManagedAppRoute || appRouteMode !== "event" || !routeEventId) return;
+    if (isLoadingBbqs || barbecuesError || selectedBbq) {
+      if (selectedBbq) missingEventRedirectedRef.current = null;
+      return;
+    }
+    if (missingEventRedirectedRef.current === routeEventId) return;
+    missingEventRedirectedRef.current = routeEventId;
+
+    if (typeof window !== "undefined") {
+      const raw = sessionStorage.getItem(LEAVE_REDIRECT_MARKER_KEY);
+      if (raw) {
+        try {
+          const marker = JSON.parse(raw) as { id?: number; at?: number };
+          void marker;
+        } catch {
+          // ignore malformed marker
+        }
+      }
+      sessionStorage.removeItem(LEAVE_REDIRECT_MARKER_KEY);
+    }
+
+    setPinnedEventIds((prev) => prev.filter((id) => id !== routeEventId));
+    setRecentEventIds((prev) => prev.filter((id) => id !== routeEventId));
+    setSelectedBbqId(null);
+    setLocation("/app/private", { replace: true });
+  }, [
+    appRouteMode,
+    barbecuesError,
+    isLoadingBbqs,
+    isManagedAppRoute,
+    routeEventId,
+    selectedBbq,
+    setLocation,
+  ]);
 
   const resetNewEventWizard = () => {
     setNewPublicCreateStep(1);
@@ -1782,14 +1909,25 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
   };
 
   const handleSelectEvent = (eventId: number | null) => {
-    setSelectedBbqId(eventId);
-    if (eventId != null) markEventRecent(eventId);
     if (isManagedAppRoute) {
+      if (eventId != null) {
+        markEventRecent(eventId);
+        // In managed /app/private, selecting a card should only navigate.
+        // Setting selectedBbqId here hides the list before route transition.
+        if (appRouteMode === "private") {
+          setLocation(`/app/e/${eventId}`);
+          return;
+        }
+      }
+      setSelectedBbqId(eventId);
       if (eventId != null) setLocation(`/app/e/${eventId}`);
       else if (appRouteMode === "public") setLocation("/app/public");
       else if (appRouteMode === "private") setLocation("/app/private");
       else setLocation("/app/private");
+      return;
     }
+    setSelectedBbqId(eventId);
+    if (eventId != null) markEventRecent(eventId);
   };
 
   const togglePinnedEvent = (eventId: number) => {
@@ -2226,6 +2364,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
         >
           <div className="flex h-full flex-col">
             <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-5 py-4 backdrop-blur dark:border-neutral-800 dark:bg-[#121212]/95">
+              <div className="flex items-start justify-between gap-3">
                 <SheetHeader className="space-y-1 text-left">
                   <SheetTitle className="text-lg font-semibold text-slate-900 dark:text-neutral-100">Account</SheetTitle>
                   <SheetDescription className="text-sm text-slate-500 dark:text-neutral-400">
@@ -2237,16 +2376,30 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                           ? "Add friend"
                           : accountView === "friendProfile"
                             ? "Friend profile"
-                        : accountView === "editBio"
-                          ? "Edit bio"
-                          : accountView === "changePhoto"
-                            ? "Change photo"
-                            : accountView === "deleteAccountConfirm"
-                              ? "Delete account"
-                            : "Settings"}
+                            : accountView === "editBio"
+                              ? "Edit bio"
+                              : accountView === "changePhoto"
+                                ? "Change photo"
+                                : "Settings"}
                   </SheetDescription>
                 </SheetHeader>
-              </header>
+                {isViewingOwnAccount ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="h-9 w-9 rounded-full border-red-200/80 bg-red-50/70 text-red-600 hover:border-red-300 hover:bg-red-100 hover:text-red-700 dark:border-red-900/60 dark:bg-red-950/20 dark:text-red-400 dark:hover:bg-red-950/40"
+                    onClick={() => {
+                      setDeleteConfirmPhrase("");
+                      setDeleteAccountDialogOpen(true);
+                    }}
+                    aria-label="Delete account"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                ) : null}
+              </div>
+            </header>
 
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
               {accountView === "profile" ? (
@@ -2357,73 +2510,11 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                             >
                               <Settings className="h-4 w-4" />
                             </Button>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="icon"
-                              className="h-9 w-9 rounded-full border-border/70 bg-card text-muted-foreground hover:border-destructive/50 hover:bg-destructive/10 hover:text-destructive"
-                              onClick={() => {
-                                setDeleteConfirmPhrase("");
-                                setAccountView("deleteAccountConfirm");
-                              }}
-                              aria-label="Delete account"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
                           </div>
                         </div>
                       ) : null}
                     </>
                   )}
-                </div>
-              ) : accountView === "deleteAccountConfirm" ? (
-                <div className="space-y-4">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="w-fit px-2"
-                    onClick={() => setAccountView("profile")}
-                  >
-                    <ArrowLeft className="mr-1.5 h-4 w-4" />
-                    Back to profile
-                  </Button>
-                  <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3">
-                    <p className="text-sm font-semibold text-destructive">Delete account</p>
-                    <p className="mt-1 text-xs text-muted-foreground">This action is permanent and cannot be undone.</p>
-                    <Label htmlFor="delete-account-confirm" className="mt-3 block text-xs text-destructive">
-                      Type DELETE to confirm
-                    </Label>
-                    <Input
-                      id="delete-account-confirm"
-                      value={deleteConfirmPhrase}
-                      onChange={(event) => setDeleteConfirmPhrase(event.target.value)}
-                      className="mt-1 h-9"
-                    />
-                    <div className="mt-3 flex items-center gap-2">
-                      <Button type="button" variant="outline" size="sm" onClick={() => setAccountView("profile")}>
-                        Cancel
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="destructive"
-                        size="sm"
-                        disabled={deleteConfirmPhrase.trim().toUpperCase() !== "DELETE" || deleteAccount.isPending}
-                        onClick={() =>
-                          deleteAccount.mutate(undefined, {
-                            onSuccess: () => {
-                              setIsAccountDrawerOpen(false);
-                              window.location.href = "/";
-                            },
-                            onError: () => toastError("Couldn’t delete account. Try again."),
-                          })
-                        }
-                      >
-                        {deleteAccount.isPending ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
-                        Delete account
-                      </Button>
-                    </div>
-                  </div>
                 </div>
               ) : accountView === "friends" ? (
                 <div className="space-y-4">
@@ -2925,6 +3016,49 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                 {t.auth.logout}
               </Button>
             </footer>
+            <AlertDialog open={deleteAccountDialogOpen} onOpenChange={setDeleteAccountDialogOpen}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete account?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This permanently deletes your account and cannot be undone. Type DELETE to confirm.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <div className="space-y-1.5">
+                  <Label htmlFor="delete-account-confirm" className="text-xs text-muted-foreground">
+                    Confirmation
+                  </Label>
+                  <Input
+                    id="delete-account-confirm"
+                    value={deleteConfirmPhrase}
+                    onChange={(event) => setDeleteConfirmPhrase(event.target.value)}
+                    placeholder="DELETE"
+                    className="h-9"
+                  />
+                </div>
+                <AlertDialogFooter>
+                  <AlertDialogCancel disabled={deleteAccount.isPending}>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    disabled={deleteConfirmPhrase.trim().toUpperCase() !== "DELETE" || deleteAccount.isPending}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      deleteAccount.mutate(undefined, {
+                        onSuccess: () => {
+                          setDeleteAccountDialogOpen(false);
+                          setIsAccountDrawerOpen(false);
+                          window.location.href = "/";
+                        },
+                        onError: () => toastError("Couldn’t delete account. Try again."),
+                      });
+                    }}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    {deleteAccount.isPending ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : null}
+                    Delete account
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
         </SheetContent>
       </Sheet>
@@ -3173,16 +3307,17 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
             );
           }
 
-          if (appRouteMode === "event" && isPrivateContext && selectedBbq) {
+          if (useNewManagedEventLayout && appRouteMode === "event" && isPrivateContext && selectedBbq) {
             const pendingCount = Math.max(invitedParticipants.length, pendingRequests.length);
             const fallbackHeroImage = "https://images.unsplash.com/photo-1559339352-11d035aa65de?auto=format&fit=crop&w=1600&q=80";
             const heroImage = !dashboardHeroBannerFailed && displayedDashboardHeroBannerUrl
               ? displayedDashboardHeroBannerUrl
               : fallbackHeroImage;
+            const glassCardClass = "rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md shadow-sm";
             return (
               <div className="mx-auto w-full max-w-[1400px] rounded-2xl border border-border/60 bg-background px-4 py-6 sm:px-6 lg:px-10">
-                <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-                  <section className="min-w-0 space-y-6 md:space-y-8 pb-6 md:pb-0">
+                <div className="grid min-h-[calc(100vh-11rem)] items-stretch gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+                  <section className="min-w-0 pb-6 md:pb-0 h-full min-h-0 flex flex-col">
                     <div className="md:hidden sticky top-0 z-20 -mx-1 rounded-xl border border-border/60 bg-background/95 px-3 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/80">
                       <div className="flex items-center justify-between gap-2">
                         <p className="line-clamp-2 text-sm font-semibold text-foreground">
@@ -3210,10 +3345,17 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                         </div>
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      className="relative h-[300px] md:min-h-[340px] w-full cursor-pointer overflow-hidden rounded-3xl border border-border/70 bg-card text-left shadow-sm transition-all duration-200 hover:border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      className="relative mt-3 md:mt-0 w-full cursor-pointer overflow-hidden rounded-3xl border border-border/70 bg-card text-left shadow-sm transition-all duration-200 hover:border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 min-h-[360px] md:min-h-[520px] md:h-[calc(100vh-11rem)]"
                       onClick={() => setIsPlanDetailsOpen(true)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          setIsPlanDetailsOpen(true);
+                        }
+                      }}
                       aria-label="Open plan details"
                     >
                       {!dashboardHeroImageLoaded && (
@@ -3234,10 +3376,10 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                           setDashboardHeroImageLoaded(true);
                         }}
                       />
-                      <div className="absolute inset-0 rounded-3xl bg-gradient-to-b from-black/60 via-black/20 to-transparent" />
-                      <div className="absolute inset-0 rounded-3xl bg-gradient-to-t from-black/70 via-black/25 to-transparent" />
+                      <div className="pointer-events-none absolute inset-0 rounded-3xl bg-gradient-to-b from-black/60 via-black/20 to-transparent" />
+                      <div className="pointer-events-none absolute inset-0 rounded-3xl bg-gradient-to-t from-black/70 via-black/25 to-transparent" />
 
-                      <div className="absolute left-5 right-5 top-5 z-10 md:left-8 md:right-8 md:top-7">
+                      <div className="relative z-10 flex h-full flex-col p-5 md:p-7">
                         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                           <div className="pointer-events-none min-w-0">
                             <h2 className="line-clamp-2 text-2xl font-semibold tracking-tight text-white drop-shadow-sm md:text-3xl lg:text-4xl">
@@ -3277,10 +3419,8 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                             </button>
                           </div>
                         </div>
-                      </div>
 
-                      <div className="absolute inset-x-4 bottom-4 z-10 md:bottom-6 md:left-8 md:right-auto md:w-[min(560px,calc(100%-4rem))]">
-                        <div className="rounded-2xl border border-white/20 bg-black/35 p-3 backdrop-blur-md">
+                        <div className={`mt-4 p-3 md:max-w-[560px] ${glassCardClass}`}>
                           <p className="text-[11px] font-medium uppercase tracking-wide text-white/80">Recent activity</p>
                           {planActivityLoading ? (
                             <p className="mt-1 text-xs text-white/75">Loading updates...</p>
@@ -3302,108 +3442,60 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                             </p>
                           )}
                         </div>
-                      </div>
-                    </button>
 
-                    <div className="md:hidden rounded-2xl border border-border/70 bg-card divide-y divide-border/60">
-                      <button
-                        type="button"
-                        className="flex min-h-[52px] w-full items-center gap-3 px-4 py-3 text-left"
-                        onClick={() => setActiveEventTab("people")}
-                      >
-                        <UserPlus2 className="h-4 w-4 text-muted-foreground" />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium text-foreground">Crew</p>
-                          <p className="truncate text-xs text-muted-foreground">{participantCount} people in this plan</p>
-                        </div>
-                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                      </button>
-                      <button
-                        type="button"
-                        className="flex min-h-[52px] w-full items-center gap-3 px-4 py-3 text-left"
-                        onClick={() => {
-                          setRecommendedExpenseTemplate({ item: "Expense", category: "Other" });
-                          setIsAddExpenseOpen(true);
-                        }}
-                      >
-                        <Receipt className="h-4 w-4 text-muted-foreground" />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium text-foreground">Shared pot</p>
-                          <p className="truncate text-xs text-muted-foreground">{expenses.length} logged expenses</p>
-                        </div>
-                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                      </button>
-                      <button
-                        type="button"
-                        className="flex min-h-[52px] w-full items-center gap-3 px-4 py-3 text-left"
-                        onClick={() => {
-                          if (pendingCount > 0) {
-                            setActiveEventTab("people");
-                            return;
-                          }
-                          setRecommendedExpenseTemplate({ item: "Expense", category: "Other" });
-                          setIsAddExpenseOpen(true);
-                        }}
-                      >
-                        <Star className="h-4 w-4 text-muted-foreground" />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium text-foreground">Next action</p>
-                          <p className="truncate text-xs text-muted-foreground">
-                            {pendingCount > 0
-                              ? `Invite your crew to confirm the plan (${pendingCount} pending).`
-                              : expenses.length === 0
-                                ? "Add the first expense to start shared costs."
-                                : "Open shared costs to review balances and settle up."}
-                          </p>
-                        </div>
-                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                      </button>
-                    </div>
+                        <div className="flex-1" />
 
-                    <div className="hidden md:grid gap-4 md:grid-cols-3">
-                      <GuestsWidget eventId={selectedBbq.id} canInvite={canEditEvent} />
+                        <div className="relative z-10 space-y-3 md:space-y-0 md:grid md:grid-cols-3 md:gap-3">
+                          <GuestsWidget
+                            eventId={selectedBbq.id}
+                            canInvite={canEditEvent}
+                            variant="glass"
+                          />
 
-                      <SharedCostsWidget
-                        eventId={selectedBbq.id}
-                        planName={selectedBbq.name}
-                        peopleCount={participantCount}
-                        totalSpentLabel={formatMoney(totalSpent)}
-                        expenseCount={expenses.length}
-                        categories={getCategoriesForEvent((selectedBbq as any)?.eventType, customCategories)}
-                        participants={participants}
-                        expenses={expenses}
-                        balances={balances}
-                        settlements={settlements}
-                        formatMoney={formatMoney}
-                        canAddExpense={canManage}
-                      />
+                          <SharedCostsWidget
+                            eventId={selectedBbq.id}
+                            planName={selectedBbq.name}
+                            peopleCount={participantCount}
+                            totalSpentLabel={formatMoney(totalSpent)}
+                            expenseCount={expenses.length}
+                            categories={getCategoriesForEvent((selectedBbq as any)?.eventType, customCategories)}
+                            participants={participants}
+                            expenses={expenses}
+                            balances={balances}
+                            settlements={settlements}
+                            formatMoney={formatMoney}
+                            canAddExpense={canManage}
+                            variant="glass"
+                          />
 
-                      <div className="rounded-2xl border border-border/70 bg-card p-4 shadow-sm md:min-w-0">
-                        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Next action</p>
-                        <p className="mt-2 text-sm text-foreground">
-                          {pendingCount > 0
-                            ? `Invite your crew to confirm the plan (${pendingCount} pending).`
-                            : expenses.length === 0
-                              ? "Add the first expense to start shared costs."
-                              : "Open shared costs to review balances and settle up."}
-                        </p>
-                        <div className="mt-3">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="rounded-xl border-border/70 bg-background text-foreground hover:bg-muted"
-                            onClick={() => {
-                              if (pendingCount > 0) {
-                                setActiveEventTab("people");
-                                return;
-                              }
-                              setRecommendedExpenseTemplate({ item: "Expense", category: "Other" });
-                              setIsAddExpenseOpen(true);
-                            }}
-                          >
-                            {pendingCount > 0 ? "Open people" : "Add expense"}
-                          </Button>
+                          <div className={`p-4 md:min-w-0 ${glassCardClass}`} onClick={(event) => event.stopPropagation()}>
+                            <p className="text-xs font-medium uppercase tracking-wide text-white/80">Next action</p>
+                            <p className="mt-2 text-sm text-white/90">
+                              {pendingCount > 0
+                                ? `Invite your crew to confirm the plan (${pendingCount} pending).`
+                                : expenses.length === 0
+                                  ? "Add the first expense to start shared costs."
+                                  : "Open shared costs to review balances and settle up."}
+                            </p>
+                            <div className="mt-3">
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="rounded-xl border-white/30 bg-white/10 text-white hover:bg-white/20"
+                                onClick={() => {
+                                  if (pendingCount > 0) {
+                                    setActiveEventTab("people");
+                                    return;
+                                  }
+                                  setRecommendedExpenseTemplate({ item: "Expense", category: "Other" });
+                                  setIsAddExpenseOpen(true);
+                                }}
+                              >
+                                {pendingCount > 0 ? "Open people" : "Add expense"}
+                              </Button>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -3415,7 +3507,11 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                       saving={updateBbq.isPending}
                       isCreator={isCreator}
                       deleting={deleteBbq.isPending}
+                      leaving={leaveBbq.isPending}
                       onDelete={selectedBbq ? () => handleDeleteBbq(selectedBbq.id) : undefined}
+                      onLeave={selectedBbq && (isCreator || !!myParticipant) ? () => handleLeaveBbq(selectedBbq.id) : undefined}
+                      leaveTransferTargetName={isCreator ? creatorLeaveSuccessorName : null}
+                      willDeleteOnLeave={isCreator && !creatorLeaveSuccessorName}
                       onSave={async (updates) => {
                         if (!selectedBbq) return;
                         const payload: {
@@ -3468,7 +3564,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                     />
                   </section>
 
-                  <aside className="hidden md:block lg:sticky lg:top-6 h-fit min-h-[340px] lg:min-h-0">
+                  <aside className="hidden md:block h-full min-h-0">
                     <div className="h-[calc(100vh-11rem)] min-h-[520px]">
                       <ChatSidebar
                         eventId={selectedBbq.id}
@@ -4471,7 +4567,27 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                         {!isEditing && <span className="text-primary text-xs font-semibold">{formatMoney(paid)}</span>}
                         {!isEditing && canLeave(p) && (
                           <button
-                            onClick={() => deleteParticipant.mutate(p.id)}
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              if (!window.confirm("Leave this plan?")) return;
+                              const leavingEventId = selectedBbqId;
+                              deleteParticipant.mutate(p.id, {
+                                onSuccess: async () => {
+                                  await queryClient.invalidateQueries({ queryKey: ['/api/barbecues'] });
+                                  await queryClient.invalidateQueries({ queryKey: ['/api/memberships'] });
+                                  await queryClient.refetchQueries({ queryKey: ['/api/barbecues'] });
+                                  if (leavingEventId != null) {
+                                    if (typeof window !== "undefined") {
+                                      sessionStorage.setItem(LEAVE_REDIRECT_MARKER_KEY, JSON.stringify({ id: leavingEventId, at: Date.now() }));
+                                    }
+                                    removePlanFromClientState(leavingEventId);
+                                    setSelectedBbqId(null);
+                                    setLocation("/app/private", { replace: true });
+                                  }
+                                },
+                              });
+                            }}
                             className="text-muted-foreground hover:text-destructive ml-0.5"
                             title={t.user.leave}
                             data-testid={`button-leave-${p.id}`}
@@ -4481,7 +4597,12 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                         )}
                         {!isEditing && canManage && p.userId !== username && (
                           <button
-                            onClick={() => deleteParticipant.mutate(p.id)}
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              if (!window.confirm("Remove this member from the plan?")) return;
+                              deleteParticipant.mutate(p.id);
+                            }}
                             className="text-muted-foreground hover:text-destructive ml-0.5"
                             title={t.bbq.delete}
                             data-testid={`button-remove-${p.id}`}
@@ -4942,6 +5063,8 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
             ) : (
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 {privatePlansForOverview.map((plan: Barbecue) => {
+                  const planId = Number(plan.id);
+                  if (!Number.isFinite(planId)) return null;
                   const dateLabel = plan.date
                     ? new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" }).format(new Date(plan.date))
                     : null;
@@ -4951,17 +5074,17 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                     || null;
                   const meta = [dateLabel, locationLabel].filter(Boolean).join(" · ");
                   return (
-                    <button
-                      key={`private-plan-card-${plan.id}`}
-                      type="button"
-                      onClick={() => handleSelectEvent(plan.id)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          handleSelectEvent(plan.id);
+                    <a
+                      key={`private-plan-card-${planId}`}
+                      href={`/app/e/${planId}`}
+                      onClick={() => {
+                        markEventRecent(planId);
+                        if (import.meta.env.DEV) {
+                          console.log("[private-plan-card:navigate]", { id: planId, href: `/app/e/${planId}` });
                         }
                       }}
-                      className="w-full rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition-all duration-200 hover:border-slate-300 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-neutral-700"
+                      className="pointer-events-auto relative z-10 block w-full cursor-pointer rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition-all duration-200 hover:border-slate-300 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-neutral-700"
+                      data-testid={`private-plan-card-${planId}`}
                     >
                       <div className="flex items-start justify-between gap-3">
                         <h3 className="min-w-0 truncate text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-100">{plan.name}</h3>
@@ -4972,7 +5095,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                       <p className="mt-2 truncate text-sm text-slate-500 dark:text-neutral-400">
                         {meta || "Date and location to be confirmed"}
                       </p>
-                    </button>
+                    </a>
                   );
                 })}
               </div>

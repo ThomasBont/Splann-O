@@ -4,10 +4,13 @@ import { Button } from "@/components/ui/button";
 import { SkeletonLine } from "@/components/ui/load-states";
 import { useEventGuests } from "@/hooks/use-event-guests";
 import GuestsModal from "@/components/event/GuestsModal";
+import { cn } from "@/lib/utils";
 
 type GuestsWidgetProps = {
   eventId: number;
   canInvite?: boolean;
+  variant?: "default" | "glass";
+  className?: string;
 };
 
 function initials(name: string) {
@@ -19,7 +22,7 @@ function initials(name: string) {
     .toUpperCase();
 }
 
-export function GuestsWidget({ eventId, canInvite = true }: GuestsWidgetProps) {
+export function GuestsWidget({ eventId, canInvite = true, variant = "default", className }: GuestsWidgetProps) {
   const [open, setOpen] = useState(false);
   const guests = useEventGuests(eventId);
   const { members, invitesPending, loading, error, refresh } = guests;
@@ -37,17 +40,30 @@ export function GuestsWidget({ eventId, canInvite = true }: GuestsWidgetProps) {
       <div
         role="button"
         tabIndex={0}
-        className="group w-full rounded-2xl border border-border/70 bg-card p-4 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-border hover:ring-2 hover:ring-border/60 focus:outline-none focus:ring-2 focus:ring-primary/40"
-        onClick={() => setOpen(true)}
+        className={cn(
+          "group w-full rounded-2xl p-4 text-left transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-primary/40",
+          variant === "glass"
+            ? "border border-white/10 bg-white/5 shadow-sm backdrop-blur-md hover:border-white/20 hover:ring-white/25"
+            : "border border-border/70 bg-card shadow-sm hover:-translate-y-0.5 hover:border-border hover:ring-2 hover:ring-border/60",
+          className,
+        )}
+        onClick={(event) => {
+          event.stopPropagation();
+          setOpen(true);
+        }}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
+            event.stopPropagation();
             setOpen(true);
           }
         }}
       >
         <div className="flex items-center justify-between gap-2">
-          <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          <p className={cn(
+            "flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide",
+            variant === "glass" ? "text-white/60" : "text-muted-foreground",
+          )}>
             <Users className="h-3.5 w-3.5" />
             Crew
           </p>
@@ -79,10 +95,10 @@ export function GuestsWidget({ eventId, canInvite = true }: GuestsWidgetProps) {
             <SkeletonLine className="h-4 w-1/2 rounded-lg" />
           </div>
         ) : error ? (
-          <p className="mt-3 text-xs text-muted-foreground">
-            Couldn’t load crew. Click to retry.
-          </p>
-        ) : (
+            <p className={cn("mt-3 text-xs", variant === "glass" ? "text-white/60" : "text-muted-foreground")}>
+              Couldn’t load crew. Click to retry.
+            </p>
+          ) : (
           <>
             <div className="mt-3 flex items-center -space-x-2">
               {visibleMembers.map((member) => (
@@ -100,7 +116,7 @@ export function GuestsWidget({ eventId, canInvite = true }: GuestsWidgetProps) {
                 </span>
               ) : null}
             </div>
-            <p className="mt-3 text-xs text-muted-foreground">{statusLine}</p>
+            <p className={cn("mt-3 text-xs", variant === "glass" ? "text-white/60" : "text-muted-foreground")}>{statusLine}</p>
           </>
         )}
       </div>

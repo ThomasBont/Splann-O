@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Loader2, MessageCircle, SendHorizontal } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Loader2, MessageCircle, SendHorizontal, Smile } from "lucide-react";
 import { InlineQueryError, SkeletonLine } from "@/components/ui/load-states";
 import { useEventChat } from "@/hooks/use-event-chat";
 import { useAppToast } from "@/hooks/use-app-toast";
@@ -17,11 +18,29 @@ type ChatSidebarProps = {
 };
 
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
+const QUICK_EMOJIS = ["😀", "😂", "😍", "🙏", "🔥", "🎉", "👍", "❤️"];
 
 function formatMessageTime(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function isSameDay(a: Date, b: Date) {
+  return a.getFullYear() === b.getFullYear()
+    && a.getMonth() === b.getMonth()
+    && a.getDate() === b.getDate();
+}
+
+function formatDateSeparator(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const now = new Date();
+  if (isSameDay(date, now)) return "Today";
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (isSameDay(date, yesterday)) return "Yesterday";
+  return date.toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" });
 }
 
 function getInitials(name: string) {
@@ -62,7 +81,9 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true, c
   const listRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const typingEmitTimerRef = useRef<number | null>(null);
+  const typingStopTimerRef = useRef<number | null>(null);
   const [isNearBottom, setIsNearBottom] = useState(true);
+  const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
   const {
     messages,
     historyLoading,
@@ -77,6 +98,7 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true, c
     sendMessage,
     retrySend,
     sendTyping,
+    toggleReaction,
     loadOlder,
     retry,
   } = useEventChat(eventId, enabled && !!eventId);
@@ -101,31 +123,68 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true, c
   }, [messages, isNearBottom]);
 
   useEffect(() => {
-    if (!draft.trim() || isLocked || !eventId) return;
-    if (typingEmitTimerRef.current != null) return;
-    typingEmitTimerRef.current = window.setTimeout(() => {
-      sendTyping({
-        id: currentUser?.id ?? null,
-        name: currentUser?.username ?? "Someone",
-      });
-      typingEmitTimerRef.current = null;
-    }, 300);
     return () => {
       if (typingEmitTimerRef.current != null) {
         window.clearTimeout(typingEmitTimerRef.current);
         typingEmitTimerRef.current = null;
       }
-    };
-  }, [currentUser?.id, currentUser?.username, draft, eventId, isLocked, sendTyping]);
-
-  useEffect(() => {
-    return () => {
-      if (typingEmitTimerRef.current != null) {
-        window.clearTimeout(typingEmitTimerRef.current);
-        typingEmitTimerRef.current = null;
+      if (typingStopTimerRef.current != null) {
+        window.clearTimeout(typingStopTimerRef.current);
+        typingStopTimerRef.current = null;
       }
     };
   }, []);
+
+  const emitTypingStart = useCallback(() => {
+    if (!eventId || isLocked) return;
+    sendTyping({
+      id: currentUser?.id ?? null,
+      name: currentUser?.username ?? "Someone",
+    }, true);
+  }, [currentUser?.id, currentUser?.username, eventId, isLocked, sendTyping]);
+
+  const emitTypingStop = useCallback(() => {
+    if (!eventId) return;
+    sendTyping({
+      id: currentUser?.id ?? null,
+      name: currentUser?.username ?? "Someone",
+    }, false);
+  }, [currentUser?.id, currentUser?.username, eventId, sendTyping]);
+
+  const scheduleTypingSignals = useCallback(() => {
+    if (typingEmitTimerRef.current != null) {
+      window.clearTimeout(typingEmitTimerRef.current);
+    }
+    typingEmitTimerRef.current = window.setTimeout(() => {
+      emitTypingStart();
+      typingEmitTimerRef.current = null;
+    }, 220);
+
+    if (typingStopTimerRef.current != null) {
+      window.clearTimeout(typingStopTimerRef.current);
+    }
+    typingStopTimerRef.current = window.setTimeout(() => {
+      emitTypingStop();
+      typingStopTimerRef.current = null;
+    }, 1000);
+  }, [emitTypingStart, emitTypingStop]);
+
+  const handleDraftChange = useCallback((value: string) => {
+    setDraft(value);
+    if (!value.trim()) {
+      if (typingEmitTimerRef.current != null) {
+        window.clearTimeout(typingEmitTimerRef.current);
+        typingEmitTimerRef.current = null;
+      }
+      if (typingStopTimerRef.current != null) {
+        window.clearTimeout(typingStopTimerRef.current);
+        typingStopTimerRef.current = null;
+      }
+      emitTypingStop();
+      return;
+    }
+    scheduleTypingSignals();
+  }, [emitTypingStop, scheduleTypingSignals]);
 
   const liveLabel = useMemo(() => {
     if (isLocked) return { text: "Locked", cls: "bg-rose-500" };
@@ -184,6 +243,7 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true, c
       toastError(`Couldn’t send message (${result.reason ?? "unknown"}). Try again.`);
       return;
     }
+    emitTypingStop();
     setDraft("");
   };
 
@@ -270,82 +330,155 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true, c
           </div>
         ) : (
           messages.map((msg, index) => {
+            const prev = index > 0 ? messages[index - 1] : undefined;
+            const currentDate = new Date(msg.createdAt);
+            const prevDate = prev ? new Date(prev.createdAt) : null;
+            const showDateSeparator = !prevDate
+              || Number.isNaN(prevDate.getTime())
+              || Number.isNaN(currentDate.getTime())
+              || !isSameDay(currentDate, prevDate);
             if (msg.type === "system") {
               return (
-                <div key={msg.id} className="flex justify-center">
-                  <span className="rounded-full border border-border/70 bg-card px-3 py-1 text-[11px] italic text-muted-foreground">
-                    {msg.text}
-                  </span>
+                <div key={msg.id}>
+                  {showDateSeparator ? (
+                    <div className="my-2 flex justify-center">
+                      <span className="rounded-full border border-border/70 bg-card/80 px-3 py-1 text-[11px] text-muted-foreground">
+                        {formatDateSeparator(msg.createdAt)}
+                      </span>
+                    </div>
+                  ) : null}
+                  <div className="flex justify-center">
+                    <span className="rounded-full border border-border/70 bg-card px-3 py-1 text-[11px] italic text-muted-foreground">
+                      {msg.text}
+                    </span>
+                  </div>
                 </div>
               );
             }
-            const prev = index > 0 ? messages[index - 1] : undefined;
-            const next = index < messages.length - 1 ? messages[index + 1] : undefined;
             const senderId = String(msg.user?.id ?? "");
             const senderFromMember = senderId ? membersById.get(senderId) : undefined;
             const senderName = msg.user?.name || senderFromMember?.name || "Unknown user";
             const senderAvatar = msg.user?.avatarUrl ?? senderFromMember?.avatarUrl ?? null;
             const mine = String(msg.user?.id ?? "") === String(currentUser?.id ?? "") || msg.user?.name === currentUser?.username;
             const groupedWithPrev = isGroupedWithNeighbor(msg, prev);
-            const groupedWithNext = isGroupedWithNeighbor(msg, next);
             return (
-              <div key={msg.id} className={`group/message flex ${mine ? "justify-end" : "justify-start"} ${groupedWithPrev ? "mt-1" : "mt-3"}`}>
-                {!mine ? (
-                  <div className="mr-2 flex w-8 flex-col items-center pt-0.5">
-                    {!groupedWithPrev ? (
-                      senderAvatar ? (
-                        <img src={senderAvatar} alt="" className="h-7 w-7 rounded-full border border-border/70 object-cover" />
-                      ) : (
-                        <span className="grid h-7 w-7 place-items-center rounded-full border border-border/70 bg-card text-[10px] font-semibold text-muted-foreground">
-                          {getInitials(senderName)}
-                        </span>
-                      )
-                    ) : null}
+              <div key={msg.id}>
+                {showDateSeparator ? (
+                  <div className="my-2 flex justify-center">
+                    <span className="rounded-full border border-border/70 bg-card/80 px-3 py-1 text-[11px] text-muted-foreground">
+                      {formatDateSeparator(msg.createdAt)}
+                    </span>
                   </div>
                 ) : null}
-                <div className={`${mine ? "max-w-[84%] items-end" : "max-w-[82%] items-start"} flex flex-col`}>
-                  {!groupedWithPrev ? (
-                    <p className={`mb-1 px-1 text-[11px] ${mine ? "text-muted-foreground/80" : "text-muted-foreground"}`}>
-                      {mine ? "You" : senderName}
-                    </p>
+                <div className={`group/message flex ${mine ? "justify-end" : "justify-start"} ${groupedWithPrev ? "mt-1" : "mt-3"}`}>
+                  {!mine ? (
+                    <div className="mr-2 flex w-8 flex-col items-center pt-0.5">
+                      {!groupedWithPrev ? (
+                        senderAvatar ? (
+                          <img src={senderAvatar} alt="" className="h-7 w-7 rounded-full border border-border/70 object-cover" />
+                        ) : (
+                          <span className="grid h-7 w-7 place-items-center rounded-full border border-border/70 bg-card text-[10px] font-semibold text-muted-foreground">
+                            {getInitials(senderName)}
+                          </span>
+                        )
+                      ) : null}
+                    </div>
                   ) : null}
-                  <div
-                    className={`rounded-lg px-3 py-2 text-sm ${mine
-                      ? "bg-[#D4A017] text-white shadow-[0_4px_12px_rgba(180,130,0,0.35)] dark:bg-[#C99613] dark:shadow-[0_4px_12px_rgba(190,145,20,0.4)]"
-                      : "border border-border/70 bg-muted/45 text-foreground dark:bg-neutral-800/85 dark:border-neutral-700/80"}`}
-                  >
-                    <p className="whitespace-pre-wrap break-words">{msg.text}</p>
-                    {msg.status === "sending" ? (
-                      <p className={`mt-1 text-[10px] ${mine ? "text-white/80" : "text-muted-foreground"}`}>sending…</p>
+                  <div className={`${mine ? "max-w-[84%] items-end" : "max-w-[82%] items-start"} flex flex-col`}>
+                    {!groupedWithPrev ? (
+                      <p className={`mb-1 px-1 text-[11px] ${mine ? "text-muted-foreground/80" : "text-muted-foreground"}`}>
+                        {mine ? "You" : senderName}
+                      </p>
                     ) : null}
-                    {msg.status === "failed" && msg.clientMessageId ? (
-                      <div className="mt-1 flex items-center gap-2">
-                        <p className={`text-[10px] ${mine ? "text-white/90" : "text-destructive"}`}>failed</p>
+                    <div
+                      className={`rounded-lg px-3 py-2 text-sm ${mine
+                        ? "bg-brand-yellow text-white shadow-[0_4px_12px_rgba(180,130,0,0.35)]"
+                        : "border border-border/70 bg-muted/45 text-foreground dark:bg-neutral-800/85 dark:border-neutral-700/80"}`}
+                    >
+                      <p className="whitespace-pre-wrap break-words">{msg.text}</p>
+                      <div className={`mt-1 flex items-center justify-end gap-2 text-[10px] ${mine ? "text-white/80" : "text-muted-foreground"}`}>
+                        {msg.status === "sending" ? <span>sending…</span> : null}
+                        <span>{formatMessageTime(msg.createdAt)}</span>
+                      </div>
+                      {msg.status === "failed" && msg.clientMessageId ? (
+                        <div className="mt-1 flex items-center gap-2">
+                          <p className={`text-[10px] ${mine ? "text-white/90" : "text-destructive"}`}>failed</p>
+                          <button
+                            type="button"
+                            className={`text-[10px] underline underline-offset-2 ${mine ? "text-white" : "text-foreground"}`}
+                            onClick={() => {
+                              void retrySend(msg.clientMessageId!, {
+                                id: currentUser?.id ?? null,
+                                name: currentUser?.username ?? "You",
+                                avatarUrl: currentUser?.avatarUrl ?? null,
+                              });
+                            }}
+                          >
+                            Retry
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                    <div className="mt-1 flex items-center gap-1">
+                      {(msg.reactions ?? []).map((reaction) => (
                         <button
+                          key={`${msg.id}-${reaction.emoji}`}
                           type="button"
-                          className={`text-[10px] underline underline-offset-2 ${mine ? "text-white" : "text-foreground"}`}
+                          className={cn(
+                            "inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[11px] transition",
+                            reaction.me
+                              ? "border-primary/40 bg-primary/15 text-foreground"
+                              : "border-border/70 bg-card/70 text-muted-foreground hover:bg-muted/40",
+                          )}
                           onClick={() => {
-                            void retrySend(msg.clientMessageId!, {
-                              id: currentUser?.id ?? null,
-                              name: currentUser?.username ?? "You",
-                              avatarUrl: currentUser?.avatarUrl ?? null,
+                            void toggleReaction({
+                              messageId: msg.id,
+                              emoji: reaction.emoji,
+                              actorId: currentUser?.id ?? null,
                             });
                           }}
                         >
-                          Retry
+                          <span>{reaction.emoji}</span>
+                          <span>{reaction.count}</span>
                         </button>
-                      </div>
-                    ) : null}
+                      ))}
+                      <Popover
+                        open={reactionPickerMessageId === msg.id}
+                        onOpenChange={(open) => setReactionPickerMessageId(open ? msg.id : null)}
+                      >
+                        <PopoverTrigger asChild>
+                          <button
+                            type="button"
+                            aria-label="Add reaction"
+                            className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-border/60 bg-card/70 text-muted-foreground opacity-100 transition md:opacity-0 md:group-hover/message:opacity-100 hover:bg-muted/50"
+                          >
+                            <Smile className="h-3.5 w-3.5" />
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent align={mine ? "end" : "start"} className="w-44 p-2">
+                          <div className="grid grid-cols-4 gap-1">
+                            {QUICK_EMOJIS.map((emoji) => (
+                              <button
+                                key={`${msg.id}-${emoji}`}
+                                type="button"
+                                className="grid h-8 w-8 place-items-center rounded-md text-base transition hover:bg-muted"
+                                onClick={() => {
+                                  void toggleReaction({
+                                    messageId: msg.id,
+                                    emoji,
+                                    actorId: currentUser?.id ?? null,
+                                  });
+                                  setReactionPickerMessageId(null);
+                                }}
+                              >
+                                {emoji}
+                              </button>
+                            ))}
+                          </div>
+                        </PopoverContent>
+                      </Popover>
+                    </div>
                   </div>
-                  {!groupedWithNext ? (
-                    <p
-                      className={`mt-1 px-1 text-xs opacity-60 transition-opacity md:opacity-0 md:group-hover/message:opacity-60 ${
-                        mine ? "text-primary/80" : "text-muted-foreground"
-                      }`}
-                    >
-                      {formatMessageTime(msg.createdAt)}
-                    </p>
-                  ) : null}
                 </div>
               </div>
             );
@@ -387,7 +520,8 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true, c
             <textarea
               ref={inputRef}
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) => handleDraftChange(e.target.value)}
+              onBlur={() => emitTypingStop()}
               placeholder="Message…"
               className="pointer-events-auto min-h-[24px] max-h-[104px] w-full resize-none bg-transparent text-[16px] leading-normal text-foreground caret-primary outline-none placeholder:text-muted-foreground md:text-sm disabled:cursor-not-allowed disabled:text-muted-foreground/70"
               rows={1}
@@ -403,7 +537,7 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true, c
           <Button
             type="button"
             size="icon"
-            className="h-10 w-10 rounded-full bg-[#D4A017] text-white hover:bg-[#BF9013] disabled:bg-muted disabled:text-muted-foreground"
+            className="h-10 w-10 rounded-full bg-brand-yellow text-white hover:bg-brand-yellow-hover disabled:bg-muted disabled:text-muted-foreground"
             onClick={() => void handleSubmit()}
             disabled={isLocked || sending || !draft.trim() || !eventId}
             aria-label="Send message"

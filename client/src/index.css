@@ -175,6 +175,13 @@
   body {
     @apply bg-background text-foreground antialiased font-body selection:bg-primary/30;
   }
+
+  /* Safety guard: prevent stale closed portal layers from blocking the whole app. */
+  [data-state="closed"][data-radix-dialog-overlay],
+  [data-state="closed"][data-vaul-overlay],
+  [data-state="closed"][role="dialog"] {
+    pointer-events: none !important;
+  }
   
   h1, h2, h3, h4, h5, h6 {
     @apply font-display tracking-tight;
@@ -192,6 +199,14 @@
 
   .text-gold {
     color: hsl(var(--primary));
+  }
+
+  .bg-brand-yellow {
+    background-color: hsl(var(--primary));
+  }
+
+  .bg-brand-yellow-hover:hover {
+    background-color: hsl(var(--primary-border));
   }
   
   .text-orange {

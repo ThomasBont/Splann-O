@@ -153,7 +153,10 @@ export const participants = pgTable("participants", {
   /** FK to users.id when status='invited' — links invite to target user. */
   invitedUserId: integer("invited_user_id").references(() => users.id, { onDelete: "set null" }),
   status: text("status").notNull().default("accepted"),
-});
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  uniqueBbqUser: unique().on(table.barbecueId, table.userId),
+}));
 
 export const expenses = pgTable("expenses", {
   id: serial("id").primaryKey(),
@@ -277,6 +280,17 @@ export const eventChatMessages = pgTable("event_chat_messages", {
   eventClientMessageIdUnique: unique("event_chat_messages_event_client_message_id_unique").on(table.eventId, table.clientMessageId),
 }));
 
+export const eventChatMessageReactions = pgTable("event_chat_message_reactions", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  messageId: uuid("message_id").references(() => eventChatMessages.id, { onDelete: "cascade" }).notNull(),
+  userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  emoji: text("emoji").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  messageEmojiIdx: index("event_chat_message_reactions_message_emoji_idx").on(table.messageId, table.emoji),
+  uniqueUserReactionPerEmoji: unique("event_chat_message_reactions_message_user_emoji_unique").on(table.messageId, table.userId, table.emoji),
+}));
+
 export const insertNoteSchema = createInsertSchema(notes)
   .omit({ id: true, createdAt: true, updatedAt: true })
   .extend({
@@ -294,7 +308,7 @@ export const friendships = pgTable("friendships", {
 
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertBarbecueSchema = createInsertSchema(barbecues).omit({ id: true });
-export const insertParticipantSchema = createInsertSchema(participants).omit({ id: true });
+export const insertParticipantSchema = createInsertSchema(participants).omit({ id: true, createdAt: true });
 export const insertExpenseSchema = createInsertSchema(expenses).omit({ id: true }).extend({
   amount: z.union([z.string(), z.number()]),
 });

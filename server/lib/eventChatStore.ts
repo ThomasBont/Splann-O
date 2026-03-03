@@ -1,6 +1,14 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "../db";
-import { eventChatMessages } from "@shared/schema";
+import { eventChatMessageReactions, eventChatMessages } from "@shared/schema";
+
+const SUPPORTED_REACTIONS = new Set(["😀", "😂", "😍", "🙏", "🔥", "🎉", "👍", "❤️"]);
+
+export type EventChatReaction = {
+  emoji: string;
+  count: number;
+  me: boolean;
+};
 
 export type EventChatMessage = {
   id: string;
@@ -15,6 +23,7 @@ export type EventChatMessage = {
     name: string;
     avatarUrl?: string | null;
   };
+  reactions?: EventChatReaction[];
 };
 
 export type EventChatPage = {
@@ -24,7 +33,10 @@ export type EventChatPage = {
 
 const MAX_PAGE_SIZE = 200;
 
-function toMessage(row: typeof eventChatMessages.$inferSelect): EventChatMessage {
+function toMessage(
+  row: typeof eventChatMessages.$inferSelect,
+  reactions: EventChatReaction[] = [],
+): EventChatMessage {
   const createdAtIso = row.createdAt ? row.createdAt.toISOString() : new Date().toISOString();
   return {
     id: row.id,
@@ -41,7 +53,25 @@ function toMessage(row: typeof eventChatMessages.$inferSelect): EventChatMessage
           avatarUrl: row.authorAvatarUrl ?? null,
         }
       : undefined,
+    reactions,
   };
+}
+
+function aggregateReactions(
+  rows: Array<typeof eventChatMessageReactions.$inferSelect>,
+  viewerUserId?: number,
+): EventChatReaction[] {
+  const grouped = new Map<string, { count: number; me: boolean }>();
+  for (const row of rows) {
+    const key = row.emoji;
+    const current = grouped.get(key) ?? { count: 0, me: false };
+    current.count += 1;
+    if (viewerUserId && row.userId === viewerUserId) current.me = true;
+    grouped.set(key, current);
+  }
+  return Array.from(grouped.entries())
+    .map(([emoji, value]) => ({ emoji, count: value.count, me: value.me }))
+    .sort((a, b) => b.count - a.count || a.emoji.localeCompare(b.emoji));
 }
 
 function encodeCursor(createdAt: Date, id: string): string {
@@ -59,7 +89,7 @@ function parseCursor(cursor?: string | null): { createdAt: Date; id: string } | 
 
 export async function listEventChatMessages(
   eventId: number,
-  options?: { limit?: number; before?: string | null },
+  options?: { limit?: number; before?: string | null; viewerUserId?: number },
 ): Promise<EventChatPage> {
   const safeLimit = Number.isFinite(options?.limit)
     ? Math.min(Math.max(Math.trunc(options!.limit!), 1), MAX_PAGE_SIZE)
@@ -83,7 +113,20 @@ export async function listEventChatMessages(
   const hasMore = rows.length > safeLimit;
   const pageRows = hasMore ? rows.slice(0, safeLimit) : rows;
   const oldest = pageRows[pageRows.length - 1];
-  const messages = pageRows.reverse().map(toMessage);
+  const messageIds = pageRows.map((row) => row.id);
+  const reactionRows = messageIds.length
+    ? await db.select().from(eventChatMessageReactions).where(inArray(eventChatMessageReactions.messageId, messageIds))
+    : [];
+  const reactionsByMessageId = new Map<string, Array<typeof eventChatMessageReactions.$inferSelect>>();
+  for (const row of reactionRows) {
+    const bucket = reactionsByMessageId.get(row.messageId) ?? [];
+    bucket.push(row);
+    reactionsByMessageId.set(row.messageId, bucket);
+  }
+  const messages = pageRows.reverse().map((row) => toMessage(
+    row,
+    aggregateReactions(reactionsByMessageId.get(row.id) ?? [], options?.viewerUserId),
+  ));
 
   return {
     messages,
@@ -118,7 +161,7 @@ export async function appendEventChatMessage(
     target: [eventChatMessages.eventId, eventChatMessages.clientMessageId],
   }).returning();
 
-  if (created) return { message: toMessage(created), inserted: true };
+  if (created) return { message: toMessage(created, []), inserted: true };
 
   const [existing] = await db
     .select()
@@ -132,5 +175,58 @@ export async function appendEventChatMessage(
   if (!existing) {
     throw new Error("Message persistence conflict without existing row");
   }
-  return { message: toMessage(existing), inserted: false };
+  const reactions = await listMessageReactions(existing.id, Number.isFinite(authorId) ? authorId : undefined);
+  return { message: toMessage(existing, reactions), inserted: false };
+}
+
+export async function listMessageReactions(messageId: string, viewerUserId?: number): Promise<EventChatReaction[]> {
+  const rows = await db
+    .select()
+    .from(eventChatMessageReactions)
+    .where(eq(eventChatMessageReactions.messageId, messageId));
+  return aggregateReactions(rows, viewerUserId);
+}
+
+export async function toggleEventChatReaction(input: {
+  eventId: number;
+  messageId: string;
+  userId: number;
+  emoji: string;
+}): Promise<EventChatReaction[]> {
+  const emoji = input.emoji.trim();
+  if (!SUPPORTED_REACTIONS.has(emoji)) {
+    throw new Error("Unsupported reaction");
+  }
+  const [message] = await db
+    .select({ id: eventChatMessages.id })
+    .from(eventChatMessages)
+    .where(and(
+      eq(eventChatMessages.id, input.messageId),
+      eq(eventChatMessages.eventId, input.eventId),
+    ))
+    .limit(1);
+  if (!message) throw new Error("Message not found");
+
+  await db.transaction(async (tx) => {
+    const [existing] = await tx
+      .select({ id: eventChatMessageReactions.id })
+      .from(eventChatMessageReactions)
+      .where(and(
+        eq(eventChatMessageReactions.messageId, input.messageId),
+        eq(eventChatMessageReactions.userId, input.userId),
+        eq(eventChatMessageReactions.emoji, emoji),
+      ))
+      .limit(1);
+    if (existing) {
+      await tx.delete(eventChatMessageReactions).where(eq(eventChatMessageReactions.id, existing.id));
+    } else {
+      await tx.insert(eventChatMessageReactions).values({
+        messageId: input.messageId,
+        userId: input.userId,
+        emoji,
+      });
+    }
+  });
+
+  return listMessageReactions(input.messageId, input.userId);
 }

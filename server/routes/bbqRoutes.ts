@@ -1,6 +1,6 @@
 import { Router, type Request } from "express";
 import { z } from "zod";
-import { eq, and, or, desc, sql, isNotNull, inArray } from "drizzle-orm";
+import { eq, and, or, desc, asc, sql, isNotNull, inArray } from "drizzle-orm";
 import { promises as fs } from "fs";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
@@ -21,7 +21,7 @@ import { participantRepo } from "../repositories/participantRepo";
 import { expenseRepo } from "../repositories/expenseRepo";
 import { userRepo } from "../repositories/userRepo";
 import { publicInboxRepo } from "../repositories/publicInboxRepo";
-import { appendEventChatMessage, listEventChatMessages } from "../lib/eventChatStore";
+import { appendEventChatMessage, listEventChatMessages, toggleEventChatReaction } from "../lib/eventChatStore";
 import * as bbqService from "../services/bbqService";
 import { requireAuth } from "../middleware/requireAuth";
 import { publicRateLimit } from "../middleware/publicRateLimit";
@@ -556,7 +556,7 @@ router.get("/events/:eventId/chat", requireAuth, asyncHandler(async (req, res) =
   const before = typeof req.query.before === "string" ? req.query.before : undefined;
   const bbq = await getBarbecueOr404(req, eventId, "Event not found");
   await assertEventAccessOrThrow(req, eventId);
-  const page = await listEventChatMessages(eventId, { limit, before });
+  const page = await listEventChatMessages(eventId, { limit, before, viewerUserId: req.session!.userId! });
   res.json({ messages: page.messages, nextCursor: page.nextCursor, locked: isEventChatLocked({ date: bbq.date }) });
 }));
 
@@ -567,7 +567,7 @@ router.get("/plans/:planId/chat/messages", requireAuth, asyncHandler(async (req,
   const before = typeof req.query.before === "string" ? req.query.before : undefined;
   const bbq = await getBarbecueOr404(req, planId, "Event not found");
   await assertEventAccessOrThrow(req, planId);
-  const page = await listEventChatMessages(planId, { limit, before });
+  const page = await listEventChatMessages(planId, { limit, before, viewerUserId: req.session!.userId! });
   res.json({ messages: page.messages, nextCursor: page.nextCursor, locked: isEventChatLocked({ date: bbq.date }) });
 }));
 
@@ -636,6 +636,23 @@ router.post("/events/:eventId/chat/messages", requireAuth, asyncHandler(async (r
     broadcastEventRealtime(eventId, { type: "message", message: result.message });
   }
   res.status(result.inserted ? 201 : 200).json({ message: result.message });
+}));
+
+router.post("/plans/:planId/chat/messages/:messageId/reactions", requireAuth, asyncHandler(async (req, res) => {
+  const planId = Number(req.params.planId);
+  if (!Number.isInteger(planId) || planId <= 0) badRequest("Invalid plan id");
+  const messageId = String(req.params.messageId ?? "").trim();
+  if (!messageId) badRequest("Invalid message id");
+  const emoji = z.string().trim().min(1).max(8).parse(req.body?.emoji);
+  await assertEventAccessOrThrow(req, planId);
+  const reactions = await toggleEventChatReaction({
+    eventId: planId,
+    messageId,
+    userId: req.session!.userId!,
+    emoji,
+  });
+  broadcastEventRealtime(planId, { type: "chat:reaction_update", messageId, reactions });
+  res.json({ messageId, reactions });
 }));
 
 router.get("/plans/:id/activity", requireAuth, asyncHandler(async (req, res) => {
@@ -1083,6 +1100,102 @@ router.delete(p(api.barbecues.delete.path), requireAuth, asyncHandler(async (req
   }
 
   res.json({ ok: true, deletedPlanId: id });
+}));
+
+async function handleLeavePlan(req: Request, res: any, planIdRaw: string | undefined) {
+  const id = Number(planIdRaw);
+  if (!Number.isInteger(id) || id <= 0) badRequest("Invalid plan id");
+
+  const bbq = await bbqRepo.getById(id);
+  if (!bbq) notFound("Plan not found");
+
+  const sessionUserId = req.session?.userId;
+  const sessionUsername = req.session?.username;
+  if (!sessionUserId || !sessionUsername) unauthorized("Not authenticated");
+
+  const isMember = await isEventMemberUser(id, sessionUserId, sessionUsername);
+  if (!isMember) forbidden("You are not a member of this plan");
+
+  const outcome = await db.transaction(async (tx) => {
+    if (bbq.creatorId !== sessionUsername) {
+      await tx
+        .delete(eventMembers)
+        .where(and(eq(eventMembers.eventId, id), eq(eventMembers.userId, sessionUserId)));
+      await tx
+        .delete(participants)
+        .where(and(eq(participants.barbecueId, id), eq(participants.userId, sessionUsername)));
+      return { planDeleted: false, newCreatorId: null as number | null };
+    }
+
+    const [successor] = await tx
+      .select({
+        userId: eventMembers.userId,
+        username: users.username,
+      })
+      .from(eventMembers)
+      .innerJoin(users, eq(users.id, eventMembers.userId))
+      .where(and(eq(eventMembers.eventId, id), sql`${eventMembers.userId} <> ${sessionUserId}`))
+      .orderBy(asc(eventMembers.joinedAt), asc(eventMembers.id))
+      .limit(1);
+
+    if (!successor) {
+      await tx.delete(barbecues).where(eq(barbecues.id, id));
+      return { planDeleted: true, newCreatorId: null as number | null };
+    }
+
+    await tx
+      .update(barbecues)
+      .set({ creatorId: successor.username, updatedAt: new Date() })
+      .where(eq(barbecues.id, id));
+    await tx
+      .update(eventMembers)
+      .set({ role: "owner" })
+      .where(and(eq(eventMembers.eventId, id), eq(eventMembers.userId, successor.userId)));
+    await tx
+      .delete(eventMembers)
+      .where(and(eq(eventMembers.eventId, id), eq(eventMembers.userId, sessionUserId)));
+    await tx
+      .delete(participants)
+      .where(and(eq(participants.barbecueId, id), eq(participants.userId, sessionUsername)));
+
+    return { planDeleted: false, newCreatorId: successor.userId };
+  });
+
+  if (outcome.planDeleted) {
+    broadcastEventRealtime(id, {
+      type: "plan:deleted",
+      eventId: id,
+      deletedPlanId: id,
+    });
+  } else {
+    broadcastEventRealtime(id, {
+      type: "event:member_left",
+      eventId: id,
+      userId: sessionUserId,
+    });
+    if (outcome.newCreatorId) {
+      broadcastEventRealtime(id, {
+        type: "plan:creator_changed",
+        eventId: id,
+        newCreatorId: outcome.newCreatorId,
+      });
+    }
+  }
+
+  res.json({
+    ok: true,
+    left: true,
+    planDeleted: outcome.planDeleted,
+    newCreatorId: outcome.newCreatorId,
+  });
+}
+
+router.post(p(api.barbecues.leave.path), requireAuth, asyncHandler(async (req, res) => {
+  await handleLeavePlan(req, res, req.params.id);
+}));
+
+router.post("/plans/:planId/leave", requireAuth, asyncHandler(async (req, res) => {
+  await handleLeavePlan(req, res, req.params.planId);
 }));
 
 router.patch(p(api.barbecues.update.path), requireAuth, asyncHandler(async (req, res) => {
@@ -1647,8 +1760,88 @@ router.patch(p(api.participants.update.path), asyncHandler(async (req, res) => {
   res.json(updated);
 }));
 
-router.delete(p(api.participants.delete.path), asyncHandler(async (req, res) => {
-  await participantRepo.delete(Number(req.params.id));
+router.delete(p(api.participants.delete.path), requireAuth, asyncHandler(async (req, res) => {
+  const participantId = Number(req.params.id);
+  if (!Number.isInteger(participantId) || participantId <= 0) badRequest("Invalid participant id");
+  const sessionUsername = req.session?.username;
+  const sessionUserId = req.session?.userId;
+  if (!sessionUsername || !sessionUserId) unauthorized("Not authenticated");
+
+  const participant = await participantRepo.getById(participantId);
+  if (!participant) notFound("Participant not found");
+
+  const bbq = await bbqRepo.getById(participant.barbecueId);
+  if (!bbq) notFound("Plan not found");
+
+  const isSelfLeave = participant.userId === sessionUsername;
+  const isCreator = bbq.creatorId === sessionUsername;
+  if (!isSelfLeave && !isCreator) forbidden("Not allowed to remove this participant");
+
+  const outcome = await db.transaction(async (tx) => {
+    const removeEventMemberByUsername = async (username: string | null | undefined) => {
+      if (!username) return;
+      const user = await userRepo.findByUsername(username);
+      if (!user) return;
+      await tx
+        .delete(eventMembers)
+        .where(and(eq(eventMembers.eventId, participant.barbecueId), eq(eventMembers.userId, user.id)));
+    };
+
+    if (isSelfLeave && participant.userId === bbq.creatorId) {
+      const [successor] = await tx
+        .select({ id: participants.id, userId: participants.userId })
+        .from(participants)
+        .where(and(
+          eq(participants.barbecueId, participant.barbecueId),
+          eq(participants.status, "accepted"),
+          sql`${participants.id} <> ${participant.id}`,
+          isNotNull(participants.userId),
+        ))
+        .orderBy(asc(participants.id))
+        .limit(1);
+
+      if (successor?.userId) {
+        await tx
+          .update(barbecues)
+          .set({ creatorId: successor.userId, updatedAt: new Date() })
+          .where(eq(barbecues.id, participant.barbecueId));
+        await tx.delete(participants).where(eq(participants.id, participant.id));
+        await removeEventMemberByUsername(participant.userId);
+        return { deletedPlan: false };
+      }
+
+      await tx.delete(barbecues).where(eq(barbecues.id, participant.barbecueId));
+      return { deletedPlan: true };
+    }
+
+    await tx.delete(participants).where(eq(participants.id, participant.id));
+    await removeEventMemberByUsername(participant.userId);
+
+    const [remaining] = await tx
+      .select({ count: sql<number>`count(*)::int` })
+      .from(participants)
+      .where(and(eq(participants.barbecueId, participant.barbecueId), eq(participants.status, "accepted")));
+    if (Number(remaining?.count ?? 0) <= 0) {
+      await tx.delete(barbecues).where(eq(barbecues.id, participant.barbecueId));
+      return { deletedPlan: true };
+    }
+    return { deletedPlan: false };
+  });
+
+  if (outcome.deletedPlan) {
+    broadcastEventRealtime(participant.barbecueId, {
+      type: "plan:deleted",
+      eventId: participant.barbecueId,
+      deletedPlanId: participant.barbecueId,
+    });
+  } else {
+    broadcastEventRealtime(participant.barbecueId, {
+      type: "event:member_left",
+      eventId: participant.barbecueId,
+      userId: sessionUserId,
+    });
+  }
+
   res.status(204).send();
 }));
 

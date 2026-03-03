@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
-import { useBarbecues, useNotifications } from "@/hooks/use-bbq-data";
+import {
+  useAcceptFriendRequestNotification,
+  useAcceptPlanInvite,
+  useBarbecues,
+  useDeclineFriendRequestNotification,
+  useDeclinePlanInvite,
+  useNotifications,
+} from "@/hooks/use-bbq-data";
 import Home from "@/pages/home";
 import {
   Loader2,
@@ -19,6 +26,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { useToast } from "@/hooks/use-toast";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -92,6 +101,11 @@ function formatEventLocation(event: Barbecue) {
   if (event.city) return event.city;
   if (event.countryName) return event.countryName;
   return "Location TBA";
+}
+
+function toEventId(value: unknown): number | null {
+  const id = Number(value);
+  return Number.isFinite(id) ? id : null;
 }
 
 function useEventLocalLists(user: { id?: number | null; username?: string | null } | null) {
@@ -628,13 +642,21 @@ function PrivateHomePage({ user, onCreatePlan }: { user: { id?: number | null; u
 
 export default function AppRoute() {
   const [location, setLocation] = useLocation();
-  const { user, isLoading: isAuthLoading, logout } = useAuth();
+  const { user, isLoading: isAuthLoading } = useAuth();
+  const { toast } = useToast();
   const { openNewPlanWizard } = useNewPlanWizard();
-  const { data: appEvents = [] } = useBarbecues();
-  const { data: notificationsPayload } = useNotifications(!!user);
+  const { data: appEvents = [], isLoading: isLoadingEvents, error: eventsError } = useBarbecues();
+  const {
+    data: notificationsPayload,
+    refetch: refetchNotifications,
+    dataUpdatedAt: notificationsUpdatedAt,
+  } = useNotifications(!!user);
+  const acceptFriendRequest = useAcceptFriendRequestNotification();
+  const declineFriendRequest = useDeclineFriendRequestNotification();
+  const acceptPlanInvite = useAcceptPlanInvite();
+  const declinePlanInvite = useDeclinePlanInvite();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
-  const [profileOpen, setProfileOpen] = useState(false);
   const [mobileRecentCollapsed, setMobileRecentCollapsed] = useState(false);
 
   const pathname = typeof window !== "undefined" ? window.location.pathname : (location.split("?")[0] || "/app");
@@ -736,23 +758,57 @@ export default function AppRoute() {
 
   const currentEventName = useMemo(() => {
     if (section !== "event" || !routeEventId) return null;
-    return appEvents.find((e) => e.id === routeEventId)?.name ?? null;
+    return appEvents.find((e) => toEventId(e.id) === routeEventId)?.name ?? null;
   }, [section, routeEventId, appEvents]);
 
   useEffect(() => {
     if (section !== "event" || !routeEventId) return;
-    const event = appEvents.find((candidate) => candidate.id === routeEventId);
-    if (!event) return;
+    if (isLoadingEvents) return;
+    const removeStaleRecentReference = () => {
+      if (typeof window !== "undefined") {
+        const key = `splanno.sidebar.recent-opened.v1:${user?.id ?? user?.username ?? "anon"}`;
+        try {
+          const raw = JSON.parse(localStorage.getItem(key) ?? "[]");
+          const ids = Array.isArray(raw) ? raw.filter((id): id is number => Number.isInteger(id)) : [];
+          const next = ids.filter((id) => id !== routeEventId);
+          localStorage.setItem(key, JSON.stringify(next));
+        } catch {
+          // ignore malformed local state
+        }
+      }
+    };
+
+    if (eventsError) {
+      removeStaleRecentReference();
+      setLocation("/app/private", { replace: true });
+      return;
+    }
+
+    const event = appEvents.find((candidate) => toEventId(candidate.id) === routeEventId);
+    if (!event) {
+      removeStaleRecentReference();
+      setLocation("/app/private", { replace: true });
+      return;
+    }
     if (!isPrivateEvent(event)) {
+      removeStaleRecentReference();
       setLocation("/app/private", { replace: true });
     }
-  }, [section, routeEventId, appEvents, setLocation]);
+  }, [section, routeEventId, appEvents, eventsError, isLoadingEvents, setLocation, user?.id, user?.username]);
 
   const mobileSectionLabel = section === "event"
     ? (currentEventName ?? "Event")
     : section === "private"
       ? "Private"
       : "Home";
+
+  useEffect(() => {
+    if (!notifOpen || !user) return;
+    const isStale = Date.now() - notificationsUpdatedAt > 30_000;
+    if (isStale) {
+      void refetchNotifications();
+    }
+  }, [notifOpen, notificationsUpdatedAt, refetchNotifications, user]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -783,15 +839,52 @@ export default function AppRoute() {
       </div>
     );
   }
-  if (!user) return null;
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          Redirecting...
+        </div>
+      </div>
+    );
+  }
   const pendingFriendRequests = notificationsPayload?.friendRequests ?? [];
   const pendingPlanInvites = notificationsPayload?.planInvites ?? [];
   const totalPendingNotifications = pendingFriendRequests.length + pendingPlanInvites.length;
+  const displayPendingCount = totalPendingNotifications > 9 ? "9+" : String(totalPendingNotifications);
 
   const anyKillActive = devDisable.headerPrefs || devDisable.discoverModal || devDisable.homeEffects;
   const handleOpenNewPlan = () => {
     openNewPlanWizard("BASICS");
   };
+  const handleOpenAccount = () => {
+    if (section === "home") {
+      setLocation("/app/private");
+      window.requestAnimationFrame(() => {
+        window.dispatchEvent(new Event("splanno:open-account"));
+      });
+      return;
+    }
+    window.dispatchEvent(new Event("splanno:open-account"));
+  };
+  const getInitials = (displayName: string | null, username: string) => {
+    const source = (displayName ?? username).trim();
+    if (!source) return "?";
+    const tokens = source.split(/\s+/).filter(Boolean);
+    if (tokens.length === 1) return tokens[0].slice(0, 2).toUpperCase();
+    return `${tokens[0][0] ?? ""}${tokens[1][0] ?? ""}`.toUpperCase();
+  };
+  const formatInviteMeta = (eventId: number) => {
+    const event = appEvents.find((candidate) => candidate.id === eventId);
+    if (!event) return null;
+    const dateLabel = event.date ? new Date(event.date).toLocaleDateString() : null;
+    const locationLabel = formatEventLocation(event);
+    if (!dateLabel && !locationLabel) return null;
+    if (dateLabel && locationLabel) return `${dateLabel} · ${locationLabel}`;
+    return dateLabel ?? locationLabel;
+  };
+
   const mainContent = (
     <div className="min-h-screen bg-background lg:flex">
         <div className="fixed right-4 top-4 z-50 hidden items-center gap-2 md:flex">
@@ -799,7 +892,7 @@ export default function AppRoute() {
             type="button"
             variant="outline"
             size="icon"
-            className="h-11 w-11 rounded-full"
+            className="relative h-11 w-11 rounded-full"
             aria-label="Open notifications"
             onClick={() => setNotifOpen(true)}
             data-testid="button-notifications"
@@ -807,7 +900,7 @@ export default function AppRoute() {
             <Bell className="h-5 w-5" />
             {totalPendingNotifications > 0 && (
               <span className="absolute -right-0.5 -top-0.5 grid h-4 w-4 place-items-center rounded-full bg-destructive text-[9px] font-bold text-destructive-foreground">
-                {totalPendingNotifications}
+                {displayPendingCount}
               </span>
             )}
           </Button>
@@ -817,7 +910,7 @@ export default function AppRoute() {
             size="icon"
             className="h-11 w-11 rounded-full"
             aria-label="Open profile"
-            onClick={() => setProfileOpen(true)}
+            onClick={handleOpenAccount}
             data-testid="button-profile-drawer"
           >
             <UserCircle className="h-5 w-5" />
@@ -840,11 +933,16 @@ export default function AppRoute() {
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="h-11 w-11"
+                className="relative h-11 w-11"
                 aria-label="Open notifications"
                 onClick={() => setNotifOpen(true)}
               >
                 <Bell className="h-5 w-5" />
+                {totalPendingNotifications > 0 && (
+                  <span className="absolute right-1 top-1 grid h-4 min-w-4 place-items-center rounded-full bg-destructive px-1 text-[9px] font-bold text-destructive-foreground">
+                    {displayPendingCount}
+                  </span>
+                )}
               </Button>
               <Button
                 type="button"
@@ -852,7 +950,7 @@ export default function AppRoute() {
                 size="icon"
                 className="h-11 w-11"
                 aria-label="Open profile"
-                onClick={() => setProfileOpen(true)}
+                onClick={handleOpenAccount}
               >
                 <UserCircle className="h-5 w-5" />
               </Button>
@@ -986,52 +1084,145 @@ export default function AppRoute() {
               <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
                 <section className="rounded-xl border border-border/60 bg-card p-3">
                   <p className="text-sm font-medium">Friend requests</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {pendingFriendRequests.length > 0 ? `${pendingFriendRequests.length} pending` : "No friend requests"}
-                  </p>
+                  {pendingFriendRequests.length === 0 ? (
+                    <p className="mt-1 text-xs text-muted-foreground">No pending friend requests</p>
+                  ) : (
+                    <div className="mt-2 space-y-2">
+                      {pendingFriendRequests.map((request) => {
+                        const isAccepting = acceptFriendRequest.isPending && acceptFriendRequest.variables === request.friendshipId;
+                        const isDeclining = declineFriendRequest.isPending && declineFriendRequest.variables === request.friendshipId;
+                        return (
+                          <div key={`notif-friend-${request.friendshipId}`} className="flex items-center gap-2 rounded-lg border border-border/50 p-2">
+                            <Avatar className="h-8 w-8">
+                              <AvatarFallback className="text-[10px]">
+                                {getInitials(request.displayName, request.username)}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-xs font-medium">{request.displayName ?? request.username}</p>
+                              <p className="truncate text-[11px] text-muted-foreground">@{request.username}</p>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <Button
+                                size="sm"
+                                className="h-7 px-2 text-xs"
+                                disabled={isAccepting || isDeclining}
+                                onClick={() => {
+                                  acceptFriendRequest.mutate(request.friendshipId, {
+                                    onSuccess: () => {
+                                      toast({ variant: "success", message: "Friend request accepted" });
+                                    },
+                                    onError: (error) => {
+                                      toast({
+                                        variant: "error",
+                                        message: error instanceof Error ? error.message : "Could not accept friend request",
+                                      });
+                                    },
+                                  });
+                                }}
+                              >
+                                {isAccepting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Accept"}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 px-2 text-xs"
+                                disabled={isAccepting || isDeclining}
+                                onClick={() => {
+                                  declineFriendRequest.mutate(request.friendshipId, {
+                                    onSuccess: () => {
+                                      toast({ variant: "success", message: "Friend request declined" });
+                                    },
+                                    onError: (error) => {
+                                      toast({
+                                        variant: "error",
+                                        message: error instanceof Error ? error.message : "Could not decline friend request",
+                                      });
+                                    },
+                                  });
+                                }}
+                              >
+                                {isDeclining ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Decline"}
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </section>
                 <section className="rounded-xl border border-border/60 bg-card p-3">
                   <p className="text-sm font-medium">Plan invites</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {pendingPlanInvites.length > 0 ? `${pendingPlanInvites.length} pending` : "No plan invites"}
-                  </p>
+                  {pendingPlanInvites.length === 0 ? (
+                    <p className="mt-1 text-xs text-muted-foreground">No pending plan invites</p>
+                  ) : (
+                    <div className="mt-2 space-y-2">
+                      {pendingPlanInvites.map((invite) => {
+                        const isAccepting = acceptPlanInvite.isPending && acceptPlanInvite.variables === invite.id;
+                        const isDeclining = declinePlanInvite.isPending && declinePlanInvite.variables === invite.id;
+                        const inviteMeta = formatInviteMeta(invite.eventId);
+                        return (
+                          <div key={`notif-plan-${invite.id}`} className="rounded-lg border border-border/50 p-2">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-xs font-medium">{invite.eventName}</p>
+                                <p className="truncate text-[11px] text-muted-foreground">
+                                  Invited by {invite.inviterName ?? "Unknown user"}
+                                </p>
+                                {inviteMeta && (
+                                  <p className="truncate text-[11px] text-muted-foreground">{inviteMeta}</p>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1">
+                                <Button
+                                  size="sm"
+                                  className="h-7 px-2 text-xs"
+                                  disabled={isAccepting || isDeclining}
+                                  onClick={() => {
+                                    acceptPlanInvite.mutate(invite.id, {
+                                      onSuccess: () => {
+                                        toast({ variant: "success", message: "Plan invite accepted" });
+                                      },
+                                      onError: (error) => {
+                                        toast({
+                                          variant: "error",
+                                          message: error instanceof Error ? error.message : "Could not accept invite",
+                                        });
+                                      },
+                                    });
+                                  }}
+                                >
+                                  {isAccepting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Accept"}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-7 px-2 text-xs"
+                                  disabled={isAccepting || isDeclining}
+                                  onClick={() => {
+                                    declinePlanInvite.mutate(invite.id, {
+                                      onSuccess: () => {
+                                        toast({ variant: "success", message: "Plan invite declined" });
+                                      },
+                                      onError: (error) => {
+                                        toast({
+                                          variant: "error",
+                                          message: error instanceof Error ? error.message : "Could not decline invite",
+                                        });
+                                      },
+                                    });
+                                  }}
+                                >
+                                  {isDeclining ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Decline"}
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </section>
-              </div>
-            </div>
-          </SheetContent>
-        </Sheet>
-        <Sheet open={profileOpen} onOpenChange={setProfileOpen}>
-          <SheetContent side="right" className="w-full max-w-sm p-0">
-            <div className="flex h-full flex-col">
-              <SheetHeader className="border-b border-border/60 px-4 py-3 text-left">
-                <SheetTitle className="text-base">Account</SheetTitle>
-                <SheetDescription>{user.username ?? "Signed in"}</SheetDescription>
-              </SheetHeader>
-              <div className="flex-1 px-4 py-4 space-y-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full justify-start"
-                  onClick={() => {
-                    setProfileOpen(false);
-                    setLocation("/app/private");
-                  }}
-                >
-                  Profile
-                </Button>
-              </div>
-              <div className="border-t border-border/60 p-4">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full justify-start text-destructive hover:text-destructive"
-                  onClick={() => {
-                    setProfileOpen(false);
-                    logout.mutate();
-                  }}
-                >
-                  Log out
-                </Button>
               </div>
             </div>
           </SheetContent>

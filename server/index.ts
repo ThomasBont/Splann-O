@@ -38,7 +38,7 @@ import { WebSocketServer, WebSocket, type RawData } from "ws";
 import { and, eq } from "drizzle-orm";
 import { barbecues, eventMembers, users, session as sessionTable } from "@shared/schema";
 import { createHmac, timingSafeEqual } from "crypto";
-import { appendEventChatMessage } from "./lib/eventChatStore";
+import { appendEventChatMessage, toggleEventChatReaction } from "./lib/eventChatStore";
 import { broadcastEventRealtime, registerEventSocket, unregisterEventSocket } from "./lib/eventRealtime";
 import { isEventChatLocked } from "./lib/eventChatPolicy";
 
@@ -210,16 +210,60 @@ chatWss.on("connection", (ws, req) => {
         });
       return;
     }
-    if (parsed?.type === "typing") {
+    if (parsed?.type === "typing" || parsed?.type === "typing:start") {
       if (!meta.subscribed) return;
       broadcastEventRealtime(meta.eventId, {
-        type: "chat:typing",
+        type: parsed.type === "typing:start" ? "chat:typing_start" : "chat:typing",
         eventId: meta.eventId,
         user: {
           id: String(meta.userId),
           name: meta.username,
         },
       });
+      return;
+    }
+    if (parsed?.type === "typing:stop") {
+      if (!meta.subscribed) return;
+      broadcastEventRealtime(meta.eventId, {
+        type: "chat:typing_stop",
+        eventId: meta.eventId,
+        user: {
+          id: String(meta.userId),
+          name: meta.username,
+        },
+      });
+      return;
+    }
+    if (parsed?.type === "reaction:toggle") {
+      if (!meta.subscribed) return;
+      const messageId = typeof (parsed as { messageId?: string }).messageId === "string"
+        ? (parsed as { messageId?: string }).messageId!.trim()
+        : "";
+      const emoji = typeof (parsed as { emoji?: string }).emoji === "string"
+        ? (parsed as { emoji?: string }).emoji!.trim()
+        : "";
+      if (!messageId || !emoji) return;
+      canAccessEventChat(meta.eventId, { id: meta.userId, username: meta.username })
+        .then(async (allowed) => {
+          if (!allowed) {
+            ws.send(JSON.stringify({ type: "error", code: "NOT_AUTHORIZED", message: "Membership required" }));
+            return;
+          }
+          const reactions = await toggleEventChatReaction({
+            eventId: meta.eventId,
+            messageId,
+            userId: meta.userId,
+            emoji,
+          });
+          broadcastEventRealtime(meta.eventId, {
+            type: "chat:reaction_update",
+            messageId,
+            reactions,
+          });
+        })
+        .catch(() => {
+          ws.send(JSON.stringify({ type: "chat:error", code: "INTERNAL_ERROR", message: "Reaction failed" }));
+        });
       return;
     }
     if (parsed?.type !== "send" && parsed?.type !== "chat:send") return;

@@ -98,6 +98,21 @@ export const api = {
         404: errorSchemas.notFound,
       },
     },
+    leave: {
+      method: 'POST' as const,
+      path: '/api/barbecues/:id/leave' as const,
+      responses: {
+        200: z.object({
+          ok: z.literal(true),
+          left: z.literal(true),
+          planDeleted: z.boolean().optional(),
+          newCreatorId: z.number().nullable().optional(),
+        }),
+        401: errorSchemas.validation,
+        403: errorSchemas.validation,
+        404: errorSchemas.notFound,
+      },
+    },
     listPublic: {
       method: 'GET' as const,
       path: '/api/barbecues/public' as const,

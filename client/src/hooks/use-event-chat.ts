@@ -12,6 +12,7 @@ export type ChatMessage = {
   status?: "sending" | "sent" | "failed";
   optimistic?: boolean;
   user?: { id: string; name: string; avatarUrl?: string | null };
+  reactions?: Array<{ emoji: string; count: number; me: boolean }>;
 };
 
 export type TypingUser = {
@@ -38,6 +39,7 @@ type IncomingServerMessage = {
   content?: string;
   createdAt: string;
   serverCreatedAt?: string;
+  reactions?: Array<{ emoji?: string; count?: number; me?: boolean }>;
   user?: { id?: string | number | null; name?: string | null; avatarUrl?: string | null };
 };
 
@@ -60,6 +62,16 @@ function normalizeIncomingMessage(raw: IncomingServerMessage): ChatMessage | nul
     serverCreatedAt: raw.serverCreatedAt ?? createdAt,
     status: "sent",
     optimistic: false,
+    reactions: Array.isArray(raw.reactions)
+      ? raw.reactions
+        .map((reaction) => {
+          const emoji = typeof reaction?.emoji === "string" ? reaction.emoji : "";
+          const count = typeof reaction?.count === "number" ? reaction.count : 0;
+          if (!emoji || count <= 0) return null;
+          return { emoji, count, me: reaction?.me === true };
+        })
+        .filter((reaction): reaction is { emoji: string; count: number; me: boolean } => !!reaction)
+      : [],
     user: raw.user?.id != null
       ? {
           id: String(raw.user.id),
@@ -172,6 +184,12 @@ export function useEventChat(eventId: number | null, enabled = true) {
       next.push({ ...serverMessage, status: "sent", optimistic: false });
       return dedupeAndSort(next);
     });
+  }, []);
+
+  const applyReactionUpdate = useCallback((messageId: string, reactions: Array<{ emoji: string; count: number; me: boolean }>) => {
+    setMessages((prev) => prev.map((message) => (
+      message.id === messageId ? { ...message, reactions } : message
+    )));
   }, []);
 
   const fetchHistoryPage = useCallback(async (before?: string | null) => {
@@ -361,7 +379,7 @@ export function useEventChat(eventId: number | null, enabled = true) {
         mergeMessages(systemMessage);
         return;
       }
-      if (payload?.type === "chat:typing" && payload.user?.id) {
+      if ((payload?.type === "chat:typing" || payload?.type === "chat:typing_start") && payload.user?.id) {
         const nextUser = { id: String(payload.user.id), name: payload.user.name || "Someone" };
         setTypingUsers((prev) => {
           const existing = prev.filter((u) => u.id !== nextUser.id);
@@ -372,8 +390,27 @@ export function useEventChat(eventId: number | null, enabled = true) {
         }, 3000);
         return;
       }
+      if ((payload?.type === "chat:typing_stop" || payload?.type === "typing:stop") && payload.user?.id) {
+        const targetId = String(payload.user.id);
+        setTypingUsers((prev) => prev.filter((u) => u.id !== targetId));
+        return;
+      }
       if (payload?.type === "chat:error") {
         markFailed(payload.clientMessageId);
+        return;
+      }
+      if (payload?.type === "chat:reaction_update" && typeof payload.messageId === "string") {
+        const reactions = Array.isArray(payload.reactions)
+          ? payload.reactions
+            .map((reaction: any) => {
+              const emoji = typeof reaction?.emoji === "string" ? reaction.emoji : "";
+              const count = Number(reaction?.count ?? 0);
+              if (!emoji || !Number.isFinite(count) || count <= 0) return null;
+              return { emoji, count, me: reaction?.me === true };
+            })
+            .filter((reaction: { emoji: string; count: number; me: boolean } | null): reaction is { emoji: string; count: number; me: boolean } => !!reaction)
+          : [];
+        applyReactionUpdate(payload.messageId, reactions);
         return;
       }
       if (payload?.type === "chat:ack") {
@@ -422,7 +459,7 @@ export function useEventChat(eventId: number | null, enabled = true) {
         wsRef.current = null;
       }
     };
-  }, [enabled, eventId, markFailed, mergeMessages, reconcileServerMessage, retryTick]);
+  }, [applyReactionUpdate, enabled, eventId, markFailed, mergeMessages, reconcileServerMessage, retryTick]);
 
   const sendMessageWithClientId = useCallback(async (
     text: string,
@@ -501,21 +538,101 @@ export function useEventChat(eventId: number | null, enabled = true) {
     if (!result.ok) markFailed(clientMessageId);
   }, [markFailed, messages, sendMessageWithClientId]);
 
-  const sendTyping = useCallback((actor?: { id?: string | number | null; name?: string | null }) => {
+  const sendTyping = useCallback((
+    actor?: { id?: string | number | null; name?: string | null },
+    typing: boolean = true,
+  ) => {
     const ws = wsRef.current;
     if (!eventId || isLocked || !isSubscribed || !ws || ws.readyState !== WebSocket.OPEN) return;
     try {
       ws.send(JSON.stringify({
-        type: "typing",
+        type: typing ? "typing:start" : "typing:stop",
+        eventId,
         user: {
           id: String(actor?.id ?? "unknown"),
           name: actor?.name ?? "Someone",
         },
       }));
+      if (typing) {
+        // Backward compatibility for older servers/clients still listening to chat:typing
+        ws.send(JSON.stringify({
+          type: "typing",
+          eventId,
+          user: {
+            id: String(actor?.id ?? "unknown"),
+            name: actor?.name ?? "Someone",
+          },
+        }));
+      }
     } catch {
       // no-op
     }
   }, [eventId, isLocked, isSubscribed]);
+
+  const toggleReaction = useCallback(async (input: {
+    messageId: string;
+    emoji: string;
+    actorId?: string | number | null;
+  }) => {
+    if (!eventId || !input.messageId || !input.emoji) return;
+    const actorId = input.actorId != null ? String(input.actorId) : "";
+    setMessages((prev) => prev.map((message) => {
+      if (message.id !== input.messageId) return message;
+      const current = message.reactions ?? [];
+      const existing = current.find((reaction) => reaction.emoji === input.emoji);
+      let next: Array<{ emoji: string; count: number; me: boolean }> = [];
+      if (!existing) {
+        next = [...current, { emoji: input.emoji, count: 1, me: true }];
+      } else if (existing.me) {
+        next = current
+          .map((reaction) => reaction.emoji === input.emoji ? { ...reaction, count: Math.max(0, reaction.count - 1), me: false } : reaction)
+          .filter((reaction) => reaction.count > 0);
+      } else {
+        next = current.map((reaction) => reaction.emoji === input.emoji ? { ...reaction, count: reaction.count + 1, me: true } : reaction);
+      }
+      return { ...message, reactions: next };
+    }));
+
+    const ws = wsRef.current;
+    const sendViaSocket = ws && ws.readyState === WebSocket.OPEN && isSubscribed;
+    if (sendViaSocket) {
+      try {
+        ws.send(JSON.stringify({
+          type: "reaction:toggle",
+          eventId,
+          messageId: input.messageId,
+          emoji: input.emoji,
+          user: actorId ? { id: actorId } : undefined,
+        }));
+        return;
+      } catch {
+        // fall through to HTTP
+      }
+    }
+    try {
+      const res = await fetch(`/api/plans/${eventId}/chat/messages/${encodeURIComponent(input.messageId)}/reactions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ emoji: input.emoji }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((body as { message?: string }).message || "Reaction failed");
+      const reactions = Array.isArray((body as any).reactions)
+        ? (body as any).reactions
+          .map((reaction: any) => {
+            const emoji = typeof reaction?.emoji === "string" ? reaction.emoji : "";
+            const count = Number(reaction?.count ?? 0);
+            if (!emoji || !Number.isFinite(count) || count <= 0) return null;
+            return { emoji, count, me: reaction?.me === true };
+          })
+          .filter((reaction: { emoji: string; count: number; me: boolean } | null): reaction is { emoji: string; count: number; me: boolean } => !!reaction)
+        : [];
+      applyReactionUpdate(input.messageId, reactions);
+    } catch {
+      // Server will usually reconcile via ws broadcast; keep optimistic state on failure.
+    }
+  }, [applyReactionUpdate, eventId, isSubscribed]);
 
   const retry = useCallback(() => {
     reconnectAttemptRef.current = 0;
@@ -536,6 +653,7 @@ export function useEventChat(eventId: number | null, enabled = true) {
     sendMessage,
     retrySend,
     sendTyping,
+    toggleReaction,
     loadOlder,
     retry,
   }), [
@@ -551,6 +669,7 @@ export function useEventChat(eventId: number | null, enabled = true) {
     sendMessage,
     retrySend,
     sendTyping,
+    toggleReaction,
     loadOlder,
     retry,
   ]);

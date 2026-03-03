@@ -43,6 +43,10 @@ type PlanDetailsDrawerProps = {
   isCreator?: boolean;
   deleting?: boolean;
   onDelete?: () => Promise<void> | void;
+  leaving?: boolean;
+  onLeave?: () => Promise<void> | void;
+  leaveTransferTargetName?: string | null;
+  willDeleteOnLeave?: boolean;
 };
 
 function toDateTimeLocalValue(value: string | Date | null | undefined) {
@@ -63,6 +67,10 @@ export function PlanDetailsDrawer({
   isCreator = false,
   deleting = false,
   onDelete,
+  leaving = false,
+  onLeave,
+  leaveTransferTargetName = null,
+  willDeleteOnLeave = false,
 }: PlanDetailsDrawerProps) {
   const { toastError } = useAppToast();
   const [name, setName] = useState("");
@@ -78,6 +86,7 @@ export function PlanDetailsDrawer({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [baseline, setBaseline] = useState<{ name: string; locationText: string; dateTimeLocal: string; bannerUrl: string | null } | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
   const initializedPlanIdRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -117,6 +126,7 @@ export function PlanDetailsDrawer({
     if (!open) {
       initializedPlanIdRef.current = null;
       setDeleteDialogOpen(false);
+      setLeaveDialogOpen(false);
     }
   }, [open]);
 
@@ -442,14 +452,29 @@ export function PlanDetailsDrawer({
             </div>
 
             <footer className="sticky bottom-0 border-t border-slate-200 bg-white px-5 py-3 dark:border-neutral-800 dark:bg-[#121212]">
-              <div className="flex items-center justify-end gap-2">
-                <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  {onLeave ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="text-destructive hover:text-destructive"
+                      onClick={() => setLeaveDialogOpen(true)}
+                      disabled={saving || deleting || leaving}
+                    >
+                      Leave plan
+                    </Button>
+                  ) : null}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving || leaving}>
                   Cancel
-                </Button>
-                <Button type="button" onClick={() => void handleSave()} disabled={!isValid || !isDirty || saving || deleting || uploadingBanner}>
-                  {saving ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
-                  Save changes
-                </Button>
+                  </Button>
+                  <Button type="button" onClick={() => void handleSave()} disabled={!isValid || !isDirty || saving || deleting || leaving || uploadingBanner}>
+                    {saving ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
+                    Save changes
+                  </Button>
+                </div>
               </div>
             </footer>
           </div>
@@ -484,6 +509,45 @@ export function PlanDetailsDrawer({
             >
               {deleting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
               Delete plan
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={leaveDialogOpen} onOpenChange={setLeaveDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Leave plan?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {isCreator
+                ? (
+                  willDeleteOnLeave
+                    ? "You are the creator and the last member. Leaving will permanently delete this plan."
+                    : `You are the creator. Ownership will transfer to ${leaveTransferTargetName ?? "the next member"} when you leave.`
+                )
+                : "You will lose access to this plan and its chat, expenses, and crew details."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={leaving}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={leaving}
+              onClick={(event) => {
+                event.preventDefault();
+                if (!onLeave) return;
+                void Promise.resolve(onLeave())
+                  .then(() => {
+                    setLeaveDialogOpen(false);
+                    onOpenChange(false);
+                  })
+                  .catch(() => {
+                    // Keep dialog open for retry.
+                  });
+              }}
+            >
+              {leaving ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
+              Leave plan
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

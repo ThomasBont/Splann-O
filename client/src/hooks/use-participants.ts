@@ -227,6 +227,8 @@ export function useDeleteParticipant(bbqId: number | null) {
       queryClient.invalidateQueries({ queryKey: ['/api/barbecues', bbqId, 'participants'] });
       queryClient.invalidateQueries({ queryKey: ['/api/barbecues', bbqId, 'expenses'] });
       queryClient.invalidateQueries({ queryKey: ['/api/memberships'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/barbecues'] });
+      queryClient.refetchQueries({ queryKey: ['/api/barbecues'] });
     },
   });
 }

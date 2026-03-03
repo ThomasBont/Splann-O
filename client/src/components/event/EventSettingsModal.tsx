@@ -409,19 +409,21 @@ export function EventSettingsModal({
             </>
           )}
 
-          <section className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 space-y-3">
-            <h3 className="text-sm font-semibold text-destructive">Danger zone</h3>
-            {isPublic && publicListingActive && onDeactivateListing && (
-              <Button size="sm" variant="outline" onClick={onDeactivateListing}>Unpublish event</Button>
-            )}
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm font-medium">Delete event</p>
-                <p className="text-xs text-muted-foreground">This permanently removes the event and its data.</p>
+          {isCreator && onDelete ? (
+            <section className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 space-y-3">
+              <h3 className="text-sm font-semibold text-destructive">Danger zone</h3>
+              {isPublic && publicListingActive && onDeactivateListing && (
+                <Button size="sm" variant="outline" onClick={onDeactivateListing}>Unpublish event</Button>
+              )}
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium">Delete event</p>
+                  <p className="text-xs text-muted-foreground">This permanently removes the event and its data.</p>
+                </div>
+                <Button size="sm" variant="destructive" onClick={onDelete}>Delete event</Button>
               </div>
-              <Button size="sm" variant="destructive" onClick={onDelete} disabled={!isCreator}>Delete event</Button>
-            </div>
-          </section>
+            </section>
+          ) : null}
         </div>
       </DialogContent>
     </Dialog>

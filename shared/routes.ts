@@ -92,7 +92,9 @@ export const api = {
       method: 'DELETE' as const,
       path: '/api/barbecues/:id' as const,
       responses: {
-        204: z.void(),
+        200: z.object({ ok: z.literal(true), deletedPlanId: z.number() }),
+        401: errorSchemas.validation,
+        403: errorSchemas.validation,
         404: errorSchemas.notFound,
       },
     },

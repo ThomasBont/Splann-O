@@ -4,6 +4,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useAppToast } from "@/hooks/use-app-toast";
 import { resolveAssetUrl, withCacheBust } from "@/lib/asset-url";
 
@@ -14,6 +24,8 @@ type PlanDetailsValues = {
   bannerImageUrl?: string | null;
   bannerAssetId?: string | null;
 };
+
+type BannerMode = "upload" | "url";
 
 type PlanDetailsDrawerProps = {
   open: boolean;
@@ -31,6 +43,9 @@ type PlanDetailsDrawerProps = {
   } | null;
   saving?: boolean;
   onSave: (updates: PlanDetailsValues) => Promise<void>;
+  isCreator?: boolean;
+  deleting?: boolean;
+  onDelete?: () => Promise<void> | void;
 };
 
 function toDateTimeLocalValue(value: string | Date | null | undefined) {
@@ -52,20 +67,45 @@ function normalizeBannerUrl(input: string): string {
   return `https://${trimmed}`;
 }
 
+function isAbsoluteHttpUrl(input: string): boolean {
+  try {
+    const parsed = new URL(input);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function isBannerPathOrUrl(input: string): boolean {
+  const trimmed = input.trim();
+  if (!trimmed) return false;
+  return trimmed.startsWith("/") || isAbsoluteHttpUrl(trimmed);
+}
+
 function toVersionToken(value: string | number | Date | null | undefined): string | number | null {
   if (value instanceof Date) return value.getTime();
   return value ?? null;
 }
 
-export function PlanDetailsDrawer({ open, onOpenChange, plan, saving = false, onSave }: PlanDetailsDrawerProps) {
+export function PlanDetailsDrawer({
+  open,
+  onOpenChange,
+  plan,
+  saving = false,
+  onSave,
+  isCreator = false,
+  deleting = false,
+  onDelete,
+}: PlanDetailsDrawerProps) {
   const { toastError } = useAppToast();
   const [name, setName] = useState("");
   const [locationText, setLocationText] = useState("");
   const [dateTimeLocal, setDateTimeLocal] = useState("");
   const [bannerImageUrl, setBannerImageUrl] = useState("");
+  const [bannerUrlDraft, setBannerUrlDraft] = useState("");
   const [bannerAssetId, setBannerAssetId] = useState<string | null>(null);
-  const [baseline, setBaseline] = useState<{ name: string; locationText: string; dateTimeLocal: string; bannerImageUrl: string } | null>(null);
-  const [useBannerUrlInput, setUseBannerUrlInput] = useState(false);
+  const [baseline, setBaseline] = useState<{ name: string; locationText: string; dateTimeLocal: string; bannerImageUrl: string; bannerAssetId: string | null; bannerUrlDraft: string } | null>(null);
+  const [bannerMode, setBannerMode] = useState<BannerMode>("upload");
   const [bannerUploadFile, setBannerUploadFile] = useState<File | null>(null);
   const [bannerUploadPreviewUrl, setBannerUploadPreviewUrl] = useState<string | null>(null);
   const [bannerUploadError, setBannerUploadError] = useState<string | null>(null);
@@ -73,10 +113,24 @@ export function PlanDetailsDrawer({ open, onOpenChange, plan, saving = false, on
   const [removeBannerRequested, setRemoveBannerRequested] = useState(false);
   const [bannerPreviewFailed, setBannerPreviewFailed] = useState(false);
   const [bannerPreviewLoaded, setBannerPreviewLoaded] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteConfirmName, setDeleteConfirmName] = useState("");
   const bannerFileInputRef = useRef<HTMLInputElement | null>(null);
+  const initializedPlanIdRef = useRef<number | null>(null);
+
+  const clearUploadSelection = () => {
+    setBannerUploadFile(null);
+    setBannerUploadPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+  };
 
   useEffect(() => {
     if (!open || !plan) return;
+    const planId = Number.isInteger(plan.id) ? Number(plan.id) : null;
+    if (initializedPlanIdRef.current === planId) return;
+    initializedPlanIdRef.current = planId;
     setName(plan.name ?? "");
     setLocationText(
       plan.locationText?.trim()
@@ -86,8 +140,13 @@ export function PlanDetailsDrawer({ open, onOpenChange, plan, saving = false, on
     );
     const nextDateTime = toDateTimeLocalValue(plan.date);
     const nextBanner = plan.bannerImageUrl ?? "";
+    const nextBannerMode: BannerMode = /^https?:\/\//i.test(nextBanner)
+      ? "url"
+      : (plan.bannerAssetId ? "upload" : "upload");
+    const nextBannerUrlDraft = nextBannerMode === "url" ? nextBanner : "";
     setDateTimeLocal(nextDateTime);
     setBannerImageUrl(nextBanner);
+    setBannerUrlDraft(nextBannerUrlDraft);
     setBannerAssetId(plan.bannerAssetId ?? null);
     setBaseline({
       name: plan.name ?? "",
@@ -98,18 +157,24 @@ export function PlanDetailsDrawer({ open, onOpenChange, plan, saving = false, on
         || "",
       dateTimeLocal: nextDateTime,
       bannerImageUrl: nextBanner,
+      bannerAssetId: plan.bannerAssetId ?? null,
+      bannerUrlDraft: nextBannerUrlDraft,
     });
-    setUseBannerUrlInput(false);
-    setBannerUploadFile(null);
+    setBannerMode(nextBannerMode);
+    clearUploadSelection();
     setBannerUploadError(null);
     setRemoveBannerRequested(false);
     setBannerPreviewFailed(false);
     setBannerPreviewLoaded(false);
-    setBannerUploadPreviewUrl((prev) => {
-      if (prev) URL.revokeObjectURL(prev);
-      return null;
-    });
-  }, [open, plan]);
+  }, [open, plan?.id]);
+
+  useEffect(() => {
+    if (!open) {
+      initializedPlanIdRef.current = null;
+      setDeleteDialogOpen(false);
+      setDeleteConfirmName("");
+    }
+  }, [open]);
 
   const initialName = baseline?.name ?? plan?.name ?? "";
   const initialLocation = baseline?.locationText
@@ -121,20 +186,19 @@ export function PlanDetailsDrawer({ open, onOpenChange, plan, saving = false, on
     );
   const initialDate = baseline?.dateTimeLocal ?? toDateTimeLocalValue(plan?.date ?? null);
   const initialBanner = baseline?.bannerImageUrl ?? plan?.bannerImageUrl ?? "";
-  const normalizedInitialBannerImageUrl = useMemo(() => normalizeBannerUrl(initialBanner), [initialBanner]);
+  const initialBannerAssetId = baseline?.bannerAssetId ?? plan?.bannerAssetId ?? null;
+  const initialBannerUrlDraft = baseline?.bannerUrlDraft ?? "";
   const normalizedBannerImageUrl = useMemo(() => normalizeBannerUrl(bannerImageUrl), [bannerImageUrl]);
   const resolvedAssetBannerUrl = useMemo(
     () => (bannerAssetId ? `/api/assets/${encodeURIComponent(bannerAssetId)}` : ""),
     [bannerAssetId],
   );
+  const urlInputTrimmed = bannerUrlDraft.trim();
   const bannerPreviewUrl = bannerUploadPreviewUrl
-    || resolveAssetUrl(normalizedBannerImageUrl)
-    || resolveAssetUrl(resolvedAssetBannerUrl)
+    || (bannerMode === "url"
+      ? (urlInputTrimmed ? (resolveAssetUrl(urlInputTrimmed) || "") : "")
+      : (resolveAssetUrl(resolvedAssetBannerUrl) || ""))
     || "";
-  const hasUrlInputValue = useMemo(
-    () => useBannerUrlInput && bannerImageUrl.trim().length > 0,
-    [useBannerUrlInput, bannerImageUrl],
-  );
   const formatFileSize = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -157,7 +221,7 @@ export function PlanDetailsDrawer({ open, onOpenChange, plan, saving = false, on
     });
     setBannerUploadFile(file);
     setBannerUploadError(null);
-    setUseBannerUrlInput(false);
+    setBannerMode("upload");
     setRemoveBannerRequested(false);
   };
 
@@ -173,71 +237,95 @@ export function PlanDetailsDrawer({ open, onOpenChange, plan, saving = false, on
   }, [bannerPreviewUrl]);
 
   const isValid = name.trim().length > 0 && locationText.trim().length > 0 && dateTimeLocal.trim().length > 0;
+  const isBannerValid = !bannerUploadError;
+  const bannerDirty = useMemo(() => {
+    if (bannerMode === "upload") {
+      return !!bannerUploadFile || removeBannerRequested;
+    }
+    return bannerUrlDraft.trim() !== initialBannerUrlDraft.trim();
+  }, [bannerMode, bannerUploadFile, removeBannerRequested, bannerUrlDraft, initialBannerUrlDraft]);
+  const canConfirmDelete = !!plan?.name && deleteConfirmName.trim() === plan.name.trim();
   const isDirty = useMemo(
     () => (
       name.trim() !== initialName.trim()
       || locationText.trim() !== initialLocation.trim()
       || dateTimeLocal !== initialDate
-      || !!bannerUploadFile
-      || removeBannerRequested
-      || (hasUrlInputValue && normalizedBannerImageUrl !== normalizedInitialBannerImageUrl)
+      || bannerDirty
     ),
-    [name, locationText, dateTimeLocal, bannerUploadFile, removeBannerRequested, hasUrlInputValue, normalizedBannerImageUrl, normalizedInitialBannerImageUrl, initialName, initialLocation, initialDate],
+    [name, locationText, dateTimeLocal, bannerDirty, initialName, initialLocation, initialDate],
   );
 
   const handleSave = async () => {
-    if (!isValid || !isDirty || saving) return;
+    if (!isValid || !isDirty || !isBannerValid || saving) return;
     try {
       const isoDate = new Date(dateTimeLocal).toISOString();
       let nextBannerImageUrl: string | null | undefined = undefined;
       let nextBannerAssetId: string | null | undefined = undefined;
-      if (bannerUploadFile) {
-        setBannerUploadPending(true);
-        if (!plan?.id) throw new Error("No plan selected.");
-        const dataUrl = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => {
-            const result = typeof reader.result === "string" ? reader.result : null;
-            if (!result || !result.startsWith("data:image/")) {
-              reject(new Error("Please choose a valid image file."));
-              return;
-            }
-            resolve(result);
-          };
-          reader.onerror = () => reject(new Error("Please choose a valid image file."));
-          reader.readAsDataURL(bannerUploadFile);
-        });
-        const uploadRes = await fetch(`/api/barbecues/${plan.id}/banner`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ dataUrl }),
-        });
-        const uploadPayload = await uploadRes.json().catch(() => ({}));
-        if (!uploadRes.ok) {
-          throw new Error((uploadPayload as { message?: string }).message || "Couldn’t upload banner image.");
+      if (bannerMode === "upload") {
+        if (bannerUploadFile) {
+          setBannerUploadPending(true);
+          if (!plan?.id) throw new Error("No plan selected.");
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              const result = typeof reader.result === "string" ? reader.result : null;
+              if (!result || !result.startsWith("data:image/")) {
+                reject(new Error("Please choose a valid image file."));
+                return;
+              }
+              resolve(result);
+            };
+            reader.onerror = () => reject(new Error("Please choose a valid image file."));
+            reader.readAsDataURL(bannerUploadFile);
+          });
+          const uploadRes = await fetch(`/api/barbecues/${plan.id}/banner`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ dataUrl }),
+          });
+          const uploadPayload = await uploadRes.json().catch(() => ({}));
+          if (!uploadRes.ok) {
+            throw new Error((uploadPayload as { message?: string }).message || "Couldn’t upload banner image.");
+          }
+          const uploadedPath = String((uploadPayload as { path?: string; url?: string }).path ?? (uploadPayload as { url?: string }).url ?? "").trim();
+          const uploadedAssetId = String((uploadPayload as { assetId?: string }).assetId ?? "").trim();
+          if (!isBannerPathOrUrl(uploadedPath) && uploadedAssetId.length === 0) {
+            throw new Error("Banner image URL could not be saved.");
+          }
+          nextBannerImageUrl = null;
+          nextBannerAssetId = uploadedAssetId || null;
+        } else if (removeBannerRequested) {
+          nextBannerImageUrl = null;
+          nextBannerAssetId = null;
         }
-        const uploadedPath = String((uploadPayload as { path?: string; url?: string }).path ?? (uploadPayload as { url?: string }).url ?? "").trim();
-        if (!uploadedPath) {
-          throw new Error("Banner image URL could not be saved.");
+      } else {
+        if (urlInputTrimmed.length === 0) {
+          nextBannerImageUrl = null;
+          nextBannerAssetId = null;
+        } else {
+          const importUrl = /^https?:\/\//i.test(urlInputTrimmed) ? urlInputTrimmed : `https://${urlInputTrimmed}`;
+          if (!isAbsoluteHttpUrl(importUrl)) throw new Error("Enter a valid banner image URL.");
+          const importRes = await fetch("/api/media/import", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ url: importUrl }),
+          });
+          const importPayload = await importRes.json().catch(() => ({}));
+          if (!importRes.ok) {
+            throw new Error((importPayload as { message?: string }).message || "Couldn’t import image from URL.");
+          }
+          const storedUrl = String((importPayload as { storedUrl?: string; path?: string; url?: string }).storedUrl
+            ?? (importPayload as { path?: string; url?: string }).path
+            ?? (importPayload as { url?: string }).url
+            ?? "").trim();
+          if (!isBannerPathOrUrl(storedUrl)) {
+            throw new Error("Couldn’t import image from URL.");
+          }
+          nextBannerImageUrl = storedUrl;
+          nextBannerAssetId = null;
         }
-        nextBannerImageUrl = uploadedPath;
-        nextBannerAssetId = null;
-      } else if (removeBannerRequested) {
-        nextBannerImageUrl = null;
-        nextBannerAssetId = null;
-      } else if (hasUrlInputValue) {
-        let candidate: URL;
-        try {
-          candidate = new URL(normalizedBannerImageUrl);
-        } catch {
-          throw new Error("Enter a valid banner image URL.");
-        }
-        if (candidate.protocol !== "http:" && candidate.protocol !== "https:") {
-          throw new Error("Banner image URL must start with http:// or https://");
-        }
-        nextBannerImageUrl = normalizedBannerImageUrl;
-        nextBannerAssetId = null;
       }
       const payload: PlanDetailsValues = {
         name: name.trim(),
@@ -248,33 +336,32 @@ export function PlanDetailsDrawer({ open, onOpenChange, plan, saving = false, on
       if (nextBannerAssetId !== undefined) payload.bannerAssetId = nextBannerAssetId;
       await onSave(payload);
       setBannerUploadPending(false);
-      setBannerUploadFile(null);
+      clearUploadSelection();
       setBannerUploadError(null);
       setRemoveBannerRequested(false);
-      setUseBannerUrlInput(false);
-      setBannerUploadPreviewUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
-        return null;
-      });
-      const savedBanner = nextBannerImageUrl ?? normalizedInitialBannerImageUrl;
+      const savedBanner = nextBannerImageUrl !== undefined ? (nextBannerImageUrl ?? "") : initialBanner;
+      const savedAsset = nextBannerAssetId !== undefined ? nextBannerAssetId : initialBannerAssetId;
       setBannerImageUrl(savedBanner);
-      if (nextBannerAssetId !== undefined) setBannerAssetId(nextBannerAssetId);
+      setBannerUrlDraft(savedBanner && /^https?:\/\//i.test(savedBanner) ? savedBanner : "");
+      setBannerAssetId(savedAsset);
       setBaseline({
         name: name.trim(),
         locationText: locationText.trim(),
         dateTimeLocal,
         bannerImageUrl: savedBanner,
+        bannerAssetId: savedAsset,
+        bannerUrlDraft: savedBanner && /^https?:\/\//i.test(savedBanner) ? savedBanner : "",
       });
+      onOpenChange(false);
     } catch (error) {
       setBannerUploadPending(false);
       toastError((error as Error).message || "Couldn’t save plan details. Try again.");
     }
   };
 
-  const debugBannerUrl = bannerUploadFile ? "" : (resolveAssetUrl(normalizedBannerImageUrl || resolvedAssetBannerUrl || plan?.bannerImageUrl || "") || "");
-
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <>
+      <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="right"
         className="h-full w-[420px] max-w-[92vw] border-l border-slate-200 bg-white p-0 shadow-2xl dark:border-neutral-800 dark:bg-[#121212]"
@@ -370,16 +457,18 @@ export function PlanDetailsDrawer({ open, onOpenChange, plan, saving = false, on
                     </div>
                   )}
                   <div className="flex flex-wrap items-center gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      className="bg-primary text-primary-foreground hover:bg-primary/90"
-                      onClick={() => bannerFileInputRef.current?.click()}
-                      aria-label="Upload banner"
-                    >
-                      <Upload className="mr-1.5 h-4 w-4" />
-                      Upload banner
-                    </Button>
+                    {bannerMode === "upload" ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="bg-primary text-primary-foreground hover:bg-primary/90"
+                        onClick={() => bannerFileInputRef.current?.click()}
+                        aria-label="Upload banner"
+                      >
+                        <Upload className="mr-1.5 h-4 w-4" />
+                        Upload banner
+                      </Button>
+                    ) : null}
                     {bannerUploadFile ? (
                       <>
                         <span className="max-w-[180px] truncate text-xs text-muted-foreground">
@@ -405,10 +494,13 @@ export function PlanDetailsDrawer({ open, onOpenChange, plan, saving = false, on
                         type="button"
                         className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
                         onClick={() => {
+                          setBannerMode("upload");
                           setBannerImageUrl("");
+                          setBannerUrlDraft("");
                           setBannerAssetId(null);
                           setRemoveBannerRequested(true);
                           setBannerUploadError(null);
+                          clearUploadSelection();
                         }}
                       >
                         Remove
@@ -419,53 +511,60 @@ export function PlanDetailsDrawer({ open, onOpenChange, plan, saving = false, on
                     type="button"
                     className="w-fit text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
                     onClick={() => {
-                      setUseBannerUrlInput((prev) => !prev);
+                      const nextMode: BannerMode = bannerMode === "url" ? "upload" : "url";
+                      setBannerMode(nextMode);
                       setBannerUploadError(null);
+                      setRemoveBannerRequested(false);
+                      if (nextMode === "url") {
+                        clearUploadSelection();
+                        setBannerUrlDraft((prev) => prev || (bannerImageUrl && /^https?:\/\//i.test(bannerImageUrl) ? bannerImageUrl : ""));
+                      } else {
+                        setBannerUrlDraft("");
+                      }
                     }}
                   >
-                    {useBannerUrlInput ? "Hide URL input" : "Use URL instead"}
+                    {bannerMode === "url" ? "Hide URL input" : "Use URL instead"}
                   </button>
-                  {useBannerUrlInput ? (
+                  {bannerMode === "url" ? (
                     <Input
                       id="plan-details-banner"
                       type="url"
-                      value={bannerImageUrl}
+                      value={bannerUrlDraft}
                       onChange={(event) => {
-                        setBannerImageUrl(event.target.value);
+                        setBannerUrlDraft(event.target.value);
                         setBannerAssetId(null);
-                        setBannerUploadFile(null);
-                        setBannerUploadPreviewUrl((prev) => {
-                          if (prev) URL.revokeObjectURL(prev);
-                          return null;
-                        });
+                        clearUploadSelection();
                         setBannerUploadError(null);
                         setRemoveBannerRequested(false);
                       }}
-                      placeholder="https://..."
+                      placeholder="https://example.com/image.jpg"
                     />
                   ) : null}
                   {bannerUploadError ? (
                     <p className="text-xs text-destructive">{bannerUploadError}</p>
                   ) : null}
-                  {import.meta.env.DEV ? (
-                    <div className="space-y-1">
-                      <p className="break-all text-[10px] text-muted-foreground">
-                        {debugBannerUrl || "No persisted banner URL"}
-                      </p>
-                      {debugBannerUrl ? (
-                        <a
-                          href={debugBannerUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-[10px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
-                        >
-                          Open image
-                        </a>
-                      ) : null}
-                    </div>
-                  ) : null}
                 </div>
               </div>
+
+              {isCreator && onDelete ? (
+                <section className="rounded-xl border border-destructive/30 bg-destructive/5 p-3">
+                  <p className="text-sm font-semibold text-destructive">Danger zone</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Permanently delete this plan, including shared costs, chat, and crew data.
+                  </p>
+                  <div className="mt-3">
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => setDeleteDialogOpen(true)}
+                      disabled={saving || deleting}
+                    >
+                      Delete plan
+                    </Button>
+                  </div>
+                </section>
+              ) : null}
             </div>
           </div>
 
@@ -474,7 +573,7 @@ export function PlanDetailsDrawer({ open, onOpenChange, plan, saving = false, on
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
                 Cancel
               </Button>
-              <Button type="button" onClick={() => void handleSave()} disabled={!isValid || !isDirty || saving || bannerUploadPending}>
+              <Button type="button" onClick={() => void handleSave()} disabled={!isValid || !isDirty || !isBannerValid || saving || bannerUploadPending}>
                 {saving || bannerUploadPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
                 Save changes
               </Button>
@@ -482,7 +581,50 @@ export function PlanDetailsDrawer({ open, onOpenChange, plan, saving = false, on
           </footer>
         </div>
       </SheetContent>
-    </Sheet>
+      </Sheet>
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this plan?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete the plan and all related data (expenses, chat, members). This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="delete-plan-confirm-name">Type the plan name to confirm</Label>
+            <Input
+              id="delete-plan-confirm-name"
+              value={deleteConfirmName}
+              onChange={(event) => setDeleteConfirmName(event.target.value)}
+              placeholder={plan?.name ?? "Plan name"}
+              autoComplete="off"
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={!canConfirmDelete || deleting}
+              onClick={(event) => {
+                event.preventDefault();
+                if (!canConfirmDelete || !onDelete) return;
+                void Promise.resolve(onDelete())
+                  .then(() => {
+                    setDeleteDialogOpen(false);
+                    setDeleteConfirmName("");
+                  })
+                  .catch(() => {
+                    // Keep the dialog open so the user can retry after an API error.
+                  });
+              }}
+            >
+              {deleting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
+              Delete plan
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 

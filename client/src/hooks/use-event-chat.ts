@@ -179,18 +179,46 @@ export function useEventChat(eventId: number | null, enabled = true) {
 
   const fetchHistoryPage = useCallback(async (before?: string | null) => {
     if (!eventId || !enabled) return { messages: [] as ChatMessage[], nextCursor: null as string | null, locked: false };
-    const url = before
+    const planUrl = before
       ? `/api/plans/${eventId}/chat/messages?limit=50&before=${encodeURIComponent(before)}`
       : `/api/plans/${eventId}/chat/messages?limit=50`;
-    const res = await fetch(url, { credentials: "include" });
-    const body = await res.json().catch(() => ({}));
+    const legacyUrl = before
+      ? `/api/events/${eventId}/chat?limit=50&before=${encodeURIComponent(before)}`
+      : `/api/events/${eventId}/chat?limit=50`;
+
+    const load = async (url: string) => {
+      if (import.meta.env.DEV) {
+        console.log("[chat-history] fetch", { eventId, url, before: before ?? null });
+      }
+      const res = await fetch(url, { credentials: "include" });
+      const body = await res.json().catch(() => ({}));
+      return { res, body };
+    };
+
+    let { res, body } = await load(planUrl);
+    if (!res.ok && res.status === 404) {
+      ({ res, body } = await load(legacyUrl));
+    }
     if (!res.ok) throw new Error((body as { message?: string })?.message || "Failed to load chat");
+
     const raw = body as { messages?: unknown; nextCursor?: unknown; locked?: unknown };
     const incoming = Array.isArray(raw.messages)
       ? (raw.messages as IncomingServerMessage[])
         .map(normalizeIncomingMessage)
         .filter((message): message is ChatMessage => !!message)
       : [];
+
+    if (import.meta.env.DEV) {
+      console.log("[chat-history] loaded", {
+        eventId,
+        count: incoming.length,
+        nextCursor: typeof raw.nextCursor === "string" ? raw.nextCursor : null,
+      });
+      if (incoming.length === 0) {
+        console.warn("[chat-history] empty result; if messages are expected, verify DB persistence and eventId wiring", { eventId });
+      }
+    }
+
     return {
       messages: incoming,
       nextCursor: typeof raw.nextCursor === "string" && raw.nextCursor ? raw.nextCursor : null,
@@ -494,4 +522,3 @@ export function useEventChat(eventId: number | null, enabled = true) {
     retry,
   ]);
 }
-

@@ -30,6 +30,29 @@ function getInitials(name: string) {
   return `${parts[0]?.[0] ?? ""}${parts[parts.length - 1]?.[0] ?? ""}`.toUpperCase();
 }
 
+function getMessageSenderKey(message: { type?: string; user?: { id?: string | null; name?: string | null } }): string | null {
+  if (message.type !== "user") return null;
+  const id = String(message.user?.id ?? "").trim();
+  if (id) return `id:${id}`;
+  const name = String(message.user?.name ?? "").trim().toLowerCase();
+  if (name) return `name:${name}`;
+  return null;
+}
+
+function isGroupedWithNeighbor(
+  current: { type?: string; createdAt: string; user?: { id?: string | null; name?: string | null } },
+  neighbor?: { type?: string; createdAt: string; user?: { id?: string | null; name?: string | null } },
+): boolean {
+  if (!neighbor || current.type !== "user" || neighbor.type !== "user") return false;
+  const currentKey = getMessageSenderKey(current);
+  const neighborKey = getMessageSenderKey(neighbor);
+  if (!currentKey || !neighborKey || currentKey !== neighborKey) return false;
+  const currentTime = new Date(current.createdAt).getTime();
+  const neighborTime = new Date(neighbor.createdAt).getTime();
+  if (!Number.isFinite(currentTime) || !Number.isFinite(neighborTime)) return false;
+  return Math.abs(currentTime - neighborTime) < GROUP_WINDOW_MS;
+}
+
 export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }: ChatSidebarProps) {
   const { toastError, toastInfo } = useAppToast();
   const [draft, setDraft] = useState("");
@@ -261,19 +284,10 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }:
             const senderName = msg.user?.name || senderFromMember?.name || "Unknown user";
             const senderAvatar = msg.user?.avatarUrl ?? senderFromMember?.avatarUrl ?? null;
             const mine = String(msg.user?.id ?? "") === String(currentUser?.id ?? "") || msg.user?.name === currentUser?.username;
-            const prevSenderId = prev?.type === "user" ? String(prev.user?.id ?? "") : "";
-            const nextSenderId = next?.type === "user" ? String(next.user?.id ?? "") : "";
-            const prevTime = prev ? new Date(prev.createdAt).getTime() : NaN;
-            const nextTime = next ? new Date(next.createdAt).getTime() : NaN;
-            const currentTime = new Date(msg.createdAt).getTime();
-            const groupedWithPrev = !!prev && prev.type === "user" && prevSenderId === senderId
-              && Number.isFinite(prevTime) && Number.isFinite(currentTime)
-              && (currentTime - prevTime) < GROUP_WINDOW_MS;
-            const groupedWithNext = !!next && next.type === "user" && nextSenderId === senderId
-              && Number.isFinite(nextTime) && Number.isFinite(currentTime)
-              && (nextTime - currentTime) < GROUP_WINDOW_MS;
+            const groupedWithPrev = isGroupedWithNeighbor(msg, prev);
+            const groupedWithNext = isGroupedWithNeighbor(msg, next);
             return (
-              <div key={msg.id} className={`group/message flex ${mine ? "justify-end" : "justify-start"} ${groupedWithPrev ? "mt-1" : "mt-2.5"}`}>
+              <div key={msg.id} className={`group/message flex ${mine ? "justify-end" : "justify-start"} ${groupedWithPrev ? "mt-1" : "mt-3"}`}>
                 {!mine ? (
                   <div className="mr-2 flex w-8 flex-col items-center pt-0.5">
                     {!groupedWithPrev ? (
@@ -295,8 +309,8 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }:
                   ) : null}
                   <div
                     className={`rounded-lg px-3 py-2 text-sm ${mine
-                      ? "bg-[#D4A017] text-white shadow-md dark:bg-[#C99613]"
-                      : "border border-border/70 bg-muted/40 text-foreground dark:bg-muted/20"}`}
+                      ? "bg-[#D4A017] text-white shadow-[0_4px_12px_rgba(180,130,0,0.35)] dark:bg-[#C99613] dark:shadow-[0_4px_12px_rgba(190,145,20,0.4)]"
+                      : "border border-border/70 bg-muted/45 text-foreground dark:bg-neutral-800/85 dark:border-neutral-700/80"}`}
                   >
                     <p className="whitespace-pre-wrap break-words">{msg.text}</p>
                     {msg.status === "sending" ? (
@@ -343,19 +357,21 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }:
             Chat closed after event. History remains visible.
           </p>
         ) : null}
-        {visibleTypingUsers.length > 0 ? (
-          <p className="mb-2 inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span className="truncate">
-              {visibleTypingUsers[0]?.name}
-              {visibleTypingUsers.length > 1 ? ` +${visibleTypingUsers.length - 1}` : ""} is typing…
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/70 [animation-delay:-0.2s]" />
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/70 [animation-delay:-0.1s]" />
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/70" />
-            </span>
-          </p>
-        ) : null}
+        <div className="mb-2 min-h-5">
+          {visibleTypingUsers.length > 0 ? (
+            <p className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span className="truncate">
+                {visibleTypingUsers[0]?.name}
+                {visibleTypingUsers.length > 1 ? ` +${visibleTypingUsers.length - 1}` : ""} is typing…
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/70 [animation-delay:-0.2s]" />
+                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/70 [animation-delay:-0.1s]" />
+                <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/70" />
+              </span>
+            </p>
+          ) : null}
+        </div>
         <div className="flex items-end gap-2">
           <div
             className="min-h-[44px] max-h-[120px] flex-1 rounded-full border border-border/70 bg-background/70 px-4 py-2"

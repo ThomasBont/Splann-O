@@ -688,6 +688,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
   const [expensesCollapsed, setExpensesCollapsed] = useState(false);
   const [breakdownCollapsed, setBreakdownCollapsed] = useState(false);
   const [dashboardHeroBannerFailed, setDashboardHeroBannerFailed] = useState(false);
+  const [displayedDashboardHeroBannerUrl, setDisplayedDashboardHeroBannerUrl] = useState<string | null>(null);
   const [privateHeroBannerFailed, setPrivateHeroBannerFailed] = useState(false);
   const [publicOverviewBannerFailed, setPublicOverviewBannerFailed] = useState(false);
   const [allEventsSelectorOpen, setAllEventsSelectorOpen] = useState(false);
@@ -1060,12 +1061,45 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
 
   const selectedBbq = barbecuesForArea.find((b: Barbecue) => b.id === selectedBbqId) ?? (barbecues.find((b: Barbecue) => b.id === selectedBbqId) || null);
   const eventViewRef = useRef<HTMLDivElement | null>(null);
+  const resolvedDashboardBannerUrl = useMemo(() => {
+    if (!selectedBbq) return null;
+    return withCacheBust(
+      resolveAssetUrl(selectedBbq.bannerImageUrl),
+      toVersionToken((selectedBbq as { updatedAt?: string | Date | null }).updatedAt ?? selectedBbq.id),
+    ) ?? null;
+  }, [selectedBbq?.id, selectedBbq?.bannerImageUrl, selectedBbq?.updatedAt]);
 
   useEffect(() => {
     setDashboardHeroBannerFailed(false);
     setPrivateHeroBannerFailed(false);
     setPublicOverviewBannerFailed(false);
   }, [selectedBbq?.id, selectedBbq?.bannerImageUrl]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!resolvedDashboardBannerUrl) {
+      setDisplayedDashboardHeroBannerUrl(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+    const img = new Image();
+    img.onload = () => {
+      if (cancelled) return;
+      setDisplayedDashboardHeroBannerUrl(resolvedDashboardBannerUrl);
+      setDashboardHeroBannerFailed(false);
+    };
+    img.onerror = () => {
+      if (cancelled) return;
+      setDashboardHeroBannerFailed(true);
+    };
+    img.src = resolvedDashboardBannerUrl;
+    return () => {
+      cancelled = true;
+      img.onload = null;
+      img.onerror = null;
+    };
+  }, [resolvedDashboardBannerUrl]);
 
   useEffect(() => {
     if (!isManagedAppRoute || appRouteMode !== "event" || !routeEventId) return;
@@ -1597,9 +1631,26 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
     });
   };
 
-  const handleDeleteBbq = (id: number) => {
-    deleteBbq.mutate(id);
-    if (selectedBbqId === id) setSelectedBbqId(null);
+  const handleDeleteBbq = async (id: number) => {
+    try {
+      await deleteBbq.mutateAsync(id);
+      if (selectedBbqId === id) setSelectedBbqId(null);
+      setEventSettingsOpen(false);
+      setIsPlanDetailsOpen(false);
+      setLocation("/app/private");
+      toastSuccess("Plan deleted");
+    } catch (error) {
+      const message = (error as Error)?.message ?? "Failed to delete plan";
+      if (/only the creator/i.test(message)) {
+        toastError("Only the creator can delete this plan");
+        return;
+      }
+      if (/not found/i.test(message)) {
+        toastError("Plan not found");
+        return;
+      }
+      toastError("Failed to delete plan");
+    }
   };
 
   const resetNewEventWizard = () => {
@@ -3047,12 +3098,8 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
           if (appRouteMode === "event" && isPrivateContext && selectedBbq) {
             const pendingCount = Math.max(invitedParticipants.length, pendingRequests.length);
             const fallbackHeroImage = "https://images.unsplash.com/photo-1559339352-11d035aa65de?auto=format&fit=crop&w=1600&q=80";
-            const resolvedDashboardBanner = withCacheBust(
-              resolveAssetUrl(selectedBbq.bannerImageUrl),
-              toVersionToken((selectedBbq as { updatedAt?: string | Date | null }).updatedAt ?? selectedBbq.id),
-            );
-            const heroImage = !dashboardHeroBannerFailed && resolvedDashboardBanner
-              ? resolvedDashboardBanner
+            const heroImage = !dashboardHeroBannerFailed && displayedDashboardHeroBannerUrl
+              ? displayedDashboardHeroBannerUrl
               : fallbackHeroImage;
             return (
               <div className="mx-auto w-full max-w-[1400px] rounded-2xl border border-border/60 bg-background px-4 py-6 sm:px-6 lg:px-10">
@@ -3178,6 +3225,9 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                       onOpenChange={setIsPlanDetailsOpen}
                       plan={selectedBbq}
                       saving={updateBbq.isPending}
+                      isCreator={isCreator}
+                      deleting={deleteBbq.isPending}
+                      onDelete={selectedBbq ? () => handleDeleteBbq(selectedBbq.id) : undefined}
                       onSave={async (updates) => {
                         if (!selectedBbq) return;
                         const payload: {
@@ -3539,7 +3589,6 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                     onError: () => toastError("Couldn’t update plan settings. Try again."),
                   });
                 }}
-                onDelete={selectedBbq ? () => handleDeleteBbq(selectedBbq.id) : undefined}
                 onCopyInviteLink={
                   selectedBbq?.inviteToken
                     ? async () => {

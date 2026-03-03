@@ -2,10 +2,12 @@ import { Router, type Request } from "express";
 import { z } from "zod";
 import { eq, and, or, desc, sql } from "drizzle-orm";
 import { promises as fs } from "fs";
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
 import path from "path";
 import { randomUUID, randomBytes } from "crypto";
 import { api } from "@shared/routes";
-import { users, expenses, notes, stripeEvents, publicEventRsvps, participants, eventMembers, eventInvites } from "@shared/schema";
+import { users, barbecues, expenses, notes, stripeEvents, publicEventRsvps, participants, eventMembers, eventInvites } from "@shared/schema";
 import { optionalCountryCodeSchema } from "@shared/lib/country-code-schema";
 import {
   derivePlanTypeSelection,
@@ -39,6 +41,8 @@ const RECEIPT_UPLOAD_DIR = path.resolve(process.cwd(), "public/uploads/receipts"
 const MAX_RECEIPT_SIZE_BYTES = 5 * 1024 * 1024;
 const EVENT_BANNER_UPLOAD_DIR = path.resolve(process.cwd(), "public/uploads/event-banners");
 const MAX_EVENT_BANNER_SIZE_BYTES = 5 * 1024 * 1024;
+const MEDIA_IMPORT_TIMEOUT_MS = 15_000;
+const MEDIA_IMPORT_MAX_BYTES = 5 * 1024 * 1024;
 const usersSearchRate = new Map<string, { count: number; windowStart: number }>();
 const USERS_SEARCH_WINDOW_MS = 10_000;
 const USERS_SEARCH_MAX_REQUESTS = 60;
@@ -229,6 +233,90 @@ function getEventBannerFileNameFromUrl(value: string | null | undefined): string
   if (!pathname.startsWith("/uploads/event-banners/")) return null;
   const fileName = path.basename(pathname);
   return fileName || null;
+}
+
+function isPrivateOrLoopbackIpv4(ip: string): boolean {
+  const parts = ip.split(".").map((part) => Number(part));
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return true;
+  const [a, b] = parts;
+  if (a === 10) return true;
+  if (a === 127) return true;
+  if (a === 0) return true;
+  if (a === 169 && b === 254) return true;
+  if (a === 172 && b >= 16 && b <= 31) return true;
+  if (a === 192 && b === 168) return true;
+  return false;
+}
+
+function isPrivateOrLoopbackIpv6(ip: string): boolean {
+  const normalized = ip.toLowerCase();
+  if (normalized === "::1") return true;
+  if (normalized.startsWith("fc") || normalized.startsWith("fd")) return true;
+  if (normalized.startsWith("fe80:")) return true;
+  if (normalized === "::") return true;
+  return false;
+}
+
+function isPrivateOrLoopbackIp(ip: string): boolean {
+  const version = isIP(ip);
+  if (version === 4) return isPrivateOrLoopbackIpv4(ip);
+  if (version === 6) return isPrivateOrLoopbackIpv6(ip);
+  return true;
+}
+
+async function assertPublicRemoteUrlOrThrow(rawUrl: string): Promise<URL> {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    badRequest("Invalid URL");
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    badRequest("Only http(s) URLs are allowed");
+  }
+  const host = parsed.hostname.toLowerCase();
+  if (host === "localhost" || host.endsWith(".localhost")) {
+    badRequest("Private hosts are not allowed");
+  }
+  if (isIP(host) && isPrivateOrLoopbackIp(host)) {
+    badRequest("Private IP ranges are not allowed");
+  }
+  try {
+    const records = await lookup(host, { all: true });
+    if (!records.length) badRequest("Could not resolve remote host");
+    const hasPrivate = records.some((record) => isPrivateOrLoopbackIp(record.address));
+    if (hasPrivate) badRequest("Private IP ranges are not allowed");
+  } catch {
+    badRequest("Could not resolve remote host");
+  }
+  return parsed;
+}
+
+const imageExtensionByMime: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/jpg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/gif": "gif",
+  "image/avif": "avif",
+};
+
+async function readImageResponseBodyWithLimit(res: Response, maxBytes: number): Promise<Buffer> {
+  const body = res.body;
+  if (!body) badRequest("Remote image has no body");
+  const reader = body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    total += value.byteLength;
+    if (total > maxBytes) badRequest("Image must be 5MB or smaller");
+    chunks.push(value);
+  }
+  if (total === 0) badRequest("Remote image is empty");
+  return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
 }
 
 function isMissingSchemaError(err: unknown): boolean {
@@ -1036,9 +1124,31 @@ router.post("/barbecues/:id/ensure-invite-token", requireAuth, asyncHandler(asyn
   res.json(updated);
 }));
 
-router.delete(p(api.barbecues.delete.path), asyncHandler(async (req, res) => {
-  await bbqRepo.delete(Number(req.params.id));
-  res.status(204).send();
+router.delete(p(api.barbecues.delete.path), requireAuth, asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) badRequest("Invalid plan id");
+
+  const bbq = await bbqRepo.getById(id);
+  if (!bbq) notFound("Plan not found");
+  const username = req.session?.username;
+  if (!username) unauthorized("Not authenticated");
+  if (bbq.creatorId !== username) forbidden("Only the creator can delete this plan");
+
+  await db.transaction(async (tx) => {
+    await tx.delete(barbecues).where(eq(barbecues.id, id));
+  });
+
+  broadcastEventRealtime(id, {
+    type: "plan:deleted",
+    eventId: id,
+    deletedPlanId: id,
+  });
+
+  if (process.env.NODE_ENV !== "production") {
+    log("info", "plan_deleted", { planId: id, creatorUsername: username });
+  }
+
+  res.json({ ok: true, deletedPlanId: id });
 }));
 
 router.patch(p(api.barbecues.update.path), requireAuth, asyncHandler(async (req, res) => {
@@ -1815,6 +1925,64 @@ router.post("/barbecues/:bbqId/banner", requireAuth, asyncHandler(async (req, re
     size: buffer.length,
     bannerImageUrl: updated.bannerImageUrl ?? null,
     bannerAssetId: updated.bannerAssetId ?? null,
+  });
+}));
+
+router.post("/media/import", requireAuth, asyncHandler(async (req, res) => {
+  const payload = z.object({ url: z.string().trim().min(1) }).parse(req.body ?? {});
+  const remoteUrl = await assertPublicRemoteUrlOrThrow(payload.url);
+
+  const abortController = new AbortController();
+  const timeout = setTimeout(() => abortController.abort(), MEDIA_IMPORT_TIMEOUT_MS);
+  let response: Response;
+  try {
+    response = await fetch(remoteUrl.toString(), {
+      method: "GET",
+      redirect: "follow",
+      signal: abortController.signal,
+      headers: {
+        Accept: "image/*,*/*;q=0.8",
+        "User-Agent": "SplannoMediaImporter/1.0",
+      },
+    });
+  } catch {
+    clearTimeout(timeout);
+    badRequest("Could not fetch media from URL");
+  }
+  clearTimeout(timeout);
+
+  if (!response.ok) {
+    badRequest(`Remote server returned ${response.status}`);
+  }
+  await assertPublicRemoteUrlOrThrow(response.url);
+
+  const contentTypeHeader = String(response.headers.get("content-type") ?? "").toLowerCase();
+  const mime = contentTypeHeader.split(";")[0].trim();
+  if (!mime.startsWith("image/")) {
+    badRequest("Provided URL does not return an image");
+  }
+
+  const contentLengthHeader = response.headers.get("content-length");
+  if (contentLengthHeader) {
+    const length = Number(contentLengthHeader);
+    if (Number.isFinite(length) && length > MEDIA_IMPORT_MAX_BYTES) {
+      badRequest("Image must be 5MB or smaller");
+    }
+  }
+
+  const ext = imageExtensionByMime[mime] ?? "jpg";
+  const buffer = await readImageResponseBodyWithLimit(response, MEDIA_IMPORT_MAX_BYTES);
+  const fileName = `event-import-${Date.now()}-${randomUUID()}.${ext}`;
+  await fs.mkdir(EVENT_BANNER_UPLOAD_DIR, { recursive: true });
+  await fs.writeFile(path.join(EVENT_BANNER_UPLOAD_DIR, fileName), buffer);
+
+  const storedPath = `/uploads/event-banners/${fileName}`;
+  res.status(201).json({
+    storedUrl: storedPath,
+    url: storedPath,
+    path: storedPath,
+    mime,
+    size: buffer.length,
   });
 }));
 

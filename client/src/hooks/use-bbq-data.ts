@@ -884,11 +884,14 @@ export function useDeleteBarbecue() {
   return useMutation({
     mutationFn: async (id: number) => {
       const url = buildUrl(api.barbecues.delete.path, { id });
-      const res = await fetch(url, { method: "DELETE" });
-      if (!res.ok) throw new Error("Failed to delete barbecue");
+      const res = await fetch(url, { method: "DELETE", credentials: "include" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((body as { message?: string }).message || "Failed to delete plan");
+      return body as { ok: true; deletedPlanId: number };
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/barbecues'] });
+      queryClient.invalidateQueries({ queryKey: ["/api/memberships"] });
     },
   });
 }

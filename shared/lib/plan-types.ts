@@ -41,7 +41,7 @@ const SUBCATEGORY_DEFS: SubcategoryDef[] = [
   { id: "birthday", label: "Birthday", mainType: "party", eventTypeValue: "birthday" },
   { id: "house_party", label: "House party", mainType: "party", eventTypeValue: "house_party" },
   { id: "drinks_night", label: "Drinks night", mainType: "party", eventTypeValue: "after_party" },
-  { id: "brunch", label: "Brunch", mainType: "party", eventTypeValue: "day_out" },
+  { id: "brunch", label: "Picnic", mainType: "party", eventTypeValue: "day_out" },
 ];
 
 const SUBCATEGORY_ALIAS_TO_CANONICAL: Record<string, PlanSubcategoryId> = {

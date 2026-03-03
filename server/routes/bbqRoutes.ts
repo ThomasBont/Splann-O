@@ -1,13 +1,13 @@
 import { Router, type Request } from "express";
 import { z } from "zod";
-import { eq, and, or, desc, sql } from "drizzle-orm";
+import { eq, and, or, desc, sql, isNotNull, inArray } from "drizzle-orm";
 import { promises as fs } from "fs";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import path from "path";
-import { randomUUID, randomBytes } from "crypto";
+import { randomUUID } from "crypto";
 import { api } from "@shared/routes";
-import { users, barbecues, expenses, notes, planActivity, stripeEvents, publicEventRsvps, participants, eventMembers, eventInvites } from "@shared/schema";
+import { users, barbecues, expenses, notes, planActivity, stripeEvents, publicEventRsvps, participants, eventMembers, eventInvites, friendships } from "@shared/schema";
 import { optionalCountryCodeSchema } from "@shared/lib/country-code-schema";
 import {
   derivePlanTypeSelection,
@@ -202,10 +202,6 @@ function getPublicBaseUrl(req: Request) {
   }
 
   return `${req.protocol}://${req.get("host")}`;
-}
-
-function getAppOrigin(req: Request) {
-  return getPublicBaseUrl(req);
 }
 
 function toPublicUploadsUrl(req: Request, relativePath: string): string {
@@ -808,119 +804,24 @@ router.get(p(api.barbecues.get.path), asyncHandler(async (req, res) => {
 
 /** Resolve invite token to event info (public, for /join/:token page). */
 router.get("/join/:token", asyncHandler(async (req, res) => {
-  const token = Array.isArray(req.params.token) ? req.params.token[0] : req.params.token;
-  const bbq = await bbqRepo.getByInviteToken(token);
-  if (!bbq) notFound("Invite not found");
-  res.json({
-    bbqId: bbq.id,
-    name: bbq.name,
-    eventType: bbq.eventType,
-    currency: bbq.currency,
+  res.status(410).json({
+    code: "INVITE_LINKS_DISABLED",
+    message: "Invite links are disabled. Invite friends in-app instead.",
   });
 }));
 
 router.get("/invites/:token", asyncHandler(async (req, res) => {
-  const token = String(req.params.token ?? "").trim();
-  if (!token) badRequest("Invalid invite token");
-  const rows = await db.select().from(eventInvites).where(eq(eventInvites.token, token)).limit(1);
-  const invite = rows[0];
-  if (!invite) notFound("Invite not found");
-  if (invite.status !== "pending") gone("Invite no longer active");
-  if (invite.expiresAt.getTime() <= Date.now()) gone("Invite expired");
-  const bbq = await bbqRepo.getById(invite.eventId);
-  if (!bbq) notFound("Event not found");
-  res.json({
-    inviteId: invite.id,
-    eventId: bbq.id,
-    name: bbq.name,
-    eventType: bbq.eventType,
-    currency: bbq.currency,
-    email: invite.email ?? null,
-    status: invite.status,
+  res.status(410).json({
+    code: "INVITE_LINKS_DISABLED",
+    message: "Invite links are disabled. Invite friends in-app instead.",
   });
 }));
 
 router.post("/invites/:token/accept", requireAuth, asyncHandler(async (req, res) => {
-  try {
-    const token = String(req.params.token ?? "").trim();
-    if (!token) badRequest("Invalid invite token");
-    const userId = req.session!.userId!;
-    const username = req.session!.username!;
-    const rows = await db.select().from(eventInvites).where(eq(eventInvites.token, token)).limit(1);
-    const invite = rows[0];
-    if (!invite) notFound("Invite not found");
-    if (invite.status !== "pending") conflict("Invite already handled");
-    if (invite.expiresAt.getTime() <= Date.now()) gone("Invite expired");
-    const me = await userRepo.findById(userId);
-    const canAcceptInvite =
-      (invite.acceptedByUserId && invite.acceptedByUserId === userId)
-      || (!invite.acceptedByUserId && invite.email && me?.email && invite.email.toLowerCase() === me.email.toLowerCase())
-      || (!invite.acceptedByUserId && !invite.email);
-    if (!canAcceptInvite) forbidden("Invite does not belong to this user");
-
-    const eventId = invite.eventId;
-    const now = new Date();
-    const [member] = await db.insert(eventMembers).values({
-      eventId,
-      userId,
-      role: "member",
-      joinedAt: now,
-    }).onConflictDoNothing({ target: [eventMembers.eventId, eventMembers.userId] }).returning();
-    if (!member) {
-      const existing = await db.select().from(eventMembers).where(and(eq(eventMembers.eventId, eventId), eq(eventMembers.userId, userId))).limit(1);
-      if (!existing[0]) conflict("Could not join event");
-    }
-
-    const existingParticipant = await db
-      .select()
-      .from(participants)
-      .where(and(eq(participants.barbecueId, eventId), eq(participants.status, "accepted"), or(eq(participants.invitedUserId, userId), eq(participants.userId, username))))
-      .limit(1);
-    if (!existingParticipant[0]) {
-      await participantRepo.create({
-        barbecueId: eventId,
-        name: username,
-        userId: username,
-        invitedUserId: userId,
-        status: "accepted",
-      });
-    }
-
-    await db.update(eventInvites).set({
-      status: "accepted",
-      acceptedByUserId: userId,
-      acceptedAt: now,
-    }).where(eq(eventInvites.id, invite.id));
-
-    broadcastEventRealtime(eventId, {
-      type: "event:member_joined",
-      eventId,
-      member: {
-        userId: Number(userId),
-        name: me?.displayName || me?.username || username,
-        avatarUrl: me?.avatarUrl ?? null,
-        role: "member",
-        joinedAt: now.toISOString(),
-      },
-    });
-    broadcastEventRealtime(eventId, {
-      type: "chat:system",
-      eventId: Number(eventId),
-      text: `${me?.displayName || me?.username || username} joined the event`,
-    });
-    await logPlanActivity({
-      eventId,
-      type: "MEMBER_JOINED",
-      actorUserId: userId,
-      actorName: me?.displayName || me?.username || username,
-      message: `${me?.displayName || me?.username || username} joined the plan`,
-      meta: { userId },
-    });
-
-    res.json({ eventId: Number(eventId) });
-  } catch (err) {
-    return handleGuestRouteError("POST /api/invites/:token/accept", req, err, res);
-  }
+  res.status(410).json({
+    code: "INVITE_LINKS_DISABLED",
+    message: "Invite links are disabled. Invite friends in-app instead.",
+  });
 }));
 
 router.get("/events/:eventId/members", requireAuth, asyncHandler(async (req, res) => {
@@ -1015,14 +916,33 @@ router.get("/events/:eventId/invites", requireAuth, asyncHandler(async (req, res
     await assertEventAccessOrThrow(req, eventId);
     const status = String(req.query.status ?? "pending");
     const rows = await db.select().from(eventInvites)
-      .where(and(eq(eventInvites.eventId, eventId), eq(eventInvites.status, status)))
+      .where(and(eq(eventInvites.eventId, eventId), eq(eventInvites.status, status), isNotNull(eventInvites.acceptedByUserId)))
       .orderBy(desc(eventInvites.createdAt));
-    const appOrigin = getAppOrigin(req);
+    const inviteeIds = Array.from(
+      new Set(
+        rows
+          .map((row) => row.acceptedByUserId)
+          .filter((value): value is number => typeof value === "number"),
+      ),
+    );
+    const invitees = inviteeIds.length > 0
+      ? await Promise.all(inviteeIds.map(async (id) => userRepo.findById(id)))
+      : [];
+    const inviteeById = new Map(invitees.filter((user): user is NonNullable<typeof user> => !!user).map((user) => [user.id, user]));
+
     res.json(rows.map((row) => ({
       id: row.id,
       email: row.email,
-      token: row.token,
-      inviteUrl: `${appOrigin}/invite/${row.token}`,
+      inviteeUserId: row.acceptedByUserId ? Number(row.acceptedByUserId) : null,
+      inviteType: "user",
+      invitee: row.acceptedByUserId && inviteeById.get(Number(row.acceptedByUserId))
+        ? {
+            userId: Number(row.acceptedByUserId),
+            name: inviteeById.get(Number(row.acceptedByUserId))!.displayName || inviteeById.get(Number(row.acceptedByUserId))!.username,
+            username: inviteeById.get(Number(row.acceptedByUserId))!.username,
+            avatarUrl: inviteeById.get(Number(row.acceptedByUserId))!.avatarUrl ?? inviteeById.get(Number(row.acceptedByUserId))!.profileImageUrl ?? null,
+          }
+        : null,
       status: row.status,
       createdAt: row.createdAt ? row.createdAt.toISOString() : null,
       expiresAt: row.expiresAt.toISOString(),
@@ -1038,23 +958,28 @@ router.post("/events/:eventId/invites", requireAuth, asyncHandler(async (req, re
     if (!Number.isFinite(eventId)) badRequest("Invalid event id");
     await assertEventAccessOrThrow(req, eventId);
 
-    const parsed = z.object({ email: z.string().email().optional() }).parse(req.body ?? {});
-    const token = randomBytes(32).toString("base64url");
+    const body = req.body ?? {};
+    if (typeof body.email === "string" && body.email.trim().length > 0) {
+      return res.status(410).json({
+        code: "INVITE_LINKS_DISABLED",
+        message: "Invite links are disabled. Invite friends in-app instead.",
+      });
+    }
+    const parsed = z.object({ userId: z.coerce.number().int().positive() }).parse(body);
+    const invitee = await userRepo.findById(parsed.userId);
+    if (!invitee) notFound("User not found");
+
+    const token = randomUUID();
     const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
     const [invite] = await db.insert(eventInvites).values({
       eventId,
       inviterUserId: req.session!.userId!,
-      email: parsed.email ?? null,
+      email: invitee.email ?? null,
       token,
       status: "pending",
       expiresAt,
+      acceptedByUserId: invitee.id,
     }).returning();
-
-    const appOrigin = getAppOrigin(req);
-    const inviteUrl = `${appOrigin}/invite/${token}`;
-    if (parsed.email) {
-      console.log("[event-invite] email invite placeholder", { eventId, email: parsed.email, inviteUrl });
-    }
 
     broadcastEventRealtime(eventId, {
       type: "event:invite_created",
@@ -1062,18 +987,27 @@ router.post("/events/:eventId/invites", requireAuth, asyncHandler(async (req, re
       invite: {
         id: invite.id,
         email: invite.email,
+        inviteeUserId: invite.acceptedByUserId ? Number(invite.acceptedByUserId) : null,
+        inviteType: "user",
+        invitee: {
+          userId: Number(invitee.id),
+          name: invitee.displayName || invitee.username,
+          username: invitee.username,
+          avatarUrl: invitee.avatarUrl ?? invitee.profileImageUrl ?? null,
+        },
         status: invite.status,
         createdAt: invite.createdAt ? invite.createdAt.toISOString() : null,
         expiresAt: invite.expiresAt.toISOString(),
-        token: invite.token,
-        inviteUrl,
       },
     });
 
     res.status(201).json({
       inviteId: invite.id,
-      token,
-      inviteUrl,
+      inviteeUserId: invite.acceptedByUserId ? Number(invite.acceptedByUserId) : null,
+      email: invite.email,
+      status: invite.status,
+      createdAt: invite.createdAt ? invite.createdAt.toISOString() : null,
+      expiresAt: invite.expiresAt.toISOString(),
     });
   } catch (err) {
     return handleGuestRouteError("POST /api/events/:eventId/invites", req, err, res);
@@ -2158,6 +2092,113 @@ router.get("/friends/requests", requireAuth, asyncHandler(async (req, res) => {
 router.get("/friends/sent", requireAuth, asyncHandler(async (req, res) => {
   const sent = await participantRepo.getSentFriendRequests(req.session!.userId!);
   res.json(sent);
+}));
+
+router.get("/friends/status", requireAuth, asyncHandler(async (req, res) => {
+  const me = req.session!.userId!;
+  const raw = String(req.query.userIds ?? "").trim();
+  const userIds = Array.from(
+    new Set(
+      raw
+        .split(",")
+        .map((value) => Number(value.trim()))
+        .filter((value) => Number.isInteger(value) && value > 0 && value !== me),
+    ),
+  );
+
+  if (userIds.length === 0) {
+    return res.json({ statuses: {} as Record<string, "friends" | "not_friends" | "pending_outgoing" | "pending_incoming"> });
+  }
+
+  const rows = await db
+    .select({
+      requesterId: friendships.requesterId,
+      addresseeId: friendships.addresseeId,
+      status: friendships.status,
+    })
+    .from(friendships)
+    .where(
+      or(
+        and(eq(friendships.requesterId, me), inArray(friendships.addresseeId, userIds)),
+        and(eq(friendships.addresseeId, me), inArray(friendships.requesterId, userIds)),
+      ),
+    );
+
+  const statuses: Record<string, "friends" | "not_friends" | "pending_outgoing" | "pending_incoming"> = {};
+  userIds.forEach((id) => {
+    statuses[String(id)] = "not_friends";
+  });
+
+  const priority = {
+    not_friends: 0,
+    pending_outgoing: 1,
+    pending_incoming: 1,
+    friends: 2,
+  } as const;
+
+  for (const row of rows) {
+    const otherId = row.requesterId === me ? row.addresseeId : row.requesterId;
+    let nextStatus: "friends" | "not_friends" | "pending_outgoing" | "pending_incoming" = "not_friends";
+    const normalizedStatus = String(row.status ?? "").toLowerCase();
+    if (normalizedStatus === "accepted") {
+      nextStatus = "friends";
+    } else if (normalizedStatus === "pending") {
+      nextStatus = row.requesterId === me ? "pending_outgoing" : "pending_incoming";
+    }
+    const key = String(otherId);
+    const current = statuses[key] ?? "not_friends";
+    if (priority[nextStatus] >= priority[current]) {
+      statuses[key] = nextStatus;
+    }
+  }
+
+  if (process.env.NODE_ENV !== "production") {
+    log("info", "Friend status resolved", {
+      route: "GET /api/friends/status",
+      me,
+      requestedUserIds: userIds,
+      matchedRows: rows.length,
+      statuses,
+    });
+  }
+
+  res.json({ statuses });
+}));
+
+router.post("/friends/requests", requireAuth, asyncHandler(async (req, res) => {
+  const me = req.session!.userId!;
+  const { toUserId } = z.object({ toUserId: z.coerce.number().int().positive() }).parse(req.body ?? {});
+  if (toUserId === me) badRequest("cannot_friend_self");
+  const target = await userRepo.findById(toUserId);
+  if (!target) notFound("user_not_found");
+
+  const existing = await db
+    .select()
+    .from(friendships)
+    .where(
+      or(
+        and(eq(friendships.requesterId, me), eq(friendships.addresseeId, toUserId)),
+        and(eq(friendships.requesterId, toUserId), eq(friendships.addresseeId, me)),
+      ),
+    )
+    .limit(1);
+
+  if (existing[0]) {
+    if (existing[0].status === "accepted") {
+      return res.status(200).json({ status: "friends" });
+    }
+    if (existing[0].status === "pending") {
+      return res.status(200).json({ status: existing[0].requesterId === me ? "pending_outgoing" : "pending_incoming" });
+    }
+  }
+
+  await db.insert(friendships).values({
+    requesterId: me,
+    addresseeId: toUserId,
+    status: "pending",
+  });
+
+  res.status(201).json({ status: "pending_outgoing" });
 }));
 
 router.post("/friends/request", requireAuth, asyncHandler(async (req, res) => {

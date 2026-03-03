@@ -46,7 +46,6 @@ export function EventSettingsModal({
   onUpdate,
   updating,
   onDelete,
-  onCopyInviteLink,
   onOpenPublicPage,
   onActivateListing,
   onDeactivateListing,
@@ -175,9 +174,6 @@ export function EventSettingsModal({
           <section className="rounded-xl border border-border/60 bg-card p-4 space-y-4">
             <h3 className="text-sm font-semibold">People</h3>
             <div className="flex flex-wrap gap-2">
-              {onCopyInviteLink && (
-                <Button size="sm" variant="outline" onClick={onCopyInviteLink}>Copy invite link</Button>
-              )}
               <Button size="sm" variant="outline" disabled>Remove member (from People tab)</Button>
               <Button size="sm" variant="outline" disabled>Transfer ownership (coming soon)</Button>
             </div>

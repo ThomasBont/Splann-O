@@ -279,7 +279,11 @@ chatWss.on("connection", (ws, req) => {
 
 httpServer.on("upgrade", async (req, socket, head) => {
   try {
-    const url = new URL(req.url ?? "", "http://localhost");
+    const forwardedProto = (req.headers["x-forwarded-proto"] as string | undefined)?.split(",")[0]?.trim();
+    const forwardedHost = (req.headers["x-forwarded-host"] as string | undefined)?.split(",")[0]?.trim();
+    const host = forwardedHost || req.headers.host || "0.0.0.0";
+    const protocol = forwardedProto || "http";
+    const url = new URL(req.url ?? "", `${protocol}://${host}`);
     const match = /^\/ws\/events\/(\d+)\/chat$/.exec(url.pathname);
     if (!match) {
       socket.destroy();

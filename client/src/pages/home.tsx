@@ -37,6 +37,7 @@ import { CurrencyPicker } from "@/components/currency-picker";
 import { type LocationOption, currencyForCountry } from "@/lib/locations-data";
 import { EventHeader } from "@/components/event/EventHeader";
 import { ChatSidebar } from "@/components/event/ChatSidebar";
+import { MobileChatSheet } from "@/components/event/MobileChatSheet";
 import GuestsWidget from "@/components/event/GuestsWidget";
 import SharedCostsWidget from "@/components/event/SharedCostsWidget";
 import PlanDetailsDrawer from "@/components/event/PlanDetailsDrawer";
@@ -58,15 +59,17 @@ import { generateSettleCardData, generateRecapCardData } from "@/utils/shareCard
 import { DiscoverModal } from "@/components/discover-modal";
 import { SplannoLogo } from "@/components/splanno-logo";
 import { resolveAssetUrl, withCacheBust } from "@/lib/asset-url";
+import { getPlanIcons } from "@/lib/planIcons";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import {
   Receipt, Trash2, Edit2,
   Plus, CheckCircle2,
   CalendarDays, Loader2,
   ArrowLeft,
-  UserCheck, UserX, LogOut, Crown, Clock, UserCircle, ChevronDown,
+  UserCheck, UserX, LogOut, Crown, Clock, UserCircle, ChevronDown, ChevronRight,
   Lock, Globe, UserPlus, X, Eye, EyeOff, Compass,
   Bell, UserPlus2, Search, Heart, MessageCircle, Star, Plane, PartyPopper, Settings,
+  type LucideIcon,
 } from "lucide-react";
 import { useEventHeaderPreferences } from "@/hooks/use-event-header-preferences";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
@@ -238,7 +241,7 @@ const PARTY_SUBCATEGORIES: PlanSubcategoryDef[] = [
   { id: "house_party", label: "House party", emoji: "🏠", eventTypeValue: "house_party", area: "parties", templateId: "party" },
   { id: "birthday", label: "Birthday", emoji: "🎂", eventTypeValue: "birthday", area: "parties", templateId: "party" },
   { id: "club_night", label: "Drinks night", emoji: "🍸", eventTypeValue: "after_party", area: "parties", templateId: "party" },
-  { id: "picnic", label: "Brunch", emoji: "🥐", eventTypeValue: "day_out", area: "parties", templateId: "generic" },
+  { id: "picnic", label: "Picnic", emoji: "🧺", eventTypeValue: "day_out", area: "parties", templateId: "generic" },
 ];
 
 type PublicTemplateKey = (typeof PUBLIC_TEMPLATE_OPTIONS)[number]["key"];
@@ -688,6 +691,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
   const [expensesCollapsed, setExpensesCollapsed] = useState(false);
   const [breakdownCollapsed, setBreakdownCollapsed] = useState(false);
   const [dashboardHeroBannerFailed, setDashboardHeroBannerFailed] = useState(false);
+  const [dashboardHeroImageLoaded, setDashboardHeroImageLoaded] = useState(false);
   const [displayedDashboardHeroBannerUrl, setDisplayedDashboardHeroBannerUrl] = useState<string | null>(null);
   const [privateHeroBannerFailed, setPrivateHeroBannerFailed] = useState(false);
   const [publicOverviewBannerFailed, setPublicOverviewBannerFailed] = useState(false);
@@ -696,9 +700,22 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
   const [pinnedEventIds, setPinnedEventIds] = useState<number[]>([]);
   const [recentEventIds, setRecentEventIds] = useState<number[]>([]);
   const [recentLocationOptions, setRecentLocationOptions] = useState<LocationOption[]>([]);
+  const [isMobileChatOpen, setIsMobileChatOpen] = useState(false);
   const pinnedEventsStorageKey = useMemo(() => `splanno_pinned_events_${user?.id ?? user?.username ?? "anon"}`, [user?.id, user?.username]);
   const recentEventsStorageKey = useMemo(() => `splanno_recent_events_${user?.id ?? user?.username ?? "anon"}`, [user?.id, user?.username]);
   const recentLocationsStorageKey = useMemo(() => `splanno_recent_locations_${user?.id ?? user?.username ?? "anon"}`, [user?.id, user?.username]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const openNotifications = () => setNotifOpen(true);
+    const openAccount = () => setIsAccountDrawerOpen(true);
+    window.addEventListener("splanno:open-notifications", openNotifications as EventListener);
+    window.addEventListener("splanno:open-account", openAccount as EventListener);
+    return () => {
+      window.removeEventListener("splanno:open-notifications", openNotifications as EventListener);
+      window.removeEventListener("splanno:open-account", openAccount as EventListener);
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1101,10 +1118,18 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
     };
   }, [resolvedDashboardBannerUrl]);
 
+  useEffect(() => {
+    setDashboardHeroImageLoaded(false);
+  }, [selectedBbq?.id, displayedDashboardHeroBannerUrl]);
+
   useLayoutEffect(() => {
     if (!isManagedAppRoute || appRouteMode !== "event" || !routeEventId) return;
     setSelectedBbqId(routeEventId);
   }, [isManagedAppRoute, appRouteMode, routeEventId]);
+
+  useEffect(() => {
+    setIsMobileChatOpen(false);
+  }, [selectedBbq?.id, appRouteMode]);
 
   useEffect(() => {
     if (!isManagedAppRoute || appRouteMode !== "event") return;
@@ -1763,7 +1788,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
       if (eventId != null) setLocation(`/app/e/${eventId}`);
       else if (appRouteMode === "public") setLocation("/app/public");
       else if (appRouteMode === "private") setLocation("/app/private");
-      else setLocation("/app/home");
+      else setLocation("/app/private");
     }
   };
 
@@ -1830,6 +1855,28 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
     if (!subcategory) return `You’re planning a ${mainLabel} ✨`;
     return `You’re planning a ${mainLabel} — ${getPlanSubcategoryLabel(subcategory)} ✨`;
   }, [selectedPlanTypeSelection]);
+  const selectedPlanCategoryMeta = useMemo(() => {
+    const { mainType, subcategory } = selectedPlanTypeSelection;
+    const mainLabel = mainType ? getPlanMainTypeLabel(mainType) : "Plan";
+    const subLabel = subcategory ? getPlanSubcategoryLabel(subcategory) : "General";
+    const [categoryIcon, subcategoryIcon] = getPlanIcons(mainType, subcategory);
+
+    return {
+      label: `${mainLabel} — ${subLabel}`,
+      icons: [categoryIcon, subcategoryIcon] as LucideIcon[],
+    };
+  }, [selectedPlanTypeSelection]);
+
+  const heroMetaLine = useMemo(() => {
+    if (!selectedBbq) return "";
+    const date = selectedBbq.date ? new Date(selectedBbq.date) : null;
+    const dateLabel = formatHeroDateEnglish(selectedBbq.date);
+    const timeLabel = date && Number.isFinite(date.getTime())
+      ? date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
+      : "";
+    const locationLabel = selectedBbq.locationName ?? selectedBbq.city ?? selectedBbq.countryName ?? "Location TBD";
+    return [dateLabel, timeLabel, locationLabel].filter(Boolean).join(" • ");
+  }, [selectedBbq]);
   const selectedPrivateTemplate = getPrivateTemplateForEvent(selectedBbq);
   const selectedEventVibeTheme = VIBE_THEME[(selectedBbq?.eventVibe as PrivateEventVibeId) ?? "cozy"] ?? VIBE_THEME.cozy;
   const selectedCreatePrivateTemplate = getPrivateTemplateById(newPrivateTemplateId);
@@ -1960,7 +2007,8 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
       )}
 
       {/* Header */}
-      <header className="sticky top-0 z-50 bg-[hsl(var(--surface-0))]/90 backdrop-blur-lg border-b border-[hsl(var(--border-subtle))]" data-testid="header">
+      {!isManagedAppRoute && (
+      <header className="hidden md:block md:sticky md:top-0 z-30 bg-[hsl(var(--surface-0))]/90 backdrop-blur-lg border-b border-[hsl(var(--border-subtle))]" data-testid="header">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
             <SplannoLogo variant="icon" size={40} className="flex-shrink-0" />
@@ -2032,6 +2080,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
           </div>
         </div>
       </header>
+      )}
 
       <Sheet open={notifOpen} onOpenChange={setNotifOpen}>
         <SheetContent
@@ -3133,75 +3182,185 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
             return (
               <div className="mx-auto w-full max-w-[1400px] rounded-2xl border border-border/60 bg-background px-4 py-6 sm:px-6 lg:px-10">
                 <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-                  <section className="min-w-0 space-y-8">
+                  <section className="min-w-0 space-y-6 md:space-y-8 pb-6 md:pb-0">
+                    <div className="md:hidden sticky top-0 z-20 -mx-1 rounded-xl border border-border/60 bg-background/95 px-3 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="line-clamp-2 text-sm font-semibold text-foreground">
+                          {selectedBbq.name}
+                        </p>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-9 rounded-full px-3"
+                            onClick={() => setIsPlanDetailsOpen(true)}
+                          >
+                            Edit
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-9 rounded-full px-3"
+                            onClick={() => setIsMobileChatOpen(true)}
+                          >
+                            Chat
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
                     <button
                       type="button"
-                      className="relative min-h-[300px] w-full overflow-hidden rounded-3xl border border-border/70 bg-card text-left shadow-sm transition-all duration-200 hover:border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                      className="relative h-[300px] md:min-h-[340px] w-full cursor-pointer overflow-hidden rounded-3xl border border-border/70 bg-card text-left shadow-sm transition-all duration-200 hover:border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
                       onClick={() => setIsPlanDetailsOpen(true)}
                       aria-label="Open plan details"
                     >
+                      {!dashboardHeroImageLoaded && (
+                        <div className="absolute inset-0 animate-pulse bg-muted/40" />
+                      )}
                       <img
                         src={heroImage}
                         alt={selectedBbq.name}
                         className="absolute inset-0 h-full w-full object-cover"
-                        onLoad={() => setDashboardHeroBannerFailed(false)}
+                        onLoad={() => {
+                          setDashboardHeroBannerFailed(false);
+                          setDashboardHeroImageLoaded(true);
+                        }}
                         onError={(event) => {
                           const failedUrl = event.currentTarget.currentSrc || event.currentTarget.src || heroImage;
                           console.error("BANNER_LOAD_FAILED", failedUrl);
                           setDashboardHeroBannerFailed(true);
+                          setDashboardHeroImageLoaded(true);
                         }}
                       />
-                      <div className="absolute inset-0 rounded-3xl bg-gradient-to-b from-black/35 via-black/10 to-transparent dark:from-black/65 dark:via-black/35 dark:to-black/10" />
-                      <div className="pointer-events-none absolute left-6 top-6 z-10 md:left-8 md:top-8">
-                        <h2 className="text-2xl font-semibold tracking-tight text-white drop-shadow-sm md:text-3xl lg:text-4xl">
-                          {selectedBbq.name}
-                        </h2>
-                        <p className="mt-1 text-sm text-white/80 drop-shadow-sm md:text-base">
-                          {formatHeroDateEnglish(selectedBbq.date)}
-                        </p>
+                      <div className="absolute inset-0 rounded-3xl bg-gradient-to-b from-black/60 via-black/20 to-transparent" />
+                      <div className="absolute inset-0 rounded-3xl bg-gradient-to-t from-black/70 via-black/25 to-transparent" />
+
+                      <div className="absolute left-5 right-5 top-5 z-10 md:left-8 md:right-8 md:top-7">
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="pointer-events-none min-w-0">
+                            <h2 className="line-clamp-2 text-2xl font-semibold tracking-tight text-white drop-shadow-sm md:text-3xl lg:text-4xl">
+                              {selectedBbq.name}
+                            </h2>
+                            <p className="mt-1 truncate text-sm text-white/85 drop-shadow-sm md:text-base">
+                              {heroMetaLine}
+                            </p>
+                          </div>
+                          <div className="max-w-[320px] rounded-xl border border-white/20 bg-black/25 px-3 py-2 backdrop-blur-sm">
+                            <button
+                              type="button"
+                              className="inline-flex items-center gap-2 rounded-lg border border-white/30 bg-white/10 px-2 py-1 text-white/90 transition hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                              aria-label="Edit plan type"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                setIsPlanTypeOpen(true);
+                                window.requestAnimationFrame(() => {
+                                  const target = document.getElementById("plan-type-section");
+                                  if (target) {
+                                    target.scrollIntoView({ block: "start", behavior: "smooth" });
+                                    const firstControl = target.querySelector("button");
+                                    if (firstControl instanceof HTMLButtonElement) firstControl.focus();
+                                  }
+                                });
+                              }}
+                            >
+                              {selectedPlanCategoryMeta.icons.map((Icon, index) => (
+                                <span
+                                  key={`hero-category-icon-${index}`}
+                                  className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-white/30 bg-white/10"
+                                >
+                                  <Icon className="h-3.5 w-3.5" />
+                                </span>
+                              ))}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="absolute inset-x-4 bottom-4 z-10 md:bottom-6 md:left-8 md:right-auto md:w-[min(560px,calc(100%-4rem))]">
+                        <div className="rounded-2xl border border-white/20 bg-black/35 p-3 backdrop-blur-md">
+                          <p className="text-[11px] font-medium uppercase tracking-wide text-white/80">Recent activity</p>
+                          {planActivityLoading ? (
+                            <p className="mt-1 text-xs text-white/75">Loading updates...</p>
+                          ) : latestPlanActivity.length > 0 ? (
+                            <ul className="mt-1.5 space-y-1">
+                              {latestPlanActivity.slice(0, 3).map((activity) => (
+                                <li
+                                  key={`plan-activity-${activity.id}`}
+                                  className={`truncate text-xs text-white/90 transition-colors duration-700 ${highlightedActivityId === activity.id ? "bg-white/10" : ""}`}
+                                  title={activity.message}
+                                >
+                                  • {activity.message} {activity.createdAt ? `· ${formatRelativeShort(activity.createdAt)}` : ""}
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="mt-1.5 text-xs text-white/75">
+                              No recent activity yet.
+                            </p>
+                          )}
+                        </div>
                       </div>
                     </button>
 
-                    <button
-                      type="button"
-                      className="w-full rounded-2xl border border-border/70 bg-gradient-to-r from-amber-100/85 to-rose-100/75 p-5 text-left shadow-sm transition-all duration-200 hover:border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 dark:from-amber-950/45 dark:to-rose-950/40"
-                      onClick={() => setIsPlanTypeOpen(true)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          setIsPlanTypeOpen(true);
-                        }
-                      }}
-                      aria-label="Open plan type editor"
-                    >
-                      <p className="text-base font-medium text-foreground">
-                        {selectedPlanTypeHeadline}
-                      </p>
-                      <div className="mt-3 rounded-xl border border-border/60 bg-background/70 px-3 py-2 dark:bg-background/40">
-                        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Recent activity</p>
-                        {planActivityLoading ? (
-                          <p className="mt-1 text-xs text-muted-foreground">Loading updates...</p>
-                        ) : latestPlanActivity.length > 0 ? (
-                          <ul className="mt-1 space-y-1">
-                            {latestPlanActivity.map((activity) => (
-                              <li
-                                key={`plan-activity-${activity.id}`}
-                                className={`truncate text-xs text-foreground transition-colors duration-700 ${highlightedActivityId === activity.id ? "bg-primary/10" : ""}`}
-                                title={activity.message}
-                              >
-                                • {activity.message} {activity.createdAt ? `· ${formatRelativeShort(activity.createdAt)}` : ""}
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            No updates yet — start by adding an expense or inviting your crew.
+                    <div className="md:hidden rounded-2xl border border-border/70 bg-card divide-y divide-border/60">
+                      <button
+                        type="button"
+                        className="flex min-h-[52px] w-full items-center gap-3 px-4 py-3 text-left"
+                        onClick={() => setActiveEventTab("people")}
+                      >
+                        <UserPlus2 className="h-4 w-4 text-muted-foreground" />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-foreground">Crew</p>
+                          <p className="truncate text-xs text-muted-foreground">{participantCount} people in this plan</p>
+                        </div>
+                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                      </button>
+                      <button
+                        type="button"
+                        className="flex min-h-[52px] w-full items-center gap-3 px-4 py-3 text-left"
+                        onClick={() => {
+                          setRecommendedExpenseTemplate({ item: "Expense", category: "Other" });
+                          setIsAddExpenseOpen(true);
+                        }}
+                      >
+                        <Receipt className="h-4 w-4 text-muted-foreground" />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-foreground">Shared pot</p>
+                          <p className="truncate text-xs text-muted-foreground">{expenses.length} logged expenses</p>
+                        </div>
+                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                      </button>
+                      <button
+                        type="button"
+                        className="flex min-h-[52px] w-full items-center gap-3 px-4 py-3 text-left"
+                        onClick={() => {
+                          if (pendingCount > 0) {
+                            setActiveEventTab("people");
+                            return;
+                          }
+                          setRecommendedExpenseTemplate({ item: "Expense", category: "Other" });
+                          setIsAddExpenseOpen(true);
+                        }}
+                      >
+                        <Star className="h-4 w-4 text-muted-foreground" />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-foreground">Next action</p>
+                          <p className="truncate text-xs text-muted-foreground">
+                            {pendingCount > 0
+                              ? `Invite your crew to confirm the plan (${pendingCount} pending).`
+                              : expenses.length === 0
+                                ? "Add the first expense to start shared costs."
+                                : "Open shared costs to review balances and settle up."}
                           </p>
-                        )}
-                      </div>
-                    </button>
+                        </div>
+                        <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                      </button>
+                    </div>
 
-                    <div className="grid gap-4 md:grid-cols-3">
+                    <div className="hidden md:grid gap-4 md:grid-cols-3">
                       <GuestsWidget eventId={selectedBbq.id} canInvite={canEditEvent} />
 
                       <SharedCostsWidget
@@ -3219,7 +3378,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                         canAddExpense={canManage}
                       />
 
-                      <div className="rounded-2xl border border-border/70 bg-card p-4 shadow-sm">
+                      <div className="rounded-2xl border border-border/70 bg-card p-4 shadow-sm md:min-w-0">
                         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Next action</p>
                         <p className="mt-2 text-sm text-foreground">
                           {pendingCount > 0
@@ -3264,41 +3423,15 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                           name: string;
                           locationText: string;
                           date: string;
-                          bannerImageUrl?: string | null;
-                          bannerAssetId?: string | null;
+                          bannerImageUrl: string | null;
                         } = {
                           id: selectedBbq.id,
                           name: updates.name,
                           locationText: updates.locationText,
                           date: updates.date,
+                          bannerImageUrl: updates.bannerUrl,
                         };
-                        if ("bannerImageUrl" in updates) {
-                          payload.bannerImageUrl = updates.bannerImageUrl ?? null;
-                        }
-                        if ("bannerAssetId" in updates) {
-                          payload.bannerAssetId = updates.bannerAssetId ?? null;
-                        }
-                        const updatedPlan = await updateBbq.mutateAsync(payload);
-                        if ("bannerImageUrl" in updates || "bannerAssetId" in updates) {
-                          const expectedBanner = updates.bannerImageUrl ?? null;
-                          const savedBanner = updatedPlan?.bannerImageUrl ?? null;
-                          const expectedAsset = updates.bannerAssetId ?? null;
-                          const savedAsset = (updatedPlan as { bannerAssetId?: string | null })?.bannerAssetId ?? null;
-                          const normalizeBannerForCompare = (value: string | null) => {
-                            if (!value) return null;
-                            try {
-                              return new URL(value, window.location.origin).toString();
-                            } catch {
-                              return value;
-                            }
-                          };
-                          if (
-                            normalizeBannerForCompare(savedBanner) !== normalizeBannerForCompare(expectedBanner)
-                            || savedAsset !== expectedAsset
-                          ) {
-                            throw new Error("Banner image URL could not be saved. Try again.");
-                          }
-                        }
+                        await updateBbq.mutateAsync(payload);
                         await queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] });
                         await queryClient.refetchQueries({ queryKey: ["/api/barbecues"] });
                         toastSuccess("Plan details updated");
@@ -3335,7 +3468,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                     />
                   </section>
 
-                  <aside className="lg:sticky lg:top-6 h-fit min-h-[340px] lg:min-h-0">
+                  <aside className="hidden md:block lg:sticky lg:top-6 h-fit min-h-[340px] lg:min-h-0">
                     <div className="h-[calc(100vh-11rem)] min-h-[520px]">
                       <ChatSidebar
                         eventId={selectedBbq.id}
@@ -3349,6 +3482,29 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                       />
                     </div>
                   </aside>
+                  <div className="md:hidden">
+                    <Button
+                      type="button"
+                      size="icon"
+                      className="fixed bottom-4 right-4 z-40 h-12 w-12 rounded-full bg-[#D4A017] text-white shadow-lg hover:bg-[#BF9013]"
+                      aria-label="Open chat"
+                      onClick={() => setIsMobileChatOpen(true)}
+                    >
+                      <MessageCircle className="h-5 w-5" />
+                    </Button>
+                    <MobileChatSheet
+                      open={isMobileChatOpen}
+                      onOpenChange={setIsMobileChatOpen}
+                      eventId={selectedBbq.id}
+                      eventName={selectedBbq.name}
+                      currentUser={{
+                        id: user?.id ?? null,
+                        username: user?.username ?? null,
+                        avatarUrl: user?.avatarUrl ?? null,
+                      }}
+                      enabled={!!user}
+                    />
+                  </div>
                 </div>
               </div>
             );
@@ -4733,7 +4889,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
             </EventTemplateWrapper>
             </div>
             {appRouteMode === "event" && selectedBbq && (
-              <div className="min-h-[340px] lg:min-h-0 lg:h-full">
+              <div className="hidden md:block min-h-[340px] lg:min-h-0 lg:h-full">
                 <ChatSidebar
                   eventId={selectedBbq.id}
                   eventName={selectedBbq.name}

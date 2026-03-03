@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { getEventChatWsUrl } from "@/lib/network";
 
 export type PlanActivityItem = {
   id: number;
@@ -10,11 +11,6 @@ export type PlanActivityItem = {
   meta: Record<string, unknown> | null;
   createdAt: string | null;
 };
-
-function getWsUrl(eventId: number) {
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.host}/ws/events/${eventId}/chat`;
-}
 
 export function usePlanActivity(eventId: number | null, enabled = true) {
   const [items, setItems] = useState<PlanActivityItem[]>([]);
@@ -61,7 +57,7 @@ export function usePlanActivity(eventId: number | null, enabled = true) {
 
   useEffect(() => {
     if (!enabled || !eventId) return;
-    const ws = new WebSocket(getWsUrl(eventId));
+    const ws = new WebSocket(getEventChatWsUrl(eventId));
     ws.onopen = () => {
       ws.send(JSON.stringify({ type: "event:subscribe", eventId }));
     };

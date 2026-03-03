@@ -22,6 +22,7 @@ import SettingsPage from "@/pages/settings";
 import { Button } from "@/components/ui/button";
 import { Lock } from "lucide-react";
 import { FEATURE_PUBLIC_PLANS } from "@/lib/features";
+import { getApiBase, getWsBase } from "@/lib/network";
 
 function PublicDisabledPage() {
   const [, setLocation] = useLocation();
@@ -75,6 +76,14 @@ function Router() {
 }
 
 function App() {
+  useEffect(() => {
+    if (!import.meta.env.DEV || typeof window === "undefined") return;
+    const flaggedWindow = window as Window & { __splanno_network_logged__?: boolean };
+    if (flaggedWindow.__splanno_network_logged__) return;
+    flaggedWindow.__splanno_network_logged__ = true;
+    console.log("[network]", { apiBase: getApiBase(), wsBase: getWsBase() });
+  }, []);
+
   useEffect(() => {
     if (!import.meta.env.DEV || typeof window === "undefined") return;
 

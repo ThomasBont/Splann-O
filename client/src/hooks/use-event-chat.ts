@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getApiBase, getEventChatWsUrl } from "@/lib/network";
 
 export type ChatMessage = {
   id: string;
@@ -39,11 +40,6 @@ type IncomingServerMessage = {
   serverCreatedAt?: string;
   user?: { id?: string | number | null; name?: string | null; avatarUrl?: string | null };
 };
-
-function getWsUrl(eventId: number): string {
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.host}/ws/events/${eventId}/chat`;
-}
 
 function createClientMessageId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
@@ -148,6 +144,7 @@ export function useEventChat(eventId: number | null, enabled = true) {
   const reconnectTimerRef = useRef<number | null>(null);
   const reconnectAttemptRef = useRef(0);
   const isLockedRef = useRef(false);
+  const loggedTransportRef = useRef(false);
 
   const mergeMessages = useCallback((incoming: ChatMessage[] | ChatMessage, mode: "append" | "prepend" = "append") => {
     const list = Array.isArray(incoming) ? incoming : [incoming];
@@ -267,14 +264,26 @@ export function useEventChat(eventId: number | null, enabled = true) {
 
   const sendViaHttp = useCallback(async (clientMessageId: string, text: string) => {
     if (!eventId) throw new Error("No event id");
-    const res = await fetch(`/api/plans/${eventId}/chat/messages`, {
+    const endpoint = `/api/plans/${eventId}/chat/messages`;
+    const res = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
       body: JSON.stringify({ content: text, clientMessageId }),
     });
     const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error((body as { message?: string }).message || "Failed to send message");
+    if (!res.ok) {
+      if (import.meta.env.DEV) {
+        console.error("[chat-send-http] failed", {
+          eventId,
+          endpoint,
+          status: res.status,
+          statusText: res.statusText,
+          body,
+        });
+      }
+      throw new Error((body as { message?: string }).message || `${res.status}: Failed to send message`);
+    }
     const raw = (body as { message?: IncomingServerMessage }).message;
     const normalized = raw ? normalizeIncomingMessage(raw) : null;
     if (!normalized) throw new Error("Invalid message response");
@@ -284,6 +293,10 @@ export function useEventChat(eventId: number | null, enabled = true) {
   useEffect(() => {
     void fetchInitialHistory();
   }, [fetchInitialHistory, retryTick]);
+
+  useEffect(() => {
+    loggedTransportRef.current = false;
+  }, [eventId]);
 
   useEffect(() => {
     if (!enabled || !eventId) {
@@ -308,7 +321,7 @@ export function useEventChat(eventId: number | null, enabled = true) {
     setIsSubscribed(false);
     setConnectionStatus(reconnectAttemptRef.current > 0 ? "reconnecting" : "connecting");
 
-    const ws = new WebSocket(getWsUrl(eventId));
+    const ws = new WebSocket(getEventChatWsUrl(eventId));
     wsRef.current = ws;
 
     ws.onopen = () => {
@@ -376,7 +389,10 @@ export function useEventChat(eventId: number | null, enabled = true) {
       }
     };
 
-    ws.onclose = () => {
+    ws.onclose = (event) => {
+      if (import.meta.env.DEV) {
+        console.warn("[chat-ws] closed", { eventId, code: event.code, reason: event.reason || null, wasClean: event.wasClean });
+      }
       if (closedByCleanup) return;
       setIsSubscribed(false);
       if (isLockedRef.current) return;
@@ -389,6 +405,9 @@ export function useEventChat(eventId: number | null, enabled = true) {
     };
 
     ws.onerror = () => {
+      if (import.meta.env.DEV) {
+        console.error("[chat-ws] error", { eventId });
+      }
       setConnectionStatus("error");
     };
 
@@ -416,6 +435,13 @@ export function useEventChat(eventId: number | null, enabled = true) {
     if (!trimmed) return { ok: false, reason: "empty", wsReadyState, isSubscribed };
     if (!eventId) return { ok: false, reason: "no-eventId", wsReadyState, isSubscribed };
     if (isLocked) return { ok: false, reason: "locked", wsReadyState, isSubscribed };
+
+    if (import.meta.env.DEV && !loggedTransportRef.current) {
+      const apiUrl = `${getApiBase()}/api/plans/${eventId}/chat/messages`;
+      const wsUrl = getEventChatWsUrl(eventId);
+      console.log("[chat-transport]", { apiUrl, wsUrl });
+      loggedTransportRef.current = true;
+    }
 
     const optimistic: ChatMessage = {
       id: `optimistic:${clientMessageId}`,
@@ -448,7 +474,14 @@ export function useEventChat(eventId: number | null, enabled = true) {
     try {
       await sendViaHttp(clientMessageId, trimmed);
       return { ok: true, wsReadyState, isSubscribed };
-    } catch {
+    } catch (error) {
+      if (import.meta.env.DEV) {
+        console.error("[chat-send] fallback-http failed", {
+          eventId,
+          clientMessageId,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
       markFailed(clientMessageId);
       return { ok: true, wsReadyState, isSubscribed };
     }

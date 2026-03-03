@@ -66,7 +66,7 @@ const PARTY_SUBCATEGORIES: SubcategoryDef[] = [
   { id: "house_party", label: "House party", emoji: "🏠", eventTypeValue: "house_party", area: "parties", templateId: "party" },
   { id: "birthday", label: "Birthday", emoji: "🎂", eventTypeValue: "birthday", area: "parties", templateId: "party" },
   { id: "drinks_night", label: "Drinks night", emoji: "🍸", eventTypeValue: "after_party", area: "parties", templateId: "party" },
-  { id: "brunch", label: "Brunch", emoji: "🥐", eventTypeValue: "day_out", area: "parties", templateId: "generic" },
+  { id: "brunch", label: "Picnic", emoji: "🧺", eventTypeValue: "day_out", area: "parties", templateId: "generic" },
 ];
 
 function todayIso() {
@@ -332,4 +332,3 @@ export default function NewPlanWizardDrawer() {
     </Sheet>
   );
 }
-

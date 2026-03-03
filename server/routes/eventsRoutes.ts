@@ -1,5 +1,5 @@
 import { Router, type Request } from "express";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 import { randomBytes } from "crypto";
 import { db } from "../db";
@@ -43,10 +43,6 @@ function handleEventsRouteError(route: string, req: Request, err: unknown, res: 
     return;
   }
   throw err;
-}
-
-function getAppOrigin(req: Request) {
-  return (process.env.APP_URL ?? process.env.APP_BASE_URL ?? "").replace(/\/$/, "") || `${req.protocol}://${req.get("host")}`;
 }
 
 function resolveUserAvatarUrl(input: { avatarUrl?: string | null; profileImageUrl?: string | null; avatarAssetId?: string | null }): string | null {
@@ -214,7 +210,7 @@ router.get("/:eventId/invites", requireAuth, asyncHandler(async (req, res) => {
     const status = String(req.query.status ?? "pending");
 
     const rows = await db.select().from(eventInvites)
-      .where(and(eq(eventInvites.eventId, eventId), eq(eventInvites.status, status)))
+      .where(and(eq(eventInvites.eventId, eventId), eq(eventInvites.status, status), isNotNull(eventInvites.acceptedByUserId)))
       .orderBy(desc(eventInvites.createdAt));
 
     const inviteeIds = Array.from(
@@ -229,7 +225,6 @@ router.get("/:eventId/invites", requireAuth, asyncHandler(async (req, res) => {
       : [];
     const inviteeById = new Map(invitees.filter((user): user is NonNullable<typeof user> => !!user).map((user) => [user.id, user]));
 
-    const appOrigin = getAppOrigin(req);
     res.json(rows.map((row) => ({
       id: row.id,
       email: row.email,
@@ -243,8 +238,6 @@ router.get("/:eventId/invites", requireAuth, asyncHandler(async (req, res) => {
             avatarUrl: resolveUserAvatarUrl(inviteeById.get(Number(row.acceptedByUserId))!),
           }
         : null,
-      token: row.token,
-      inviteUrl: `${appOrigin}/invite/${row.token}`,
       status: row.status,
       createdAt: row.createdAt ? row.createdAt.toISOString() : null,
       expiresAt: row.expiresAt.toISOString(),
@@ -260,30 +253,32 @@ router.post("/:eventId/invites", requireAuth, asyncHandler(async (req, res) => {
     if (!Number.isFinite(eventId)) badRequest("Invalid event id");
     await assertEventAccessOrThrow(req, eventId);
 
+    const body = req.body ?? {};
+    if (typeof body.email === "string" && body.email.trim().length > 0) {
+      return res.status(410).json({
+        code: "INVITE_LINKS_DISABLED",
+        message: "Invite links are disabled. Invite friends in-app instead.",
+      });
+    }
+
     const parsed = z.object({
-      email: z.string().email().optional(),
-      userId: z.coerce.number().int().positive().optional(),
-    }).parse(req.body ?? {});
-    if (!parsed.email && !parsed.userId) badRequest("Provide email or userId");
-    if (parsed.email && parsed.userId) badRequest("Provide either email or userId, not both");
-    const invitee = parsed.userId ? await userRepo.findById(parsed.userId) : null;
-    if (parsed.userId && !invitee) notFound("User not found");
+      userId: z.coerce.number().int().positive(),
+    }).parse(body);
+    const invitee = await userRepo.findById(parsed.userId);
+    if (!invitee) notFound("User not found");
 
     const token = randomBytes(32).toString("base64url");
     const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
     const [invite] = await db.insert(eventInvites).values({
       eventId,
       inviterUserId: req.session!.userId!,
-      email: parsed.email ?? (invitee?.email ?? null),
+      email: invitee.email ?? null,
       token,
       status: "pending",
       expiresAt,
       // Reuse acceptedByUserId as invite target user for in-app invite flow.
-      acceptedByUserId: invitee?.id ?? null,
+      acceptedByUserId: invitee.id,
     }).returning();
-
-    const appOrigin = getAppOrigin(req);
-    const inviteUrl = `${appOrigin}/invite/${token}`;
 
     broadcastEventRealtime(eventId, {
       type: "event:invite_created",
@@ -304,15 +299,11 @@ router.post("/:eventId/invites", requireAuth, asyncHandler(async (req, res) => {
         status: invite.status,
         createdAt: invite.createdAt ? invite.createdAt.toISOString() : null,
         expiresAt: invite.expiresAt.toISOString(),
-        token: invite.token,
-        inviteUrl,
       },
     });
 
     res.status(201).json({
       inviteId: invite.id,
-      token,
-      inviteUrl,
       inviteeUserId: invite.acceptedByUserId ? Number(invite.acceptedByUserId) : null,
       email: invite.email,
       status: invite.status,

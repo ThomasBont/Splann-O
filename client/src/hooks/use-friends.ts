@@ -1,6 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { FriendInfo } from "@shared/schema";
 
+export type FriendRelationshipStatus = "friends" | "not_friends" | "pending_outgoing" | "pending_incoming";
+
 export function useFriends() {
   return useQuery<FriendInfo[]>({
     queryKey: ['/api/friends'],
@@ -116,6 +118,46 @@ export function useSearchUsers(query: string) {
     },
     enabled: normalizedQuery.length >= 2,
     staleTime: 15_000,
+  });
+}
+
+export function useFriendStatuses(userIds: number[]) {
+  const normalized = Array.from(new Set(userIds.filter((id) => Number.isInteger(id) && id > 0))).sort((a, b) => a - b);
+  const key = normalized.join(",");
+  return useQuery<Record<string, FriendRelationshipStatus>>({
+    queryKey: ["/api/friends/status", key],
+    enabled: normalized.length > 0,
+    queryFn: async () => {
+      const res = await fetch(`/api/friends/status?userIds=${encodeURIComponent(key)}`, { credentials: "include" });
+      if (!res.ok) return {};
+      const payload = await res.json() as { statuses?: Record<string, FriendRelationshipStatus> };
+      return payload.statuses ?? {};
+    },
+    staleTime: 20_000,
+  });
+}
+
+export function useSendFriendRequestByUserId() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (toUserId: number) => {
+      const res = await fetch("/api/friends/requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ toUserId }),
+      });
+      const payload = await res.json().catch(() => ({} as { message?: string; status?: FriendRelationshipStatus }));
+      if (!res.ok) {
+        throw new Error((payload as { message?: string }).message || "Failed to send friend request");
+      }
+      return payload as { status: FriendRelationshipStatus };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/friends"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/friends/sent"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/friends/requests"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/friends/status"] });
+    },
   });
 }
 

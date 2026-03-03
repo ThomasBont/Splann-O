@@ -1,37 +1,35 @@
 import { useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
-import { useBarbecues } from "@/hooks/use-bbq-data";
+import { useBarbecues, useNotifications } from "@/hooks/use-bbq-data";
 import Home from "@/pages/home";
 import {
   Loader2,
   Home as HomeIcon,
-  Lock,
   Plus,
   Pin,
   PinOff,
   Menu,
+  Bell,
+  UserCircle,
   X,
-  GripVertical,
   ChevronDown,
-  Settings2,
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Modal } from "@/components/ui/modal";
-import { Switch } from "@/components/ui/switch";
 import { loadLocalUserPreferences } from "@/lib/user-preferences";
 import { EventHeaderPreferencesProvider } from "@/hooks/use-event-header-preferences";
 import { useNewPlanWizard } from "@/contexts/new-plan-wizard";
 import NewPlanWizardDrawer from "@/components/event/NewPlanWizardDrawer";
+import { SplannoLogo } from "@/components/splanno-logo";
 import { FEATURE_PUBLIC_PLANS } from "@/lib/features";
 import {
   defaultPinGroups,
@@ -214,9 +212,7 @@ function NewEventMenuButton({
 function AppSidebar({ section, onCreatePlan }: { section: AppSection; onCreatePlan: () => void }) {
   const { data: events = [], isLoading: eventsLoading, error: eventsError, refetch: refetchEvents } = useBarbecues();
   const { user } = useAuth();
-  const [search, setSearch] = useState("");
   const [recentCollapsed, setRecentCollapsed] = useState(false);
-  const [customizeOpen, setCustomizeOpen] = useState(false);
   const [pinGroups, setPinGroups] = useState<PinGroup[]>(() => defaultPinGroups());
   const [advanced, setAdvanced] = useState({
     showUnsettled: false,
@@ -300,16 +296,7 @@ function AppSidebar({ section, onCreatePlan }: { section: AppSection; onCreatePl
     return [...fromHistory, ...allSortedEvents.filter((e) => !existingIds.has(e.id))].slice(0, 12);
   }, [allSortedEvents, recentOpenedIds]);
 
-  const searchedEvents = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return recentEvents;
-    return allSortedEvents
-      .filter((event) => {
-        const location = `${event.city ?? ""} ${event.countryName ?? ""} ${event.locationName ?? ""}`;
-        return event.name.toLowerCase().includes(q) || location.toLowerCase().includes(q);
-      })
-      .slice(0, 12);
-  }, [allSortedEvents, recentEvents, search]);
+  const searchedEvents = recentEvents;
 
   const pinnedEventIds = useMemo(() => {
     const ids = new Set<number>();
@@ -339,8 +326,7 @@ function AppSidebar({ section, onCreatePlan }: { section: AppSection; onCreatePl
   }, [allSortedEvents]);
 
   const items: Array<{ href: string; label: string; icon: ComponentType<{ className?: string }> ; key: AppSection }> = [
-    { href: "/app/home", label: "Home", icon: HomeIcon, key: "home" },
-    { href: "/app/private", label: "Private", icon: Lock, key: "private" },
+    { href: "/app/private", label: "Home", icon: HomeIcon, key: "home" },
   ];
 
   const renderEventList = (list: Barbecue[], emptyMessage: string, limit = 12) => (
@@ -382,8 +368,14 @@ function AppSidebar({ section, onCreatePlan }: { section: AppSection; onCreatePl
     <aside className="group/sidebar hidden lg:flex w-64 lg:shrink-0 border-r border-border/60 bg-card/40 backdrop-blur-sm">
       <div className="h-screen w-full flex flex-col">
         <div className="px-4 py-4 border-b border-border/60 shrink-0">
-          <Link href="/app/home">
-            <span className="text-sm font-semibold tracking-tight cursor-pointer">Splanno</span>
+          <Link href="/app/private">
+            <a className="flex items-start gap-2.5">
+              <SplannoLogo variant="icon" size={28} />
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold tracking-tight text-foreground">Splanno</span>
+                <span className="block text-[11px] leading-tight text-muted-foreground">Split costs, stay friends</span>
+              </span>
+            </a>
           </Link>
         </div>
         <nav className="px-3 py-3 space-y-1 shrink-0">
@@ -408,14 +400,8 @@ function AppSidebar({ section, onCreatePlan }: { section: AppSection; onCreatePl
             </div>
 
             <section className="flex min-h-0 flex-1 flex-col rounded-xl border border-border/60 bg-card/70">
-              <div className="shrink-0 border-b border-border/50 p-2 space-y-2">
-            <p className="px-1 text-[11px] uppercase tracking-wide text-muted-foreground">Your plans</p>
-                <Input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search plans..."
-                  className="h-8 text-xs"
-                />
+              <div className="shrink-0 border-b border-border/50 p-2">
+                <p className="px-1 text-[11px] uppercase tracking-wide text-muted-foreground">Your plans</p>
               </div>
               {/* min-h-0 keeps flex children shrinkable so only this list area scrolls */}
               <div className="min-h-0 flex-1 overflow-y-auto p-2 space-y-2">
@@ -485,50 +471,10 @@ function AppSidebar({ section, onCreatePlan }: { section: AppSection; onCreatePl
                 )}
               </div>
 
-              <div className="shrink-0 border-t border-border/50 p-2">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="h-7 px-2 text-xs"
-                  onClick={() => setCustomizeOpen(true)}
-                >
-                  <Settings2 className="h-3.5 w-3.5 mr-1.5" />
-                  Customize
-                </Button>
-              </div>
             </section>
           </div>
         </div>
       </div>
-
-      <Modal
-        open={customizeOpen}
-        onClose={() => setCustomizeOpen(false)}
-        onOpenChange={setCustomizeOpen}
-        title="Customize sidebar"
-        size="sm"
-      >
-        <div className="space-y-4">
-          <p className="text-sm text-muted-foreground">Choose which advanced sections appear in your sidebar.</p>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-sm">Show Unsettled</p>
-              <Switch checked={advanced.showUnsettled} onCheckedChange={(checked) => setAdvanced((prev) => ({ ...prev, showUnsettled: checked }))} />
-            </div>
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-sm">Show Upcoming</p>
-              <Switch checked={advanced.showUpcoming} onCheckedChange={(checked) => setAdvanced((prev) => ({ ...prev, showUpcoming: checked }))} />
-            </div>
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-sm">Show Pin Groups section</p>
-              <Switch checked={advanced.showPinGroups} onCheckedChange={(checked) => setAdvanced((prev) => ({ ...prev, showPinGroups: checked }))} />
-            </div>
-          </div>
-          <div className="flex justify-end">
-            <Button size="sm" onClick={() => setCustomizeOpen(false)}>Done</Button>
-          </div>
-        </div>
-      </Modal>
     </aside>
   );
 }
@@ -682,11 +628,13 @@ function PrivateHomePage({ user, onCreatePlan }: { user: { id?: number | null; u
 
 export default function AppRoute() {
   const [location, setLocation] = useLocation();
-  const { user, isLoading: isAuthLoading } = useAuth();
+  const { user, isLoading: isAuthLoading, logout } = useAuth();
   const { openNewPlanWizard } = useNewPlanWizard();
   const { data: appEvents = [] } = useBarbecues();
+  const { data: notificationsPayload } = useNotifications(!!user);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [mobileQuickSwitchSearch, setMobileQuickSwitchSearch] = useState("");
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [mobileRecentCollapsed, setMobileRecentCollapsed] = useState(false);
 
   const pathname = typeof window !== "undefined" ? window.location.pathname : (location.split("?")[0] || "/app");
@@ -707,13 +655,18 @@ export default function AppRoute() {
     }
     const prefs = loadLocalUserPreferences(user?.id);
     const startRouteByPref: Record<string, string> = {
-      home: "/app/home",
+      home: "/app/private",
       private: "/app/private",
       public: "/app/private",
     };
-    const startRoute = startRouteByPref[prefs.defaultStartPage] ?? "/app/home";
+    const startRoute = startRouteByPref[prefs.defaultStartPage] ?? "/app/private";
     setLocation(`${startRoute}${url.search || ""}`, { replace: true });
   }, [pathname, setLocation, user?.id]);
+
+  useEffect(() => {
+    if (pathname !== "/app/home") return;
+    setLocation("/app/private", { replace: true });
+  }, [pathname, setLocation]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -777,14 +730,9 @@ export default function AppRoute() {
   }, [mobileRecentCollapsed]);
 
   const mobileQuickSwitchEvents = useMemo(() => {
-    const q = mobileQuickSwitchSearch.trim().toLowerCase();
     const sorted = [...appEvents].filter((event) => isPrivateEvent(event)).sort((a, b) => getEventDateMs(b) - getEventDateMs(a));
-    if (!q) return sorted.slice(0, 8);
-    return sorted.filter((event) => {
-      const locationText = `${event.city ?? ""} ${event.countryName ?? ""} ${event.locationName ?? ""}`;
-      return event.name.toLowerCase().includes(q) || locationText.toLowerCase().includes(q);
-    }).slice(0, 8);
-  }, [appEvents, mobileQuickSwitchSearch]);
+    return sorted.slice(0, 8);
+  }, [appEvents]);
 
   const currentEventName = useMemo(() => {
     if (section !== "event" || !routeEventId) return null;
@@ -836,6 +784,9 @@ export default function AppRoute() {
     );
   }
   if (!user) return null;
+  const pendingFriendRequests = notificationsPayload?.friendRequests ?? [];
+  const pendingPlanInvites = notificationsPayload?.planInvites ?? [];
+  const totalPendingNotifications = pendingFriendRequests.length + pendingPlanInvites.length;
 
   const anyKillActive = devDisable.headerPrefs || devDisable.discoverModal || devDisable.homeEffects;
   const handleOpenNewPlan = () => {
@@ -843,24 +794,74 @@ export default function AppRoute() {
   };
   const mainContent = (
     <div className="min-h-screen bg-background lg:flex">
-        <header className="lg:hidden sticky top-0 z-40 h-14 border-b border-border/60 bg-background/95 backdrop-blur-sm">
+        <div className="fixed right-4 top-4 z-50 hidden items-center gap-2 md:flex">
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="h-11 w-11 rounded-full"
+            aria-label="Open notifications"
+            onClick={() => setNotifOpen(true)}
+            data-testid="button-notifications"
+          >
+            <Bell className="h-5 w-5" />
+            {totalPendingNotifications > 0 && (
+              <span className="absolute -right-0.5 -top-0.5 grid h-4 w-4 place-items-center rounded-full bg-destructive text-[9px] font-bold text-destructive-foreground">
+                {totalPendingNotifications}
+              </span>
+            )}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="h-11 w-11 rounded-full"
+            aria-label="Open profile"
+            onClick={() => setProfileOpen(true)}
+            data-testid="button-profile-drawer"
+          >
+            <UserCircle className="h-5 w-5" />
+          </Button>
+        </div>
+        <header className="md:hidden sticky top-0 z-30 h-14 border-b border-border/60 bg-background/95 backdrop-blur-sm">
           <div className="h-full px-3 flex items-center justify-between">
             <Button
               variant="ghost"
               size="icon"
-              className="h-9 w-9"
+              className="h-11 w-11"
               onClick={() => setIsSidebarOpen(true)}
               aria-label="Open navigation"
             >
               <Menu className="h-5 w-5" />
             </Button>
             <p className="text-sm font-semibold truncate px-2">{mobileSectionLabel}</p>
-            <div className="w-9" />
+            <div className="flex items-center gap-1">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-11 w-11"
+                aria-label="Open notifications"
+                onClick={() => setNotifOpen(true)}
+              >
+                <Bell className="h-5 w-5" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-11 w-11"
+                aria-label="Open profile"
+                onClick={() => setProfileOpen(true)}
+              >
+                <UserCircle className="h-5 w-5" />
+              </Button>
+            </div>
           </div>
         </header>
 
         {isSidebarOpen && (
-          <div className="lg:hidden fixed inset-0 z-50">
+          <div className="md:hidden fixed inset-0 z-50">
             <button
               type="button"
               className="absolute inset-0 bg-black/45"
@@ -869,15 +870,22 @@ export default function AppRoute() {
             />
             <aside className="absolute left-0 top-0 h-full w-[86vw] max-w-xs bg-background border-r border-border/60 shadow-xl flex flex-col">
               <div className="h-14 px-4 border-b border-border/60 flex items-center justify-between">
-                <span className="text-sm font-semibold tracking-tight">Splanno</span>
+                <Link href="/app/private">
+                  <a className="flex items-start gap-2">
+                    <SplannoLogo variant="icon" size={24} />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold tracking-tight text-foreground">Splanno</span>
+                      <span className="block text-[10px] leading-tight text-muted-foreground">Split costs, stay friends</span>
+                    </span>
+                  </a>
+                </Link>
                 <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setIsSidebarOpen(false)} aria-label="Close drawer">
                   <X className="h-4 w-4" />
                 </Button>
               </div>
               <nav className="p-3 space-y-1 shrink-0">
                 {[
-                  { href: "/app/home", label: "Home", icon: HomeIcon, key: "home" as AppSection },
-                  { href: "/app/private", label: "Private", icon: Lock, key: "private" as AppSection },
+                  { href: "/app/private", label: "Home", icon: HomeIcon, key: "home" as AppSection },
                 ].map((item) => {
                   const Icon = item.icon;
                   const active = section === item.key || (section === "event" && item.key === "home");
@@ -903,15 +911,6 @@ export default function AppRoute() {
                     handleOpenNewPlan();
                   }}
                 />
-                <div className="space-y-2">
-                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground px-1">Your plans</p>
-                  <Input
-                    value={mobileQuickSwitchSearch}
-                    onChange={(e) => setMobileQuickSwitchSearch(e.target.value)}
-                    placeholder="Search plans..."
-                    className="h-8 text-xs"
-                  />
-                </div>
               </div>
               <div className="px-3 py-3 flex-1 min-h-0 overflow-y-auto">
                 <div className="space-y-1 pr-1">
@@ -977,6 +976,66 @@ export default function AppRoute() {
           )}
         </main>
         <NewPlanWizardDrawer />
+        <Sheet open={notifOpen} onOpenChange={setNotifOpen}>
+          <SheetContent side="right" className="w-full max-w-sm p-0">
+            <div className="flex h-full flex-col">
+              <SheetHeader className="border-b border-border/60 px-4 py-3 text-left">
+                <SheetTitle className="text-base">Notifications</SheetTitle>
+                <SheetDescription>Friend requests and plan invites</SheetDescription>
+              </SheetHeader>
+              <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+                <section className="rounded-xl border border-border/60 bg-card p-3">
+                  <p className="text-sm font-medium">Friend requests</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {pendingFriendRequests.length > 0 ? `${pendingFriendRequests.length} pending` : "No friend requests"}
+                  </p>
+                </section>
+                <section className="rounded-xl border border-border/60 bg-card p-3">
+                  <p className="text-sm font-medium">Plan invites</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {pendingPlanInvites.length > 0 ? `${pendingPlanInvites.length} pending` : "No plan invites"}
+                  </p>
+                </section>
+              </div>
+            </div>
+          </SheetContent>
+        </Sheet>
+        <Sheet open={profileOpen} onOpenChange={setProfileOpen}>
+          <SheetContent side="right" className="w-full max-w-sm p-0">
+            <div className="flex h-full flex-col">
+              <SheetHeader className="border-b border-border/60 px-4 py-3 text-left">
+                <SheetTitle className="text-base">Account</SheetTitle>
+                <SheetDescription>{user.username ?? "Signed in"}</SheetDescription>
+              </SheetHeader>
+              <div className="flex-1 px-4 py-4 space-y-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full justify-start"
+                  onClick={() => {
+                    setProfileOpen(false);
+                    setLocation("/app/private");
+                  }}
+                >
+                  Profile
+                </Button>
+              </div>
+              <div className="border-t border-border/60 p-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full justify-start text-destructive hover:text-destructive"
+                  onClick={() => {
+                    setProfileOpen(false);
+                    logout.mutate();
+                  }}
+                >
+                  Log out
+                </Button>
+              </div>
+            </div>
+          </SheetContent>
+        </Sheet>
         {import.meta.env.DEV && anyKillActive && (
           <div className="fixed bottom-3 left-3 z-[100] rounded-md border border-amber-300 bg-amber-100/95 px-2 py-1 text-[11px] text-amber-900 shadow-sm">
             kill: {Object.entries(devDisable).filter(([, enabled]) => enabled).map(([name]) => name).join(", ")}

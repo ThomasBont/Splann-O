@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Copy, Mail, UserPlus2, XCircle } from "lucide-react";
+import { ArrowLeft, Loader2, UserPlus2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { SkeletonLine } from "@/components/ui/load-states";
 import { useAppToast } from "@/hooks/use-app-toast";
 import type { UseEventGuestsResult } from "@/hooks/use-event-guests";
-import { useSearchUsers } from "@/hooks/use-friends";
+import { type FriendRelationshipStatus, useFriendStatuses, useSearchUsers, useSendFriendRequestByUserId } from "@/hooks/use-friends";
 import { useUserProfile } from "@/hooks/use-user-profile";
-import { copyText } from "@/lib/copy-text";
+import { useAuth } from "@/hooks/use-auth";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 
 type GuestsModalProps = {
@@ -41,24 +41,26 @@ function formatRelativeTime(value?: string | null) {
 
 export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
   const { toastError, toastInfo, toastSuccess } = useAppToast();
+  const { user } = useAuth();
   const [view, setView] = useState<"list" | "profile">("list");
   const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const [searchInput, setSearchInput] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [statusOverrides, setStatusOverrides] = useState<Record<string, FriendRelationshipStatus>>({});
+  const [addingFriendUserId, setAddingFriendUserId] = useState<number | null>(null);
   const {
     members,
     invitesPending,
     loading,
     error,
     refresh,
-    createInvite,
     revokeInvite,
     addMember,
-    inviteMutating,
     revokeMutating,
     addMemberMutating,
   } = guests;
   const userSearch = useSearchUsers(debouncedSearch);
+  const addFriendByUserId = useSendFriendRequestByUserId();
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -73,9 +75,16 @@ export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
     setSelectedMemberId(null);
     setSearchInput("");
     setDebouncedSearch("");
+    setStatusOverrides({});
   }, [open]);
 
   const hasMembers = members.length > 0;
+  const orderedMembers = useMemo(() => {
+    if (!user?.id) return members;
+    const mine = members.filter((member) => member.userId === user.id);
+    const others = members.filter((member) => member.userId !== user.id);
+    return [...mine, ...others];
+  }, [members, user?.id]);
   const hasInvites = invitesPending.length > 0;
   const pendingCountLabel = useMemo(() => `${invitesPending.length} pending`, [invitesPending.length]);
   const selectedMember = useMemo(
@@ -104,13 +113,6 @@ export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
   }, [pendingInviteUsersById, selectedMember, selectedMemberId]);
   const profileQuery = useUserProfile(view === "profile" ? (selectedProfile?.username ?? null) : null);
 
-  const handleCopyInviteLink = async (inviteUrl?: string | null) => {
-    if (!inviteUrl) return;
-    const copied = await copyText(inviteUrl);
-    if (copied) toastSuccess("Invite link copied");
-    else toastInfo("Copy failed — select and copy manually.");
-  };
-
   const handleRevokeInvite = async (inviteId: string) => {
     try {
       await revokeInvite(inviteId);
@@ -118,17 +120,6 @@ export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
       await refresh();
     } catch (err) {
       toastError((err as Error).message || "Couldn’t revoke invite.");
-    }
-  };
-
-  const handleResendInvite = async (inviteEmail?: string | null) => {
-    if (!inviteEmail) return;
-    try {
-      await createInvite({ email: inviteEmail });
-      toastSuccess("Invite resent");
-      await refresh();
-    } catch (err) {
-      toastError((err as Error).message || "Couldn’t resend invite.");
     }
   };
 
@@ -164,10 +155,46 @@ export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
     () => invitesPending.filter((invite) => invite.inviteeUserId && invite.invitee),
     [invitesPending],
   );
-  const pendingLinkInvites = useMemo(
-    () => invitesPending.filter((invite) => !invite.inviteeUserId || !invite.invitee),
-    [invitesPending],
-  );
+  const statusUserIds = useMemo(() => {
+    const ids = new Set<number>();
+    members.forEach((member) => {
+      const memberUserId = Number(member.userId);
+      if (!Number.isInteger(memberUserId) || memberUserId <= 0) return;
+      if (memberUserId !== user?.id) ids.add(memberUserId);
+    });
+    if (selectedMemberId) {
+      const id = Number(selectedMemberId);
+      if (Number.isInteger(id) && id > 0 && id !== user?.id) ids.add(id);
+    }
+    return Array.from(ids);
+  }, [members, selectedMemberId, user?.id]);
+  const friendStatusesQuery = useFriendStatuses(statusUserIds);
+  const getFriendStatus = (targetUserId: number | null | undefined): FriendRelationshipStatus | null => {
+    if (!targetUserId || targetUserId === user?.id) return null;
+    const key = String(targetUserId);
+    return statusOverrides[key] ?? friendStatusesQuery.data?.[key] ?? "not_friends";
+  };
+  const selectedMemberStatus = getFriendStatus(selectedProfile?.userId);
+
+  const handleAddFriend = async (targetUserId: number) => {
+    const key = String(targetUserId);
+    const previous = statusOverrides[key] ?? friendStatusesQuery.data?.[key] ?? "not_friends";
+    setStatusOverrides((prev) => ({ ...prev, [key]: "pending_outgoing" }));
+    setAddingFriendUserId(targetUserId);
+    try {
+      const response = await addFriendByUserId.mutateAsync(targetUserId);
+      const status = response.status ?? "pending_outgoing";
+      setStatusOverrides((prev) => ({ ...prev, [key]: status }));
+      if (status === "friends") toastInfo("Already friends");
+      else toastSuccess("Friend request sent");
+      void friendStatusesQuery.refetch();
+    } catch (err) {
+      setStatusOverrides((prev) => ({ ...prev, [key]: previous }));
+      toastError((err as Error).message || "Couldn’t send friend request.");
+    } finally {
+      setAddingFriendUserId(null);
+    }
+  };
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -274,6 +301,30 @@ export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
                           </div>
                         ) : null}
                       </div>
+                      {selectedProfile?.userId && selectedProfile.userId !== user?.id ? (
+                        <div className="mt-4 border-t border-border pt-3">
+                          {selectedMemberStatus === "not_friends" ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              onClick={() => void handleAddFriend(selectedProfile.userId)}
+                              disabled={addFriendByUserId.isPending}
+                            >
+                              {addFriendByUserId.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+                              Add friend
+                            </Button>
+                          ) : selectedMemberStatus === "friends" ? (
+                            <span className="inline-flex rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-700 dark:text-emerald-300">
+                              Friends
+                            </span>
+                          ) : (
+                            <span className="inline-flex rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-700 dark:text-amber-300">
+                              Request sent
+                            </span>
+                          )}
+                        </div>
+                      ) : null}
                     </section>
                   )}
                 </div>
@@ -350,33 +401,65 @@ export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
             </div>
           ) : hasMembers ? (
             <div className="space-y-2">
-              {members.map((member) => (
-                <button
-                  key={`member-${member.userId}`}
-                  type="button"
-                  onClick={() => openProfileView(member.userId)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      openProfileView(member.userId);
-                    }
-                  }}
-                  className="flex w-full cursor-pointer items-center justify-between rounded-xl border border-border/70 px-3 py-2 text-left transition-colors hover:border-border hover:bg-muted/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-                >
-                  <div className="flex min-w-0 items-center gap-2.5">
-                    <span className="grid h-8 w-8 place-items-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-                      {initials(member.name)}
-                    </span>
-                    <div className="min-w-0">
-                      <p className="truncate text-sm text-foreground">{member.name}</p>
-                      {member.username ? <p className="text-[11px] text-muted-foreground">@{member.username}</p> : null}
+              {orderedMembers.map((member) => {
+                const relationStatus = getFriendStatus(member.userId);
+                const isSelf = member.userId === user?.id;
+                return (
+                  <button
+                    key={`member-${member.userId}`}
+                    type="button"
+                    onClick={() => openProfileView(member.userId)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        openProfileView(member.userId);
+                      }
+                    }}
+                    className="flex w-full cursor-pointer items-center justify-between rounded-xl border border-border/70 px-3 py-2 text-left transition-colors hover:border-border hover:bg-muted/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                  >
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <span className="grid h-8 w-8 place-items-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                        {initials(member.name)}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm text-foreground">{member.name}</p>
+                        {member.username ? <p className="text-[11px] text-muted-foreground">@{member.username}</p> : null}
+                      </div>
                     </div>
-                  </div>
-                  <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] text-emerald-700 dark:text-emerald-300">In group</span>
-                </button>
-              ))}
+                    <div className="flex items-center gap-2">
+                      {isSelf ? (
+                        <span className="inline-flex h-7 items-center rounded-full border border-border bg-muted px-2 text-xs text-muted-foreground">
+                          You
+                        </span>
+                      ) : relationStatus === "friends" ? (
+                        <span className="inline-flex h-7 items-center rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 text-xs text-emerald-700 dark:text-emerald-300">
+                          Friend
+                        </span>
+                      ) : relationStatus === "not_friends" ? (
+                        <button
+                          type="button"
+                          className="inline-flex h-7 items-center rounded-full border border-destructive/40 bg-destructive/10 px-2 text-xs text-destructive transition-colors hover:bg-destructive/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-70"
+                          disabled={addingFriendUserId === member.userId || addFriendByUserId.isPending}
+                          onClick={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            void handleAddFriend(member.userId);
+                          }}
+                        >
+                          {addingFriendUserId === member.userId ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
+                          Add
+                        </button>
+                      ) : (
+                        <span className="inline-flex h-7 items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-2 text-xs text-amber-700 dark:text-amber-300">
+                          Pending
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
-          ) : (
+              ) : (
             <p className="text-sm text-muted-foreground">Invite your circle to get this plan moving.</p>
           )}
         </section>
@@ -422,35 +505,6 @@ export function GuestsModal({ open, onOpenChange, guests }: GuestsModalProps) {
                 <p className="text-sm text-muted-foreground">No pending invites.</p>
               )}
 
-              {pendingLinkInvites.length > 0 ? (
-                <div className="space-y-2 pt-2">
-                  <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Invite links</p>
-                  {pendingLinkInvites.map((invite) => (
-                    <div key={`invite-link-${invite.id}`} className="rounded-xl border border-border/70 bg-background/40 px-3 py-2">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm text-foreground">{invite.email || "Invite link"}</p>
-                          <p className="text-[11px] text-muted-foreground">sent {formatRelativeTime(invite.createdAt)}</p>
-                        </div>
-                        <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] text-amber-700">Pending</span>
-                      </div>
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        <Button type="button" size="sm" variant="ghost" onClick={() => void handleCopyInviteLink(invite.inviteUrl)}>
-                          <Copy className="mr-1 h-3.5 w-3.5" /> Copy link
-                        </Button>
-                        {invite.email ? (
-                          <Button type="button" size="sm" variant="ghost" onClick={() => void handleResendInvite(invite.email)} disabled={inviteMutating}>
-                            <Mail className="mr-1 h-3.5 w-3.5" /> Resend
-                          </Button>
-                        ) : null}
-                        <Button type="button" size="sm" variant="ghost" onClick={() => void handleRevokeInvite(invite.id)} disabled={revokeMutating}>
-                          <XCircle className="mr-1 h-3.5 w-3.5" /> Revoke
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">No pending invites.</p>

@@ -242,11 +242,9 @@ export type EventMemberView = {
 
 export type EventInviteView = {
   id: string;
-  token?: string | null;
-  inviteUrl?: string | null;
   email?: string | null;
   inviteeUserId?: number | null;
-  inviteType?: "user" | "link" | string;
+  inviteType?: "user" | string;
   invitee?: {
     userId: number;
     name: string;
@@ -287,7 +285,7 @@ export function usePendingEventInvites(eventId: number | null) {
 export function useCreateEventInvite(eventId: number | null) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (payload: { email?: string; userId?: number }) => {
+    mutationFn: async (payload: { userId: number }) => {
       if (!eventId) throw new Error("No event selected");
       const res = await fetch(`/api/events/${eventId}/invites`, {
         method: "POST",
@@ -299,10 +297,7 @@ export function useCreateEventInvite(eventId: number | null) {
       if (!res.ok) throw new Error((body as { message?: string }).message || "Failed to create invite");
       return body as {
         inviteId: string;
-        token: string;
-        inviteUrl: string;
         inviteeUserId?: number | null;
-        email?: string | null;
         status?: string;
         createdAt?: string | null;
         expiresAt?: string | null;

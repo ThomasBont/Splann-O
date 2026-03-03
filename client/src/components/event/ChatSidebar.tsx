@@ -5,6 +5,7 @@ import { InlineQueryError, SkeletonLine } from "@/components/ui/load-states";
 import { useEventChat } from "@/hooks/use-event-chat";
 import { useAppToast } from "@/hooks/use-app-toast";
 import { useEventMembers } from "@/hooks/use-participants";
+import { cn } from "@/lib/utils";
 import type { SendMessageResult } from "@/hooks/use-event-chat";
 
 type ChatSidebarProps = {
@@ -12,6 +13,7 @@ type ChatSidebarProps = {
   eventName?: string | null;
   currentUser?: { id?: number | null; username?: string | null; avatarUrl?: string | null } | null;
   enabled?: boolean;
+  className?: string;
 };
 
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
@@ -53,7 +55,7 @@ function isGroupedWithNeighbor(
   return Math.abs(currentTime - neighborTime) < GROUP_WINDOW_MS;
 }
 
-export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }: ChatSidebarProps) {
+export function ChatSidebar({ eventId, eventName, currentUser, enabled = true, className }: ChatSidebarProps) {
   const { toastError, toastInfo } = useAppToast();
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -211,7 +213,7 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }:
   }, [currentUser?.id, typingUsers]);
 
   return (
-    <aside className="pointer-events-auto flex h-full min-h-[380px] flex-col overflow-hidden rounded-lg border border-border/70 bg-card">
+    <aside className={cn("pointer-events-auto flex h-full min-h-[380px] flex-col overflow-hidden rounded-lg border border-border/70 bg-card", className)}>
       <header className="border-b border-border/70 bg-background/70 px-4 py-3">
         <div className="flex items-center justify-between gap-2">
           <div>
@@ -374,7 +376,7 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }:
         </div>
         <div className="flex items-end gap-2">
           <div
-            className="min-h-[44px] max-h-[120px] flex-1 rounded-full border border-border/70 bg-background/70 px-4 py-2"
+            className="h-12 max-h-[120px] flex-1 rounded-full border border-border/70 bg-background/70 px-4 py-3"
             onMouseDown={(e) => {
               if (isLocked) return;
               e.preventDefault();
@@ -387,7 +389,7 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true }:
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               placeholder="Message…"
-              className="pointer-events-auto min-h-[28px] max-h-[104px] w-full resize-none bg-transparent text-sm text-foreground caret-primary outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:text-muted-foreground/70"
+              className="pointer-events-auto min-h-[24px] max-h-[104px] w-full resize-none bg-transparent text-[16px] leading-normal text-foreground caret-primary outline-none placeholder:text-muted-foreground md:text-sm disabled:cursor-not-allowed disabled:text-muted-foreground/70"
               rows={1}
               disabled={isLocked}
               onKeyDown={(e) => {

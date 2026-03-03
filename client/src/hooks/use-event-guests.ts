@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { getEventChatWsUrl } from "@/lib/network";
 import {
   type EventInviteView,
   type EventMemberView,
@@ -8,11 +9,6 @@ import {
   usePendingEventInvites,
   useRevokeEventInvite,
 } from "@/hooks/use-participants";
-
-function eventWsUrl(eventId: number) {
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.host}/ws/events/${eventId}/chat`;
-}
 
 type MemberJoinedPayload = {
   type?: string;
@@ -41,7 +37,7 @@ export function useEventGuests(eventId: number | null) {
 
   useEffect(() => {
     if (!eventId) return;
-    const ws = new WebSocket(eventWsUrl(eventId));
+    const ws = new WebSocket(getEventChatWsUrl(eventId));
     ws.onopen = () => {
       ws.send(JSON.stringify({ type: "event:subscribe", eventId }));
     };
@@ -91,12 +87,8 @@ export function useEventGuests(eventId: number | null) {
     ]);
   }, [eventId, queryClient]);
 
-  const createInvite = useCallback(async ({ email, userId }: { email?: string; userId?: number }) => {
-    const payload = {
-      email: email?.trim() ? email.trim() : undefined,
-      userId,
-    };
-    return createInviteMutation.mutateAsync(payload);
+  const createInvite = useCallback(async ({ userId }: { userId: number }) => {
+    return createInviteMutation.mutateAsync({ userId });
   }, [createInviteMutation]);
 
   const revokeInvite = useCallback(async (inviteId: string) => {

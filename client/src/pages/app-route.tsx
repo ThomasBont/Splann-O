@@ -362,17 +362,19 @@ function AppSidebar({ section, onCreatePlan }: { section: AppSection; onCreatePl
         <p className="text-xs text-muted-foreground px-1 py-1.5">{emptyMessage}</p>
       ) : (
         list.slice(0, limit).map((event) => (
-          <Link key={`sidebar-event-${event.id}`} href={`/app/e/${event.id}`}>
-            <a className="block rounded-md border border-transparent px-2 py-1.5 text-xs hover:border-border/60 hover:bg-muted/30">
-              <div className="flex items-center justify-between gap-2">
-                <p className="truncate font-medium">{event.name}</p>
-                <span className="shrink-0 rounded-full border border-border/60 px-1.5 py-0.5 text-[10px] text-muted-foreground">Private</span>
-              </div>
-              <p className="truncate text-[10px] text-muted-foreground">
-                {formatEventLocation(event)}
-              </p>
-            </a>
-          </Link>
+          <a
+            key={`sidebar-event-${event.id}`}
+            href={`/app/e/${event.id}`}
+            className="pointer-events-auto relative z-10 block rounded-md border border-transparent px-2 py-1.5 text-xs hover:border-border/60 hover:bg-muted/30"
+          >
+            <div className="flex items-center justify-between gap-2">
+              <p className="truncate font-medium">{event.name}</p>
+              <span className="shrink-0 rounded-full border border-border/60 px-1.5 py-0.5 text-[10px] text-muted-foreground">Private</span>
+            </div>
+            <p className="truncate text-[10px] text-muted-foreground">
+              {formatEventLocation(event)}
+            </p>
+          </a>
         ))
       )}
     </div>

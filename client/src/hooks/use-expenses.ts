@@ -2,6 +2,28 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, buildUrl } from "@shared/routes";
 import type { InsertExpense, UpdateExpenseRequest } from "@shared/routes";
 
+export type RealtimePlanBalances = {
+  type: "plan:balancesUpdated";
+  planId: number;
+  balances: Array<{ id: number; name: string; paid: number; balance: number }>;
+  suggestedPaybacks: Array<{ from: string; to: string; amount: number }>;
+  updatedAt: string;
+  version: number;
+};
+
+export function planBalancesQueryKey(planId: number | null) {
+  return ["/api/plans", planId, "balances-realtime"] as const;
+}
+
+export function useRealtimePlanBalances(planId: number | null) {
+  return useQuery<RealtimePlanBalances | null>({
+    queryKey: planBalancesQueryKey(planId),
+    enabled: false,
+    initialData: null,
+    queryFn: async () => null,
+  });
+}
+
 export function useExpenses(bbqId: number | null) {
   return useQuery({
     queryKey: ['/api/barbecues', bbqId, 'expenses'],

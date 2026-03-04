@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { getApiBase, getEventChatWsUrl } from "@/lib/network";
+import { planBalancesQueryKey, type RealtimePlanBalances } from "@/hooks/use-expenses";
 
 export type ChatMessage = {
   id: string;
@@ -141,6 +143,7 @@ function randomBackoffMs(attempt: number): number {
 }
 
 export function useEventChat(eventId: number | null, enabled = true) {
+  const queryClient = useQueryClient();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyLoadingOlder, setHistoryLoadingOlder] = useState(false);
@@ -413,6 +416,28 @@ export function useEventChat(eventId: number | null, enabled = true) {
         applyReactionUpdate(payload.messageId, reactions);
         return;
       }
+      if (payload?.type === "plan:balancesUpdated") {
+        const planId = Number(payload.planId);
+        if (!Number.isFinite(planId) || planId !== eventId) return;
+        const parsed: RealtimePlanBalances = {
+          type: "plan:balancesUpdated",
+          planId,
+          balances: Array.isArray(payload.balances) ? payload.balances : [],
+          suggestedPaybacks: Array.isArray(payload.suggestedPaybacks) ? payload.suggestedPaybacks : [],
+          updatedAt: typeof payload.updatedAt === "string" ? payload.updatedAt : new Date().toISOString(),
+          version: typeof payload.version === "number" ? payload.version : Date.now(),
+        };
+        if (import.meta.env.DEV) {
+          console.log("[realtime:balances:received]", {
+            planId,
+            balances: parsed.balances.length,
+            suggestedPaybacks: parsed.suggestedPaybacks.length,
+            version: parsed.version,
+          });
+        }
+        queryClient.setQueryData(planBalancesQueryKey(planId), parsed);
+        return;
+      }
       if (payload?.type === "chat:ack") {
         const incoming = normalizeIncomingMessage(payload.message as IncomingServerMessage);
         if (!incoming) return;
@@ -459,7 +484,7 @@ export function useEventChat(eventId: number | null, enabled = true) {
         wsRef.current = null;
       }
     };
-  }, [applyReactionUpdate, enabled, eventId, markFailed, mergeMessages, reconcileServerMessage, retryTick]);
+  }, [applyReactionUpdate, enabled, eventId, markFailed, mergeMessages, queryClient, reconcileServerMessage, retryTick]);
 
   const sendMessageWithClientId = useCallback(async (
     text: string,

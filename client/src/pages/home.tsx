@@ -11,7 +11,7 @@ import {
   useInvitedParticipants, useInviteParticipant, useEventMembers,
   useAcceptInvite, useDeclineInvite,
 } from "@/hooks/use-participants";
-import { useExpenses, useDeleteExpense, useExpenseShares, useSetExpenseShare } from "@/hooks/use-expenses";
+import { useExpenses, useDeleteExpense, useExpenseShares, useRealtimePlanBalances, useSetExpenseShare } from "@/hooks/use-expenses";
 import { useBarbecues, useCreateBarbecue, useDeleteBarbecue, useUpdateBarbecue, useEnsureInviteToken, useSettleUp, useCheckoutPublicListing, useDeactivateListing, useExploreEvents, usePublicEventRsvpRequests, useUpdatePublicEventRsvpRequest, useConversations, useConversation, useSendConversationMessage, useUpdateConversationStatus, useUploadEventBanner, useDeleteEventBanner, useNotifications, useAcceptPlanInvite, useDeclinePlanInvite, useAcceptFriendRequestNotification, useDeclineFriendRequestNotification, useLeaveBarbecue, type ExploreEvent, type PlanInviteNotification } from "@/hooks/use-bbq-data";
 import { useQueryClient } from "@tanstack/react-query";
 import { useFriends, useFriendRequests, useAllPendingRequests, useAcceptFriendRequest, useRemoveFriend, useSearchUsers, useSendFriendRequest } from "@/hooks/use-friends";
@@ -52,6 +52,7 @@ import GuestsWidget from "@/components/event/GuestsWidget";
 import SharedCostsWidget from "@/components/event/SharedCostsWidget";
 import PlanDetailsDrawer from "@/components/event/PlanDetailsDrawer";
 import PlanTypeDrawer from "@/components/event/PlanTypeDrawer";
+import ActivityDrawer from "@/components/event/ActivityDrawer";
 import AccountSettingsContent from "@/components/account/AccountSettingsContent";
 import { PrivateEventHero } from "@/components/event/PrivateEventHero";
 import EventSettingsModal from "@/components/event/EventSettingsModal";
@@ -164,6 +165,28 @@ const CATEGORY_COLORS: Record<string, string> = {
   Activities: '#06b6d4', Groceries: '#84cc16', Snacks: '#f59e0b', Supplies: '#6b7280',
   Parking: '#6366f1', Tips: '#ec4899', Entertainment: '#14b8a6',
 };
+
+function parseIncludedUserIds(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((entry) => String(entry).trim()).filter((entry) => entry.length > 0);
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+      const inner = trimmed.slice(1, -1).trim();
+      if (!inner) return [];
+      return inner.split(",").map((entry) => entry.replace(/^"+|"+$/g, "").trim()).filter(Boolean);
+    }
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parsed.map((entry) => String(entry).trim()).filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
 
 const PUBLIC_CREATE_CATEGORY_OPTIONS = [
   { key: "party", label: "Party", area: "parties", eventType: "other_party" },
@@ -647,6 +670,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
   const [isPlanDetailsOpen, setIsPlanDetailsOpen] = useState(false);
   const [isPlanTypeOpen, setIsPlanTypeOpen] = useState(false);
+  const [isActivityDrawerOpen, setIsActivityDrawerOpen] = useState(false);
   const [recommendedExpenseTemplate, setRecommendedExpenseTemplate] = useState<{ item: string; category: string; optInDefault?: boolean } | null>(null);
   const [editingExpense, setEditingExpense] = useState<ExpenseWithParticipant | null>(null);
   const [editingParticipantId, setEditingParticipantId] = useState<number | null>(null);
@@ -1200,7 +1224,8 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
       templateData: { ...current, customCategories: [...currentCustom, name] },
     });
   };
-  const currency = (selectedBbq?.currency as CurrencyCode) || "EUR";
+  const defaultCurrency = ((user?.defaultCurrencyCode as CurrencyCode | undefined) ?? "EUR");
+  const currency = (selectedBbq?.currency as CurrencyCode) || defaultCurrency;
   const currencyInfo = getCurrency(currency) ?? getCurrency("EUR")!;
   const [displayCurrency, setDisplayCurrency] = useState<CurrencyCode>(currency);
   const displayCurrencyInfo = getCurrency(displayCurrency) ?? getCurrency("EUR")!;
@@ -1221,6 +1246,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
     return map;
   }, [eventMembers]);
   const { data: expenses = [] } = useExpenses(selectedBbqId);
+  const { data: realtimeBalancesSnapshot } = useRealtimePlanBalances(selectedBbqId);
   const [showLocalSuggestionsModal, setShowLocalSuggestionsModal] = useState(false);
   const [privateSuggestionState, setPrivateSuggestionState] = useState(defaultPrivateSuggestionState());
   const { data: expenseSharesList = [] } = useExpenseShares(selectedBbq?.allowOptInExpenses ? selectedBbqId : null);
@@ -1234,7 +1260,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
   const updateConversationStatus = useUpdateConversationStatus(publicInboxConversationId);
   const publicInboxConversations = (publicInboxList.data?.conversations ?? []).filter((c) => c.barbecueId === selectedBbqId);
   const { data: invitedParticipants = [] } = useInvitedParticipants(isPrivate ? selectedBbqId : null);
-  const { latestItems: latestPlanActivity, loading: planActivityLoading, highlightedId: highlightedActivityId } =
+  const { items: planActivityItems, unreadCount: planActivityUnreadCount, loading: planActivityLoading, highlightedId: highlightedActivityId, markAllAsRead } =
     usePlanActivity(selectedBbq?.id ?? null, !!selectedBbq?.id && isPrivateContext);
   const { data: memberships = [] } = useMemberships(username);
   const privateSuggestionsEligible = isEligibleForLocalSuggestions({
@@ -1341,29 +1367,46 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
       year: "numeric",
     }).format(date);
   };
-  const formatRelativeShort = (value?: string | null) => {
-    if (!value) return "";
-    const ts = new Date(value).getTime();
-    if (!Number.isFinite(ts)) return "";
-    const diff = Date.now() - ts;
-    const mins = Math.floor(diff / 60_000);
-    if (mins <= 0) return "Just now";
-    if (mins < 60) return `${mins}m`;
-    const hours = Math.floor(mins / 60);
-    if (hours < 24) return `${hours}h`;
-    const days = Math.floor(hours / 24);
-    return `${days}d`;
-  };
-
   const totalSpent = expenses.reduce(
     (sum: number, exp: ExpenseWithParticipant) => sum + (Number.isFinite(Number(exp.amount)) ? Number(exp.amount) : 0),
     0
   );
   const participantCount = participants.length;
   const allowOptIn = isPrivateContext && !!selectedBbq?.allowOptInExpenses;
-  const shareSet = new Set(expenseSharesList.map(s => `${s.expenseId}:${s.participantId}`));
+  const hasCustomIncludedUsers = expenses.some((expense: ExpenseWithParticipant) => parseIncludedUserIds(expense.includedUserIds).length > 0);
+  const shouldUseCustomSplit = allowOptIn || hasCustomIncludedUsers;
+  const effectiveExpenseShares = useMemo(() => {
+    const participantIds = participants.map((participant: Participant) => participant.id);
+    const legacyByExpense = new Map<number, number[]>();
+    for (const share of expenseSharesList) {
+      const current = legacyByExpense.get(share.expenseId);
+      if (current) current.push(share.participantId);
+      else legacyByExpense.set(share.expenseId, [share.participantId]);
+    }
+    const rows: Array<{ expenseId: number; participantId: number }> = [];
+    for (const expense of expenses) {
+      const parsedIncludedIds = parseIncludedUserIds(expense.includedUserIds);
+      if (parsedIncludedIds.length > 0) {
+        const ids = parsedIncludedIds
+          .map((value: string) => Number(value))
+          .filter((value: number) => Number.isInteger(value) && participantIds.includes(value));
+        for (const participantId of ids) rows.push({ expenseId: expense.id, participantId });
+        continue;
+      }
+      if (allowOptIn) {
+        const legacy = legacyByExpense.get(expense.id) ?? [];
+        for (const participantId of legacy) rows.push({ expenseId: expense.id, participantId });
+        continue;
+      }
+      if (hasCustomIncludedUsers) {
+        for (const participantId of participantIds) rows.push({ expenseId: expense.id, participantId });
+      }
+    }
+    return rows;
+  }, [allowOptIn, expenseSharesList, expenses, hasCustomIncludedUsers, participants]);
+  const shareSet = new Set(effectiveExpenseShares.map((s) => `${s.expenseId}:${s.participantId}`));
   const _getFairShareForParticipant = (participantId: number) =>
-    getFairShareForParticipant(participantId, expenses, expenseSharesList, participants, allowOptIn);
+    getFairShareForParticipant(participantId, expenses, effectiveExpenseShares, participants, shouldUseCustomSplit);
   const myParticipant = user?.id ? participants.find((p: Participant) => p.userId === user.id) : null;
   const creatorLeaveSuccessorName = useMemo(() => {
     if (!selectedBbqId || !user?.id) return null;
@@ -1536,10 +1579,15 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
     name, value, translatedName: t.categories[name as keyof typeof t.categories] || name
   })).filter(d => d.value > 0);
 
-  const { balances, settlements } = useMemo(
-    () => computeSplit(participants, expenses, expenseSharesList, allowOptIn),
-    [participants, expenses, expenseSharesList, allowOptIn]
-  );
+  const { balances, settlements } = useMemo(() => {
+    if (realtimeBalancesSnapshot?.planId === selectedBbqId) {
+      return {
+        balances: realtimeBalancesSnapshot.balances,
+        settlements: realtimeBalancesSnapshot.suggestedPaybacks,
+      };
+    }
+    return computeSplit(participants, expenses, effectiveExpenseShares, shouldUseCustomSplit);
+  }, [effectiveExpenseShares, expenses, participants, realtimeBalancesSnapshot, selectedBbqId, shouldUseCustomSplit]);
   const lastExpenseForRepeat = useMemo(() => {
     if (!expenses.length) return null;
     return [...expenses].sort((a: ExpenseWithParticipant, b: ExpenseWithParticipant) => {
@@ -1935,6 +1983,16 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
     }
     setSelectedBbqId(eventId);
     if (eventId != null) markEventRecent(eventId);
+  };
+
+  const shouldIgnorePlanDetailsOpen = (target: EventTarget | null): boolean => {
+    if (typeof document !== "undefined" && document.body.dataset.sharedCostsDrawerOpen === "true") {
+      return true;
+    }
+    if (!(target instanceof HTMLElement)) return false;
+    const interactive = target.closest("button, a, input, textarea, select, [data-prevent-plan-details-open]");
+    if (interactive) return true;
+    return !!target.closest("[data-radix-dialog-content], [data-radix-dialog-overlay]");
   };
 
   const togglePinnedEvent = (eventId: number) => {
@@ -2391,19 +2449,31 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                   </SheetDescription>
                 </SheetHeader>
                 {isViewingOwnAccount ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    className="h-9 w-9 rounded-full border-red-200/80 bg-red-50/70 text-red-600 hover:border-red-300 hover:bg-red-100 hover:text-red-700 dark:border-red-900/60 dark:bg-red-950/20 dark:text-red-400 dark:hover:bg-red-950/40"
-                    onClick={() => {
-                      setDeleteConfirmPhrase("");
-                      setDeleteAccountDialogOpen(true);
-                    }}
-                    aria-label="Delete account"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-9 w-9 rounded-full border-border/70 bg-card text-muted-foreground hover:bg-muted hover:text-foreground"
+                      onClick={() => setAccountView("settings")}
+                      aria-label="Open settings"
+                    >
+                      <Settings className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="icon"
+                      className="h-9 w-9 rounded-full border-red-200/80 bg-red-50/70 text-red-600 hover:border-red-300 hover:bg-red-100 hover:text-red-700 dark:border-red-900/60 dark:bg-red-950/20 dark:text-red-400 dark:hover:bg-red-950/40"
+                      onClick={() => {
+                        setDeleteConfirmPhrase("");
+                        setDeleteAccountDialogOpen(true);
+                      }}
+                      aria-label="Delete account"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 ) : null}
               </div>
             </header>
@@ -2504,22 +2574,6 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                         </div>
                       </div>
 
-                      {isViewingOwnAccount ? (
-                        <div className="sticky bottom-0 z-10 mt-auto bg-gradient-to-t from-background via-background to-transparent pt-4">
-                          <div className="flex items-center justify-end gap-2">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="icon"
-                              className="h-9 w-9 rounded-full border-border/70 bg-card text-muted-foreground hover:bg-muted hover:text-foreground"
-                              onClick={() => setAccountView("settings")}
-                              aria-label="Open settings"
-                            >
-                              <Settings className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        </div>
-                      ) : null}
                     </>
                   )}
                 </div>
@@ -3356,8 +3410,13 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                       role="button"
                       tabIndex={0}
                       className="relative mt-3 md:mt-0 w-full cursor-pointer overflow-hidden rounded-3xl border border-border/70 bg-card text-left shadow-sm transition-all duration-200 hover:border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 min-h-[360px] md:min-h-[520px] md:h-[calc(100vh-11rem)]"
-                      onClick={() => setIsPlanDetailsOpen(true)}
+                      onClick={(event) => {
+                        if (shouldIgnorePlanDetailsOpen(event.target)) return;
+                        setIsPlanDetailsOpen(true);
+                      }}
                       onKeyDown={(event) => {
+                        if (event.target !== event.currentTarget) return;
+                        if (shouldIgnorePlanDetailsOpen(event.target)) return;
                         if (event.key === "Enter" || event.key === " ") {
                           event.preventDefault();
                           setIsPlanDetailsOpen(true);
@@ -3397,57 +3456,54 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                             </p>
                           </div>
                           <div className="max-w-[320px] rounded-xl border border-white/20 bg-black/25 px-3 py-2 backdrop-blur-sm">
-                            <button
-                              type="button"
-                              className="inline-flex items-center gap-2 rounded-lg border border-white/30 bg-white/10 px-2 py-1 text-white/90 transition hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
-                              aria-label="Edit plan type"
-                              onClick={(event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                setIsPlanTypeOpen(true);
-                                window.requestAnimationFrame(() => {
-                                  const target = document.getElementById("plan-type-section");
-                                  if (target) {
-                                    target.scrollIntoView({ block: "start", behavior: "smooth" });
-                                    const firstControl = target.querySelector("button");
-                                    if (firstControl instanceof HTMLButtonElement) firstControl.focus();
-                                  }
-                                });
-                              }}
-                            >
-                              {selectedPlanCategoryMeta.icons.map((Icon, index) => (
-                                <span
-                                  key={`hero-category-icon-${index}`}
-                                  className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-white/30 bg-white/10"
-                                >
-                                  <Icon className="h-3.5 w-3.5" />
-                                </span>
-                              ))}
-                            </button>
+                            <div className="inline-flex items-center gap-2">
+                              <button
+                                type="button"
+                                className="inline-flex items-center gap-2 rounded-lg border border-white/30 bg-white/10 px-2 py-1 text-white/90 transition hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                                aria-label="Edit plan type"
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  setIsPlanTypeOpen(true);
+                                  window.requestAnimationFrame(() => {
+                                    const target = document.getElementById("plan-type-section");
+                                    if (target) {
+                                      target.scrollIntoView({ block: "start", behavior: "smooth" });
+                                      const firstControl = target.querySelector("button");
+                                      if (firstControl instanceof HTMLButtonElement) firstControl.focus();
+                                    }
+                                  });
+                                }}
+                              >
+                                {selectedPlanCategoryMeta.icons.map((Icon, index) => (
+                                  <span
+                                    key={`hero-category-icon-${index}`}
+                                    className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-white/30 bg-white/10"
+                                  >
+                                    <Icon className="h-3.5 w-3.5" />
+                                  </span>
+                                ))}
+                              </button>
+                              <button
+                                type="button"
+                                className="relative inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/30 bg-white/10 text-white/90 transition hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+                                aria-label="Open activity"
+                                onClick={(event) => {
+                                  event.preventDefault();
+                                  event.stopPropagation();
+                                  setIsActivityDrawerOpen(true);
+                                  void markAllAsRead();
+                                }}
+                              >
+                                <Bell className="h-4 w-4" />
+                                {planActivityUnreadCount > 0 ? (
+                                  <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white">
+                                    {planActivityUnreadCount > 9 ? "9+" : planActivityUnreadCount}
+                                  </span>
+                                ) : null}
+                              </button>
+                            </div>
                           </div>
-                        </div>
-
-                        <div className={`mt-4 p-3 md:max-w-[560px] ${glassCardClass}`}>
-                          <p className="text-[11px] font-medium uppercase tracking-wide text-white/80">Recent activity</p>
-                          {planActivityLoading ? (
-                            <p className="mt-1 text-xs text-white/75">Loading updates...</p>
-                          ) : latestPlanActivity.length > 0 ? (
-                            <ul className="mt-1.5 space-y-1">
-                              {latestPlanActivity.slice(0, 3).map((activity) => (
-                                <li
-                                  key={`plan-activity-${activity.id}`}
-                                  className={`truncate text-xs text-white/90 transition-colors duration-700 ${highlightedActivityId === activity.id ? "bg-white/10" : ""}`}
-                                  title={activity.message}
-                                >
-                                  • {activity.message} {activity.createdAt ? `· ${formatRelativeShort(activity.createdAt)}` : ""}
-                                </li>
-                              ))}
-                            </ul>
-                          ) : (
-                            <p className="mt-1.5 text-xs text-white/75">
-                              No recent activity yet.
-                            </p>
-                          )}
                         </div>
 
                         <div className="flex-1" />
@@ -3490,7 +3546,8 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                                 size="sm"
                                 variant="outline"
                                 className="rounded-xl border-white/30 bg-white/10 text-white hover:bg-white/20"
-                                onClick={() => {
+                                onClick={(event) => {
+                                  event.stopPropagation();
                                   if (pendingCount > 0) {
                                     setActiveEventTab("people");
                                     return;
@@ -3568,6 +3625,20 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                         toastSuccess("Plan type updated");
                         setIsPlanTypeOpen(false);
                       }}
+                    />
+                    <ActivityDrawer
+                      open={isActivityDrawerOpen}
+                      onOpenChange={(next) => {
+                        setIsActivityDrawerOpen(next);
+                        if (next) {
+                          void markAllAsRead();
+                        }
+                      }}
+                      items={planActivityItems}
+                      loading={planActivityLoading}
+                      highlightedId={highlightedActivityId}
+                      unreadCount={planActivityUnreadCount}
+                      onMarkAllAsRead={markAllAsRead}
                     />
                   </section>
 
@@ -4734,6 +4805,12 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                                   exp.participantName
                                 )}
                               </div>
+                              <div className="text-[11px] text-muted-foreground">
+                                Split: {(() => {
+                                  const ids = parseIncludedUserIds(exp.includedUserIds);
+                                  return ids.length > 0 ? `${ids.length} people` : "Everyone";
+                                })()}
+                              </div>
                               {isPrivateContext && exp.receiptUrl && (
                                 <button
                                   type="button"
@@ -4895,7 +4972,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                     paid: expenses.filter((e: ExpenseWithParticipant) => e.participantId === p.id).reduce((s: number, e: ExpenseWithParticipant) => s + Number(e.amount), 0),
                   })).sort((a, b) => b.paid - a.paid)[0];
                   const recapData = generateRecapCardData(
-                    { name: selectedBbq?.name ?? "", currency: selectedBbq?.currency ?? "EUR" },
+                    { name: selectedBbq?.name ?? "", currency: selectedBbq?.currency ?? defaultCurrency },
                     {
                       totalSpent,
                       participantCount,
@@ -4945,7 +5022,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                     const eventTheme = getEventTheme(category, type);
                     const subtitle = (t.eventTypes as Record<string, string>)[eventTheme.labelKey] ?? eventTheme.copy.tagline;
                     return generateSettleCardData(
-                      { name: selectedBbq?.name ?? "", subtitle, currency: selectedBbq?.currency ?? "EUR" },
+                      { name: selectedBbq?.name ?? "", subtitle, currency: selectedBbq?.currency ?? defaultCurrency },
                       s,
                       subtitle
                     );
@@ -5248,7 +5325,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                 }
               : null
           }
-          currentCurrency={(selectedBbq.currency as string) || "EUR"}
+          currentCurrency={(selectedBbq.currency as string) || defaultCurrency}
           currencySource={(selectedBbq.currencySource as "auto" | "manual") || "auto"}
           onSave={(opts) => {
             if (!selectedBbqId) return;
@@ -5314,8 +5391,8 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
         eventType={selectedBbq?.eventType}
         eventKind={area === "trips" ? "trip" : "party"}
         currentUsername={username}
-        currencyCode={(selectedBbq?.currency as string) || currency}
-        groupHomeCurrencyCode={(selectedBbq?.currency as string) || currency}
+        currencyCode={(selectedBbq?.currency as string) || defaultCurrency}
+        groupHomeCurrencyCode={(selectedBbq?.currency as string) || defaultCurrency}
         lastExpense={editingExpense ? null : lastExpenseForRepeat}
         privateTone={isPrivateContext}
         showReceipt={isPrivateContext}

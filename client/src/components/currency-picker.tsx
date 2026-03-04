@@ -161,11 +161,6 @@ export function CurrencyPicker({
   };
 
   const normalizedSearch = search.trim();
-  const [showAll, setShowAll] = React.useState(false);
-  React.useEffect(() => {
-    if (normalizedSearch) setShowAll(true);
-    else setShowAll(false);
-  }, [normalizedSearch]);
 
   const suggestedCurrency = suggestedCode ? getCurrency(suggestedCode) : undefined;
   const recentsList = recentCodes
@@ -224,7 +219,10 @@ export function CurrencyPicker({
               className="h-8 px-2.5 text-sm"
             />
           </div>
-          <CommandList className="max-h-[320px] overflow-y-auto [&_[cmdk-group]]:px-1 [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-2 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider">
+          <CommandList
+            className="max-h-[360px] overflow-y-auto overscroll-contain [scrollbar-gutter:stable] [-webkit-overflow-scrolling:touch] [&_[cmdk-group]]:px-1 [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:py-2 [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider"
+            onWheelCapture={(event) => event.stopPropagation()}
+          >
             <CommandEmpty>No currency found.</CommandEmpty>
             {suggestedCurrency && (
               <CommandGroup heading="Suggested">
@@ -260,7 +258,7 @@ export function CurrencyPicker({
                     onSelect={() => handleSelect(cur.code)}
                   />
                 ))}
-                {(showAll || normalizedSearch ? otherCurrencies : otherCurrencies.slice(0, 20)).map((cur) => (
+                {otherCurrencies.map((cur) => (
                   <CurrencyPickerItem
                     key={cur.code}
                     currency={cur}
@@ -268,14 +266,6 @@ export function CurrencyPicker({
                     onSelect={() => handleSelect(cur.code)}
                   />
                 ))}
-                {!normalizedSearch && !showAll && otherCurrencies.length > 20 && (
-                  <CommandItem
-                    onSelect={() => setShowAll(true)}
-                    className="text-muted-foreground min-h-[44px]"
-                  >
-                    Show all {otherCurrencies.length + coreVisible.length} currencies…
-                  </CommandItem>
-                )}
               </CommandGroup>
             )}
           </CommandList>

@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { db } from "../db";
 import { eventChatMessageReactions, eventChatMessages } from "@shared/schema";
+import { SYSTEM_USER_ID, SYSTEM_USER_NAME } from "@shared/lib/system-user";
 
 const SUPPORTED_REACTIONS = new Set(["😀", "😂", "😍", "🙏", "🔥", "🎉", "👍", "❤️"]);
 
@@ -46,7 +47,13 @@ function toMessage(
     text: row.content,
     createdAt: createdAtIso,
     serverCreatedAt: createdAtIso,
-    user: row.authorUserId
+    user: row.type === "system"
+      ? {
+          id: SYSTEM_USER_ID,
+          name: row.authorName || SYSTEM_USER_NAME,
+          avatarUrl: row.authorAvatarUrl ?? null,
+        }
+      : row.authorUserId
       ? {
           id: String(row.authorUserId),
           name: row.authorName || "Unknown user",
@@ -148,13 +155,14 @@ export async function appendEventChatMessage(
   },
 ): Promise<{ message: EventChatMessage; inserted: boolean }> {
   const authorId = input.user?.id ? Number(input.user.id) : null;
+  const systemMessage = input.type === "system";
   const [created] = await db.insert(eventChatMessages).values({
     eventId,
-    authorUserId: Number.isFinite(authorId) ? authorId : null,
-    authorName: input.user?.name ?? null,
+    authorUserId: systemMessage ? null : (Number.isFinite(authorId) ? authorId : null),
+    authorName: input.user?.name ?? (systemMessage ? SYSTEM_USER_NAME : null),
     authorAvatarUrl: input.user?.avatarUrl ?? null,
     clientMessageId: input.clientMessageId,
-    type: input.type ?? "user",
+    type: systemMessage ? "system" : (input.type ?? "user"),
     content: input.text,
     createdAt: new Date(),
   }).onConflictDoNothing({

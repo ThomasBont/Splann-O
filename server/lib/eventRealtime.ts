@@ -1,22 +1,28 @@
 import { WebSocket } from "ws";
 
-const eventRooms = new Map<number, Set<WebSocket>>();
+const planRooms = new Map<string, Set<WebSocket>>();
+
+function roomKey(planId: number): string {
+  return `plan:${planId}`;
+}
 
 export function registerEventSocket(eventId: number, ws: WebSocket) {
-  const room = eventRooms.get(eventId) ?? new Set<WebSocket>();
+  const key = roomKey(eventId);
+  const room = planRooms.get(key) ?? new Set<WebSocket>();
   room.add(ws);
-  eventRooms.set(eventId, room);
+  planRooms.set(key, room);
 }
 
 export function unregisterEventSocket(eventId: number, ws: WebSocket) {
-  const room = eventRooms.get(eventId);
+  const key = roomKey(eventId);
+  const room = planRooms.get(key);
   if (!room) return;
   room.delete(ws);
-  if (room.size === 0) eventRooms.delete(eventId);
+  if (room.size === 0) planRooms.delete(key);
 }
 
 export function broadcastEventRealtime(eventId: number, payload: object) {
-  const room = eventRooms.get(eventId);
+  const room = planRooms.get(roomKey(eventId));
   if (!room) return;
   let serialized = "";
   try {

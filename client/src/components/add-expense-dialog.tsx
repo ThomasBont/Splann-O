@@ -4,6 +4,7 @@ import { useCreateExpense, useDeleteExpenseReceipt, useUpdateExpense, useUploadE
 import { useParticipants } from "@/hooks/use-participants";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { PremiumPressable } from "@/components/ui/premium-pressable";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -49,6 +50,28 @@ interface AddExpenseDialogProps {
 const DEFAULT_CATEGORIES = ["Meat", "Bread", "Drinks", "Charcoal", "Transportation", "Other"];
 const EMPTY_PARTICIPANTS: Array<{ id: number; userId?: string | null; name: string }> = [];
 
+function parseIncludedUserIds(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map((entry) => String(entry).trim()).filter((entry) => entry.length > 0);
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+      const inner = trimmed.slice(1, -1).trim();
+      if (!inner) return [];
+      return inner.split(",").map((entry) => entry.replace(/^"+|"+$/g, "").trim()).filter(Boolean);
+    }
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) return parsed.map((entry) => String(entry).trim()).filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, currencySymbol, categories: categoriesProp, defaultItem: defaultItemProp, defaultCategory: defaultCategoryProp, defaultOptIn: defaultOptInProp, allowOptIn = false, onAddCustomCategory, eventType, eventKind = "party", currentUsername, currencyCode, groupHomeCurrencyCode, lastExpense, privateTone = false, showReceipt = false }: AddExpenseDialogProps) {
   const { t } = useLanguage();
   const { toast } = useToast();
@@ -65,6 +88,8 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
   const [category, setCategory] = useState<string>(categories[0] ?? "Other");
   const [item, setItem] = useState("");
   const [amount, setAmount] = useState("");
+  const [splitMode, setSplitMode] = useState<"everyone" | "selected">("everyone");
+  const [includedUserIds, setIncludedUserIds] = useState<string[]>([]);
   const [optInByDefault, setOptInByDefault] = useState(false);
   const [showCustomCategoryInput, setShowCustomCategoryInput] = useState(false);
   const [customCategoryName, setCustomCategoryName] = useState("");
@@ -136,6 +161,14 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
       setCategory(editingExpense.category);
       setItem(editingExpense.item);
       setAmount(editingExpense.amount.toString());
+      const savedIncluded = parseIncludedUserIds(editingExpense.includedUserIds);
+      if (savedIncluded.length > 0) {
+        setSplitMode("selected");
+        setIncludedUserIds(savedIncluded);
+      } else {
+        setSplitMode("everyone");
+        setIncludedUserIds(participantList.map((participant) => String(participant.id)));
+      }
       setOptInByDefault(false);
       setReceiptDataUrl(null);
       setReceiptPreviewUrl(editingExpense.receiptUrl ?? null);
@@ -152,6 +185,8 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
     setCategory(categories.includes(cat) ? cat : categories[0] ?? "Other");
     setItem(defaultItemProp ?? "");
     setAmount("");
+    setSplitMode("everyone");
+    setIncludedUserIds(participantList.map((participant) => String(participant.id)));
     setOptInByDefault(defaultOptInProp ?? false);
     setReceiptDataUrl(null);
     setReceiptPreviewUrl(null);
@@ -181,12 +216,14 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!participantId || !item.trim() || !amount || parseFloat(amount) <= 0) return;
+    if (splitMode === "selected" && includedUserIds.length === 0) return;
 
     const payload = {
       participantId: parseInt(participantId),
       category,
       item: item.trim(),
-      amount: amount
+      amount: amount,
+      includedUserIds: splitMode === "selected" ? includedUserIds : null,
     };
 
     if (editingExpense) {
@@ -247,6 +284,7 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
   };
 
   const isPending = createExpense.isPending || updateExpense.isPending || uploadReceipt.isPending || deleteReceipt.isPending;
+  const isSplitValid = splitMode === "everyone" || includedUserIds.length > 0;
   const canRepeatLast = !editingExpense && !!lastExpense;
 
   const onReceiptFileSelected = (file: File | null) => {
@@ -296,11 +334,11 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
           <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} className="w-full sm:w-auto">
             {t.modals.cancel}
           </Button>
-          <PremiumPressable asChild disabled={isPending || !participantId || !item.trim() || !amount}>
+          <PremiumPressable asChild disabled={isPending || !participantId || !item.trim() || !amount || !isSplitValid}>
             <Button
               type="submit"
               form="add-expense-form"
-              disabled={isPending || !participantId || !item.trim() || !amount}
+              disabled={isPending || !participantId || !item.trim() || !amount || !isSplitValid}
               className={`w-full sm:w-auto min-w-[132px] bg-accent text-accent-foreground font-semibold shadow-lg shadow-accent/20 hover:shadow-accent/30 transition-transform duration-150 ${savedPulse ? "scale-[1.03]" : "scale-100"}`}
               data-testid="button-submit-expense"
             >
@@ -467,6 +505,65 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
             </span>
           </div>
         )}
+
+        <div className="space-y-2">
+          <Label className="uppercase text-xs tracking-wider text-muted-foreground">Split</Label>
+          <div className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-secondary/30 p-1">
+            <Button
+              type="button"
+              size="sm"
+              variant={splitMode === "everyone" ? "default" : "ghost"}
+              className="h-8 rounded-md px-3"
+              onClick={() => setSplitMode("everyone")}
+            >
+              Everyone
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={splitMode === "selected" ? "default" : "ghost"}
+              className="h-8 rounded-md px-3"
+              onClick={() => {
+                setSplitMode("selected");
+                if (includedUserIds.length === 0) {
+                  setIncludedUserIds(orderedParticipants.map((participant: any) => String(participant.id)));
+                }
+              }}
+            >
+              Select people
+            </Button>
+          </div>
+          {splitMode === "selected" ? (
+            <div className="rounded-xl border border-border/60 bg-muted/20 p-2.5">
+              <p className="mb-2 text-xs text-muted-foreground">Included: {includedUserIds.length} people</p>
+              <div className="space-y-1.5">
+                {orderedParticipants.map((participant: any) => {
+                  const value = String(participant.id);
+                  const checked = includedUserIds.includes(value);
+                  return (
+                    <label key={`expense-share-${participant.id}`} className="flex cursor-pointer items-center justify-between gap-2 rounded-md px-2 py-1.5 hover:bg-background/70">
+                      <span className="text-sm">{participant.name}</span>
+                      <Checkbox
+                        checked={checked}
+                        onCheckedChange={(next) => {
+                          setIncludedUserIds((prev) => {
+                            if (next) return Array.from(new Set([...prev, value]));
+                            return prev.filter((entry) => entry !== value);
+                          });
+                        }}
+                      />
+                    </label>
+                  );
+                })}
+              </div>
+              {!isSplitValid ? (
+                <p className="mt-2 text-xs text-destructive">Select at least one person.</p>
+              ) : null}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">Included: Everyone</p>
+          )}
+        </div>
 
         <div className="space-y-2">
           <Label htmlFor="item" className="uppercase text-xs tracking-wider text-muted-foreground">

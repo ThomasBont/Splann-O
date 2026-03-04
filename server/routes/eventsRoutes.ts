@@ -176,11 +176,6 @@ router.post("/:eventId/members", requireAuth, asyncHandler(async (req, res) => {
         eventId: Number(eventId),
         member: memberPayload,
       });
-      broadcastEventRealtime(eventId, {
-        type: "chat:system",
-        eventId: Number(eventId),
-        text: `${memberPayload.name} joined the event`,
-      });
     }
 
     res.status(200).json(memberPayload);

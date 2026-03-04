@@ -3,7 +3,7 @@ import { Router, type Request } from "express";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { api } from "@shared/routes";
-import { barbecues, eventMembers, participants } from "@shared/schema";
+import { barbecues, eventMembers, participants, planActivity } from "@shared/schema";
 import { optionalCountryCodeSchema } from "@shared/lib/country-code-schema";
 import {
   derivePlanTypeSelection,
@@ -22,6 +22,7 @@ import { db } from "../db";
 import { broadcastEventRealtime } from "../lib/eventRealtime";
 import { getLimits } from "../lib/plan";
 import { listPlanActivity, logPlanActivity } from "../lib/planActivity";
+import { postSystemChatMessage } from "../lib/systemChat";
 import { log } from "../lib/logger";
 import { auditLog, auditSecurity } from "../lib/audit";
 import { badRequest, forbidden, notFound, unauthorized, upgradeRequired } from "../lib/errors";
@@ -116,8 +117,74 @@ router.get("/plans/:id/activity", requireAuth, asyncHandler(async (req, res) => 
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id <= 0) badRequest("Invalid plan id");
   await assertEventAccessOrThrow(req, id);
-  const items = await listPlanActivity(id, 50);
-  res.json(items);
+  const userId = req.session?.userId;
+  if (!userId) unauthorized("Not authenticated");
+  const limit = Math.min(Math.max(Number(req.query.limit ?? 50), 1), 200);
+
+  const [member] = await db
+    .select({ lastReadActivityAt: eventMembers.lastReadActivityAt })
+    .from(eventMembers)
+    .where(and(eq(eventMembers.eventId, id), eq(eventMembers.userId, userId)))
+    .limit(1);
+  const cutoff = member?.lastReadActivityAt ?? new Date(0);
+
+  const items = await listPlanActivity(id, limit);
+  const [unreadRow] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(planActivity)
+    .where(and(eq(planActivity.eventId, id), sql`${planActivity.createdAt} > ${cutoff}`));
+
+  res.json({
+    items,
+    unreadCount: Number(unreadRow?.count ?? 0),
+  });
+}));
+
+router.post("/plans/:id/activity/read", requireAuth, asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) badRequest("Invalid plan id");
+  await assertEventAccessOrThrow(req, id);
+  const userId = req.session?.userId;
+  if (!userId) unauthorized("Not authenticated");
+
+  const body = z.object({
+    readUpTo: z.coerce.date().optional(),
+  }).optional().parse(req.body ?? {});
+  const readAt = body?.readUpTo ?? new Date();
+
+  const [updated] = await db
+    .update(eventMembers)
+    .set({ lastReadActivityAt: readAt })
+    .where(and(eq(eventMembers.eventId, id), eq(eventMembers.userId, userId)))
+    .returning({ eventId: eventMembers.eventId, lastReadActivityAt: eventMembers.lastReadActivityAt });
+
+  if (!updated) {
+    const [inserted] = await db
+      .insert(eventMembers)
+      .values({
+        eventId: id,
+        userId,
+        role: "member",
+        joinedAt: new Date(),
+        lastReadActivityAt: readAt,
+      })
+      .onConflictDoUpdate({
+        target: [eventMembers.eventId, eventMembers.userId],
+        set: { lastReadActivityAt: readAt },
+      })
+      .returning({ eventId: eventMembers.eventId, lastReadActivityAt: eventMembers.lastReadActivityAt });
+
+    res.json({
+      planId: inserted?.eventId ?? id,
+      lastReadActivityAt: inserted?.lastReadActivityAt ? inserted.lastReadActivityAt.toISOString() : readAt.toISOString(),
+    });
+    return;
+  }
+
+  res.json({
+    planId: updated.eventId,
+    lastReadActivityAt: updated.lastReadActivityAt ? updated.lastReadActivityAt.toISOString() : readAt.toISOString(),
+  });
 }));
 
 router.get(p(api.barbecues.get.path), asyncHandler(async (req, res) => {
@@ -223,6 +290,7 @@ async function handleLeavePlan(req: Request, res: any, planIdRaw: string | undef
       eventId: id,
       userId: sessionUserId,
     });
+    await postSystemChatMessage(id, `${req.session?.username || "Someone"} left the plan`);
     if (outcome.newCreatorId) {
       broadcastEventRealtime(id, {
         type: "plan:creator_changed",
@@ -443,6 +511,7 @@ router.post("/barbecues/:id/settle-up", requireAuth, asyncHandler(async (req, re
   const ip = (req.headers["x-forwarded-for"] as string)?.split(",")[0]?.trim() || (req.socket as { remoteAddress?: string }).remoteAddress || "unknown";
   auditSecurity("event.lock", { user: req.session!.userId, ip });
   auditLog("barbecue.settle_up", { barbecueId: id, username: req.session!.username });
+  await postSystemChatMessage(id, `${req.session?.username || "Someone"} settled up`);
   res.json(updated);
 }));
 

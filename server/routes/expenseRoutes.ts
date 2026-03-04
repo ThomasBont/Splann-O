@@ -13,13 +13,29 @@ import { participantRepo } from "../repositories/participantRepo";
 import { db } from "../db";
 import { requireAuth } from "../middleware/requireAuth";
 import { broadcastEventRealtime } from "../lib/eventRealtime";
+import { broadcastPlanBalancesUpdated } from "../lib/planBalancesRealtime";
 import { logPlanActivity } from "../lib/planActivity";
+import { postSystemChatMessage } from "../lib/systemChat";
 import { badRequest, forbidden, notFound, unauthorized } from "../lib/errors";
 import { asyncHandler, assertEventAccessOrThrow, ensurePrivateEventParticipantOrCreator, getBarbecueOr404, p } from "./_helpers";
 
 const router = Router();
 const RECEIPT_UPLOAD_DIR = path.resolve(process.cwd(), "public/uploads/receipts");
 const MAX_RECEIPT_SIZE_BYTES = 5 * 1024 * 1024;
+
+function normalizeIncludedUserIds(input: unknown): string[] | null | undefined {
+  if (input === undefined) return undefined;
+  if (input == null) return null;
+  if (!Array.isArray(input)) return null;
+  const cleaned = Array.from(
+    new Set(
+      input
+        .map((value) => String(value).trim())
+        .filter((value) => value.length > 0),
+    ),
+  );
+  return cleaned;
+}
 
 router.get(p(api.expenses.list.path), asyncHandler(async (req, res) => {
   const bbq = await getBarbecueOr404(req, Number(req.params.bbqId));
@@ -33,10 +49,15 @@ router.post(p(api.expenses.create.path), asyncHandler(async (req, res) => {
   const bodySchema = api.expenses.create.input.extend({
     amount: z.coerce.number(),
     participantId: z.coerce.number(),
+    includedUserIds: z.array(z.string()).optional().nullable(),
   });
   const input = bodySchema.parse(req.body);
   const { optInByDefault, ...expenseData } = input;
-  const created = await expenseRepo.create({ ...expenseData, barbecueId: bbqId }, { optInByDefault });
+  const includedUserIds = normalizeIncludedUserIds(expenseData.includedUserIds);
+  const created = await expenseRepo.create(
+    { ...expenseData, barbecueId: bbqId, includedUserIds: includedUserIds === undefined ? null : includedUserIds },
+    { optInByDefault },
+  );
   const actor = await participantRepo.getById(input.participantId);
   const actorName = actor?.name || req.session?.username || "Someone";
   await logPlanActivity({
@@ -51,17 +72,42 @@ router.post(p(api.expenses.create.path), asyncHandler(async (req, res) => {
       currency: bbq.currency ?? null,
     },
   });
+  await broadcastPlanBalancesUpdated(bbqId);
   res.status(201).json(created);
 }));
 
 router.put(p(api.expenses.update.path), asyncHandler(async (req, res) => {
+  const expenseId = Number(req.params.id);
+  if (!Number.isInteger(expenseId) || expenseId <= 0) badRequest("Invalid expense id");
   const bodySchema = api.expenses.update.input.extend({
     amount: z.coerce.number().optional(),
     participantId: z.coerce.number().optional(),
+    includedUserIds: z.array(z.string()).optional().nullable(),
   });
   const input = bodySchema.parse(req.body);
-  const updated = await expenseRepo.update(Number(req.params.id), input);
+  const [before] = await db.select().from(expenses).where(eq(expenses.id, expenseId)).limit(1);
+  if (!before) notFound("Expense not found");
+  const includedUserIds = normalizeIncludedUserIds(input.includedUserIds);
+  const updated = await expenseRepo.update(expenseId, {
+    ...input,
+    ...(includedUserIds !== undefined ? { includedUserIds } : {}),
+  });
   if (!updated) notFound("Expense not found");
+  const beforeIncluded = normalizeIncludedUserIds(before.includedUserIds) ?? null;
+  const afterIncluded = normalizeIncludedUserIds(updated.includedUserIds) ?? null;
+  const splitChanged = JSON.stringify(beforeIncluded) !== JSON.stringify(afterIncluded);
+  const changed = (
+    (input.item !== undefined && input.item !== before.item)
+    || (input.category !== undefined && input.category !== before.category)
+    || (input.amount !== undefined && Number(input.amount) !== Number(before.amount))
+    || (input.participantId !== undefined && Number(input.participantId) !== Number(before.participantId))
+    || splitChanged
+  );
+  if (changed) {
+    const actorName = req.session?.username || "Someone";
+    await postSystemChatMessage(updated.barbecueId, `${actorName} updated ${updated.item}`);
+  }
+  await broadcastPlanBalancesUpdated(updated.barbecueId);
   res.json(updated);
 }));
 
@@ -125,6 +171,7 @@ router.delete(p(api.expenses.delete.path), requireAuth, asyncHandler(async (req,
     });
   }
 
+  await broadcastPlanBalancesUpdated(expense.barbecueId);
   res.status(204).send();
 }));
 
@@ -227,6 +274,7 @@ router.patch("/barbecues/:bbqId/expenses/:expenseId/share", requireAuth, asyncHa
   const schema = z.object({ in: z.boolean() });
   const { in: inShare } = schema.parse(req.body);
   await expenseRepo.setExpenseShare(expenseId, myParticipant.id, inShare);
+  await broadcastPlanBalancesUpdated(bbqId);
   res.json({ ok: true });
 }));
 

@@ -2,6 +2,7 @@ import { desc, eq } from "drizzle-orm";
 import { db } from "../db";
 import { planActivity } from "@shared/schema";
 import { broadcastEventRealtime } from "./eventRealtime";
+import { postSystemChatMessage } from "./systemChat";
 
 export type PlanActivityType = "PLAN_UPDATED" | "EXPENSE_ADDED" | "EXPENSE_DELETED" | "MEMBER_JOINED";
 
@@ -42,6 +43,23 @@ export async function logPlanActivity(input: LogPlanActivityInput) {
     eventId: input.eventId,
     activity: payload,
   });
+
+  // Keep chat feed aligned with persisted activity stream.
+  const mirroredTypes = new Set<PlanActivityType>(["EXPENSE_ADDED", "EXPENSE_DELETED", "MEMBER_JOINED"]);
+  if (mirroredTypes.has(input.type)) {
+    try {
+      await postSystemChatMessage(input.eventId, input.message);
+    } catch (error) {
+      if (process.env.NODE_ENV !== "production") {
+        console.error("[plan-activity] failed to mirror system chat", {
+          eventId: input.eventId,
+          type: input.type,
+          message: input.message,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+  }
 
   return payload;
 }

@@ -12,8 +12,14 @@ export type PlanActivityItem = {
   createdAt: string | null;
 };
 
+type PlanActivityResponse = {
+  items: PlanActivityItem[];
+  unreadCount: number;
+};
+
 export function usePlanActivity(eventId: number | null, enabled = true) {
   const [items, setItems] = useState<PlanActivityItem[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [highlightedId, setHighlightedId] = useState<number | null>(null);
@@ -22,6 +28,7 @@ export function usePlanActivity(eventId: number | null, enabled = true) {
   useEffect(() => {
     if (!enabled || !eventId) {
       setItems([]);
+      setUnreadCount(0);
       setError(null);
       setLoading(false);
       seenIdsRef.current = new Set();
@@ -32,19 +39,23 @@ export function usePlanActivity(eventId: number | null, enabled = true) {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(`/api/plans/${eventId}/activity?limit=10`, { credentials: "include" });
+        const res = await fetch(`/api/plans/${eventId}/activity?limit=50`, { credentials: "include" });
         const body = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error((body as { message?: string }).message || "Failed to load activity");
-        const rows = Array.isArray((body as { items?: unknown }).items)
-          ? ((body as { items: PlanActivityItem[] }).items)
-          : [];
+        const response = Array.isArray(body)
+          ? ({ items: body as PlanActivityItem[], unreadCount: 0 } satisfies PlanActivityResponse)
+          : (body as PlanActivityResponse);
+        const rows = Array.isArray(response.items) ? response.items : [];
+        const unread = Number.isFinite(Number(response.unreadCount)) ? Number(response.unreadCount) : 0;
         if (cancelled) return;
         seenIdsRef.current = new Set(rows.map((row) => row.id));
         setItems(rows);
+        setUnreadCount(unread);
       } catch (e) {
         if (cancelled) return;
         setError(e instanceof Error ? e.message : "Failed to load activity");
         setItems([]);
+        setUnreadCount(0);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -72,7 +83,8 @@ export function usePlanActivity(eventId: number | null, enabled = true) {
       const next = payload.activity;
       if (seenIdsRef.current.has(next.id)) return;
       seenIdsRef.current.add(next.id);
-      setItems((prev) => [next, ...prev.filter((item) => item.id !== next.id)].slice(0, 10));
+      setItems((prev) => [next, ...prev.filter((item) => item.id !== next.id)].slice(0, 50));
+      setUnreadCount((prev) => prev + 1);
       setHighlightedId(next.id);
       window.setTimeout(() => {
         setHighlightedId((current) => (current === next.id ? null : current));
@@ -83,6 +95,24 @@ export function usePlanActivity(eventId: number | null, enabled = true) {
     };
   }, [enabled, eventId]);
 
+  const markAllAsRead = async () => {
+    if (!enabled || !eventId) return;
+    setUnreadCount(0);
+    await fetch(`/api/plans/${eventId}/activity/read`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ readUpTo: new Date().toISOString() }),
+    }).catch(() => undefined);
+    const res = await fetch(`/api/plans/${eventId}/activity?limit=50`, { credentials: "include" });
+    const body = await res.json().catch(() => ({}));
+    const response = Array.isArray(body)
+      ? ({ items: body as PlanActivityItem[], unreadCount: 0 } satisfies PlanActivityResponse)
+      : (body as PlanActivityResponse);
+    const unread = Number.isFinite(Number(response.unreadCount)) ? Number(response.unreadCount) : 0;
+    setUnreadCount(unread);
+  };
+
   const latestItems = useMemo(() => items.slice(0, 3), [items]);
-  return { items, latestItems, loading, error, highlightedId };
+  return { items, latestItems, unreadCount, loading, error, highlightedId, markAllAsRead };
 }

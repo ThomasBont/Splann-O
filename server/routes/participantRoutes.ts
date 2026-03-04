@@ -13,6 +13,7 @@ import { db } from "../db";
 import { getLimits } from "../lib/plan";
 import { broadcastEventRealtime } from "../lib/eventRealtime";
 import { logPlanActivity } from "../lib/planActivity";
+import { postSystemChatMessage } from "../lib/systemChat";
 import { badRequest, conflict, forbidden, gone, notFound, unauthorized, upgradeRequired } from "../lib/errors";
 import { assertEventAccessOrThrow, asyncHandler, getBarbecueOr404, isEventMemberUser, p } from "./_helpers";
 
@@ -65,6 +66,9 @@ router.post("/invites/:token/accept", requireAuth, asyncHandler(async (req, res)
       userId: me.id,
       status: "accepted",
     }).onConflictDoNothing();
+  }
+  if (me) {
+    await postSystemChatMessage(eventId, `${me.displayName || me.username} joined the plan`);
   }
 
   res.json({
@@ -433,6 +437,7 @@ router.patch(p(api.participants.accept.path), asyncHandler(async (req, res) => {
         joinedAt: new Date().toISOString(),
       },
     });
+    await postSystemChatMessage(updated.barbecueId, `${user?.displayName || user?.username || updated.name} joined the plan`);
   }
   res.json(updated);
 }));
@@ -527,6 +532,7 @@ router.delete(p(api.participants.delete.path), requireAuth, asyncHandler(async (
       eventId: participant.barbecueId,
       userId: sessionUserId,
     });
+    await postSystemChatMessage(participant.barbecueId, `${participant.name} left the plan`);
   }
 
   res.status(204).send();

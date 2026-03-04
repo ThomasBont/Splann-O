@@ -148,6 +148,9 @@ export function useAuth() {
     onSuccess: (nextUser) => {
       queryClient.setQueryData(['/api/auth/me'], nextUser);
       queryClient.invalidateQueries({ queryKey: ['/api/auth/me'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/barbecues'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/memberships'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/me/plan'] });
     },
   });
 

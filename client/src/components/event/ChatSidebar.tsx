@@ -8,6 +8,7 @@ import { useAppToast } from "@/hooks/use-app-toast";
 import { useEventMembers } from "@/hooks/use-participants";
 import { cn } from "@/lib/utils";
 import type { SendMessageResult } from "@/hooks/use-event-chat";
+import { SYSTEM_USER_ID, SYSTEM_USER_NAME } from "@shared/lib/system-user";
 
 type ChatSidebarProps = {
   eventId: number | null;
@@ -338,6 +339,7 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true, c
               || Number.isNaN(currentDate.getTime())
               || !isSameDay(currentDate, prevDate);
             if (msg.type === "system") {
+              const systemName = msg.user?.name || SYSTEM_USER_NAME;
               return (
                 <div key={msg.id}>
                   {showDateSeparator ? (
@@ -347,10 +349,23 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true, c
                       </span>
                     </div>
                   ) : null}
-                  <div className="flex justify-center">
-                    <span className="rounded-full border border-border/70 bg-card px-3 py-1 text-[11px] italic text-muted-foreground">
-                      {msg.text}
-                    </span>
+                  <div className="mt-3 flex justify-start">
+                    <div className="mr-2 flex w-8 flex-col items-center pt-0.5">
+                      <span className="grid h-7 w-7 place-items-center rounded-full border border-border/70 bg-muted text-[11px] font-semibold text-muted-foreground">
+                        S
+                      </span>
+                    </div>
+                    <div className="max-w-[75%]">
+                      <div className="mb-1 px-1 text-[11px] text-muted-foreground">
+                        <span className="font-semibold text-foreground/90">{systemName}</span>
+                        <span className="ml-1 rounded-full border border-border/60 bg-card/60 px-1.5 py-0 text-[9px] uppercase tracking-wide">System</span>
+                        <span className="px-1 text-muted-foreground/70">·</span>
+                        <span className="text-[10px] text-muted-foreground/70">{formatMessageTime(msg.createdAt)}</span>
+                      </div>
+                      <div className="rounded-2xl rounded-bl-md border border-border/70 bg-muted/55 px-4 py-2.5 text-sm text-foreground shadow-sm dark:bg-neutral-800/80 dark:border-neutral-700/80">
+                        <p className="whitespace-pre-wrap break-words">{msg.text}</p>
+                      </div>
+                    </div>
                   </div>
                 </div>
               );
@@ -359,7 +374,7 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true, c
             const senderFromMember = senderId ? membersById.get(senderId) : undefined;
             const senderName = msg.user?.name || senderFromMember?.name || "Unknown user";
             const senderAvatar = msg.user?.avatarUrl ?? senderFromMember?.avatarUrl ?? null;
-            const mine = String(msg.user?.id ?? "") === String(currentUser?.id ?? "") || msg.user?.name === currentUser?.username;
+            const mine = senderId !== SYSTEM_USER_ID && (senderId === String(currentUser?.id ?? "") || msg.user?.name === currentUser?.username);
             const groupedWithPrev = isGroupedWithNeighbor(msg, prev);
             return (
               <div key={msg.id}>
@@ -384,22 +399,25 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true, c
                       ) : null}
                     </div>
                   ) : null}
-                  <div className={`${mine ? "max-w-[84%] items-end" : "max-w-[82%] items-start"} flex flex-col`}>
+                  <div className={`${mine ? "max-w-[75%] items-end" : "max-w-[75%] items-start"} flex flex-col`}>
                     {!groupedWithPrev ? (
-                      <p className={`mb-1 px-1 text-[11px] ${mine ? "text-muted-foreground/80" : "text-muted-foreground"}`}>
-                        {mine ? "You" : senderName}
-                      </p>
+                      <div className={`mb-1 px-1 text-[11px] ${mine ? "text-muted-foreground/80" : "text-muted-foreground"}`}>
+                        <span className="font-semibold text-foreground/90">{mine ? "You" : senderName}</span>
+                        <span className="px-1 text-muted-foreground/70">·</span>
+                        <span className="text-[10px] text-muted-foreground/70">{formatMessageTime(msg.createdAt)}</span>
+                      </div>
                     ) : null}
                     <div
-                      className={`rounded-lg px-3 py-2 text-sm ${mine
-                        ? "bg-brand-yellow text-white shadow-[0_4px_12px_rgba(180,130,0,0.35)]"
-                        : "border border-border/70 bg-muted/45 text-foreground dark:bg-neutral-800/85 dark:border-neutral-700/80"}`}
+                      className={`rounded-2xl px-4 py-2.5 text-sm shadow-sm ${mine
+                        ? "rounded-br-md bg-primary text-primary-foreground"
+                        : "rounded-bl-md border border-border/70 bg-muted/45 text-foreground dark:bg-neutral-800/85 dark:border-neutral-700/80"}`}
                     >
                       <p className="whitespace-pre-wrap break-words">{msg.text}</p>
-                      <div className={`mt-1 flex items-center justify-end gap-2 text-[10px] ${mine ? "text-white/80" : "text-muted-foreground"}`}>
-                        {msg.status === "sending" ? <span>sending…</span> : null}
-                        <span>{formatMessageTime(msg.createdAt)}</span>
-                      </div>
+                      {msg.status === "sending" ? (
+                        <div className={`mt-1 text-[10px] ${mine ? "text-primary-foreground/80" : "text-muted-foreground"}`}>
+                          sending…
+                        </div>
+                      ) : null}
                       {msg.status === "failed" && msg.clientMessageId ? (
                         <div className="mt-1 flex items-center gap-2">
                           <p className={`text-[10px] ${mine ? "text-white/90" : "text-destructive"}`}>failed</p>
@@ -537,7 +555,7 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true, c
           <Button
             type="button"
             size="icon"
-            className="h-10 w-10 rounded-full bg-brand-yellow text-white hover:bg-brand-yellow-hover disabled:bg-muted disabled:text-muted-foreground"
+            className="h-10 w-10 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground"
             onClick={() => void handleSubmit()}
             disabled={isLocked || sending || !draft.trim() || !eventId}
             aria-label="Send message"

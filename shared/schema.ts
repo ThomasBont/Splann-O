@@ -163,6 +163,7 @@ export const expenses = pgTable("expenses", {
   category: text("category").notNull(),
   item: text("item").notNull(),
   amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  includedUserIds: text("included_user_ids").array(),
   receiptUrl: text("receipt_url"),
   receiptMime: text("receipt_mime"),
   receiptUploadedAt: timestamp("receipt_uploaded_at"),
@@ -232,6 +233,7 @@ export const eventMembers = pgTable("event_members", {
   userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   role: text("role").notNull().default("member"), // member | owner
   joinedAt: timestamp("joined_at").defaultNow(),
+  lastReadActivityAt: timestamp("last_read_activity_at", { withTimezone: true }),
 }, (table) => ({
   uniqueEventUser: unique().on(table.eventId, table.userId),
 }));
@@ -309,6 +311,7 @@ export const insertBarbecueSchema = createInsertSchema(barbecues).omit({ id: tru
 export const insertParticipantSchema = createInsertSchema(participants).omit({ id: true, createdAt: true });
 export const insertExpenseSchema = createInsertSchema(expenses).omit({ id: true }).extend({
   amount: z.union([z.string(), z.number()]),
+  includedUserIds: z.array(z.string()).optional().nullable(),
 });
 
 export type User = typeof users.$inferSelect;

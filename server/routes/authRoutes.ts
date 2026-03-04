@@ -10,6 +10,7 @@ import { requireAuth } from "../middleware/requireAuth";
 import { loginLimiter, passwordResetLimiter } from "../middleware/rate-limit";
 import { auditSecurity } from "../lib/audit";
 import { badRequest, forbidden, notFound } from "../lib/errors";
+import passport from "passport";
 
 const router = Router();
 const currencyCodeSchema = z.string().regex(/^[A-Z]{3}$/, "Currency code must be 3 uppercase letters");
@@ -48,6 +49,17 @@ function asyncHandler(fn: (req: Request, res: any, next: any) => Promise<void>) 
   return (req: Request, res: any, next: any) => fn(req, res, next).catch(next);
 }
 
+function ensureGoogleOAuthConfigured(req: Request, res: any, next: any) {
+  const strategy = (passport as unknown as { _strategy?: (name: string) => unknown })._strategy?.("google");
+  if (!strategy) {
+    return res.status(503).json({
+      code: "GOOGLE_OAUTH_NOT_CONFIGURED",
+      message: "Google sign-in is not configured",
+    });
+  }
+  return next();
+}
+
 router.get(
   "/assets/:assetId",
   asyncHandler(async (req, res) => {
@@ -69,6 +81,32 @@ router.get(
       }
     }
     return res.status(404).json({ code: "ASSET_NOT_FOUND", message: "Asset not found" });
+  }),
+);
+
+router.get(
+  "/auth/google",
+  ensureGoogleOAuthConfigured,
+  passport.authenticate("google", { scope: ["profile", "email"] }),
+);
+
+router.get(
+  "/auth/google/callback",
+  ensureGoogleOAuthConfigured,
+  passport.authenticate("google", { failureRedirect: "/login?error=google", session: true }),
+  asyncHandler(async (req, res) => {
+    const user = req.user as { id: number; username: string } | undefined;
+    if (!user) return res.redirect("/login?error=google");
+
+    req.session!.userId = user.id;
+    req.session!.username = user.username;
+    req.session!.save((err: Error) => {
+      if (err) {
+        console.error("[session] save error on google callback:", err);
+        return res.status(500).json({ message: "Session error" });
+      }
+      return res.redirect("/app");
+    });
   }),
 );
 

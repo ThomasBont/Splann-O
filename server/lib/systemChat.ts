@@ -12,5 +12,4 @@ export async function postSystemChatMessage(eventId: number, text: string): Prom
   });
   if (!saved.inserted) return;
   broadcastEventRealtime(eventId, { type: "chat:new", message: saved.message });
-  broadcastEventRealtime(eventId, { type: "message", message: saved.message });
 }

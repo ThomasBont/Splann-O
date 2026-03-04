@@ -104,6 +104,10 @@ export async function login(username: string, password: string, ip: string): Pro
     auditSecurity("login.failure", { user: "unknown", ip });
     throw unauthorized("invalid_credentials");
   }
+  if (!user.passwordHash) {
+    auditSecurity("login.failure", { user: user.id, ip });
+    throw unauthorized("invalid_credentials");
+  }
   const valid = await bcrypt.compare(password, user.passwordHash);
   if (!valid) {
     auditSecurity("login.failure", { user: user.id, ip });

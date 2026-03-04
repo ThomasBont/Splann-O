@@ -444,7 +444,7 @@ export function useEventChat(eventId: number | null, enabled = true) {
         reconcileServerMessage(incoming, typeof payload.clientMessageId === "string" ? payload.clientMessageId : incoming.clientMessageId);
         return;
       }
-      if (payload?.type === "chat:new" || payload?.type === "message") {
+      if (payload?.type === "chat:new") {
         const incoming = normalizeIncomingMessage(payload.message as IncomingServerMessage);
         if (!incoming) return;
         reconcileServerMessage(incoming, incoming.clientMessageId);

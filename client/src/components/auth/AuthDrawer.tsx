@@ -20,6 +20,17 @@ type AuthDrawerProps = {
   onSuccess?: () => void;
 };
 
+function GoogleIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4 w-4">
+      <path fill="#EA4335" d="M12 10.2v3.9h5.5c-.2 1.2-.9 2.2-1.9 2.9v2.4h3.1c1.8-1.7 2.8-4.2 2.8-7.2 0-.7-.1-1.3-.2-2H12z" />
+      <path fill="#34A853" d="M12 21c2.5 0 4.6-.8 6.2-2.3l-3.1-2.4c-.9.6-1.9 1-3.1 1-2.4 0-4.4-1.6-5.1-3.8H3.7v2.4C5.3 19 8.4 21 12 21z" />
+      <path fill="#4A90E2" d="M6.9 13.5c-.2-.6-.3-1.1-.3-1.7s.1-1.2.3-1.7V7.7H3.7C3.2 8.8 3 10 3 11.8s.2 3  .7 4.1l3.2-2.4z" />
+      <path fill="#FBBC05" d="M12 6.3c1.4 0 2.6.5 3.5 1.4l2.6-2.6C16.6 3.7 14.5 3 12 3 8.4 3 5.3 5 3.7 7.7l3.2 2.4c.7-2.2 2.7-3.8 5.1-3.8z" />
+    </svg>
+  );
+}
+
 export function AuthDrawer({
   open,
   mode,
@@ -105,6 +116,9 @@ export function AuthDrawer({
   };
 
   const isLoading = login.isPending || register.isPending || forgotPassword.isPending;
+  const handleGoogleContinue = () => {
+    window.location.href = "/api/auth/google";
+  };
 
   const titleByTab: Record<AuthTab, string> = {
     login: t.auth.loginTitle,
@@ -159,6 +173,15 @@ export function AuthDrawer({
 
             {tab === "login" ? (
               <div className="space-y-3">
+                <Button type="button" variant="outline" className="w-full gap-2" onClick={handleGoogleContinue}>
+                  <GoogleIcon />
+                  Continue with Google
+                </Button>
+                <div className="flex items-center gap-2 py-1 text-xs text-muted-foreground">
+                  <div className="h-px flex-1 bg-border" />
+                  <span>or</span>
+                  <div className="h-px flex-1 bg-border" />
+                </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs">{t.auth.username}</Label>
                   <Input
@@ -218,6 +241,15 @@ export function AuthDrawer({
 
             {tab === "register" ? (
               <div className="space-y-3">
+                <Button type="button" variant="outline" className="w-full gap-2" onClick={handleGoogleContinue}>
+                  <GoogleIcon />
+                  Continue with Google
+                </Button>
+                <div className="flex items-center gap-2 py-1 text-xs text-muted-foreground">
+                  <div className="h-px flex-1 bg-border" />
+                  <span>or</span>
+                  <div className="h-px flex-1 bg-border" />
+                </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs">{t.auth.displayName}</Label>
                   <Input

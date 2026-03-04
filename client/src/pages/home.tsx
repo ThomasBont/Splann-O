@@ -5192,7 +5192,8 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
         ) : (
           <div className="text-center py-16 text-muted-foreground">
             <Receipt className="w-12 h-12 mx-auto mb-4 opacity-20" />
-            <p className="text-lg font-medium">Pick an event to get started</p>
+            <p className="text-lg font-medium">Select or create a plan to get started.</p>
+            <p className="mt-1 text-sm">Choose a plan from the sidebar or create a new one.</p>
           </div>
         )}
         </>

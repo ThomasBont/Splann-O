@@ -24,6 +24,7 @@ import { bbqRepo } from "./repositories/bbqRepo";
 import { participantRepo } from "./repositories/participantRepo";
 import { userRepo } from "./repositories/userRepo";
 import { log } from "./lib/logger";
+import passport, { configurePassport } from "./lib/passport";
 
 declare module "express-session" {
   interface SessionData {
@@ -41,6 +42,7 @@ declare module "http" {
 export function createApp() {
   const app = express();
   const publicSectionEnabled = process.env.FEATURE_PUBLIC_PLANS === "1" || process.env.ENABLE_PUBLIC_SECTION === "1";
+  configurePassport();
 
   app.use(
     express.json({
@@ -89,6 +91,8 @@ export function createApp() {
       },
     })
   );
+  app.use(passport.initialize());
+  app.use(passport.session());
 
   app.use(requestContext);
 

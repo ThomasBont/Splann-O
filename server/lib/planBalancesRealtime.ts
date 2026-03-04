@@ -14,25 +14,10 @@ export type PlanBalancesRealtimePayload = {
 };
 
 function parseIncludedUserIds(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value.map((entry) => String(entry).trim()).filter((entry) => entry.length > 0);
-  }
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (!trimmed) return [];
-    if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
-      const inner = trimmed.slice(1, -1).trim();
-      if (!inner) return [];
-      return inner.split(",").map((entry) => entry.replace(/^"+|"+$/g, "").trim()).filter(Boolean);
-    }
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (Array.isArray(parsed)) return parsed.map((entry) => String(entry).trim()).filter(Boolean);
-    } catch {
-      return [];
-    }
-  }
-  return [];
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => String(entry).trim())
+    .filter((entry) => entry.length > 0);
 }
 
 function buildEffectiveExpenseShares(params: {

@@ -20,10 +20,11 @@ import VerifiedPage from "@/pages/verified";
 import VerifyErrorPage from "@/pages/verify-error";
 import SettingsPage from "@/pages/settings";
 import { Button } from "@/components/ui/button";
-import { Lock } from "lucide-react";
+import { Loader2, Lock } from "lucide-react";
 import { FEATURE_PUBLIC_PLANS } from "@/lib/features";
 import { getApiBase, getWsBase } from "@/lib/network";
 import { AppErrorBoundary } from "@/components/AppErrorBoundary";
+import { useAuth } from "@/hooks/use-auth";
 
 function PublicDisabledPage() {
   const [, setLocation] = useLocation();
@@ -46,15 +47,35 @@ function PublicDisabledPage() {
   );
 }
 
+function AuthAwareLanding() {
+  const { user, isLoading } = useAuth();
+  const [, setLocation] = useLocation();
+
+  useEffect(() => {
+    if (isLoading) return;
+    if (user) setLocation("/app/private", { replace: true });
+  }, [isLoading, setLocation, user]);
+
+  if (isLoading || user) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  return <LandingV2 />;
+}
+
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={LandingV2} />
+      <Route path="/" component={AuthAwareLanding} />
       <Route path="/join/:token" component={JoinPage} />
       <Route path="/invite/:token" component={JoinPage} />
       <Route path="/basic" component={Basic} />
-      <Route path="/login" component={LandingV2} />
-      <Route path="/signup" component={LandingV2} />
+      <Route path="/login" component={AuthAwareLanding} />
+      <Route path="/signup" component={AuthAwareLanding} />
       <Route path="/app/e/:eventId" component={AppRoute} />
       <Route path="/app/home" component={AppRoute} />
       <Route path="/app/private" component={AppRoute} />

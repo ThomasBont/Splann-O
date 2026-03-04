@@ -288,8 +288,6 @@ chatWss.on("connection", (ws, req) => {
         });
         if (result.inserted) {
           broadcastEventRealtime(meta.eventId, { type: "chat:new", message: result.message });
-          // Backward compatibility for older clients.
-          broadcastEventRealtime(meta.eventId, { type: "message", message: result.message });
         }
         ws.send(JSON.stringify({ type: "chat:ack", clientMessageId, message: result.message }));
       })

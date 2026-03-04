@@ -33,8 +33,18 @@ export const userRepo = {
     return u;
   },
 
+  async findByGoogleId(googleId: string): Promise<User | undefined> {
+    const [u] = await db.select().from(users).where(eq(users.googleId, googleId));
+    return u;
+  },
+
   async findById(id: number): Promise<User | undefined> {
     const [u] = await db.select().from(users).where(eq(users.id, id));
+    return u;
+  },
+
+  async linkGoogleId(id: number, googleId: string): Promise<User | undefined> {
+    const [u] = await db.update(users).set({ googleId }).where(eq(users.id, id)).returning();
     return u;
   },
 

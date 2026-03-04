@@ -3,8 +3,10 @@ import { randomBytes } from "crypto";
 import { userRepo } from "../repositories/userRepo";
 import type { Profile as PassportProfile } from "passport";
 import { createRequire } from "module";
+import path from "path";
 
-const require = createRequire(import.meta.url);
+// CJS-safe and ESM-safe require factory (Render build outputs CJS).
+const require = createRequire(path.join(process.cwd(), "package.json"));
 
 type SessionUser = {
   id: number;

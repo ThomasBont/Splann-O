@@ -102,15 +102,13 @@ router.post(p(api.barbecues.create.path), asyncHandler(async (req, res) => {
     currencySource: (parsed.currencySource as "auto" | "manual" | undefined) ?? "auto",
   };
   const created = await bbqService.createBarbecue(input, req.session?.username);
-  const ownerUserId = req.session?.userId ?? (req.session?.username ? (await userRepo.findByUsername(req.session.username))?.id : undefined);
-  if (ownerUserId) {
-    await db.insert(eventMembers).values({
-      eventId: created.id,
-      userId: ownerUserId,
-      role: "owner",
-      joinedAt: new Date(),
-    }).onConflictDoNothing({ target: [eventMembers.eventId, eventMembers.userId] });
-  }
+  const ownerUserId = req.session!.userId!;
+  await db.insert(eventMembers).values({
+    eventId: created.id,
+    userId: ownerUserId,
+    role: "owner",
+    joinedAt: new Date(),
+  }).onConflictDoNothing({ target: [eventMembers.eventId, eventMembers.userId] });
   res.status(201).json(created);
 }));
 

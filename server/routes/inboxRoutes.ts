@@ -4,7 +4,7 @@ import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import { publicEventRsvps } from "@shared/schema";
 import { requireAuth } from "../middleware/requireAuth";
-import { checkPublicInboxRateLimit, publicInboxRateLimit } from "../middleware/publicInboxRateLimit";
+import { publicInboxRateLimit } from "../middleware/publicInboxRateLimit";
 import { publicInboxRepo } from "../repositories/publicInboxRepo";
 import { userRepo } from "../repositories/userRepo";
 import { bbqRepo } from "../repositories/bbqRepo";
@@ -50,15 +50,6 @@ router.post("/public-events/:eventId/conversations", requireAuth, asyncHandler(a
       participantLabel: req.session!.username,
       status: "pending",
     });
-  }
-
-  const limiter = checkPublicInboxRateLimit({
-    userId: req.session!.userId!,
-    conversationId: convo.id,
-    approved: eligibility.isApproved,
-  });
-  if (!limiter.ok) {
-    return res.status(429).json({ code: "RATE_LIMITED", message: "Too many messages right now. Please try again later." });
   }
 
   await publicInboxRepo.addMessage({

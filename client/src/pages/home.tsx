@@ -3517,6 +3517,8 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
 
                           <SharedCostsWidget
                             eventId={selectedBbq.id}
+                            currentUserId={user?.id ?? null}
+                            creatorUserId={selectedBbq.creatorUserId ?? null}
                             planName={selectedBbq.name}
                             peopleCount={participantCount}
                             totalSpentLabel={formatMoney(totalSpent)}

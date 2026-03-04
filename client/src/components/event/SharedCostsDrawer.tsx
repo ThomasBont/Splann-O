@@ -31,6 +31,8 @@ import type { Balance, Settlement } from "@/lib/split/calc";
 
 type SharedCostsDrawerProps = {
   eventId: number | null;
+  currentUserId?: number | null;
+  creatorUserId?: number | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialView?: "overview" | "expense-form";
@@ -39,7 +41,7 @@ type SharedCostsDrawerProps = {
   totalSpentLabel: string;
   expenseCount: number;
   categories: string[];
-  participants: Array<{ id: number; name: string }>;
+  participants: Array<{ id: number; name: string; userId?: number | null }>;
   expenses: ExpenseWithParticipant[];
   balances: Balance[];
   settlements: Settlement[];
@@ -70,6 +72,8 @@ function parseIncludedUserIds(value: unknown): string[] {
 
 export function SharedCostsDrawer({
   eventId,
+  currentUserId = null,
+  creatorUserId = null,
   open,
   onOpenChange,
   initialView = "overview",
@@ -136,10 +140,22 @@ export function SharedCostsDrawer({
     return categories;
   }, [categories, category]);
   const canSettle = useMemo(() => balances.some((balance) => Math.abs(balance.balance) > 0.01), [balances]);
+  const isCreator = !!(currentUserId && creatorUserId && currentUserId === creatorUserId);
+  const myParticipant = useMemo(
+    () => (currentUserId ? participants.find((participant) => participant.userId === currentUserId) ?? null : null),
+    [participants, currentUserId],
+  );
+  const myParticipantId = myParticipant?.id ?? null;
+  const canEditPayer = isCreator;
+  const canSubmitExpenseForm = isCreator || !!myParticipantId;
 
   const resetAddForm = () => {
     setEditingExpenseId(null);
-    setParticipantId(participants[0] ? String(participants[0].id) : "");
+    if (!isCreator && myParticipantId) {
+      setParticipantId(String(myParticipantId));
+    } else {
+      setParticipantId(participants[0] ? String(participants[0].id) : "");
+    }
     setCategory(categories[0] ?? "Other");
     setItem("");
     setAmount("");
@@ -184,7 +200,12 @@ export function SharedCostsDrawer({
 
   const openEditExpenseView = (expense: ExpenseWithParticipant) => {
     setEditingExpenseId(expense.id);
-    setParticipantId(String(expense.participantId));
+    if (!isCreator && myParticipantId) {
+      // Non-creators cannot reassign payer. Keep existing payer selected unless it's their own expense.
+      setParticipantId(String(expense.participantId));
+    } else {
+      setParticipantId(String(expense.participantId));
+    }
     setCategory(expense.category || categories[0] || "Other");
     setItem(expense.item || "");
     setAmount(String(expense.amount));
@@ -217,22 +238,42 @@ export function SharedCostsDrawer({
 
   const handleCreateExpense = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!eventId || !participantId || !item.trim() || !amount || Number(amount) <= 0) return;
+    if (!eventId || !participantId || !item.trim() || !amount || Number(amount) <= 0 || !canSubmitExpenseForm) return;
     if (splitMode === "selected" && includedUserIds.length === 0) return;
 
     try {
       if (editingExpense) {
-        await updateExpense.mutateAsync({
+        const updatePayload: {
+          id: number;
+          participantId?: number;
+          category: string;
+          item: string;
+          amount: number;
+          includedUserIds: string[] | null;
+        } = {
           id: editingExpense.id,
-          participantId: Number(participantId),
           category,
           item: item.trim(),
           amount: Number(amount),
           includedUserIds: splitMode === "selected" ? includedUserIds : null,
+        };
+        if (isCreator) {
+          updatePayload.participantId = Number(participantId);
+        } else if (myParticipantId && editingExpense.participantId === myParticipantId) {
+          // For non-creators, only allow payer updates on own expenses (server enforces this too).
+          updatePayload.participantId = myParticipantId;
+        }
+        await updateExpense.mutateAsync({
+          ...updatePayload,
         });
       } else {
+        const createParticipantId = isCreator ? Number(participantId) : myParticipantId;
+        if (!createParticipantId) {
+          toastError("Couldn’t determine payer for your account.");
+          return;
+        }
         await createExpense.mutateAsync({
-          participantId: Number(participantId),
+          participantId: createParticipantId,
           category,
           item: item.trim(),
           amount,
@@ -271,6 +312,7 @@ export function SharedCostsDrawer({
   const canSaveExpense = Boolean(
     eventId
     && participantId
+    && canSubmitExpenseForm
     && item.trim()
     && amount
     && Number(amount) > 0
@@ -393,18 +435,22 @@ export function SharedCostsDrawer({
                     <div className="mt-3 space-y-3">
                       <div className="space-y-2">
                         <Label htmlFor="shared-cost-participant">Paid by</Label>
-                        <Select value={participantId} onValueChange={setParticipantId}>
-                          <SelectTrigger id="shared-cost-participant">
+                        <Select value={participantId} onValueChange={setParticipantId} disabled={!canEditPayer}>
+                          <SelectTrigger id="shared-cost-participant" disabled={!canEditPayer}>
                             <SelectValue placeholder="Select person" />
                           </SelectTrigger>
                           <SelectContent>
-                            {participants.map((participant) => (
-                              <SelectItem key={`shared-cost-person-${participant.id}`} value={String(participant.id)}>
-                                {participant.name}
-                              </SelectItem>
-                            ))}
+                            {(canEditPayer ? participants : participants.filter((participant) => String(participant.id) === participantId))
+                              .map((participant) => (
+                                <SelectItem key={`shared-cost-person-${participant.id}`} value={String(participant.id)}>
+                                  {participant.name}
+                                </SelectItem>
+                              ))}
                           </SelectContent>
                         </Select>
+                        {!canEditPayer ? (
+                          <p className="text-xs text-slate-500 dark:text-neutral-400">Only the plan creator can change who paid.</p>
+                        ) : null}
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="shared-cost-category">Category</Label>

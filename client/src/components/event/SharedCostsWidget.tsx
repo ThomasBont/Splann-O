@@ -8,12 +8,14 @@ import type { Balance, Settlement } from "@/lib/split/calc";
 
 type SharedCostsWidgetProps = {
   eventId: number | null;
+  currentUserId?: number | null;
+  creatorUserId?: number | null;
   planName: string;
   peopleCount: number;
   totalSpentLabel: string;
   expenseCount: number;
   categories: string[];
-  participants: Array<{ id: number; name: string }>;
+  participants: Array<{ id: number; name: string; userId?: number | null }>;
   expenses: ExpenseWithParticipant[];
   balances: Balance[];
   settlements: Settlement[];
@@ -25,6 +27,8 @@ type SharedCostsWidgetProps = {
 
 export function SharedCostsWidget({
   eventId,
+  currentUserId = null,
+  creatorUserId = null,
   planName,
   peopleCount,
   totalSpentLabel,
@@ -103,6 +107,8 @@ export function SharedCostsWidget({
 
       <SharedCostsDrawer
         eventId={eventId}
+        currentUserId={currentUserId}
+        creatorUserId={creatorUserId}
         open={open}
         onOpenChange={setOpen}
         initialView={initialView}

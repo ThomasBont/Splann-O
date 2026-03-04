@@ -46,12 +46,21 @@ router.get(p(api.expenses.list.path), asyncHandler(async (req, res) => {
 router.post(p(api.expenses.create.path), asyncHandler(async (req, res) => {
   const bbqId = Number(req.params.bbqId);
   const bbq = await getBarbecueOr404(req, bbqId);
+  const sessionUserId = req.session?.userId;
+  if (!sessionUserId) unauthorized("Not authenticated");
+  const isCreator = bbq.creatorUserId === sessionUserId;
   const bodySchema = api.expenses.create.input.extend({
     amount: z.coerce.number(),
     participantId: z.coerce.number(),
     includedUserIds: z.array(z.string()).optional().nullable(),
   });
   const input = bodySchema.parse(req.body);
+  const acceptedParticipants = await participantRepo.listByBbq(bbqId, "accepted");
+  const payerParticipant = acceptedParticipants.find((participant) => participant.id === input.participantId);
+  if (!payerParticipant) badRequest("Paid by must be a plan member");
+  if (!isCreator && payerParticipant.userId !== sessionUserId) {
+    forbidden("Only the plan creator can change who paid");
+  }
   const { optInByDefault, ...expenseData } = input;
   const includedUserIds = normalizeIncludedUserIds(expenseData.includedUserIds);
   const created = await expenseRepo.create(
@@ -79,6 +88,8 @@ router.post(p(api.expenses.create.path), asyncHandler(async (req, res) => {
 router.put(p(api.expenses.update.path), asyncHandler(async (req, res) => {
   const expenseId = Number(req.params.id);
   if (!Number.isInteger(expenseId) || expenseId <= 0) badRequest("Invalid expense id");
+  const sessionUserId = req.session?.userId;
+  if (!sessionUserId) unauthorized("Not authenticated");
   const bodySchema = api.expenses.update.input.extend({
     amount: z.coerce.number().optional(),
     participantId: z.coerce.number().optional(),
@@ -87,6 +98,15 @@ router.put(p(api.expenses.update.path), asyncHandler(async (req, res) => {
   const input = bodySchema.parse(req.body);
   const [before] = await db.select().from(expenses).where(eq(expenses.id, expenseId)).limit(1);
   if (!before) notFound("Expense not found");
+  const bbq = await getBarbecueOr404(req, before.barbecueId);
+  const isCreator = bbq.creatorUserId === sessionUserId;
+  const acceptedParticipants = await participantRepo.listByBbq(before.barbecueId, "accepted");
+  const nextParticipantId = input.participantId !== undefined ? Number(input.participantId) : Number(before.participantId);
+  const payerParticipant = acceptedParticipants.find((participant) => participant.id === nextParticipantId);
+  if (!payerParticipant) badRequest("Paid by must be a plan member");
+  if (!isCreator && input.participantId !== undefined && payerParticipant.userId !== sessionUserId) {
+    forbidden("Only the plan creator can change who paid");
+  }
   const includedUserIds = normalizeIncludedUserIds(input.includedUserIds);
   const updated = await expenseRepo.update(expenseId, {
     ...input,

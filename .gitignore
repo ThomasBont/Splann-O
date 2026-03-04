@@ -1,7 +1,29 @@
-node_modules
-dist
+# Local/agent state
+.local/
+**/.local/
+
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build outputs
+dist/
+build/
+.next/
+out/
+
+# OS/editor noise
 .DS_Store
+**/.DS_Store
+Thumbs.db
+**/Thumbs.db
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Existing project-specific ignores
 server/public
 vite.config.ts.*
 *.tar.gz
-.env

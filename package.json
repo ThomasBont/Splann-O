@@ -3,13 +3,14 @@
   "version": "1.0.0",
   "type": "module",
   "engines": {
-    "node": "20.x"
+    "node": ">=20 <23"
   },
   "license": "MIT",
   "scripts": {
     "dev": "NODE_ENV=development tsx -r dotenv/config server/index.ts",
     "dev:clean": "kill -9 $(lsof -t -i:5001) 2>/dev/null || true && NODE_ENV=development tsx -r dotenv/config server/index.ts",
     "build": "tsx script/build.ts",
+    "smoke": "node script/smoke.mjs",
     "start": "NODE_ENV=production node dist/index.cjs",
     "check": "tsc",
     "db:push": "drizzle-kit push",

@@ -69,17 +69,29 @@ router.post(p(api.expenses.create.path), asyncHandler(async (req, res) => {
   );
   const actor = await participantRepo.getById(input.participantId);
   const actorName = actor?.name || req.session?.username || "Someone";
+  const paidByName = payerParticipant.name || actor?.name || req.session?.username || "Someone";
+  const currency = bbq.currency ?? "€";
+  const amount = Number(created.amount);
   await logPlanActivity({
     eventId: bbqId,
     type: "EXPENSE_ADDED",
     actorUserId: req.session?.userId ?? null,
     actorName,
-    message: `${actorName} added an expense: ${created.item} (${bbq.currency ?? "€"}${Number(created.amount).toFixed(2)})`,
+    message: `${actorName} added an expense: ${created.item} (${currency}${Number(created.amount).toFixed(2)})`,
     meta: {
       expenseId: created.id,
       amount: Number(created.amount),
       currency: bbq.currency ?? null,
     },
+  });
+  await postSystemChatMessage(bbqId, `${actorName} added ${created.item} (${currency}${Number.isFinite(amount) ? amount.toFixed(2) : "0.00"})`, {
+    type: "expense",
+    action: "added",
+    expenseId: created.id,
+    item: created.item,
+    amount: Number.isFinite(amount) ? amount : 0,
+    currency,
+    paidBy: paidByName,
   });
   await broadcastPlanBalancesUpdated(bbqId);
   res.status(201).json(created);
@@ -125,7 +137,17 @@ router.put(p(api.expenses.update.path), asyncHandler(async (req, res) => {
   );
   if (changed) {
     const actorName = req.session?.username || "Someone";
-    await postSystemChatMessage(updated.barbecueId, `${actorName} updated ${updated.item}`);
+    const currency = bbq.currency ?? "€";
+    const amount = Number(updated.amount);
+    await postSystemChatMessage(updated.barbecueId, `${actorName} updated ${updated.item}`, {
+      type: "expense",
+      action: "updated",
+      expenseId: updated.id,
+      item: updated.item,
+      amount: Number.isFinite(amount) ? amount : 0,
+      currency,
+      paidBy: payerParticipant.name || actorName,
+    });
   }
   await broadcastPlanBalancesUpdated(updated.barbecueId);
   res.json(updated);
@@ -149,6 +171,10 @@ router.delete(p(api.expenses.delete.path), requireAuth, asyncHandler(async (req,
   const amount = Number(expense.amount);
   const currency = bbq.currency ?? "€";
   const message = `${actorName} deleted an expense: ${expenseTitle} (${currency}${Number.isFinite(amount) ? amount.toFixed(2) : "0.00"})`;
+  const paidByParticipant = expense.participantId
+    ? await participantRepo.getById(Number(expense.participantId))
+    : null;
+  const paidByName = paidByParticipant?.name || actorName;
 
   const createdActivity = await db.transaction(async (tx) => {
     await tx.delete(expenses).where(eq(expenses.id, expenseId));
@@ -191,6 +217,15 @@ router.delete(p(api.expenses.delete.path), requireAuth, asyncHandler(async (req,
     });
   }
 
+  await postSystemChatMessage(expense.barbecueId, message, {
+    type: "expense",
+    action: "deleted",
+    expenseId,
+    item: expenseTitle,
+    amount: Number.isFinite(amount) ? amount : 0,
+    currency,
+    paidBy: paidByName,
+  });
   await broadcastPlanBalancesUpdated(expense.barbecueId);
   res.status(204).send();
 }));

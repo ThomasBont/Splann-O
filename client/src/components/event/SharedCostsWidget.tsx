@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import SharedCostsDrawer from "@/components/event/SharedCostsDrawer";
@@ -45,6 +45,25 @@ export function SharedCostsWidget({
 }: SharedCostsWidgetProps) {
   const [open, setOpen] = useState(false);
   const [initialView, setInitialView] = useState<"overview" | "expense-form">("overview");
+  const [initialExpenseId, setInitialExpenseId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onOpenExpense = (event: Event) => {
+      const custom = event as CustomEvent<{ eventId?: number; expenseId?: number }>;
+      const targetEventId = Number(custom.detail?.eventId);
+      const targetExpenseId = Number(custom.detail?.expenseId);
+      if (!Number.isFinite(targetEventId) || targetEventId !== eventId) return;
+      if (!Number.isFinite(targetExpenseId)) return;
+      setInitialExpenseId(targetExpenseId);
+      setInitialView("expense-form");
+      setOpen(true);
+    };
+    window.addEventListener("splanno:open-expense", onOpenExpense as EventListener);
+    return () => {
+      window.removeEventListener("splanno:open-expense", onOpenExpense as EventListener);
+    };
+  }, [eventId]);
 
   return (
     <>
@@ -60,6 +79,7 @@ export function SharedCostsWidget({
         )}
         onClick={(event) => {
           event.stopPropagation();
+          setInitialExpenseId(null);
           setInitialView("overview");
           setOpen(true);
         }}
@@ -90,6 +110,7 @@ export function SharedCostsWidget({
                 aria-label="Add expense for this plan"
                 onClick={(event) => {
                   event.stopPropagation();
+                  setInitialExpenseId(null);
                   setInitialView("expense-form");
                   setOpen(true);
                 }}
@@ -110,8 +131,12 @@ export function SharedCostsWidget({
         currentUserId={currentUserId}
         creatorUserId={creatorUserId}
         open={open}
-        onOpenChange={setOpen}
+        onOpenChange={(next) => {
+          setOpen(next);
+          if (!next) setInitialExpenseId(null);
+        }}
         initialView={initialView}
+        initialExpenseId={initialExpenseId}
         planName={planName}
         peopleCount={peopleCount}
         totalSpentLabel={totalSpentLabel}

@@ -272,6 +272,8 @@ export const eventChatMessages = pgTable("event_chat_messages", {
   clientMessageId: uuid("client_message_id").defaultRandom().notNull(),
   type: text("type").notNull().default("user"), // user | system
   content: text("content").notNull(),
+  metadata: json("metadata").$type<Record<string, unknown> | null>().default(null),
+  hiddenAt: timestamp("hidden_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   editedAt: timestamp("edited_at", { withTimezone: true }),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),

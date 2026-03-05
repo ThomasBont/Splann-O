@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getApiBase, getEventChatWsUrl } from "@/lib/network";
 import { planBalancesQueryKey, type RealtimePlanBalances } from "@/hooks/use-expenses";
+import { dedupeExpenseSystemMessages } from "@/lib/chat/dedupe-expense-system-messages";
+import { filterChatMessages } from "@/lib/chat/filter-chat-messages";
 
 export type ChatMessage = {
   id: string;
@@ -9,6 +11,7 @@ export type ChatMessage = {
   clientMessageId?: string;
   type: "user" | "system";
   text: string;
+  metadata?: Record<string, unknown> | null;
   createdAt: string;
   serverCreatedAt?: string;
   status?: "sending" | "sent" | "failed";
@@ -39,6 +42,7 @@ type IncomingServerMessage = {
   type?: "user" | "system";
   text?: string;
   content?: string;
+  metadata?: unknown;
   createdAt: string;
   serverCreatedAt?: string;
   reactions?: Array<{ emoji?: string; count?: number; me?: boolean }>;
@@ -60,6 +64,7 @@ function normalizeIncomingMessage(raw: IncomingServerMessage): ChatMessage | nul
     clientMessageId: typeof raw.clientMessageId === "string" ? raw.clientMessageId : undefined,
     type: raw.type === "system" ? "system" : "user",
     text: content,
+    metadata: (raw.metadata && typeof raw.metadata === "object") ? (raw.metadata as Record<string, unknown>) : null,
     createdAt,
     serverCreatedAt: raw.serverCreatedAt ?? createdAt,
     status: "sent",
@@ -133,7 +138,9 @@ function dedupeAndSort(messages: ChatMessage[]): ChatMessage[] {
     if (clientId) byClient.set(clientId, message.id);
   }
 
-  return Array.from(byId.values()).sort(compareMessages);
+  const sorted = Array.from(byId.values()).sort(compareMessages);
+  const deduped = dedupeExpenseSystemMessages(sorted);
+  return filterChatMessages(deduped);
 }
 
 function randomBackoffMs(attempt: number): number {

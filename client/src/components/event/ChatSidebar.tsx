@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Loader2, MessageCircle, SendHorizontal, Smile } from "lucide-react";
@@ -6,13 +7,21 @@ import { InlineQueryError, SkeletonLine } from "@/components/ui/load-states";
 import { useEventChat } from "@/hooks/use-event-chat";
 import { useAppToast } from "@/hooks/use-app-toast";
 import { useEventMembers } from "@/hooks/use-participants";
+import { useDeleteExpense } from "@/hooks/use-expenses";
 import { cn } from "@/lib/utils";
 import type { SendMessageResult } from "@/hooks/use-event-chat";
 import { SYSTEM_USER_ID, SYSTEM_USER_NAME } from "@shared/lib/system-user";
+import { ExpenseCard, type ExpenseMessageMetadata } from "@/components/event/chat/ExpenseCard";
+import { PlanSummaryBar } from "@/components/event/chat/PlanSummaryBar";
 
 type ChatSidebarProps = {
   eventId: number | null;
   eventName?: string | null;
+  location?: string | null;
+  dateTime?: Date | string | null;
+  participantCount?: number;
+  sharedTotal?: number;
+  currency?: string;
   currentUser?: { id?: number | null; username?: string | null; avatarUrl?: string | null } | null;
   enabled?: boolean;
   className?: string;
@@ -61,6 +70,28 @@ function getMessageSenderKey(message: { type?: string; user?: { id?: string | nu
   return null;
 }
 
+function toExpenseMetadata(input: Record<string, unknown> | null | undefined): ExpenseMessageMetadata | null {
+  if (!input || input.type !== "expense") return null;
+  const action = input.action;
+  if (action !== "added" && action !== "updated" && action !== "deleted") return null;
+  const expenseIdRaw = input.expenseId;
+  const expenseId = typeof expenseIdRaw === "number" ? expenseIdRaw : Number(expenseIdRaw);
+  if (!Number.isFinite(expenseId)) return null;
+  const item = typeof input.item === "string" ? input.item : String(input.item ?? "").trim();
+  const amountRaw = input.amount;
+  const amount = typeof amountRaw === "number" ? amountRaw : Number(amountRaw);
+  const currency = typeof input.currency === "string" ? input.currency : String(input.currency ?? "").trim();
+  const paidBy = typeof input.paidBy === "string" ? input.paidBy : String(input.paidBy ?? "").trim();
+  return {
+    action,
+    expenseId,
+    item: item || "Expense",
+    amount: Number.isFinite(amount) ? amount : 0,
+    currency: currency || "€",
+    paidBy: paidBy || "Someone",
+  };
+}
+
 function isGroupedWithNeighbor(
   current: { type?: string; createdAt: string; user?: { id?: string | null; name?: string | null } },
   neighbor?: { type?: string; createdAt: string; user?: { id?: string | null; name?: string | null } },
@@ -75,8 +106,20 @@ function isGroupedWithNeighbor(
   return Math.abs(currentTime - neighborTime) < GROUP_WINDOW_MS;
 }
 
-export function ChatSidebar({ eventId, eventName, currentUser, enabled = true, className }: ChatSidebarProps) {
+export function ChatSidebar({
+  eventId,
+  eventName,
+  location = null,
+  dateTime = null,
+  participantCount = 0,
+  sharedTotal = 0,
+  currency = "EUR",
+  currentUser,
+  enabled = true,
+  className,
+}: ChatSidebarProps) {
   const { toastError, toastInfo } = useAppToast();
+  const queryClient = useQueryClient();
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -85,6 +128,7 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true, c
   const typingStopTimerRef = useRef<number | null>(null);
   const [isNearBottom, setIsNearBottom] = useState(true);
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
+  const [optimisticallyDeletedExpenseIds, setOptimisticallyDeletedExpenseIds] = useState<number[]>([]);
   const {
     messages,
     historyLoading,
@@ -103,6 +147,7 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true, c
     loadOlder,
     retry,
   } = useEventChat(eventId, enabled && !!eventId);
+  const deleteExpense = useDeleteExpense(eventId);
   const membersQuery = useEventMembers(eventId);
   const membersById = useMemo(() => {
     const map = new Map<string, { name: string; avatarUrl?: string | null; username?: string | null }>();
@@ -273,6 +318,75 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true, c
     return typingUsers.filter((user) => String(user.id) !== meId);
   }, [currentUser?.id, typingUsers]);
 
+  const groupedMessages = useMemo(() => {
+    const groups: Array<
+      | { kind: "expense-cluster"; messages: typeof messages }
+      | { kind: "single"; message: (typeof messages)[number] }
+    > = [];
+
+    let index = 0;
+    while (index < messages.length) {
+      const current = messages[index];
+      const currentMeta = current?.type === "system" ? toExpenseMetadata(current.metadata ?? null) : null;
+      if (!currentMeta) {
+        groups.push({ kind: "single", message: current });
+        index += 1;
+        continue;
+      }
+
+      const cluster: typeof messages = [current];
+      let cursor = index + 1;
+      while (cursor < messages.length) {
+        const next = messages[cursor];
+        const nextMeta = next?.type === "system" ? toExpenseMetadata(next.metadata ?? null) : null;
+        if (!nextMeta) break;
+        cluster.push(next);
+        cursor += 1;
+      }
+
+      if (cluster.length > 1) {
+        groups.push({ kind: "expense-cluster", messages: cluster });
+      } else {
+        groups.push({ kind: "single", message: current });
+      }
+      index = cursor;
+    }
+
+    return groups;
+  }, [messages]);
+
+  const openExpenseEditor = useCallback((expenseId: number) => {
+    if (!eventId) return;
+    window.dispatchEvent(new CustomEvent("splanno:open-expense", {
+      detail: { eventId, expenseId },
+    }));
+  }, [eventId]);
+
+  const handleDeleteExpenseFromCard = useCallback(async (expenseId: number) => {
+    if (!eventId) return;
+    setOptimisticallyDeletedExpenseIds((prev) => (prev.includes(expenseId) ? prev : [...prev, expenseId]));
+    queryClient.setQueryData(['/api/barbecues', eventId, 'expenses'], (old: unknown) => {
+      if (!Array.isArray(old)) return old;
+      return old.filter((item) => Number((item as { id?: number }).id) !== expenseId);
+    });
+    try {
+      await deleteExpense.mutateAsync(expenseId);
+    } catch (error) {
+      setOptimisticallyDeletedExpenseIds((prev) => prev.filter((id) => id !== expenseId));
+      await queryClient.invalidateQueries({ queryKey: ['/api/barbecues', eventId, 'expenses'] });
+      toastError(error instanceof Error ? error.message : "Couldn’t delete expense. Try again.");
+    }
+  }, [deleteExpense, eventId, queryClient, toastError]);
+
+  const handleCopyAmount = useCallback(async ({ amount, currency }: { amount: number; currency: string }) => {
+    const text = `${currency || "€"}${Number.isFinite(amount) ? amount.toFixed(2) : "0.00"}`;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // no-op
+    }
+  }, []);
+
   return (
     <aside className={cn("pointer-events-auto flex h-full min-h-[380px] flex-col overflow-hidden rounded-lg border border-border/70 bg-card", className)}>
       <header className="border-b border-border/70 bg-background/70 px-4 py-3">
@@ -290,6 +404,14 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true, c
           </div>
         </div>
       </header>
+
+      <PlanSummaryBar
+        location={location}
+        dateTime={dateTime}
+        participantCount={participantCount}
+        sharedTotal={sharedTotal}
+        currency={currency}
+      />
 
       <div
         ref={listRef}
@@ -330,16 +452,89 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true, c
             </div>
           </div>
         ) : (
-          messages.map((msg, index) => {
-            const prev = index > 0 ? messages[index - 1] : undefined;
-            const currentDate = new Date(msg.createdAt);
-            const prevDate = prev ? new Date(prev.createdAt) : null;
+          groupedMessages.map((group, groupIndex) => {
+            const currentMsg = group.kind === "expense-cluster" ? group.messages[0] : group.message;
+            const previousGroup = groupIndex > 0 ? groupedMessages[groupIndex - 1] : undefined;
+            const previousMsg = previousGroup
+              ? (previousGroup.kind === "expense-cluster"
+                ? previousGroup.messages[previousGroup.messages.length - 1]
+                : previousGroup.message)
+              : undefined;
+            const currentDate = new Date(currentMsg.createdAt);
+            const prevDate = previousMsg ? new Date(previousMsg.createdAt) : null;
             const showDateSeparator = !prevDate
               || Number.isNaN(prevDate.getTime())
               || Number.isNaN(currentDate.getTime())
               || !isSameDay(currentDate, prevDate);
+
+            if (group.kind === "expense-cluster") {
+              const first = group.messages[0];
+              const systemName = first.user?.name || SYSTEM_USER_NAME;
+              const metas = group.messages
+                .map((message) => toExpenseMetadata(message.metadata ?? null))
+                .filter((meta): meta is ExpenseMessageMetadata => !!meta);
+              const allAdded = metas.length > 0 && metas.every((meta) => meta.action === "added");
+              const clusterSummary = allAdded
+                ? `${group.messages.length} expenses added`
+                : `${group.messages.length} expense updates`;
+
+              return (
+                <div key={`expense-cluster-${first.id}`}>
+                  {showDateSeparator ? (
+                    <div className="my-2 flex justify-center">
+                      <span className="rounded-full border border-border/70 bg-card/80 px-3 py-1 text-[11px] text-muted-foreground">
+                        {formatDateSeparator(first.createdAt)}
+                      </span>
+                    </div>
+                  ) : null}
+                  <div className="mt-3 flex justify-start">
+                    <div className="mr-2 flex w-8 flex-col items-center pt-0.5">
+                      <span className="grid h-7 w-7 place-items-center rounded-full border border-border/70 bg-muted text-[11px] font-semibold text-muted-foreground">
+                        S
+                      </span>
+                    </div>
+                    <div className="max-w-[75%]">
+                      <div className="mb-1 px-1 text-[11px] text-muted-foreground">
+                        <span className="font-semibold text-foreground/90">{systemName}</span>
+                        <span className="ml-1 rounded-full border border-border/60 bg-card/60 px-1.5 py-0 text-[9px] uppercase tracking-wide">System</span>
+                        <span className="px-1 text-muted-foreground/70">·</span>
+                        <span className="text-[10px] text-muted-foreground/70">{formatMessageTime(first.createdAt)}</span>
+                      </div>
+                      <p className="mb-1 px-1 text-[10px] text-muted-foreground/80">{clusterSummary}</p>
+                      <div className="space-y-1">
+                        {group.messages.map((message) => {
+                          const expenseMeta = toExpenseMetadata(message.metadata ?? null);
+                          if (!expenseMeta) return null;
+                          return (
+                            <ExpenseCard
+                              key={message.id}
+                              eventId={Number(message.eventId || eventId || 0)}
+                              expenseId={expenseMeta.expenseId}
+                              action={expenseMeta.action}
+                              fallback={{
+                                item: expenseMeta.item,
+                                amount: expenseMeta.amount,
+                                currency: expenseMeta.currency,
+                                paidBy: expenseMeta.paidBy,
+                              }}
+                              optimisticDeleted={optimisticallyDeletedExpenseIds.includes(expenseMeta.expenseId)}
+                              onOpenEdit={openExpenseEditor}
+                              onDelete={(expenseId) => { void handleDeleteExpenseFromCard(expenseId); }}
+                              onCopyAmount={handleCopyAmount}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+
+            const msg = group.message;
             if (msg.type === "system") {
               const systemName = msg.user?.name || SYSTEM_USER_NAME;
+              const expenseMeta = toExpenseMetadata(msg.metadata ?? null);
               return (
                 <div key={msg.id}>
                   {showDateSeparator ? (
@@ -362,20 +557,39 @@ export function ChatSidebar({ eventId, eventName, currentUser, enabled = true, c
                         <span className="px-1 text-muted-foreground/70">·</span>
                         <span className="text-[10px] text-muted-foreground/70">{formatMessageTime(msg.createdAt)}</span>
                       </div>
-                      <div className="rounded-2xl rounded-bl-md border border-border/70 bg-muted/55 px-4 py-2.5 text-sm text-foreground shadow-sm dark:bg-neutral-800/80 dark:border-neutral-700/80">
-                        <p className="whitespace-pre-wrap break-words">{msg.text}</p>
-                      </div>
+                      {expenseMeta ? (
+                        <ExpenseCard
+                          eventId={Number(msg.eventId || eventId || 0)}
+                          expenseId={expenseMeta.expenseId}
+                          action={expenseMeta.action}
+                          fallback={{
+                            item: expenseMeta.item,
+                            amount: expenseMeta.amount,
+                            currency: expenseMeta.currency,
+                            paidBy: expenseMeta.paidBy,
+                          }}
+                          optimisticDeleted={optimisticallyDeletedExpenseIds.includes(expenseMeta.expenseId)}
+                          onOpenEdit={openExpenseEditor}
+                          onDelete={(expenseId) => { void handleDeleteExpenseFromCard(expenseId); }}
+                          onCopyAmount={handleCopyAmount}
+                        />
+                      ) : (
+                        <div className="rounded-2xl rounded-bl-md border border-border/70 bg-muted/55 px-4 py-2.5 text-sm text-foreground shadow-sm dark:bg-neutral-800/80 dark:border-neutral-700/80">
+                          <p className="whitespace-pre-wrap break-words">{msg.text}</p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
               );
             }
+
             const senderId = String(msg.user?.id ?? "");
             const senderFromMember = senderId ? membersById.get(senderId) : undefined;
             const senderName = msg.user?.name || senderFromMember?.name || "Unknown user";
             const senderAvatar = msg.user?.avatarUrl ?? senderFromMember?.avatarUrl ?? null;
             const mine = senderId !== SYSTEM_USER_ID && (senderId === String(currentUser?.id ?? "") || msg.user?.name === currentUser?.username);
-            const groupedWithPrev = isGroupedWithNeighbor(msg, prev);
+            const groupedWithPrev = isGroupedWithNeighbor(msg, previousMsg);
             return (
               <div key={msg.id}>
                 {showDateSeparator ? (

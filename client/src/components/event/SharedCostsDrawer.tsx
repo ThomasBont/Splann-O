@@ -36,6 +36,7 @@ type SharedCostsDrawerProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialView?: "overview" | "expense-form";
+  initialExpenseId?: number | null;
   planName: string;
   peopleCount: number;
   totalSpentLabel: string;
@@ -77,6 +78,7 @@ export function SharedCostsDrawer({
   open,
   onOpenChange,
   initialView = "overview",
+  initialExpenseId = null,
   planName,
   peopleCount,
   totalSpentLabel,
@@ -169,13 +171,29 @@ export function SharedCostsDrawer({
     if (open && !prevOpenRef.current) {
       setView(initialView);
       resetAddForm();
+      if (initialView === "expense-form" && initialExpenseId != null) {
+        const initialExpense = expenses.find((expense) => expense.id === initialExpenseId) ?? null;
+        if (initialExpense) {
+          openEditExpenseView(initialExpense);
+        }
+      }
     }
     if (!open) {
       setView("overview");
       resetAddForm();
     }
     prevOpenRef.current = open;
-  }, [open, categories, participants, initialView]);
+  }, [open, categories, participants, initialView, initialExpenseId, expenses]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (view !== "expense-form") return;
+    if (initialExpenseId == null) return;
+    const initialExpense = expenses.find((expense) => expense.id === initialExpenseId) ?? null;
+    if (!initialExpense) return;
+    if (editingExpenseId === initialExpense.id) return;
+    openEditExpenseView(initialExpense);
+  }, [open, view, initialExpenseId, expenses, editingExpenseId]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;

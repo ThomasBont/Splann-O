@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "../db";
 import { eventChatMessageReactions, eventChatMessages } from "@shared/schema";
 import { SYSTEM_USER_ID, SYSTEM_USER_NAME } from "@shared/lib/system-user";
@@ -17,6 +17,7 @@ export type EventChatMessage = {
   clientMessageId: string;
   type: "user" | "system";
   text: string;
+  metadata?: Record<string, unknown> | null;
   createdAt: string;
   serverCreatedAt: string;
   user?: {
@@ -45,6 +46,7 @@ function toMessage(
     clientMessageId: row.clientMessageId,
     type: row.type === "system" ? "system" : "user",
     text: row.content,
+    metadata: row.metadata ?? null,
     createdAt: createdAtIso,
     serverCreatedAt: createdAtIso,
     user: row.type === "system"
@@ -106,9 +108,10 @@ export async function listEventChatMessages(
   const whereClause = before
     ? and(
         eq(eventChatMessages.eventId, eventId),
+        isNull(eventChatMessages.hiddenAt),
         sql`(${eventChatMessages.createdAt} < ${before.createdAt} OR (${eventChatMessages.createdAt} = ${before.createdAt} AND ${eventChatMessages.id} < ${before.id}))`,
       )
-    : eq(eventChatMessages.eventId, eventId);
+    : and(eq(eventChatMessages.eventId, eventId), isNull(eventChatMessages.hiddenAt));
 
   const rows = await db
     .select()
@@ -146,6 +149,7 @@ export async function appendEventChatMessage(
   input: {
     type?: "user" | "system";
     text: string;
+    metadata?: Record<string, unknown> | null;
     clientMessageId: string;
     user?: {
       id: string;
@@ -164,6 +168,7 @@ export async function appendEventChatMessage(
     clientMessageId: input.clientMessageId,
     type: systemMessage ? "system" : (input.type ?? "user"),
     content: input.text,
+    metadata: input.metadata ?? null,
     createdAt: new Date(),
   }).onConflictDoNothing({
     target: [eventChatMessages.eventId, eventChatMessages.clientMessageId],
@@ -177,6 +182,7 @@ export async function appendEventChatMessage(
     .where(and(
       eq(eventChatMessages.eventId, eventId),
       eq(eventChatMessages.clientMessageId, input.clientMessageId),
+      isNull(eventChatMessages.hiddenAt),
     ))
     .limit(1);
 
@@ -212,6 +218,7 @@ export async function toggleEventChatReaction(input: {
     .where(and(
       eq(eventChatMessages.id, input.messageId),
       eq(eventChatMessages.eventId, input.eventId),
+      isNull(eventChatMessages.hiddenAt),
     ))
     .limit(1);
   if (!message) throw new Error("Message not found");

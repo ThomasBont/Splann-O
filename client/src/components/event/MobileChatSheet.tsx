@@ -9,6 +9,11 @@ type MobileChatSheetProps = {
   onOpenChange: (open: boolean) => void;
   eventId: number | null;
   eventName?: string | null;
+  location?: string | null;
+  dateTime?: Date | string | null;
+  participantCount?: number;
+  sharedTotal?: number;
+  currency?: string;
   currentUser?: { id?: number | null; username?: string | null; avatarUrl?: string | null } | null;
   enabled?: boolean;
 };
@@ -18,6 +23,11 @@ export function MobileChatSheet({
   onOpenChange,
   eventId,
   eventName,
+  location = null,
+  dateTime = null,
+  participantCount = 0,
+  sharedTotal = 0,
+  currency = "EUR",
   currentUser,
   enabled = true,
 }: MobileChatSheetProps) {
@@ -54,6 +64,11 @@ export function MobileChatSheet({
           <ChatSidebar
             eventId={eventId}
             eventName={eventName}
+            location={location}
+            dateTime={dateTime}
+            participantCount={participantCount}
+            sharedTotal={sharedTotal}
+            currency={currency}
             currentUser={currentUser}
             enabled={enabled}
             className="h-full min-h-0 rounded-none border-0 bg-transparent"

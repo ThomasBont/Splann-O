@@ -2,12 +2,17 @@ import { randomUUID } from "crypto";
 import { appendEventChatMessage } from "./eventChatStore";
 import { broadcastEventRealtime } from "./eventRealtime";
 
-export async function postSystemChatMessage(eventId: number, text: string): Promise<void> {
+export async function postSystemChatMessage(
+  eventId: number,
+  text: string,
+  metadata?: Record<string, unknown> | null,
+): Promise<void> {
   const content = text.trim();
   if (!content) return;
   const saved = await appendEventChatMessage(eventId, {
     type: "system",
     text: content,
+    metadata: metadata ?? null,
     clientMessageId: randomUUID(),
   });
   if (!saved.inserted) return;

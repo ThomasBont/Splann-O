@@ -44,8 +44,9 @@ export async function logPlanActivity(input: LogPlanActivityInput) {
     activity: payload,
   });
 
-  // Keep chat feed aligned with persisted activity stream.
-  const mirroredTypes = new Set<PlanActivityType>(["EXPENSE_ADDED", "EXPENSE_DELETED", "MEMBER_JOINED"]);
+  // Keep chat feed aligned with persisted activity stream for member joins only.
+  // Expense activity is posted as rich system chat cards directly from expense routes.
+  const mirroredTypes = new Set<PlanActivityType>(["MEMBER_JOINED"]);
   if (mirroredTypes.has(input.type)) {
     try {
       await postSystemChatMessage(input.eventId, input.message);

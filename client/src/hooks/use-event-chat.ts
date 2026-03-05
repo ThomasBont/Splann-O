@@ -51,7 +51,12 @@ type IncomingServerMessage = {
 
 function createClientMessageId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
-  return `cid-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  // Keep server-side UUID validation happy even on non-secure contexts (e.g. LAN http).
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (ch) => {
+    const r = Math.floor(Math.random() * 16);
+    const v = ch === "x" ? r : ((r & 0x3) | 0x8);
+    return v.toString(16);
+  });
 }
 
 function normalizeIncomingMessage(raw: IncomingServerMessage): ChatMessage | null {
@@ -167,6 +172,17 @@ export function useEventChat(eventId: number | null, enabled = true) {
   const reconnectAttemptRef = useRef(0);
   const isLockedRef = useRef(false);
   const loggedTransportRef = useRef(false);
+  const pendingAckTimersRef = useRef(new Map<string, number>());
+
+  const clearPendingAck = useCallback((clientMessageId?: string | null) => {
+    const id = typeof clientMessageId === "string" ? clientMessageId.trim() : "";
+    if (!id) return;
+    const timer = pendingAckTimersRef.current.get(id);
+    if (timer != null) {
+      window.clearTimeout(timer);
+      pendingAckTimersRef.current.delete(id);
+    }
+  }, []);
 
   const mergeMessages = useCallback((incoming: ChatMessage[] | ChatMessage, mode: "append" | "prepend" = "append") => {
     const list = Array.isArray(incoming) ? incoming : [incoming];
@@ -178,14 +194,24 @@ export function useEventChat(eventId: number | null, enabled = true) {
 
   const markFailed = useCallback((clientMessageId?: string) => {
     if (!clientMessageId) return;
+    clearPendingAck(clientMessageId);
     setMessages((prev) => prev.map((msg) => (
       msg.clientMessageId === clientMessageId ? { ...msg, status: "failed", optimistic: true } : msg
     )));
-  }, []);
+  }, [clearPendingAck]);
 
   const reconcileServerMessage = useCallback((serverMessage: ChatMessage, hintedClientMessageId?: string) => {
     setMessages((prev) => {
       const candidateClientMessageId = hintedClientMessageId || serverMessage.clientMessageId;
+      clearPendingAck(candidateClientMessageId);
+      if (import.meta.env.DEV && candidateClientMessageId) {
+        console.log("[chat-ack-match]", {
+          eventId,
+          clientMessageId: candidateClientMessageId,
+          serverMessageId: serverMessage.id,
+          via: hintedClientMessageId ? "hinted" : "server-message",
+        });
+      }
       const next = prev.filter((msg) => {
         if (msg.id === serverMessage.id) return false;
         if (candidateClientMessageId && msg.clientMessageId === candidateClientMessageId) return false;
@@ -194,7 +220,7 @@ export function useEventChat(eventId: number | null, enabled = true) {
       next.push({ ...serverMessage, status: "sent", optimistic: false });
       return dedupeAndSort(next);
     });
-  }, []);
+  }, [clearPendingAck, eventId]);
 
   const applyReactionUpdate = useCallback((messageId: string, reactions: Array<{ emoji: string; count: number; me: boolean }>) => {
     setMessages((prev) => prev.map((message) => (
@@ -332,6 +358,8 @@ export function useEventChat(eventId: number | null, enabled = true) {
       setIsLocked(false);
       setIsSubscribed(false);
       setTypingUsers([]);
+      pendingAckTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
+      pendingAckTimersRef.current.clear();
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
@@ -363,6 +391,14 @@ export function useEventChat(eventId: number | null, enabled = true) {
         payload = JSON.parse(ev.data as string);
       } catch {
         return;
+      }
+      if (import.meta.env.DEV) {
+        console.log("[chat-ws:in]", {
+          eventId,
+          type: payload?.type ?? null,
+          messageId: payload?.message?.id ?? null,
+          clientMessageId: payload?.clientMessageId ?? payload?.message?.clientMessageId ?? null,
+        });
       }
       if (payload?.type === "event:subscribed") {
         setIsSubscribed(true);
@@ -406,6 +442,14 @@ export function useEventChat(eventId: number | null, enabled = true) {
         return;
       }
       if (payload?.type === "chat:error") {
+        if (import.meta.env.DEV) {
+          console.error("[chat-send:error]", {
+            eventId,
+            clientMessageId: payload?.clientMessageId ?? null,
+            code: payload?.code ?? null,
+            message: payload?.message ?? null,
+          });
+        }
         markFailed(payload.clientMessageId);
         return;
       }
@@ -482,6 +526,8 @@ export function useEventChat(eventId: number | null, enabled = true) {
 
     return () => {
       closedByCleanup = true;
+      pendingAckTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
+      pendingAckTimersRef.current.clear();
       if (reconnectTimerRef.current != null) {
         window.clearTimeout(reconnectTimerRef.current);
         reconnectTimerRef.current = null;
@@ -533,7 +579,28 @@ export function useEventChat(eventId: number | null, enabled = true) {
     const sendViaSocket = ws && ws.readyState === WebSocket.OPEN && isSubscribed;
     if (sendViaSocket) {
       try {
-        ws.send(JSON.stringify({ type: "chat:send", eventId, content: trimmed, clientMessageId }));
+        const frame = { type: "chat:send", eventId, content: trimmed, clientMessageId };
+        if (import.meta.env.DEV) {
+          console.log("[chat-ws:out]", {
+            eventId,
+            frame,
+            wsReadyState: ws.readyState,
+            isSubscribed,
+          });
+        }
+        ws.send(JSON.stringify(frame));
+        const timeoutId = window.setTimeout(() => {
+          if (import.meta.env.DEV) {
+            console.error("[chat-send:timeout]", {
+              eventId,
+              clientMessageId,
+              reason: "missing chat:ack/chat:new within timeout",
+            });
+          }
+          markFailed(clientMessageId);
+          pendingAckTimersRef.current.delete(clientMessageId);
+        }, 8000);
+        pendingAckTimersRef.current.set(clientMessageId, timeoutId);
         return { ok: true, wsReadyState: ws.readyState, isSubscribed };
       } catch {
         // Fall through to HTTP fallback.

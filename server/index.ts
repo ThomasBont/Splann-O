@@ -146,6 +146,9 @@ chatWss.on("connection", (ws, req) => {
     ws.close(1008, "unauthorized");
     return;
   }
+  if (process.env.NODE_ENV !== "production") {
+    log("info", "[chat-ws] connected", { eventId: meta.eventId, userId: meta.userId, username: meta.username });
+  }
   ws.send(JSON.stringify({ type: "hello", eventId: meta.eventId }));
 
   ws.on("message", (raw: RawData) => {
@@ -162,6 +165,15 @@ chatWss.on("connection", (ws, req) => {
     } catch {
       ws.send(JSON.stringify({ type: "error", code: "VALIDATION_ERROR", message: "Invalid payload" }));
       return;
+    }
+    if (process.env.NODE_ENV !== "production") {
+      log("info", "[chat-ws] incoming", {
+        eventId: meta.eventId,
+        userId: meta.userId,
+        type: parsed?.type ?? null,
+        hasClientMessageId: typeof parsed?.clientMessageId === "string",
+        hasContent: typeof parsed?.content === "string" || typeof parsed?.text === "string",
+      });
     }
 
     if (parsed?.type === "event:subscribe") {
@@ -265,6 +277,9 @@ chatWss.on("connection", (ws, req) => {
     }
     const clientMessageId = typeof parsed.clientMessageId === "string" ? parsed.clientMessageId.trim() : "";
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clientMessageId)) {
+      if (process.env.NODE_ENV !== "production") {
+        log("warn", "[chat-ws] invalid clientMessageId", { eventId: meta.eventId, userId: meta.userId, clientMessageId });
+      }
       ws.send(JSON.stringify({ type: "chat:error", code: "VALIDATION_ERROR", clientMessageId: clientMessageId || null, message: "Invalid clientMessageId" }));
       return;
     }
@@ -280,18 +295,51 @@ chatWss.on("connection", (ws, req) => {
           ws.send(JSON.stringify({ type: "event:error", code: "CHAT_LOCKED", eventId: meta.eventId }));
           return;
         }
-        const result = await appendEventChatMessage(meta.eventId, {
-          type: "user",
-          text,
-          clientMessageId,
-          user: { id: String(meta.userId), name: meta.username },
-        });
+        let result: Awaited<ReturnType<typeof appendEventChatMessage>>;
+        try {
+          result = await appendEventChatMessage(meta.eventId, {
+            type: "user",
+            text,
+            clientMessageId,
+            user: { id: String(meta.userId), name: meta.username },
+          });
+        } catch (error) {
+          const err = error as { message?: string; stack?: string; code?: string };
+          log("error", "[chat-ws] append message failed", {
+            eventId: meta.eventId,
+            userId: meta.userId,
+            clientMessageId,
+            errorMessage: err?.message ?? "Unknown error",
+            errorCode: err?.code ?? null,
+            stack: err?.stack ?? null,
+          });
+          ws.send(JSON.stringify({ type: "chat:error", code: "INTERNAL_ERROR", clientMessageId, message: "Message failed" }));
+          return;
+        }
         if (result.inserted) {
           broadcastEventRealtime(meta.eventId, { type: "chat:new", message: result.message });
         }
+        if (process.env.NODE_ENV !== "production") {
+          log("info", "[chat-ws] ack", {
+            eventId: meta.eventId,
+            userId: meta.userId,
+            clientMessageId,
+            messageId: result.message.id,
+            inserted: result.inserted,
+          });
+        }
         ws.send(JSON.stringify({ type: "chat:ack", clientMessageId, message: result.message }));
       })
-      .catch(() => {
+      .catch((error) => {
+        const err = error as { message?: string; stack?: string; code?: string };
+        log("error", "[chat-ws] send pipeline failed", {
+          eventId: meta.eventId,
+          userId: meta.userId,
+          clientMessageId,
+          errorMessage: err?.message ?? "Unknown error",
+          errorCode: err?.code ?? null,
+          stack: err?.stack ?? null,
+        });
         ws.send(JSON.stringify({ type: "chat:error", code: "INTERNAL_ERROR", clientMessageId, message: "Message failed" }));
       });
   });

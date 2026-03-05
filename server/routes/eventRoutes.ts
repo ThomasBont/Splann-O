@@ -23,6 +23,7 @@ import { broadcastEventRealtime } from "../lib/eventRealtime";
 import { getLimits } from "../lib/plan";
 import { listPlanActivity, logPlanActivity } from "../lib/planActivity";
 import { postSystemChatMessage } from "../lib/systemChat";
+import { ensureAutoSettlement, getLatestSettlement, markSettlementTransferPaid } from "../lib/settlement";
 import { log } from "../lib/logger";
 import { auditLog, auditSecurity } from "../lib/audit";
 import { badRequest, forbidden, notFound, unauthorized, upgradeRequired } from "../lib/errors";
@@ -137,6 +138,43 @@ router.get("/plans/:id/activity", requireAuth, asyncHandler(async (req, res) => 
   res.json({
     items,
     unreadCount: Number(unreadRow?.count ?? 0),
+  });
+}));
+
+router.get("/events/:eventId/settlement/latest", requireAuth, asyncHandler(async (req, res) => {
+  const eventId = Number(req.params.eventId);
+  if (!Number.isInteger(eventId) || eventId <= 0) badRequest("Invalid event id");
+  await assertEventAccessOrThrow(req, eventId);
+  await ensureAutoSettlement(eventId);
+  const latest = await getLatestSettlement(eventId);
+  if (!latest) {
+    res.json({ settlement: null, transfers: [] });
+    return;
+  }
+  res.json(latest);
+}));
+
+router.post("/events/:eventId/settlement/:settlementId/transfers/:transferId/mark-paid", requireAuth, asyncHandler(async (req, res) => {
+  const eventId = Number(req.params.eventId);
+  const settlementId = String(req.params.settlementId ?? "").trim();
+  const transferId = String(req.params.transferId ?? "").trim();
+  if (!Number.isInteger(eventId) || eventId <= 0) badRequest("Invalid event id");
+  if (!settlementId) badRequest("Invalid settlement id");
+  if (!transferId) badRequest("Invalid transfer id");
+  await assertEventAccessOrThrow(req, eventId);
+  const userId = req.session?.userId;
+  if (!userId) unauthorized("Not authenticated");
+
+  const updated = await markSettlementTransferPaid({
+    eventId,
+    settlementId,
+    transferId,
+    paidByUserId: userId,
+  });
+  if (!updated) notFound("Transfer not found");
+  res.json({
+    transferId: updated.id,
+    paidAt: updated.paidAt ? updated.paidAt.toISOString() : null,
   });
 }));
 

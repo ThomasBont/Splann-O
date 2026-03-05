@@ -13,6 +13,7 @@ import type { SendMessageResult } from "@/hooks/use-event-chat";
 import { SYSTEM_USER_ID, SYSTEM_USER_NAME } from "@shared/lib/system-user";
 import { ExpenseCard, type ExpenseMessageMetadata } from "@/components/event/chat/ExpenseCard";
 import { PlanSummaryBar } from "@/components/event/chat/PlanSummaryBar";
+import { SettlementCard } from "@/components/event/chat/SettlementCard";
 
 type ChatSidebarProps = {
   eventId: number | null;
@@ -90,6 +91,100 @@ function toExpenseMetadata(input: Record<string, unknown> | null | undefined): E
     currency: currency || "€",
     paidBy: paidBy || "Someone",
   };
+}
+
+type SettlementMetadata = {
+  type: "settlement";
+  settlementId: string;
+  action: "proposed" | "updated" | "settled";
+  currency: string;
+};
+
+type SettlementPaymentMetadata = {
+  type: "settlement_payment";
+  settlementId: string;
+  transferId: string;
+  fromUserId: number;
+  toUserId: number;
+  amount: number;
+  currency: string;
+  status: "paid";
+};
+
+function toSettlementMetadata(input: Record<string, unknown> | null | undefined): SettlementMetadata | null {
+  if (!input || input.type !== "settlement") return null;
+  const settlementId = String(input.settlementId ?? "").trim();
+  if (!settlementId) return null;
+  const action = input.action;
+  if (action !== "proposed" && action !== "updated" && action !== "settled") return null;
+  const currency = String(input.currency ?? "").trim() || "EUR";
+  return {
+    type: "settlement",
+    settlementId,
+    action,
+    currency,
+  };
+}
+
+type SettlementCacheResponse = {
+  settlement: {
+    id: string;
+    eventId: number;
+    status: "proposed" | "in_progress" | "settled";
+    source: "auto" | "manual";
+    currency: string | null;
+    createdAt: string | null;
+  } | null;
+  transfers: Array<{
+    id: string;
+    settlementId: string;
+    fromUserId: number;
+    fromName?: string;
+    toUserId: number;
+    toName?: string;
+    amountCents: number;
+    amount: number;
+    currency: string;
+    paidAt: string | null;
+    paidByUserId: number | null;
+    paymentRef: string | null;
+  }>;
+};
+
+function toSettlementPaymentMetadata(input: Record<string, unknown> | null | undefined): SettlementPaymentMetadata | null {
+  if (!input || input.type !== "settlement_payment") return null;
+  const settlementId = String(input.settlementId ?? "").trim();
+  const transferId = String(input.transferId ?? "").trim();
+  const fromUserId = Number(input.fromUserId);
+  const toUserId = Number(input.toUserId);
+  const amount = Number(input.amount);
+  const currency = String(input.currency ?? "").trim() || "EUR";
+  const status = input.status;
+  if (!settlementId || !transferId || !Number.isFinite(fromUserId) || !Number.isFinite(toUserId) || !Number.isFinite(amount)) return null;
+  if (status !== "paid") return null;
+  return {
+    type: "settlement_payment",
+    settlementId,
+    transferId,
+    fromUserId,
+    toUserId,
+    amount,
+    currency,
+    status,
+  };
+}
+
+function formatMoneyForSystem(amount: number, currencyCode: string): string {
+  const safeAmount = Number.isFinite(amount) ? amount : 0;
+  const code = String(currencyCode || "").trim().toUpperCase();
+  if (/^[A-Z]{3}$/.test(code)) {
+    try {
+      return new Intl.NumberFormat(undefined, { style: "currency", currency: code }).format(safeAmount);
+    } catch {
+      // fallthrough
+    }
+  }
+  return `${currencyCode || "€"}${safeAmount.toFixed(2)}`;
 }
 
 function isGroupedWithNeighbor(
@@ -535,6 +630,35 @@ export function ChatSidebar({
             if (msg.type === "system") {
               const systemName = msg.user?.name || SYSTEM_USER_NAME;
               const expenseMeta = toExpenseMetadata(msg.metadata ?? null);
+              const settlementMeta = toSettlementMetadata(msg.metadata ?? null);
+              const settlementPaymentMeta = toSettlementPaymentMetadata(msg.metadata ?? null);
+              const settlementCache = settlementPaymentMeta
+                ? queryClient.getQueryData<SettlementCacheResponse>([
+                  "/api/events",
+                  Number(msg.eventId || eventId || 0),
+                  "settlement",
+                  settlementPaymentMeta.settlementId,
+                ])
+                : null;
+              const paymentTransfer = settlementPaymentMeta
+                ? settlementCache?.transfers?.find((transfer) => transfer.id === settlementPaymentMeta.transferId)
+                : null;
+              const fromName = paymentTransfer?.fromName
+                || (settlementPaymentMeta
+                  ? membersById.get(String(settlementPaymentMeta.fromUserId))?.name
+                  : null)
+                || null;
+              const toName = paymentTransfer?.toName
+                || (settlementPaymentMeta
+                  ? membersById.get(String(settlementPaymentMeta.toUserId))?.name
+                  : null)
+                || null;
+              const paymentAmount = settlementPaymentMeta
+                ? formatMoneyForSystem(
+                  paymentTransfer?.amount ?? settlementPaymentMeta.amount,
+                  paymentTransfer?.currency ?? settlementPaymentMeta.currency,
+                )
+                : null;
               return (
                 <div key={msg.id}>
                   {showDateSeparator ? (
@@ -573,6 +697,43 @@ export function ChatSidebar({
                           onDelete={(expenseId) => { void handleDeleteExpenseFromCard(expenseId); }}
                           onCopyAmount={handleCopyAmount}
                         />
+                      ) : settlementMeta ? (
+                        settlementMeta.action === "settled" ? (
+                          <div className="rounded-2xl rounded-bl-md border border-emerald-500/20 bg-emerald-500/10 px-4 py-2.5 text-sm text-emerald-800 shadow-sm dark:text-emerald-300">
+                            <p className="whitespace-pre-wrap break-words font-medium">✅ All settled up</p>
+                          </div>
+                        ) : (
+                          <SettlementCard
+                            eventId={Number(msg.eventId || eventId || 0)}
+                            settlementId={settlementMeta.settlementId}
+                            currency={settlementMeta.currency || currency}
+                          />
+                        )
+                      ) : settlementPaymentMeta ? (
+                        <div className="rounded-2xl rounded-bl-md border border-emerald-500/20 bg-emerald-500/10 px-4 py-2.5 text-sm text-emerald-800 shadow-sm dark:text-emerald-300">
+                          {fromName && toName && paymentAmount ? (
+                            <p className="whitespace-pre-wrap break-words font-medium">
+                              {fromName}
+                              {" paid "}
+                              {toName}
+                              {" "}
+                              <span className="font-semibold">{paymentAmount}</span>
+                            </p>
+                          ) : (
+                            <p className="whitespace-pre-wrap break-words font-medium">
+                              Payment recorded
+                              {paymentAmount ? (
+                                <>
+                                  {" "}
+                                  <span className="font-semibold">{paymentAmount}</span>
+                                </>
+                              ) : null}
+                            </p>
+                          )}
+                          <p className="mt-0.5 text-[11px] text-emerald-700/80 dark:text-emerald-300/80">
+                            Marked as paid
+                          </p>
+                        </div>
                       ) : (
                         <div className="rounded-2xl rounded-bl-md border border-border/70 bg-muted/55 px-4 py-2.5 text-sm text-foreground shadow-sm dark:bg-neutral-800/80 dark:border-neutral-700/80">
                           <p className="whitespace-pre-wrap break-words">{msg.text}</p>

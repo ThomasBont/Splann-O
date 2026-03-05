@@ -2,6 +2,7 @@ import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "../db";
 import { eventChatMessageReactions, eventChatMessages } from "@shared/schema";
 import { SYSTEM_USER_ID, SYSTEM_USER_NAME } from "@shared/lib/system-user";
+import { ensureAutoSettlement } from "./settlement";
 
 const SUPPORTED_REACTIONS = new Set(["😀", "😂", "😍", "🙏", "🔥", "🎉", "👍", "❤️"]);
 
@@ -100,6 +101,9 @@ export async function listEventChatMessages(
   eventId: number,
   options?: { limit?: number; before?: string | null; viewerUserId?: number },
 ): Promise<EventChatPage> {
+  // Trigger auto-settle checks during normal reads (idempotent).
+  await ensureAutoSettlement(eventId);
+
   const safeLimit = Number.isFinite(options?.limit)
     ? Math.min(Math.max(Math.trunc(options!.limit!), 1), MAX_PAGE_SIZE)
     : 50;

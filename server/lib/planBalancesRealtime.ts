@@ -13,14 +13,14 @@ export type PlanBalancesRealtimePayload = {
   version: number;
 };
 
-function parseIncludedUserIds(value: unknown): string[] {
+export function parseIncludedUserIds(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   return value
     .map((entry) => String(entry).trim())
     .filter((entry) => entry.length > 0);
 }
 
-function buildEffectiveExpenseShares(params: {
+export function buildEffectiveExpenseShares(params: {
   participants: Array<{ id: number }>;
   expenses: Array<{ id: number; includedUserIds?: string[] | null }>;
   legacyShares: Array<{ expenseId: number; participantId: number }>;
@@ -58,7 +58,7 @@ function buildEffectiveExpenseShares(params: {
   return rows;
 }
 
-async function buildPlanBalancesSnapshot(planId: number): Promise<PlanBalancesRealtimePayload | null> {
+export async function buildPlanBalancesSnapshot(planId: number): Promise<PlanBalancesRealtimePayload | null> {
   const bbq = await bbqRepo.getById(planId);
   if (!bbq) return null;
 

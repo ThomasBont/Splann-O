@@ -84,6 +84,7 @@ export const barbecues = pgTable("barbecues", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   date: timestamp("date").notNull().defaultNow(),
+  durationMinutes: integer("duration_minutes").notNull().default(120),
   currency: text("currency").notNull().default("EUR"),
   creatorUserId: integer("creator_user_id").references(() => users.id, { onDelete: "set null" }),
   isPublic: boolean("is_public").notNull().default(true),
@@ -294,6 +295,32 @@ export const eventChatMessageReactions = pgTable("event_chat_message_reactions",
   uniqueUserReactionPerEmoji: unique("event_chat_message_reactions_message_user_emoji_unique").on(table.messageId, table.userId, table.emoji),
 }));
 
+export const eventSettlements = pgTable("event_settlements", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  eventId: integer("event_id").references(() => barbecues.id, { onDelete: "cascade" }).notNull(),
+  status: text("status").notNull().default("proposed"), // proposed | in_progress | settled
+  settledAt: timestamp("settled_at", { withTimezone: true }),
+  source: text("source").notNull().default("auto"), // auto | manual
+  createdByUserId: integer("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  idempotencyKey: text("idempotency_key").notNull().unique(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export const eventSettlementTransfers = pgTable("event_settlement_transfers", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  settlementId: uuid("settlement_id").references(() => eventSettlements.id, { onDelete: "cascade" }).notNull(),
+  fromUserId: integer("from_user_id").references(() => users.id, { onDelete: "set null" }).notNull(),
+  toUserId: integer("to_user_id").references(() => users.id, { onDelete: "set null" }).notNull(),
+  amountCents: integer("amount_cents").notNull(),
+  currency: text("currency").notNull(),
+  paidAt: timestamp("paid_at", { withTimezone: true }),
+  paidByUserId: integer("paid_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  paymentRef: text("payment_ref"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  settlementIdx: index("event_settlement_transfers_settlement_idx").on(table.settlementId),
+}));
+
 export const insertNoteSchema = createInsertSchema(notes)
   .omit({ id: true, createdAt: true, updatedAt: true })
   .extend({
@@ -336,6 +363,8 @@ export type EventMember = typeof eventMembers.$inferSelect;
 export type EventInvite = typeof eventInvites.$inferSelect;
 export type PlanActivity = typeof planActivity.$inferSelect;
 export type EventChatMessageRow = typeof eventChatMessages.$inferSelect;
+export type EventSettlement = typeof eventSettlements.$inferSelect;
+export type EventSettlementTransfer = typeof eventSettlementTransfers.$inferSelect;
 
 export type ExpenseWithParticipant = Expense & {
   participantName: string;

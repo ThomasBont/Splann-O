@@ -7,9 +7,9 @@ import { auditLog } from "../lib/audit";
 import { resolveTripCurrency } from "../lib/country-currency";
 import { isPublicListingActive, slugifyPublicEvent } from "../lib/public-listing";
 import { db } from "../db";
-import { eventMembers, type Barbecue } from "@shared/schema";
+import { eventMembers, eventChatMessages, expenses, participants, planActivity, type Barbecue } from "@shared/schema";
 import { normalizeCountryCode } from "@shared/lib/country-code";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { resolveLegacyAssetIdToPublicPath } from "../lib/assets";
 
 const DEFAULT_LISTING_DURATION_DAYS = Number(process.env.PUBLIC_LISTING_DAYS ?? 30);
@@ -257,9 +257,108 @@ function parsePublicRsvpTiers(event: Barbecue): PublicEventDetail["rsvpTiers"] {
     .slice(0, 20);
 }
 
-export async function listBarbecues(currentUsername?: string, currentUserId?: number): Promise<Barbecue[]> {
+type BarbecueListItem = Barbecue & {
+  participantCount: number;
+  expenseTotal: number;
+  lastActivityAt: string | null;
+  unreadCount: number;
+};
+
+export async function listBarbecues(currentUsername?: string, currentUserId?: number): Promise<BarbecueListItem[]> {
   const rows = await bbqRepo.listAccessible(currentUsername, currentUserId);
-  return rows.map(normalizeEventForClient);
+  const normalized = rows.map(normalizeEventForClient);
+  const eventIds = normalized.map((row) => row.id).filter((id): id is number => Number.isInteger(id));
+  if (eventIds.length === 0) return [];
+
+  const [participantCounts, expenseTotals, lastChatActivity, lastPlanActivity, unreadByEvent] = await Promise.all([
+    db
+      .select({
+        eventId: participants.barbecueId,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(participants)
+      .where(and(inArray(participants.barbecueId, eventIds), eq(participants.status, "accepted")))
+      .groupBy(participants.barbecueId),
+    db
+      .select({
+        eventId: expenses.barbecueId,
+        total: sql<string>`coalesce(sum(${expenses.amount}), 0)::text`,
+      })
+      .from(expenses)
+      .where(inArray(expenses.barbecueId, eventIds))
+      .groupBy(expenses.barbecueId),
+    db
+      .select({
+        eventId: eventChatMessages.eventId,
+        lastAt: sql<string | null>`max(${eventChatMessages.createdAt})::text`,
+      })
+      .from(eventChatMessages)
+      .where(
+        and(
+          inArray(eventChatMessages.eventId, eventIds),
+          sql`${eventChatMessages.hiddenAt} is null`,
+          sql`${eventChatMessages.deletedAt} is null`,
+        ),
+      )
+      .groupBy(eventChatMessages.eventId),
+    db
+      .select({
+        eventId: planActivity.eventId,
+        lastAt: sql<string | null>`max(${planActivity.createdAt})::text`,
+      })
+      .from(planActivity)
+      .where(inArray(planActivity.eventId, eventIds))
+      .groupBy(planActivity.eventId),
+    currentUserId
+      ? db
+        .select({
+          eventId: planActivity.eventId,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(planActivity)
+        .innerJoin(
+          eventMembers,
+          and(
+            eq(eventMembers.eventId, planActivity.eventId),
+            eq(eventMembers.userId, currentUserId),
+          ),
+        )
+        .where(
+          and(
+            inArray(planActivity.eventId, eventIds),
+            sql`${planActivity.createdAt} > coalesce(${eventMembers.lastReadActivityAt}, to_timestamp(0))`,
+          ),
+        )
+        .groupBy(planActivity.eventId)
+      : Promise.resolve([] as Array<{ eventId: number; count: number }>),
+  ]);
+
+  const participantCountByEvent = new Map(participantCounts.map((row) => [row.eventId, Number(row.count ?? 0)]));
+  const expenseTotalByEvent = new Map(expenseTotals.map((row) => [row.eventId, Number(row.total ?? 0)]));
+  const lastChatByEvent = new Map(lastChatActivity.map((row) => [row.eventId, row.lastAt]));
+  const lastPlanActivityByEvent = new Map(lastPlanActivity.map((row) => [row.eventId, row.lastAt]));
+  const unreadByEventMap = new Map(unreadByEvent.map((row) => [row.eventId, Number(row.count ?? 0)]));
+
+  return normalized.map((event) => {
+    const lastCandidates = [
+      lastChatByEvent.get(event.id),
+      lastPlanActivityByEvent.get(event.id),
+      event.updatedAt ? new Date(event.updatedAt).toISOString() : null,
+      event.date ? new Date(event.date).toISOString() : null,
+    ].filter((value): value is string => !!value);
+    const lastActivityAt = lastCandidates
+      .map((value) => ({ value, ms: new Date(value).getTime() }))
+      .filter((row) => Number.isFinite(row.ms))
+      .sort((a, b) => b.ms - a.ms)[0]?.value ?? null;
+
+    return {
+      ...event,
+      participantCount: participantCountByEvent.get(event.id) ?? 0,
+      expenseTotal: expenseTotalByEvent.get(event.id) ?? 0,
+      lastActivityAt,
+      unreadCount: unreadByEventMap.get(event.id) ?? 0,
+    };
+  });
 }
 
 export async function listPublicBarbecues(): Promise<Barbecue[]> {

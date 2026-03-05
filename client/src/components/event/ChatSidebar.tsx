@@ -28,7 +28,7 @@ type ChatSidebarProps = {
   className?: string;
 };
 
-const GROUP_WINDOW_MS = 10 * 60 * 1000;
+const GROUP_WINDOW_MS = 5 * 60 * 1000;
 const QUICK_EMOJIS = ["😀", "😂", "😍", "🙏", "🔥", "🎉", "👍", "❤️"];
 
 function formatMessageTime(value: string) {
@@ -209,13 +209,17 @@ function isGroupedWithNeighbor(
   neighbor?: { type?: string; createdAt: string; user?: { id?: string | null; name?: string | null } },
 ): boolean {
   if (!neighbor) return false;
-  if (current.type !== neighbor.type) return false;
+  if (current.type !== "user" || neighbor.type !== "user") return false;
   const currentKey = getMessageSenderKey(current);
   const neighborKey = getMessageSenderKey(neighbor);
   if (!currentKey || !neighborKey || currentKey !== neighborKey) return false;
   const currentTime = new Date(current.createdAt).getTime();
   const neighborTime = new Date(neighbor.createdAt).getTime();
   if (!Number.isFinite(currentTime) || !Number.isFinite(neighborTime)) return false;
+  const currentDate = new Date(current.createdAt);
+  const neighborDate = new Date(neighbor.createdAt);
+  if (Number.isNaN(currentDate.getTime()) || Number.isNaN(neighborDate.getTime())) return false;
+  if (!isSameDay(currentDate, neighborDate)) return false;
   return Math.abs(currentTime - neighborTime) < GROUP_WINDOW_MS;
 }
 
@@ -432,43 +436,6 @@ export function ChatSidebar({
     return typingUsers.filter((user) => String(user.id) !== meId);
   }, [currentUser?.id, typingUsers]);
 
-  const groupedMessages = useMemo(() => {
-    const groups: Array<
-      | { kind: "expense-cluster"; messages: typeof messages }
-      | { kind: "single"; message: (typeof messages)[number] }
-    > = [];
-
-    let index = 0;
-    while (index < messages.length) {
-      const current = messages[index];
-      const currentMeta = current?.type === "system" ? toExpenseMetadata(current.metadata ?? null) : null;
-      if (!currentMeta) {
-        groups.push({ kind: "single", message: current });
-        index += 1;
-        continue;
-      }
-
-      const cluster: typeof messages = [current];
-      let cursor = index + 1;
-      while (cursor < messages.length) {
-        const next = messages[cursor];
-        const nextMeta = next?.type === "system" ? toExpenseMetadata(next.metadata ?? null) : null;
-        if (!nextMeta) break;
-        cluster.push(next);
-        cursor += 1;
-      }
-
-      if (cluster.length > 1) {
-        groups.push({ kind: "expense-cluster", messages: cluster });
-      } else {
-        groups.push({ kind: "single", message: current });
-      }
-      index = cursor;
-    }
-
-    return groups;
-  }, [messages]);
-
   const openExpenseEditor = useCallback((expenseId: number) => {
     if (!eventId) return;
     window.dispatchEvent(new CustomEvent("splanno:open-expense", {
@@ -628,86 +595,14 @@ export function ChatSidebar({
             </div>
           </div>
         ) : (
-          groupedMessages.map((group, groupIndex) => {
-            const currentMsg = group.kind === "expense-cluster" ? group.messages[0] : group.message;
-            const previousGroup = groupIndex > 0 ? groupedMessages[groupIndex - 1] : undefined;
-            const previousMsg = previousGroup
-              ? (previousGroup.kind === "expense-cluster"
-                ? previousGroup.messages[previousGroup.messages.length - 1]
-                : previousGroup.message)
-              : undefined;
-            const currentDate = new Date(currentMsg.createdAt);
+          messages.map((msg, msgIndex) => {
+            const previousMsg = msgIndex > 0 ? messages[msgIndex - 1] : undefined;
+            const currentDate = new Date(msg.createdAt);
             const prevDate = previousMsg ? new Date(previousMsg.createdAt) : null;
             const showDateSeparator = !prevDate
               || Number.isNaN(prevDate.getTime())
               || Number.isNaN(currentDate.getTime())
               || !isSameDay(currentDate, prevDate);
-
-            if (group.kind === "expense-cluster") {
-              const first = group.messages[0];
-              const systemName = first.user?.name || SYSTEM_USER_NAME;
-              const metas = group.messages
-                .map((message) => toExpenseMetadata(message.metadata ?? null))
-                .filter((meta): meta is ExpenseMessageMetadata => !!meta);
-              const allAdded = metas.length > 0 && metas.every((meta) => meta.action === "added");
-              const clusterSummary = allAdded
-                ? `${group.messages.length} expenses added`
-                : `${group.messages.length} expense updates`;
-
-              return (
-                <div key={`expense-cluster-${first.id}`}>
-                  {showDateSeparator ? (
-                    <div className="my-2 flex justify-center">
-                      <span className="self-center rounded-full border border-border/70 bg-muted/60 px-3 py-1 text-xs text-muted-foreground">
-                        {formatDateSeparator(first.createdAt)}
-                      </span>
-                    </div>
-                  ) : null}
-                  <div className="mt-2 flex justify-start">
-                    <div className="mr-2 flex w-10 flex-col items-center pt-0.5">
-                      <span className="grid h-7 w-7 place-items-center rounded-full border border-border/70 bg-muted text-[11px] font-semibold text-muted-foreground">
-                        S
-                      </span>
-                    </div>
-                    <div className="max-w-[84%] sm:max-w-[78%]">
-                      <div className="mb-1 px-1 text-[11px] text-muted-foreground">
-                        <span className="font-semibold text-foreground/90">{systemName}</span>
-                        <span className="ml-1 rounded-full border border-border/60 bg-card/60 px-1.5 py-0 text-[9px] uppercase tracking-wide">System</span>
-                        <span className="px-1 text-muted-foreground/70">·</span>
-                        <span className="text-[10px] text-muted-foreground/70">{formatMessageTime(first.createdAt)}</span>
-                      </div>
-                      <p className="mb-1 px-1 text-[10px] text-muted-foreground/75">{clusterSummary}</p>
-                      <div className="space-y-1">
-                        {group.messages.map((message) => {
-                          const expenseMeta = toExpenseMetadata(message.metadata ?? null);
-                          if (!expenseMeta) return null;
-                          return (
-                            <ExpenseCard
-                              key={message.id}
-                              eventId={Number(message.eventId || eventId || 0)}
-                              expenseId={expenseMeta.expenseId}
-                              action={expenseMeta.action}
-                              fallback={{
-                                item: expenseMeta.item,
-                                amount: expenseMeta.amount,
-                                currency: expenseMeta.currency,
-                                paidBy: expenseMeta.paidBy,
-                              }}
-                              optimisticDeleted={optimisticallyDeletedExpenseIds.includes(expenseMeta.expenseId)}
-                              onOpenEdit={openExpenseEditor}
-                              onDelete={(expenseId) => { void handleDeleteExpenseFromCard(expenseId); }}
-                              onCopyAmount={handleCopyAmount}
-                            />
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            }
-
-            const msg = group.message;
             if (msg.type === "system") {
               const systemName = msg.user?.name || SYSTEM_USER_NAME;
               const expenseMeta = toExpenseMetadata(msg.metadata ?? null);

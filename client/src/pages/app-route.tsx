@@ -40,7 +40,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { loadLocalUserPreferences } from "@/lib/user-preferences";
 import { EventHeaderPreferencesProvider } from "@/hooks/use-event-header-preferences";
 import { useNewPlanWizard } from "@/contexts/new-plan-wizard";
 import NewPlanWizardDrawer from "@/components/event/NewPlanWizardDrawer";
@@ -68,6 +67,7 @@ type DevDisableFlags = {
   discoverModal: boolean;
   homeEffects: boolean;
 };
+const LAST_PLAN_STORAGE_KEY = "splanno:lastPlanId";
 
 const DEV_DISABLE_DEFAULT: DevDisableFlags = {
   headerPrefs: false,
@@ -90,6 +90,17 @@ function parseDevDisableFlags(search: string): DevDisableFlags {
 
 function getEventDateMs(event: Barbecue): number {
   const raw = (event.updatedAt as unknown as string) || (event.date as unknown as string) || "";
+  const ms = raw ? new Date(raw).getTime() : 0;
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function getEventCreatedMs(event: Barbecue): number {
+  const maybeCreatedAt = (event as unknown as { createdAt?: unknown }).createdAt;
+  const raw =
+    (maybeCreatedAt as string | undefined)
+    || (event.updatedAt as unknown as string)
+    || (event.date as unknown as string)
+    || "";
   const ms = raw ? new Date(raw).getTime() : 0;
   return Number.isFinite(ms) ? ms : 0;
 }
@@ -808,24 +819,45 @@ export default function AppRoute() {
     if (!isAuthLoading && !user) setLocation("/login");
   }, [user, isAuthLoading, setLocation]);
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (pathname !== "/app") return;
-    const url = new URL(window.location.href);
-    const eventIdParam = Number(url.searchParams.get("eventId"));
-    if (Number.isFinite(eventIdParam)) {
-      setLocation(`/app/e/${eventIdParam}${url.search || ""}`, { replace: true });
-      return;
+  const privateEvents = useMemo(
+    () => appEvents.filter((event) => isPrivateEvent(event)),
+    [appEvents],
+  );
+  const recentOpenedStorageKey = useMemo(
+    () => `splanno.sidebar.recent-opened.v1:${user?.id ?? user?.username ?? "anon"}`,
+    [user?.id, user?.username],
+  );
+  const preferredEventId = useMemo(() => {
+    const byId = new Map<number, Barbecue>();
+    for (const event of privateEvents) {
+      const id = toEventId(event.id);
+      if (id != null) byId.set(id, event);
     }
-    const prefs = loadLocalUserPreferences(user?.id);
-    const startRouteByPref: Record<string, string> = {
-      home: "/app/private",
-      private: "/app/private",
-      public: "/app/private",
-    };
-    const startRoute = startRouteByPref[prefs.defaultStartPage] ?? "/app/private";
-    setLocation(`${startRoute}${url.search || ""}`, { replace: true });
-  }, [pathname, setLocation, user?.id]);
+    if (typeof window !== "undefined") {
+      try {
+        const lastPlanId = Number(localStorage.getItem(LAST_PLAN_STORAGE_KEY));
+        if (Number.isInteger(lastPlanId) && byId.has(lastPlanId)) return lastPlanId;
+      } catch {
+        // ignore malformed local storage
+      }
+      try {
+        const raw = JSON.parse(localStorage.getItem(recentOpenedStorageKey) ?? "[]");
+        const ids = Array.isArray(raw) ? raw.filter((id): id is number => Number.isInteger(id)) : [];
+        const fromRecent = ids.find((id) => byId.has(id));
+        if (fromRecent != null) return fromRecent;
+      } catch {
+        // ignore malformed local storage
+      }
+    }
+    const mostRecentActive = [...privateEvents].sort((a, b) => {
+      const aLast = new Date(String((a as unknown as { lastActivityAt?: string | null }).lastActivityAt ?? a.updatedAt ?? a.date ?? "")).getTime();
+      const bLast = new Date(String((b as unknown as { lastActivityAt?: string | null }).lastActivityAt ?? b.updatedAt ?? b.date ?? "")).getTime();
+      const aSafe = Number.isFinite(aLast) ? aLast : getEventCreatedMs(a);
+      const bSafe = Number.isFinite(bLast) ? bLast : getEventCreatedMs(b);
+      return bSafe - aSafe;
+    })[0];
+    return mostRecentActive ? toEventId(mostRecentActive.id) : null;
+  }, [privateEvents, recentOpenedStorageKey]);
 
   useEffect(() => {
     if (pathname !== "/app/home") return;
@@ -866,6 +898,27 @@ export default function AppRoute() {
   }, [pathname, setLocation]);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const hasInvalidEventRoute = section === "event" && (!routeEventId || routeEventId <= 0);
+    const shouldRedirectFromNoSelection = pathname === "/app" || pathname === "/app/private" || hasInvalidEventRoute;
+    if (!shouldRedirectFromNoSelection) return;
+    const url = new URL(window.location.href);
+    const eventIdParam = Number(url.searchParams.get("eventId"));
+    if (Number.isFinite(eventIdParam) && eventIdParam > 0) {
+      setLocation(`/app/e/${eventIdParam}${url.search || ""}`, { replace: true });
+      return;
+    }
+    if (isLoadingEvents) return;
+    if (preferredEventId) {
+      setLocation(`/app/e/${preferredEventId}${url.search || ""}`, { replace: true });
+      return;
+    }
+    if (pathname === "/app") {
+      setLocation(`/app/private${url.search || ""}`, { replace: true });
+    }
+  }, [pathname, section, routeEventId, setLocation, isLoadingEvents, preferredEventId]);
+
+  useEffect(() => {
     setIsSidebarOpen(false);
   }, [pathname, search]);
 
@@ -898,6 +951,12 @@ export default function AppRoute() {
     if (typeof window === "undefined") return;
     localStorage.setItem("splanno.sidebar.recentCollapsed", String(mobileRecentCollapsed));
   }, [mobileRecentCollapsed]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (section !== "event" || !routeEventId || routeEventId <= 0) return;
+    localStorage.setItem(LAST_PLAN_STORAGE_KEY, String(routeEventId));
+  }, [section, routeEventId]);
 
   const mobileQuickSwitchEvents = useMemo(() => {
     const sorted = [...appEvents].filter((event) => isPrivateEvent(event)).sort((a, b) => getEventDateMs(b) - getEventDateMs(a));

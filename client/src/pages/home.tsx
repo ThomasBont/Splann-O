@@ -77,7 +77,7 @@ import {
   Plus, CheckCircle2,
   CalendarDays, Loader2,
   ArrowLeft,
-  UserCheck, UserX, LogOut, Crown, Clock, UserCircle, ChevronDown, ChevronRight,
+  UserCheck, UserX, LogOut, Crown, Clock, UserCircle, ChevronDown, ChevronRight, Users,
   Lock, Globe, UserPlus, X, Eye, EyeOff, Compass,
   Bell, UserPlus2, Search, Heart, MessageCircle, Star, Plane, PartyPopper, Settings,
   type LucideIcon,
@@ -1093,6 +1093,33 @@ export default function Home({
     [barbecues]
   );
   const listBarbecuesForArea = eventVisibilityTab === "private" ? privateBarbecuesForArea : publicBarbecuesForArea;
+  const formatPlanSharedTotal = useCallback((amount: number, currencyCode?: string | null) => {
+    const safeAmount = Number.isFinite(amount) ? amount : 0;
+    const code = String(currencyCode ?? "").trim().toUpperCase();
+    if (/^[A-Z]{3}$/.test(code)) {
+      try {
+        return new Intl.NumberFormat(undefined, { style: "currency", currency: code }).format(safeAmount);
+      } catch {
+        // fall through
+      }
+    }
+    return `€${safeAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }, []);
+  const formatLastActivity = useCallback((value: string | Date | null | undefined) => {
+    if (!value) return "Active recently";
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) return "Active recently";
+    const diffMs = Date.now() - date.getTime();
+    if (!Number.isFinite(diffMs) || diffMs < 0) return "Active just now";
+    const minutes = Math.floor(diffMs / 60_000);
+    if (minutes < 1) return "Active just now";
+    if (minutes < 60) return `Active ${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `Active ${hours}h ago`;
+    if (hours < 48) return "Active yesterday";
+    const days = Math.floor(hours / 24);
+    return `Active ${days}d ago`;
+  }, []);
   const allEventsForArea = useMemo(
     () => [...barbecuesForArea].sort((a: Barbecue, b: Barbecue) => {
       const aRecentIdx = recentEventIds.indexOf(a.id);
@@ -5188,7 +5215,7 @@ export default function Home({
                   onClick={() => { setNewEventArea(area); setNewEventType(area === "trips" ? "city_trip" : "barbecue"); openNewPlanWizard("BASICS"); }}
                 >
                   <Plus className="mr-1.5 h-4 w-4" />
-                  New plan
+                  Create your first plan
                 </Button>
               </div>
             ) : (
@@ -5196,6 +5223,12 @@ export default function Home({
                 {privatePlansForOverview.map((plan: Barbecue) => {
                   const planId = Number(plan.id);
                   if (!Number.isFinite(planId)) return null;
+                  const planWithStats = plan as Barbecue & {
+                    participantCount?: number;
+                    expenseTotal?: number | string;
+                    unreadCount?: number;
+                    lastActivityAt?: string | null;
+                  };
                   const dateLabel = plan.date
                     ? new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" }).format(new Date(plan.date))
                     : null;
@@ -5204,6 +5237,13 @@ export default function Home({
                     || [plan.city, plan.countryName].filter(Boolean).join(", ")
                     || null;
                   const meta = [dateLabel, locationLabel].filter(Boolean).join(" · ");
+                  const participantCountLabel = Number.isFinite(planWithStats.participantCount)
+                    ? Number(planWithStats.participantCount)
+                    : 0;
+                  const sharedTotal = Number(planWithStats.expenseTotal ?? 0);
+                  const unreadCount = Number(planWithStats.unreadCount ?? 0);
+                  const lastActivityAt = planWithStats.lastActivityAt ?? (plan.updatedAt as unknown as string | null);
+                  // TODO: if unreadCount is not available in list payload for some environments, keep badge hidden.
                   return (
                     <a
                       key={`private-plan-card-${planId}`}
@@ -5219,13 +5259,32 @@ export default function Home({
                     >
                       <div className="flex items-start justify-between gap-3">
                         <h3 className="min-w-0 truncate text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-100">{plan.name}</h3>
-                        <span className="shrink-0 rounded-full border border-amber-300/70 bg-amber-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-800 dark:border-amber-600/40 dark:bg-amber-500/20 dark:text-amber-200">
-                          Private
-                        </span>
+                        {unreadCount > 0 ? (
+                          <span
+                            className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground"
+                            aria-label={`${unreadCount} unread message${unreadCount === 1 ? "" : "s"}`}
+                          >
+                            {unreadCount > 9 ? "9+" : unreadCount}
+                          </span>
+                        ) : null}
                       </div>
                       <p className="mt-2 truncate text-sm text-slate-500 dark:text-neutral-400">
                         {meta || "Date and location to be confirmed"}
                       </p>
+                      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-neutral-400">
+                        <span className="inline-flex items-center gap-1.5">
+                          <Users className="h-3.5 w-3.5" />
+                          {participantCountLabel}
+                        </span>
+                        <span className="inline-flex items-center gap-1.5">
+                          <Receipt className="h-3.5 w-3.5" />
+                          {`${formatPlanSharedTotal(sharedTotal, (plan.currency as string) || defaultCurrency)} shared`}
+                        </span>
+                        <span className="inline-flex items-center gap-1.5">
+                          <Clock className="h-3.5 w-3.5" />
+                          {formatLastActivity(lastActivityAt)}
+                        </span>
+                      </div>
                     </a>
                   );
                 })}

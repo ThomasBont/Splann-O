@@ -23,7 +23,7 @@ import { broadcastEventRealtime } from "../lib/eventRealtime";
 import { getLimits } from "../lib/plan";
 import { listPlanActivity, logPlanActivity } from "../lib/planActivity";
 import { postSystemChatMessage } from "../lib/systemChat";
-import { ensureAutoSettlement, getLatestSettlement, markSettlementTransferPaid } from "../lib/settlement";
+import { ensureAutoSettlement, ensureSettlementForView, getLatestSettlement, getSettlementById, markSettlementTransferPaid } from "../lib/settlement";
 import { log } from "../lib/logger";
 import { auditLog, auditSecurity } from "../lib/audit";
 import { badRequest, forbidden, notFound, unauthorized, upgradeRequired } from "../lib/errors";
@@ -145,13 +145,82 @@ router.get("/events/:eventId/settlement/latest", requireAuth, asyncHandler(async
   const eventId = Number(req.params.eventId);
   if (!Number.isInteger(eventId) || eventId <= 0) badRequest("Invalid event id");
   await assertEventAccessOrThrow(req, eventId);
-  await ensureAutoSettlement(eventId);
-  const latest = await getLatestSettlement(eventId);
+  let latest = await getLatestSettlement(eventId);
+  if (!latest) {
+    await ensureAutoSettlement(eventId);
+    latest = await getLatestSettlement(eventId);
+  }
   if (!latest) {
     res.json({ settlement: null, transfers: [] });
     return;
   }
   res.json(latest);
+}));
+
+router.post("/events/:eventId/settlement/ensure", requireAuth, asyncHandler(async (req, res) => {
+  const eventId = Number(req.params.eventId);
+  if (!Number.isInteger(eventId) || eventId <= 0) badRequest("Invalid event id");
+  await assertEventAccessOrThrow(req, eventId);
+  const userId = req.session?.userId;
+  if (!userId) unauthorized("Not authenticated");
+  const bbq = await bbqRepo.getById(eventId);
+  if (!bbq) notFound("Event not found");
+  if (bbq.creatorUserId !== userId) {
+    res.status(403).json({
+      code: "only_creator_can_start_settlement",
+      message: "Only the plan creator can start settlement.",
+    });
+    return;
+  }
+
+  await ensureSettlementForView(eventId);
+  const latest = await getLatestSettlement(eventId);
+  res.json({
+    ensured: true,
+    hasSettlement: !!latest?.settlement,
+    settlementId: latest?.settlement?.id ?? null,
+    latest: latest ?? { settlement: null, transfers: [] },
+  });
+}));
+
+router.post("/events/:eventId/settlement/manual", requireAuth, asyncHandler(async (req, res) => {
+  const eventId = Number(req.params.eventId);
+  if (!Number.isInteger(eventId) || eventId <= 0) badRequest("Invalid event id");
+  await assertEventAccessOrThrow(req, eventId);
+  const userId = req.session?.userId;
+  if (!userId) unauthorized("Not authenticated");
+  const bbq = await bbqRepo.getById(eventId);
+  if (!bbq) notFound("Event not found");
+  if (bbq.creatorUserId !== userId) {
+    res.status(403).json({
+      code: "only_creator_can_start_settlement",
+      message: "Only the plan creator can start settlement.",
+    });
+    return;
+  }
+
+  await ensureSettlementForView(eventId);
+  const latest = await getLatestSettlement(eventId);
+  res.json({
+    ensured: true,
+    hasSettlement: !!latest?.settlement,
+    settlementId: latest?.settlement?.id ?? null,
+    latest: latest ?? { settlement: null, transfers: [] },
+  });
+}));
+
+router.get("/events/:eventId/settlement/:settlementId", requireAuth, asyncHandler(async (req, res) => {
+  const eventId = Number(req.params.eventId);
+  const settlementId = String(req.params.settlementId ?? "").trim();
+  if (!Number.isInteger(eventId) || eventId <= 0) badRequest("Invalid event id");
+  if (!settlementId) badRequest("Invalid settlement id");
+  await assertEventAccessOrThrow(req, eventId);
+  const settlement = await getSettlementById(eventId, settlementId);
+  if (!settlement) {
+    res.json({ settlement: null, transfers: [] });
+    return;
+  }
+  res.json(settlement);
 }));
 
 router.post("/events/:eventId/settlement/:settlementId/transfers/:transferId/mark-paid", requireAuth, asyncHandler(async (req, res) => {
@@ -164,6 +233,26 @@ router.post("/events/:eventId/settlement/:settlementId/transfers/:transferId/mar
   await assertEventAccessOrThrow(req, eventId);
   const userId = req.session?.userId;
   if (!userId) unauthorized("Not authenticated");
+  const settlement = await getSettlementById(eventId, settlementId);
+  if (!settlement?.settlement) notFound("Settlement not found");
+  const transfer = settlement.transfers.find((row) => row.id === transferId);
+  if (!transfer) notFound("Transfer not found");
+  const isTransferParticipant = transfer.fromUserId === userId || transfer.toUserId === userId;
+  if (!isTransferParticipant) {
+    res.status(403).json({
+      code: "not_transfer_participant",
+      message: "Only the payer or receiver can mark this transfer as paid.",
+    });
+    return;
+  }
+
+  if (transfer.paidAt) {
+    res.json({
+      transferId: transfer.id,
+      paidAt: transfer.paidAt,
+    });
+    return;
+  }
 
   const updated = await markSettlementTransferPaid({
     eventId,

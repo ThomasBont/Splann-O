@@ -586,11 +586,17 @@ type AccountView = "profile" | "friends" | "addFriend" | "friendProfile" | "edit
 type HomeProps = {
   appRouteMode?: HomeRouteMode;
   routeEventId?: number | null;
+  eventViewMode?: "chat" | "overview";
   debugDisableDiscoverModal?: boolean;
 };
 const LEAVE_REDIRECT_MARKER_KEY = "splanno.recentlyLeftPlan";
 
-export default function Home({ appRouteMode = "legacy", routeEventId = null, debugDisableDiscoverModal = false }: HomeProps) {
+export default function Home({
+  appRouteMode = "legacy",
+  routeEventId = null,
+  eventViewMode = "chat",
+  debugDisableDiscoverModal = false,
+}: HomeProps) {
   const { t } = useLanguage();
   const { prefs: eventHeaderPrefs } = useEventHeaderPreferences();
   const { user, isLoading: isAuthLoading, logout, updateProfile, deleteAccount } = useAuth();
@@ -602,6 +608,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
   const { openNewPlanWizard } = useNewPlanWizard();
   const shouldReduceMotion = useReducedMotion();
   const isManagedAppRoute = appRouteMode !== "legacy";
+  const isEventChatRoute = isManagedAppRoute && appRouteMode === "event" && eventViewMode === "chat";
   // Managed event route should render the new dashboard layout.
   const useNewManagedEventLayout = true;
 
@@ -2088,6 +2095,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
   const isPrivateBasicsValid = !!newBbqName.trim() && !!newBbqDate && !!newEventLocation?.locationName.trim();
   const headerPrimaryActionLabel = !isPublicBuilderContext && activeEventTab === "people" ? "Invite" : UI_COPY.actions.addExpense;
   const headerPrimaryActionVisible = !isPublicBuilderContext && (activeEventTab === "expenses" || activeEventTab === "people");
+  const nextActionPendingCount = Math.max(invitedParticipants.length, pendingRequests.length);
   const handleHeaderPrimaryAction = () => {
     if (isPublicBuilderContext) return;
     if (activeEventTab === "people") {
@@ -2098,6 +2106,29 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
     setEditingExpense(null);
     setIsAddExpenseOpen(true);
   };
+  const handleOpenNextAction = useCallback(() => {
+    if (nextActionPendingCount > 0) {
+      setActiveEventTab("people");
+      return;
+    }
+    setRecommendedExpenseTemplate({ item: "Expense", category: "Other" });
+    setEditingExpense(null);
+    setIsAddExpenseOpen(true);
+  }, [nextActionPendingCount]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onOpenNextAction = (event: Event) => {
+      const custom = event as CustomEvent<{ eventId?: number }>;
+      const targetEventId = Number(custom.detail?.eventId);
+      if (!selectedBbq || !Number.isFinite(targetEventId) || targetEventId !== selectedBbq.id) return;
+      handleOpenNextAction();
+    };
+    window.addEventListener("splanno:open-next-action", onOpenNextAction as EventListener);
+    return () => {
+      window.removeEventListener("splanno:open-next-action", onOpenNextAction as EventListener);
+    };
+  }, [selectedBbq, handleOpenNextAction]);
 
   const newEventWizardFooter = (
     <div className="w-full space-y-2">
@@ -3274,11 +3305,14 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
       </div>
       )}
 
-      <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8 space-y-6 sm:space-y-8">
+      <main className={isEventChatRoute
+        ? "h-[calc(100dvh-56px)] md:h-[100dvh] w-full overflow-hidden px-2 py-2 sm:px-3 sm:py-3"
+        : "max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8 space-y-6 sm:space-y-8"}
+      >
         {
         <>
         {/* Pending Requests Panel */}
-        {isCreator && pendingRequests.length > 0 && (
+        {!isEventChatRoute && isCreator && pendingRequests.length > 0 && (
           <motion.div
             initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
             className="bg-yellow-500/10 border border-yellow-500/30 rounded-2xl p-4 sm:p-6"
@@ -3370,15 +3404,55 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
 
           if (useNewManagedEventLayout && appRouteMode === "event" && isPrivateContext && selectedBbq) {
             const pendingCount = Math.max(invitedParticipants.length, pendingRequests.length);
+            const isChatView = eventViewMode === "chat";
             const fallbackHeroImage = "https://images.unsplash.com/photo-1559339352-11d035aa65de?auto=format&fit=crop&w=1600&q=80";
             const heroImage = !dashboardHeroBannerFailed && displayedDashboardHeroBannerUrl
               ? displayedDashboardHeroBannerUrl
               : fallbackHeroImage;
             const glassCardClass = "rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md shadow-sm";
             return (
-              <div className="mx-auto w-full max-w-[1400px] rounded-2xl border border-border/60 bg-background px-4 py-6 sm:px-6 lg:px-10">
-                <div className="grid min-h-[calc(100vh-11rem)] items-stretch gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
-                  <section className="min-w-0 pb-6 md:pb-0 h-full min-h-0 flex flex-col">
+              <div
+                className={
+                  isChatView
+                    ? "w-full h-full overflow-hidden px-1 py-1 sm:px-2 sm:py-2 lg:px-3"
+                    : "mx-auto w-full max-w-[1400px] rounded-2xl border border-border/60 bg-background px-4 py-6 sm:px-6 lg:px-10"
+                }
+              >
+                <div className={isChatView ? "flex h-full min-h-0 flex-col gap-4" : "flex min-h-[calc(100vh-11rem)] flex-col gap-6"}>
+                  <section className={`min-w-0 min-h-0 flex-1 ${eventViewMode === "chat" ? "" : "hidden"}`}>
+                    <div className={isChatView ? "h-full min-h-0 w-full" : "h-[calc(100vh-10.5rem)] min-h-[560px] w-full"}>
+                      <ChatSidebar
+                        eventId={selectedBbq.id}
+                        eventName={selectedBbq.name}
+                        location={
+                          selectedBbq.locationText
+                          ?? selectedBbq.locationName
+                          ?? ([selectedBbq.city, selectedBbq.countryName].filter(Boolean).join(", ") || null)
+                        }
+                        dateTime={selectedBbq.date ?? null}
+                        participantCount={participants.length}
+                        sharedTotal={Number(totalSpent)}
+                        currency={(selectedBbq.currency as string) || defaultCurrency}
+                        onSummaryClick={() => setIsPlanDetailsOpen(true)}
+                        currentUser={{
+                          id: user?.id ?? null,
+                          username: user?.username ?? null,
+                          avatarUrl: user?.avatarUrl ?? null,
+                        }}
+                        enabled={!!user}
+                        className="h-full w-full"
+                      />
+                    </div>
+                  </section>
+
+                  {eventViewMode === "overview" ? (
+                    <div className="min-w-0">
+                      <h2 className="text-2xl font-semibold tracking-tight">Overview</h2>
+                      <p className="mt-1 text-sm text-muted-foreground">Plan dashboard and actions.</p>
+                    </div>
+                  ) : null}
+
+                  <section className={`min-w-0 pb-6 md:pb-0 h-full min-h-0 flex flex-col ${eventViewMode === "overview" ? "" : "hidden"}`}>
                     <div className="md:hidden sticky top-0 z-20 -mx-1 rounded-xl border border-border/60 bg-background/95 px-3 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/80">
                       <div className="flex items-center justify-between gap-2">
                         <p className="line-clamp-2 text-sm font-semibold text-foreground">
@@ -3550,12 +3624,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                                 className="rounded-xl border-white/30 bg-white/10 text-white hover:bg-white/20"
                                 onClick={(event) => {
                                   event.stopPropagation();
-                                  if (pendingCount > 0) {
-                                    setActiveEventTab("people");
-                                    return;
-                                  }
-                                  setRecommendedExpenseTemplate({ item: "Expense", category: "Other" });
-                                  setIsAddExpenseOpen(true);
+                                  handleOpenNextAction();
                                 }}
                               >
                                 {pendingCount > 0 ? "Open people" : "Add expense"}
@@ -3643,62 +3712,6 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                       onMarkAllAsRead={markAllAsRead}
                     />
                   </section>
-
-                  <aside className="hidden md:block h-full min-h-0">
-                    <div className="h-[calc(100vh-11rem)] min-h-[520px]">
-                      <ChatSidebar
-                        eventId={selectedBbq.id}
-                        eventName={selectedBbq.name}
-                        location={
-                          selectedBbq.locationText
-                          ?? selectedBbq.locationName
-                          ?? ([selectedBbq.city, selectedBbq.countryName].filter(Boolean).join(", ") || null)
-                        }
-                        dateTime={selectedBbq.date ?? null}
-                        participantCount={participants.length}
-                        sharedTotal={Number(totalSpent)}
-                        currency={(selectedBbq.currency as string) || defaultCurrency}
-                        currentUser={{
-                          id: user?.id ?? null,
-                          username: user?.username ?? null,
-                          avatarUrl: user?.avatarUrl ?? null,
-                        }}
-                        enabled={!!user}
-                      />
-                    </div>
-                  </aside>
-                  <div className="md:hidden">
-                    <Button
-                      type="button"
-                      size="icon"
-                      className="fixed bottom-4 right-4 z-40 h-12 w-12 rounded-full bg-[#D4A017] text-white shadow-lg hover:bg-[#BF9013]"
-                      aria-label="Open chat"
-                      onClick={() => setIsMobileChatOpen(true)}
-                    >
-                      <MessageCircle className="h-5 w-5" />
-                    </Button>
-                    <MobileChatSheet
-                      open={isMobileChatOpen}
-                      onOpenChange={setIsMobileChatOpen}
-                      eventId={selectedBbq.id}
-                      eventName={selectedBbq.name}
-                      location={
-                        selectedBbq.locationText
-                        ?? selectedBbq.locationName
-                        ?? ([selectedBbq.city, selectedBbq.countryName].filter(Boolean).join(", ") || null)
-                      }
-                      dateTime={selectedBbq.date ?? null}
-                      participantCount={participants.length}
-                      sharedTotal={Number(totalSpent)}
-                      currency={(selectedBbq.currency as string) || defaultCurrency}
-                      currentUser={{
-                        id: user?.id ?? null,
-                        username: user?.username ?? null,
-                        avatarUrl: user?.avatarUrl ?? null,
-                      }}
-                      enabled={!!user}
-                    />
-                  </div>
                 </div>
               </div>
             );
@@ -5131,6 +5144,7 @@ export default function Home({ appRouteMode = "legacy", routeEventId = null, deb
                   participantCount={participants.length}
                   sharedTotal={Number(totalSpent)}
                   currency={(selectedBbq.currency as string) || defaultCurrency}
+                  onSummaryClick={() => setIsPlanDetailsOpen(true)}
                   currentUser={{
                     id: user?.id ?? null,
                     username: user?.username ?? null,

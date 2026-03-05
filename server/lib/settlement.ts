@@ -67,10 +67,11 @@ function isFinishedEvent(start: Date | null, durationMinutes: number | null | un
   return Date.now() > end;
 }
 
-async function computeSettlementInput(eventId: number) {
+async function computeSettlementInput(eventId: number, options?: { requireFinished?: boolean }) {
   const [bbq] = await db.select().from(barbecues).where(eq(barbecues.id, eventId)).limit(1);
   if (!bbq) return null;
-  if (!isFinishedEvent(bbq.date ?? null, bbq.durationMinutes)) return null;
+  const requireFinished = options?.requireFinished ?? true;
+  if (requireFinished && !isFinishedEvent(bbq.date ?? null, bbq.durationMinutes)) return null;
 
   const [participants, expenses, shares] = await Promise.all([
     participantRepo.listByBbq(eventId, "accepted"),
@@ -79,6 +80,25 @@ async function computeSettlementInput(eventId: number) {
   ]);
   if (expenses.length === 0 || participants.length === 0) return null;
 
+  const participantIdToUserId = new Map<number, number>();
+  for (const participant of participants) {
+    if (participant.userId != null) participantIdToUserId.set(participant.id, participant.userId);
+  }
+
+  // Settlements are persisted with user foreign keys.
+  // If historical/guest participants without linked users are involved in expenses,
+  // we currently cannot persist valid transfers safely.
+  const hasUnmappedExpensePayer = expenses.some((expense) => !participantIdToUserId.has(expense.participantId));
+  if (hasUnmappedExpensePayer) return null;
+
+  const settlementParticipants = participants
+    .filter((participant) => participant.userId != null)
+    .map((participant) => ({
+      id: participant.userId as number,
+      name: participant.name,
+    }));
+  if (settlementParticipants.length === 0) return null;
+
   const effectiveShares = buildEffectiveExpenseShares({
     participants,
     expenses,
@@ -86,10 +106,23 @@ async function computeSettlementInput(eventId: number) {
     allowOptInExpenses: !!bbq.allowOptInExpenses,
   });
   const shouldUseCustomSplit = !!bbq.allowOptInExpenses || expenses.some((expense) => Array.isArray(expense.includedUserIds));
+
+  const splitExpenses = expenses.map((expense) => ({
+    id: expense.id,
+    participantId: participantIdToUserId.get(expense.participantId) as number,
+    amount: Number(expense.amount),
+  }));
+  const splitShares = effectiveShares
+    .map((share) => {
+      const userId = participantIdToUserId.get(share.participantId);
+      return userId == null ? null : { expenseId: share.expenseId, participantId: userId };
+    })
+    .filter((share): share is { expenseId: number; participantId: number } => share != null);
+
   const split = computeSplit(
-    participants.map((participant) => ({ id: participant.id, name: participant.name })),
-    expenses.map((expense) => ({ id: expense.id, participantId: expense.participantId, amount: Number(expense.amount) })),
-    effectiveShares,
+    settlementParticipants,
+    splitExpenses,
+    splitShares,
     shouldUseCustomSplit,
   );
   const balances = split.balances.map((entry) => ({
@@ -99,16 +132,38 @@ async function computeSettlementInput(eventId: number) {
   }));
   const transfers = computeSettlementTransfers(balances);
   if (transfers.length === 0) return null;
+
+  const transferUserIds = Array.from(new Set(
+    transfers.flatMap((transfer) => [transfer.fromUserId, transfer.toUserId]),
+  ));
+  if (transferUserIds.length > 0) {
+    const existingUsers = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(inArray(users.id, transferUserIds));
+    const existingUserSet = new Set(existingUsers.map((user) => user.id));
+    const hasUnknownUser = transferUserIds.some((userId) => !existingUserSet.has(userId));
+    if (hasUnknownUser) return null;
+  }
+
   return {
     bbq,
     transfers,
-    idempotencyKey: `${eventId}:auto:v1`,
+    idempotencyKey: `${eventId}:settlement:v1`,
   };
 }
 
 export async function ensureAutoSettlement(eventId: number): Promise<void> {
-  const input = await computeSettlementInput(eventId);
+  const input = await computeSettlementInput(eventId, { requireFinished: true });
   if (!input) return;
+
+  const [existing] = await db
+    .select({ id: eventSettlements.id })
+    .from(eventSettlements)
+    .where(eq(eventSettlements.eventId, eventId))
+    .orderBy(desc(eventSettlements.createdAt))
+    .limit(1);
+  if (existing) return;
 
   const inserted = await db.transaction(async (tx) => {
     const [createdSettlement] = await tx
@@ -147,12 +202,74 @@ export async function ensureAutoSettlement(eventId: number): Promise<void> {
   });
 }
 
+export async function ensureSettlementForView(eventId: number): Promise<void> {
+  const [existing] = await db
+    .select({ id: eventSettlements.id })
+    .from(eventSettlements)
+    .where(eq(eventSettlements.eventId, eventId))
+    .orderBy(desc(eventSettlements.createdAt))
+    .limit(1);
+  if (existing) return;
+
+  const input = await computeSettlementInput(eventId, { requireFinished: false });
+  if (!input) return;
+
+  const inserted = await db.transaction(async (tx) => {
+    const [createdSettlement] = await tx
+      .insert(eventSettlements)
+      .values({
+        eventId,
+        status: "proposed",
+        source: "manual",
+        idempotencyKey: input.idempotencyKey,
+        createdAt: new Date(),
+      })
+      .onConflictDoNothing({ target: [eventSettlements.idempotencyKey] })
+      .returning();
+    if (!createdSettlement) return null;
+
+    if (input.transfers.length > 0) {
+      await tx.insert(eventSettlementTransfers).values(
+        input.transfers.map((transfer) => ({
+          settlementId: createdSettlement.id,
+          fromUserId: transfer.fromUserId,
+          toUserId: transfer.toUserId,
+          amountCents: transfer.amountCents,
+          currency: input.bbq.currency,
+        })),
+      );
+    }
+    return createdSettlement;
+  });
+
+  if (!inserted) return;
+  await postSystemChatMessage(eventId, "Settlement proposed", {
+    type: "settlement",
+    settlementId: inserted.id,
+    action: "proposed",
+    currency: input.bbq.currency,
+  });
+}
+
 export async function getLatestSettlement(eventId: number) {
   const [settlement] = await db
     .select()
     .from(eventSettlements)
     .where(eq(eventSettlements.eventId, eventId))
     .orderBy(desc(eventSettlements.createdAt))
+    .limit(1);
+  if (!settlement) return null;
+  return getSettlementById(eventId, settlement.id);
+}
+
+export async function getSettlementById(eventId: number, settlementId: string) {
+  const [settlement] = await db
+    .select()
+    .from(eventSettlements)
+    .where(and(
+      eq(eventSettlements.eventId, eventId),
+      eq(eventSettlements.id, settlementId),
+    ))
     .limit(1);
   if (!settlement) return null;
 

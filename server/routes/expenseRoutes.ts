@@ -1,12 +1,12 @@
 // Expense routes: expense CRUD, receipt upload/delete, and expense shares.
 import { Router } from "express";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { promises as fs } from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { z } from "zod";
 import { api } from "@shared/routes";
-import { barbecues, expenses, planActivity } from "@shared/schema";
+import { barbecues, eventSettlements, expenses, planActivity } from "@shared/schema";
 import { bbqRepo } from "../repositories/bbqRepo";
 import { expenseRepo } from "../repositories/expenseRepo";
 import { participantRepo } from "../repositories/participantRepo";
@@ -16,12 +16,32 @@ import { broadcastEventRealtime } from "../lib/eventRealtime";
 import { broadcastPlanBalancesUpdated } from "../lib/planBalancesRealtime";
 import { logPlanActivity } from "../lib/planActivity";
 import { postSystemChatMessage } from "../lib/systemChat";
-import { badRequest, forbidden, notFound, unauthorized } from "../lib/errors";
+import { AppError, badRequest, forbidden, notFound, unauthorized } from "../lib/errors";
 import { asyncHandler, assertEventAccessOrThrow, ensurePrivateEventParticipantOrCreator, getBarbecueOr404, p } from "./_helpers";
 
 const router = Router();
 const RECEIPT_UPLOAD_DIR = path.resolve(process.cwd(), "public/uploads/receipts");
 const MAX_RECEIPT_SIZE_BYTES = 5 * 1024 * 1024;
+
+async function getLatestSettlementStatus(eventId: number): Promise<"proposed" | "in_progress" | "settled" | null> {
+  const [latest] = await db
+    .select({ status: eventSettlements.status })
+    .from(eventSettlements)
+    .where(eq(eventSettlements.eventId, eventId))
+    .orderBy(desc(eventSettlements.createdAt))
+    .limit(1);
+  return (latest?.status as "proposed" | "in_progress" | "settled" | undefined) ?? null;
+}
+
+async function assertExpensesUnlocked(eventId: number): Promise<void> {
+  const settlementStatus = await getLatestSettlementStatus(eventId);
+  if (!settlementStatus) return;
+  throw new AppError(
+    "SETTLEMENT_LOCKED",
+    "Settlement is active; expenses are locked.",
+    409,
+  );
+}
 
 function normalizeIncludedUserIds(input: unknown): string[] | null | undefined {
   if (input === undefined) return undefined;
@@ -46,6 +66,7 @@ router.get(p(api.expenses.list.path), asyncHandler(async (req, res) => {
 router.post(p(api.expenses.create.path), asyncHandler(async (req, res) => {
   const bbqId = Number(req.params.bbqId);
   const bbq = await getBarbecueOr404(req, bbqId);
+  await assertExpensesUnlocked(bbqId);
   const sessionUserId = req.session?.userId;
   if (!sessionUserId) unauthorized("Not authenticated");
   const isCreator = bbq.creatorUserId === sessionUserId;
@@ -110,6 +131,7 @@ router.put(p(api.expenses.update.path), asyncHandler(async (req, res) => {
   const input = bodySchema.parse(req.body);
   const [before] = await db.select().from(expenses).where(eq(expenses.id, expenseId)).limit(1);
   if (!before) notFound("Expense not found");
+  await assertExpensesUnlocked(before.barbecueId);
   const bbq = await getBarbecueOr404(req, before.barbecueId);
   const isCreator = bbq.creatorUserId === sessionUserId;
   const acceptedParticipants = await participantRepo.listByBbq(before.barbecueId, "accepted");
@@ -161,6 +183,7 @@ router.delete(p(api.expenses.delete.path), requireAuth, asyncHandler(async (req,
 
   const [expense] = await db.select().from(expenses).where(eq(expenses.id, expenseId)).limit(1);
   if (!expense) notFound("Expense not found");
+  await assertExpensesUnlocked(expense.barbecueId);
   await assertEventAccessOrThrow(req, expense.barbecueId);
 
   const [bbq] = await db.select().from(barbecues).where(eq(barbecues.id, expense.barbecueId)).limit(1);

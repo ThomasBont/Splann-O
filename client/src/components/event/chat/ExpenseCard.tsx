@@ -133,7 +133,7 @@ export function ExpenseCard({
       role="button"
       tabIndex={0}
       className={cn(
-        "group w-full rounded-xl border border-border/70 bg-muted/60 px-2.5 py-2 text-left shadow-sm transition hover:border-border hover:bg-muted/70 dark:border-neutral-700/80 dark:bg-neutral-800/80 dark:hover:bg-neutral-800/95",
+        "group w-full rounded-2xl border border-border/65 bg-muted/35 px-2.5 py-2 text-left transition hover:border-border/80 hover:bg-muted/45 dark:border-neutral-700/70 dark:bg-neutral-800/65 dark:hover:bg-neutral-800/80",
         resolved.deleted && "opacity-80",
         className,
       )}

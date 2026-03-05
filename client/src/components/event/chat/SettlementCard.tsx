@@ -2,6 +2,8 @@ import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CheckCircle2, CircleDollarSign } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/hooks/use-auth";
+import { useAppToast } from "@/hooks/use-app-toast";
 import { cn } from "@/lib/utils";
 
 type SettlementCardProps = {
@@ -51,13 +53,15 @@ function formatMoney(amount: number, currency: string): string {
 }
 
 export function SettlementCard({ eventId, settlementId, currency, className }: SettlementCardProps) {
+  const { user } = useAuth();
+  const { toastError } = useAppToast();
   const queryClient = useQueryClient();
   const queryKey = useMemo(() => ["/api/events", eventId, "settlement", settlementId], [eventId, settlementId]);
 
   const settlementQuery = useQuery<SettlementResponse>({
     queryKey,
     queryFn: async () => {
-      const res = await fetch(`/api/events/${eventId}/settlement/latest`, { credentials: "include" });
+      const res = await fetch(`/api/events/${eventId}/settlement/${encodeURIComponent(settlementId)}`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to load settlement");
       return res.json();
     },
@@ -71,7 +75,12 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
         method: "POST",
         credentials: "include",
       });
-      if (!res.ok) throw new Error("Failed to mark transfer as paid");
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({} as { code?: string; message?: string }));
+        const error = new Error(body.message || "Failed to mark transfer as paid") as Error & { code?: string };
+        error.code = body.code;
+        throw error;
+      }
       return res.json() as Promise<{ transferId: string; paidAt: string | null }>;
     },
     onMutate: async (transferId: string) => {
@@ -99,10 +108,16 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
       });
       return { previous };
     },
-    onError: (_error, _transferId, context) => {
+    onError: (error, _transferId, context) => {
       if (context?.previous) {
         queryClient.setQueryData(queryKey, context.previous);
       }
+      const err = error as Error & { code?: string };
+      if (err.code === "not_transfer_participant") {
+        toastError("Only the payer or receiver can mark this as paid.");
+        return;
+      }
+      toastError(err.message || "Couldn’t mark transfer as paid.");
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey });
@@ -119,7 +134,7 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
     || (totalTransfers > 0 && paidTransfers >= totalTransfers);
 
   return (
-    <div className={cn("w-full rounded-xl border border-border/70 bg-muted/50 px-3 py-2 shadow-sm dark:border-neutral-700/80 dark:bg-neutral-800/80", className)}>
+    <div className={cn("w-full rounded-2xl border border-border/65 bg-muted/35 px-3 py-2.5 dark:border-neutral-700/70 dark:bg-neutral-800/65", className)}>
       <div className="mb-2 flex items-center justify-between gap-2">
         <div className="min-w-0">
           <div className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground">
@@ -142,7 +157,7 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
         </span>
       </div>
       {totalTransfers > 0 ? (
-        <div className="mb-2 h-1.5 w-full overflow-hidden rounded-full bg-border/50">
+        <div className="mb-2 h-1 w-full overflow-hidden rounded-full bg-border/50">
           <div className="h-full rounded-full bg-emerald-500/80 transition-all" style={{ width: `${Math.max(0, Math.min(100, progressPercent))}%` }} />
         </div>
       ) : null}
@@ -153,8 +168,9 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
         <div className="space-y-1.5">
           {transfers.map((transfer) => {
             const paid = !!transfer.paidAt;
+            const canMarkPaid = !!user && (user.id === transfer.fromUserId || user.id === transfer.toUserId);
             return (
-              <div key={transfer.id} className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-background/70 px-2 py-1.5 text-xs dark:bg-neutral-900/40">
+              <div key={transfer.id} className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-background/60 px-2 py-1.5 text-xs dark:bg-neutral-900/35">
                 <p className="min-w-0 truncate text-muted-foreground">
                   <span className="font-medium text-foreground">{transfer.fromName || transfer.fromUserId}</span>
                   {" \u2192 "}
@@ -167,7 +183,7 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
                     <CheckCircle2 className="h-3.5 w-3.5" />
                     Paid
                   </span>
-                ) : (
+                ) : canMarkPaid ? (
                   <Button
                     type="button"
                     size="sm"
@@ -178,6 +194,8 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
                   >
                     {isSettled ? "Done" : "Mark paid"}
                   </Button>
+                ) : (
+                  <span className="text-[11px] text-muted-foreground">Only payer/receiver</span>
                 )}
               </div>
             );

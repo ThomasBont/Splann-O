@@ -22,11 +22,17 @@ import {
   X,
   ChevronDown,
   Trash2,
+  Users,
+  Receipt,
+  Zap,
+  LayoutGrid,
+  MessageCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import {
   DropdownMenu,
@@ -194,18 +200,20 @@ function NewEventMenuButton({
   size = "default",
   align = "start",
   onCreate,
+  iconOnly = false,
 }: {
   className?: string;
-  size?: "sm" | "md" | "default" | "lg";
+  size?: "sm" | "md" | "default" | "lg" | "icon";
   align?: "start" | "end" | "center";
   onCreate?: () => void;
+  iconOnly?: boolean;
 }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button className={className} size={size}>
-          <Plus className="h-4 w-4 mr-1.5" />
-          New plan
+          <Plus className={`h-4 w-4 ${iconOnly ? "" : "mr-1.5"}`} />
+          {iconOnly ? null : "New plan"}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align={align} className="w-72">
@@ -223,7 +231,17 @@ function NewEventMenuButton({
   );
 }
 
-function AppSidebar({ section, onCreatePlan }: { section: AppSection; onCreatePlan: () => void }) {
+function AppSidebar({
+  section,
+  onCreatePlan,
+  selectedEventId,
+  eventViewMode,
+}: {
+  section: AppSection;
+  onCreatePlan: () => void;
+  selectedEventId?: number | null;
+  eventViewMode?: "chat" | "overview";
+}) {
   const { data: events = [], isLoading: eventsLoading, error: eventsError, refetch: refetchEvents } = useBarbecues();
   const { user } = useAuth();
   const [recentCollapsed, setRecentCollapsed] = useState(false);
@@ -339,10 +357,6 @@ function AppSidebar({ section, onCreatePlan }: { section: AppSection; onCreatePl
       .slice(0, 8);
   }, [allSortedEvents]);
 
-  const items: Array<{ href: string; label: string; icon: ComponentType<{ className?: string }> ; key: AppSection }> = [
-    { href: "/app/private", label: "Home", icon: HomeIcon, key: "home" },
-  ];
-
   const renderEventList = (list: Barbecue[], emptyMessage: string, limit = 12) => (
     <div className="space-y-1 pr-1">
       {eventsLoading ? (
@@ -365,13 +379,10 @@ function AppSidebar({ section, onCreatePlan }: { section: AppSection; onCreatePl
           <a
             key={`sidebar-event-${event.id}`}
             href={`/app/e/${event.id}`}
-            className="pointer-events-auto relative z-10 block rounded-md border border-transparent px-2 py-1.5 text-xs hover:border-border/60 hover:bg-muted/30"
+            className="pointer-events-auto relative z-10 block rounded-xl border border-border/50 bg-background/40 px-3 py-2.5 text-sm transition hover:border-border/70 hover:bg-muted/35"
           >
-            <div className="flex items-center justify-between gap-2">
-              <p className="truncate font-medium">{event.name}</p>
-              <span className="shrink-0 rounded-full border border-border/60 px-1.5 py-0.5 text-[10px] text-muted-foreground">Private</span>
-            </div>
-            <p className="truncate text-[10px] text-muted-foreground">
+            <p className="truncate font-medium text-foreground">{event.name}</p>
+            <p className="mt-0.5 truncate text-xs text-muted-foreground">
               {formatEventLocation(event)}
             </p>
           </a>
@@ -394,27 +405,46 @@ function AppSidebar({ section, onCreatePlan }: { section: AppSection; onCreatePl
             </a>
           </Link>
         </div>
-        <nav className="px-3 py-3 space-y-1 shrink-0">
-          {items.map((item) => {
-            const active = section === item.key || (section === "event" && item.key === "home");
-            const Icon = item.icon;
-            return (
-              <Link key={`app-nav-${item.href}`} href={item.href}>
-                <a className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition ${active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}>
-                  <Icon className="h-4 w-4" />
-                  <span>{item.label}</span>
-                </a>
-              </Link>
-            );
-          })}
-        </nav>
+        <div className="shrink-0 px-3 pt-3 pb-2">
+          <TooltipProvider delayDuration={100}>
+            <div className="flex items-center gap-2">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Link href="/app/private">
+                    <a
+                      aria-label="Home"
+                      className={`inline-flex h-10 w-10 items-center justify-center rounded-full border border-border/60 bg-background text-muted-foreground transition hover:bg-muted hover:text-foreground ${
+                        section === "home" || section === "event" ? "bg-muted ring-1 ring-border text-foreground" : ""
+                      }`}
+                    >
+                      <HomeIcon className="h-4 w-4" />
+                    </a>
+                  </Link>
+                </TooltipTrigger>
+                <TooltipContent side="right">Home</TooltipContent>
+              </Tooltip>
+
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div>
+                    <NewEventMenuButton
+                      className="h-10 w-10 rounded-full border border-border/60 bg-background px-0 text-muted-foreground transition hover:bg-muted hover:text-foreground"
+                      size="icon"
+                      align="start"
+                      onCreate={onCreatePlan}
+                      iconOnly
+                    />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent side="right">Create new plan</TooltipContent>
+              </Tooltip>
+            </div>
+          </TooltipProvider>
+          <div className="mx-0 my-2 h-px bg-border/60" />
+        </div>
 
         <div className="px-3 pb-3 flex-1 min-h-0">
           <div className="sticky top-4 h-[calc(100vh-2rem)] min-h-0 flex flex-col gap-3">
-            <div className="border-t border-border/60 pt-3 shrink-0">
-              <NewEventMenuButton className="w-full justify-start" align="start" onCreate={onCreatePlan} />
-            </div>
-
             <section className="flex min-h-0 flex-1 flex-col rounded-xl border border-border/60 bg-card/70">
               <div className="shrink-0 border-b border-border/50 p-2">
                 <p className="px-1 text-[11px] uppercase tracking-wide text-muted-foreground">Your plans</p>
@@ -489,6 +519,116 @@ function AppSidebar({ section, onCreatePlan }: { section: AppSection; onCreatePl
 
             </section>
           </div>
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+function RightActionRail({
+  section,
+  eventViewMode,
+  selectedEventId,
+  totalPendingNotifications,
+  displayPendingCount,
+  onOpenNotifications,
+  onOpenAccount,
+}: {
+  section: AppSection;
+  eventViewMode: "chat" | "overview";
+  selectedEventId?: number | null;
+  totalPendingNotifications: number;
+  displayPendingCount: string;
+  onOpenNotifications: () => void;
+  onOpenAccount: () => void;
+}) {
+  const isEvent = section === "event" && !!selectedEventId;
+  return (
+    <aside className="pointer-events-none fixed right-4 top-1/2 z-30 hidden -translate-y-1/2 lg:block">
+      <div className="pointer-events-auto flex flex-col items-center gap-2 rounded-2xl border border-border/50 bg-background/70 p-2 shadow-lg backdrop-blur-md">
+        <div className="flex flex-col items-center gap-2">
+          <Link href={isEvent ? `/app/e/${selectedEventId}/overview` : "/app/private"}>
+            <a
+              title="Overview"
+              aria-label="Overview"
+              className={`inline-flex h-10 w-10 items-center justify-center rounded-full transition ${
+                isEvent && eventViewMode === "overview"
+                  ? "bg-muted ring-1 ring-border text-foreground"
+                  : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+              } ${isEvent ? "" : "pointer-events-none opacity-45"}`}
+            >
+              <LayoutGrid className="h-4 w-4" />
+            </a>
+          </Link>
+          <Link href={isEvent ? `/app/e/${selectedEventId}` : "/app/private"}>
+            <a
+              title="Chat"
+              aria-label="Chat"
+              className={`inline-flex h-10 w-10 items-center justify-center rounded-full transition ${
+                isEvent && eventViewMode === "chat"
+                  ? "bg-muted ring-1 ring-border text-foreground"
+                  : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+              } ${isEvent ? "" : "pointer-events-none opacity-45"}`}
+            >
+              <MessageCircle className="h-4 w-4" />
+            </a>
+          </Link>
+          <button
+            type="button"
+            title="Crew"
+            aria-label="Crew"
+            disabled={!isEvent}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted/50 hover:text-foreground disabled:pointer-events-none disabled:opacity-45"
+            onClick={() => window.dispatchEvent(new CustomEvent("splanno:open-crew", { detail: { eventId: selectedEventId } }))}
+          >
+            <Users className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            title="Expenses"
+            aria-label="Expenses"
+            disabled={!isEvent}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted/50 hover:text-foreground disabled:pointer-events-none disabled:opacity-45"
+            onClick={() => window.dispatchEvent(new CustomEvent("splanno:open-expenses", { detail: { eventId: selectedEventId } }))}
+          >
+            <Receipt className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            title="Next action"
+            aria-label="Next action"
+            disabled={!isEvent}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted/50 hover:text-foreground disabled:pointer-events-none disabled:opacity-45"
+            onClick={() => window.dispatchEvent(new CustomEvent("splanno:open-next-action", { detail: { eventId: selectedEventId } }))}
+          >
+            <Zap className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="h-4" />
+        <div className="flex flex-col items-center gap-2">
+          <button
+            type="button"
+            title="Notifications"
+            aria-label="Notifications"
+            className="relative inline-flex h-10 w-10 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted/50 hover:text-foreground"
+            onClick={onOpenNotifications}
+          >
+            <Bell className="h-4 w-4" />
+            {totalPendingNotifications > 0 ? (
+              <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-destructive px-1 text-[9px] font-bold text-destructive-foreground">
+                {displayPendingCount}
+              </span>
+            ) : null}
+          </button>
+          <button
+            type="button"
+            title="Profile"
+            aria-label="Profile"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted/50 hover:text-foreground"
+            onClick={onOpenAccount}
+          >
+            <UserCircle className="h-4 w-4" />
+          </button>
         </div>
       </div>
     </aside>
@@ -703,11 +843,17 @@ export default function AppRoute() {
 
   let section: AppSection = "home";
   let routeEventId: number | null = null;
+  let eventViewMode: "chat" | "overview" = "chat";
   if (pathname.startsWith("/app/e/")) {
     section = "event";
-    const raw = pathname.split("/app/e/")[1]?.split("/")[0];
+    const afterPrefix = pathname.split("/app/e/")[1] ?? "";
+    const raw = afterPrefix.split("/")[0];
     const n = Number(raw);
     routeEventId = Number.isFinite(n) ? n : null;
+    const tail = afterPrefix.split("/").slice(1).join("/");
+    if (tail.startsWith("overview")) {
+      eventViewMode = "overview";
+    }
   } else if (pathname === "/app/private") {
     section = "private";
   } else {
@@ -888,36 +1034,7 @@ export default function AppRoute() {
   };
 
   const mainContent = (
-    <div className="min-h-screen bg-background lg:flex">
-        <div className="fixed right-4 top-4 z-50 hidden items-center gap-2 md:flex">
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            className="relative h-11 w-11 rounded-full"
-            aria-label="Open notifications"
-            onClick={() => setNotifOpen(true)}
-            data-testid="button-notifications"
-          >
-            <Bell className="h-5 w-5" />
-            {totalPendingNotifications > 0 && (
-              <span className="absolute -right-0.5 -top-0.5 grid h-4 w-4 place-items-center rounded-full bg-destructive text-[9px] font-bold text-destructive-foreground">
-                {displayPendingCount}
-              </span>
-            )}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            className="h-11 w-11 rounded-full"
-            aria-label="Open profile"
-            onClick={handleOpenAccount}
-            data-testid="button-profile-drawer"
-          >
-            <UserCircle className="h-5 w-5" />
-          </Button>
-        </div>
+    <div className="h-screen bg-background lg:flex overflow-hidden">
         <header className="md:hidden sticky top-0 z-30 h-14 border-b border-border/60 bg-background/95 backdrop-blur-sm">
           <div className="h-full px-3 flex items-center justify-between">
             <Button
@@ -1054,8 +1171,13 @@ export default function AppRoute() {
           </div>
         )}
 
-        <AppSidebar section={section} onCreatePlan={handleOpenNewPlan} />
-        <main className="min-w-0 flex-1">
+        <AppSidebar
+          section={section}
+          onCreatePlan={handleOpenNewPlan}
+          selectedEventId={routeEventId ?? null}
+          eventViewMode={eventViewMode}
+        />
+        <main className="min-w-0 flex-1 overflow-hidden">
           {section === "home" && <AppDashboardHome onCreatePlan={handleOpenNewPlan} />}
           {section === "private" && (
             devDisable.homeEffects
@@ -1070,11 +1192,21 @@ export default function AppRoute() {
                   key={`event-route-${routeEventId ?? "none"}`}
                   appRouteMode="event"
                   routeEventId={routeEventId}
+                  eventViewMode={eventViewMode}
                   debugDisableDiscoverModal={devDisable.discoverModal}
                 />
               )
           )}
         </main>
+        <RightActionRail
+          section={section}
+          eventViewMode={eventViewMode}
+          selectedEventId={routeEventId ?? null}
+          totalPendingNotifications={totalPendingNotifications}
+          displayPendingCount={displayPendingCount}
+          onOpenNotifications={() => setNotifOpen(true)}
+          onOpenAccount={handleOpenAccount}
+        />
         <NewPlanWizardDrawer />
         <Sheet open={notifOpen} onOpenChange={setNotifOpen}>
           <SheetContent side="right" className="w-full max-w-sm p-0">

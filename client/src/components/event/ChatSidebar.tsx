@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Loader2, MessageCircle, SendHorizontal, Smile } from "lucide-react";
+import { Calendar, CreditCard, Loader2, MapPin, MessageCircle, Paperclip, SendHorizontal, Smile, Users } from "lucide-react";
 import { InlineQueryError, SkeletonLine } from "@/components/ui/load-states";
 import { useEventChat } from "@/hooks/use-event-chat";
 import { useAppToast } from "@/hooks/use-app-toast";
@@ -12,7 +12,6 @@ import { cn } from "@/lib/utils";
 import type { SendMessageResult } from "@/hooks/use-event-chat";
 import { SYSTEM_USER_ID, SYSTEM_USER_NAME } from "@shared/lib/system-user";
 import { ExpenseCard, type ExpenseMessageMetadata } from "@/components/event/chat/ExpenseCard";
-import { PlanSummaryBar } from "@/components/event/chat/PlanSummaryBar";
 import { SettlementCard } from "@/components/event/chat/SettlementCard";
 
 type ChatSidebarProps = {
@@ -23,12 +22,13 @@ type ChatSidebarProps = {
   participantCount?: number;
   sharedTotal?: number;
   currency?: string;
+  onSummaryClick?: () => void;
   currentUser?: { id?: number | null; username?: string | null; avatarUrl?: string | null } | null;
   enabled?: boolean;
   className?: string;
 };
 
-const GROUP_WINDOW_MS = 5 * 60 * 1000;
+const GROUP_WINDOW_MS = 10 * 60 * 1000;
 const QUICK_EMOJIS = ["😀", "😂", "😍", "🙏", "🔥", "🎉", "👍", "❤️"];
 
 function formatMessageTime(value: string) {
@@ -63,11 +63,19 @@ function getInitials(name: string) {
 }
 
 function getMessageSenderKey(message: { type?: string; user?: { id?: string | null; name?: string | null } }): string | null {
-  if (message.type !== "user") return null;
-  const id = String(message.user?.id ?? "").trim();
-  if (id) return `id:${id}`;
-  const name = String(message.user?.name ?? "").trim().toLowerCase();
-  if (name) return `name:${name}`;
+  if (message.type === "user") {
+    const id = String(message.user?.id ?? "").trim();
+    if (id) return `user:id:${id}`;
+    const name = String(message.user?.name ?? "").trim().toLowerCase();
+    if (name) return `user:name:${name}`;
+    return null;
+  }
+  if (message.type === "system") {
+    const id = String(message.user?.id ?? SYSTEM_USER_ID).trim();
+    if (id) return `system:id:${id}`;
+    const name = String(message.user?.name ?? SYSTEM_USER_NAME).trim().toLowerCase();
+    return name ? `system:name:${name}` : "system:unknown";
+  }
   return null;
 }
 
@@ -187,11 +195,21 @@ function formatMoneyForSystem(amount: number, currencyCode: string): string {
   return `${currencyCode || "€"}${safeAmount.toFixed(2)}`;
 }
 
+function formatHeaderDate(value: Date | string | null | undefined): string {
+  if (!value) return "Date TBA";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Date TBA";
+  const day = date.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+  const time = date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
+  return `${day} · ${time}`;
+}
+
 function isGroupedWithNeighbor(
   current: { type?: string; createdAt: string; user?: { id?: string | null; name?: string | null } },
   neighbor?: { type?: string; createdAt: string; user?: { id?: string | null; name?: string | null } },
 ): boolean {
-  if (!neighbor || current.type !== "user" || neighbor.type !== "user") return false;
+  if (!neighbor) return false;
+  if (current.type !== neighbor.type) return false;
   const currentKey = getMessageSenderKey(current);
   const neighborKey = getMessageSenderKey(neighbor);
   if (!currentKey || !neighborKey || currentKey !== neighborKey) return false;
@@ -209,6 +227,7 @@ export function ChatSidebar({
   participantCount = 0,
   sharedTotal = 0,
   currency = "EUR",
+  onSummaryClick,
   currentUser,
   enabled = true,
   className,
@@ -482,41 +501,79 @@ export function ChatSidebar({
     }
   }, []);
 
+  const locationLabel = (location || "").trim() || "Nowhere yet";
+  const peopleLabel = `${participantCount} ${participantCount === 1 ? "person" : "people"}`;
+  const dateLabel = formatHeaderDate(dateTime);
+  const sharedLabel = `${formatMoneyForSystem(sharedTotal, currency)} shared`;
+
   return (
-    <aside className={cn("pointer-events-auto flex h-full min-h-[380px] flex-col overflow-hidden rounded-lg border border-border/70 bg-card", className)}>
-      <header className="border-b border-border/70 bg-background/70 px-4 py-3">
-        <div className="flex items-center justify-between gap-2">
-          <div>
-            <p className="text-sm font-semibold text-foreground">Plan chat</p>
-            <p className="text-xs text-muted-foreground">
-              {eventName ? `${eventName} room` : "Plan room"}
-              {membersQuery.data ? ` · ${membersQuery.data.length} people` : ""}
-            </p>
+    <aside
+      className={cn("pointer-events-auto flex h-full min-h-0 flex-col overflow-hidden bg-background", className)}
+      style={
+        {
+          "--chat-bg":
+            "radial-gradient(1250px 760px at 10% 4%, hsl(var(--muted)/0.1), transparent 68%), radial-gradient(960px 560px at 86% 90%, hsl(var(--primary)/0.03), transparent 70%), hsl(var(--background))",
+        } as CSSProperties
+      }
+    >
+      <header className="shrink-0 border-b border-border/70 bg-background px-6 py-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <span className="font-semibold text-foreground">Plan chat</span>
+            <span>·</span>
+            <span className="truncate">{eventName ? `${eventName} room` : "Plan room"}</span>
           </div>
           <div className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-card px-2 py-1 text-[10px] text-muted-foreground">
             <span className={`inline-block h-1.5 w-1.5 rounded-full ${liveLabel.cls}`} />
             {liveLabel.text}
           </div>
         </div>
+        <div
+          className={cn(
+            "mt-2 flex w-full flex-wrap items-center gap-x-6 gap-y-2 text-sm text-muted-foreground",
+            onSummaryClick ? "cursor-pointer" : "",
+          )}
+          onClick={onSummaryClick}
+          role={onSummaryClick ? "button" : undefined}
+          tabIndex={onSummaryClick ? 0 : undefined}
+          onKeyDown={onSummaryClick
+            ? (event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                onSummaryClick();
+              }
+            }
+            : undefined}
+        >
+          <span className="inline-flex items-center gap-2">
+            <MapPin className="h-4 w-4" />
+            <span>{locationLabel}</span>
+          </span>
+          <span className="inline-flex items-center gap-2">
+            <Users className="h-4 w-4" />
+            <span>{peopleLabel}</span>
+          </span>
+          <span className="inline-flex items-center gap-2">
+            <Calendar className="h-4 w-4" />
+            <span>{dateLabel}</span>
+          </span>
+          <span className="inline-flex items-center gap-2">
+            <CreditCard className="h-4 w-4" />
+            <span>{sharedLabel}</span>
+          </span>
+        </div>
       </header>
-
-      <PlanSummaryBar
-        location={location}
-        dateTime={dateTime}
-        participantCount={participantCount}
-        sharedTotal={sharedTotal}
-        currency={currency}
-      />
 
       <div
         ref={listRef}
-        className="min-h-0 flex-1 space-y-2 overflow-y-auto bg-background/40 px-3 py-3"
+        className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden bg-[var(--chat-bg)]"
         onScroll={(e) => {
           const el = e.currentTarget;
           const delta = el.scrollHeight - (el.scrollTop + el.clientHeight);
           setIsNearBottom(delta < 64);
         }}
       >
+        <div className="mx-auto flex min-h-full w-full max-w-[1040px] flex-col justify-end gap-2 px-4 py-4 sm:px-8 sm:py-6">
         {hasMoreHistory ? (
           <div className="flex justify-center pb-1">
             <Button
@@ -577,25 +634,25 @@ export function ChatSidebar({
                 <div key={`expense-cluster-${first.id}`}>
                   {showDateSeparator ? (
                     <div className="my-2 flex justify-center">
-                      <span className="rounded-full border border-border/70 bg-card/80 px-3 py-1 text-[11px] text-muted-foreground">
+                      <span className="self-center rounded-full border border-border/70 bg-muted/60 px-3 py-1 text-xs text-muted-foreground">
                         {formatDateSeparator(first.createdAt)}
                       </span>
                     </div>
                   ) : null}
-                  <div className="mt-3 flex justify-start">
-                    <div className="mr-2 flex w-8 flex-col items-center pt-0.5">
+                  <div className="mt-2 flex justify-start">
+                    <div className="mr-2 flex w-10 flex-col items-center pt-0.5">
                       <span className="grid h-7 w-7 place-items-center rounded-full border border-border/70 bg-muted text-[11px] font-semibold text-muted-foreground">
                         S
                       </span>
                     </div>
-                    <div className="max-w-[75%]">
+                    <div className="max-w-[84%] sm:max-w-[78%]">
                       <div className="mb-1 px-1 text-[11px] text-muted-foreground">
                         <span className="font-semibold text-foreground/90">{systemName}</span>
                         <span className="ml-1 rounded-full border border-border/60 bg-card/60 px-1.5 py-0 text-[9px] uppercase tracking-wide">System</span>
                         <span className="px-1 text-muted-foreground/70">·</span>
                         <span className="text-[10px] text-muted-foreground/70">{formatMessageTime(first.createdAt)}</span>
                       </div>
-                      <p className="mb-1 px-1 text-[10px] text-muted-foreground/80">{clusterSummary}</p>
+                      <p className="mb-1 px-1 text-[10px] text-muted-foreground/75">{clusterSummary}</p>
                       <div className="space-y-1">
                         {group.messages.map((message) => {
                           const expenseMeta = toExpenseMetadata(message.metadata ?? null);
@@ -659,28 +716,33 @@ export function ChatSidebar({
                   paymentTransfer?.currency ?? settlementPaymentMeta.currency,
                 )
                 : null;
+              const groupedWithPrev = isGroupedWithNeighbor(msg, previousMsg);
               return (
                 <div key={msg.id}>
                   {showDateSeparator ? (
                     <div className="my-2 flex justify-center">
-                      <span className="rounded-full border border-border/70 bg-card/80 px-3 py-1 text-[11px] text-muted-foreground">
+                      <span className="self-center rounded-full border border-border/70 bg-muted/60 px-3 py-1 text-xs text-muted-foreground">
                         {formatDateSeparator(msg.createdAt)}
                       </span>
                     </div>
                   ) : null}
-                  <div className="mt-3 flex justify-start">
-                    <div className="mr-2 flex w-8 flex-col items-center pt-0.5">
-                      <span className="grid h-7 w-7 place-items-center rounded-full border border-border/70 bg-muted text-[11px] font-semibold text-muted-foreground">
-                        S
-                      </span>
+                  <div className={`flex justify-start ${groupedWithPrev ? "mt-1" : "mt-2"}`}>
+                    <div className="mr-2 flex w-10 flex-col items-center pt-0.5">
+                      {!groupedWithPrev ? (
+                        <span className="grid h-7 w-7 place-items-center rounded-full border border-border/70 bg-muted text-[11px] font-semibold text-muted-foreground">
+                          S
+                        </span>
+                      ) : null}
                     </div>
-                    <div className="max-w-[75%]">
-                      <div className="mb-1 px-1 text-[11px] text-muted-foreground">
-                        <span className="font-semibold text-foreground/90">{systemName}</span>
-                        <span className="ml-1 rounded-full border border-border/60 bg-card/60 px-1.5 py-0 text-[9px] uppercase tracking-wide">System</span>
-                        <span className="px-1 text-muted-foreground/70">·</span>
-                        <span className="text-[10px] text-muted-foreground/70">{formatMessageTime(msg.createdAt)}</span>
-                      </div>
+                    <div className="max-w-[84%] sm:max-w-[78%]">
+                      {!groupedWithPrev ? (
+                        <div className="mb-1 px-1 text-[11px] text-muted-foreground">
+                          <span className="font-semibold text-foreground/90">{systemName}</span>
+                          <span className="ml-1 rounded-full border border-border/60 bg-card/60 px-1.5 py-0 text-[9px] uppercase tracking-wide">System</span>
+                          <span className="px-1 text-muted-foreground/70">·</span>
+                          <span className="text-[10px] text-muted-foreground/70">{formatMessageTime(msg.createdAt)}</span>
+                        </div>
+                      ) : null}
                       {expenseMeta ? (
                         <ExpenseCard
                           eventId={Number(msg.eventId || eventId || 0)}
@@ -699,7 +761,7 @@ export function ChatSidebar({
                         />
                       ) : settlementMeta ? (
                         settlementMeta.action === "settled" ? (
-                          <div className="rounded-2xl rounded-bl-md border border-emerald-500/20 bg-emerald-500/10 px-4 py-2.5 text-sm text-emerald-800 shadow-sm dark:text-emerald-300">
+                          <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/8 px-4 py-2.5 text-sm text-emerald-800 dark:text-emerald-300">
                             <p className="whitespace-pre-wrap break-words font-medium">✅ All settled up</p>
                           </div>
                         ) : (
@@ -710,7 +772,7 @@ export function ChatSidebar({
                           />
                         )
                       ) : settlementPaymentMeta ? (
-                        <div className="rounded-2xl rounded-bl-md border border-emerald-500/20 bg-emerald-500/10 px-4 py-2.5 text-sm text-emerald-800 shadow-sm dark:text-emerald-300">
+                        <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/8 px-4 py-2.5 text-sm text-emerald-800 dark:text-emerald-300">
                           {fromName && toName && paymentAmount ? (
                             <p className="whitespace-pre-wrap break-words font-medium">
                               {fromName}
@@ -735,7 +797,7 @@ export function ChatSidebar({
                           </p>
                         </div>
                       ) : (
-                        <div className="rounded-2xl rounded-bl-md border border-border/70 bg-muted/55 px-4 py-2.5 text-sm text-foreground shadow-sm dark:bg-neutral-800/80 dark:border-neutral-700/80">
+                        <div className="mx-auto max-w-[560px] rounded-2xl border border-border/70 bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
                           <p className="whitespace-pre-wrap break-words">{msg.text}</p>
                         </div>
                       )}
@@ -755,14 +817,14 @@ export function ChatSidebar({
               <div key={msg.id}>
                 {showDateSeparator ? (
                   <div className="my-2 flex justify-center">
-                    <span className="rounded-full border border-border/70 bg-card/80 px-3 py-1 text-[11px] text-muted-foreground">
+                    <span className="self-center rounded-full border border-border/70 bg-muted/60 px-3 py-1 text-xs text-muted-foreground">
                       {formatDateSeparator(msg.createdAt)}
                     </span>
                   </div>
                 ) : null}
-                <div className={`group/message flex ${mine ? "justify-end" : "justify-start"} ${groupedWithPrev ? "mt-1" : "mt-3"}`}>
+                <div className={`group/message flex ${mine ? "justify-end" : "justify-start"} ${groupedWithPrev ? "mt-1" : "mt-2"}`}>
                   {!mine ? (
-                    <div className="mr-2 flex w-8 flex-col items-center pt-0.5">
+                    <div className="mr-2 flex w-10 flex-col items-center pt-0.5">
                       {!groupedWithPrev ? (
                         senderAvatar ? (
                           <img src={senderAvatar} alt="" className="h-7 w-7 rounded-full border border-border/70 object-cover" />
@@ -774,22 +836,24 @@ export function ChatSidebar({
                       ) : null}
                     </div>
                   ) : null}
-                  <div className={`${mine ? "max-w-[75%] items-end" : "max-w-[75%] items-start"} flex flex-col`}>
+                  <div className={`${mine ? "max-w-[88%] items-end sm:max-w-[80%]" : "max-w-[88%] items-start sm:max-w-[80%]"} flex flex-col`}>
                     {!groupedWithPrev ? (
-                      <div className={`mb-1 px-1 text-[11px] ${mine ? "text-muted-foreground/80" : "text-muted-foreground"}`}>
-                        <span className="font-semibold text-foreground/90">{mine ? "You" : senderName}</span>
-                        <span className="px-1 text-muted-foreground/70">·</span>
-                        <span className="text-[10px] text-muted-foreground/70">{formatMessageTime(msg.createdAt)}</span>
+                      <div className={`mb-1 px-1 text-xs text-muted-foreground ${mine ? "text-right" : ""}`}>
+                        <span className="font-medium text-foreground">
+                          {mine ? "You" : senderName}
+                        </span>
+                        <span className="px-1.5 text-muted-foreground/70">·</span>
+                        <span>{formatMessageTime(msg.createdAt)}</span>
                       </div>
                     ) : null}
                     <div
-                      className={`rounded-2xl px-4 py-2.5 text-sm shadow-sm ${mine
-                        ? "rounded-br-md bg-primary text-primary-foreground"
-                        : "rounded-bl-md border border-border/70 bg-muted/45 text-foreground dark:bg-neutral-800/85 dark:border-neutral-700/80"}`}
+                      className={`rounded-2xl px-4 py-2 text-sm leading-snug shadow-sm ${mine
+                        ? "rounded-tr-lg bg-primary text-slate-900"
+                        : "rounded-tl-lg border border-border/70 bg-background/95 text-foreground dark:bg-neutral-800/92 dark:border-neutral-700/80"}`}
                     >
                       <p className="whitespace-pre-wrap break-words">{msg.text}</p>
                       {msg.status === "sending" ? (
-                        <div className={`mt-1 text-[10px] ${mine ? "text-primary-foreground/80" : "text-muted-foreground"}`}>
+                        <div className={`mt-1 text-[10px] ${mine ? "text-slate-800/70" : "text-muted-foreground"}`}>
                           sending…
                         </div>
                       ) : null}
@@ -877,9 +941,10 @@ export function ChatSidebar({
             );
           })
         )}
+        </div>
       </div>
 
-      <div className="border-t border-border/70 bg-card p-3">
+      <div className="shrink-0 border-t border-border/70 bg-background/90 px-6 py-3 backdrop-blur">
         {isLocked ? (
           <p className="mb-2 text-xs text-muted-foreground">
             Chat closed after event. History remains visible.
@@ -901,8 +966,18 @@ export function ChatSidebar({
           ) : null}
         </div>
         <div className="flex items-end gap-2">
+          <Button
+            type="button"
+            size="icon"
+            variant="outline"
+            className="h-10 w-10 shrink-0 rounded-full border-border/70 bg-background/85 text-muted-foreground hover:bg-muted/50"
+            aria-label="Attach file"
+            disabled
+          >
+            <Paperclip className="h-4 w-4" />
+          </Button>
           <div
-            className="h-12 max-h-[120px] flex-1 rounded-full border border-border/70 bg-background/70 px-4 py-3"
+            className="flex max-h-[132px] flex-1 items-end rounded-2xl border border-border/70 bg-background px-4 py-2.5"
             onMouseDown={(e) => {
               if (isLocked) return;
               e.preventDefault();
@@ -916,7 +991,7 @@ export function ChatSidebar({
               onChange={(e) => handleDraftChange(e.target.value)}
               onBlur={() => emitTypingStop()}
               placeholder="Message…"
-              className="pointer-events-auto min-h-[24px] max-h-[104px] w-full resize-none bg-transparent text-[16px] leading-normal text-foreground caret-primary outline-none placeholder:text-muted-foreground md:text-sm disabled:cursor-not-allowed disabled:text-muted-foreground/70"
+              className="pointer-events-auto min-h-[24px] max-h-[104px] w-full resize-none overflow-y-auto bg-transparent text-[16px] leading-normal text-foreground caret-primary outline-none placeholder:text-muted-foreground md:text-sm disabled:cursor-not-allowed disabled:text-muted-foreground/70"
               rows={1}
               disabled={isLocked}
               onKeyDown={(e) => {
@@ -930,7 +1005,7 @@ export function ChatSidebar({
           <Button
             type="button"
             size="icon"
-            className="h-10 w-10 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground"
+            className="h-10 w-10 shrink-0 rounded-full bg-primary text-slate-900 hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground"
             onClick={() => void handleSubmit()}
             disabled={isLocked || sending || !draft.trim() || !eventId}
             aria-label="Send message"

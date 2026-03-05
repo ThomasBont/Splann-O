@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useCreateExpense } from "@/hooks/use-expenses";
 import { useDeleteExpense, useUpdateExpense } from "@/hooks/use-expenses";
-import { useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAppToast } from "@/hooks/use-app-toast";
 import type { ExpenseWithParticipant } from "@shared/schema";
 import type { Balance, Settlement } from "@/lib/split/calc";
@@ -47,6 +47,37 @@ type SharedCostsDrawerProps = {
   balances: Balance[];
   settlements: Settlement[];
   formatMoney: (amount: number) => string;
+};
+
+type SettlementResponse = {
+  settlement: {
+    id: string;
+    eventId: number;
+    status: "proposed" | "in_progress" | "settled";
+    source: "auto" | "manual";
+    currency: string | null;
+    createdAt: string | null;
+    settledAt?: string | null;
+  } | null;
+  transfers: Array<{
+    id: string;
+    settlementId: string;
+    fromUserId: number;
+    fromName?: string;
+    toUserId: number;
+    toName?: string;
+    amountCents: number;
+    amount: number;
+    currency: string;
+    paidAt: string | null;
+    paidByUserId: number | null;
+    paymentRef: string | null;
+  }>;
+};
+
+type ApiError = {
+  code?: string;
+  message?: string;
 };
 
 function parseIncludedUserIds(value: unknown): string[] {
@@ -105,6 +136,7 @@ export function SharedCostsDrawer({
   const [includedUserIds, setIncludedUserIds] = useState<string[]>([]);
   const [splitEditorOpen, setSplitEditorOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [confirmSettleUpOpen, setConfirmSettleUpOpen] = useState(false);
   const [expensesCollapsed, setExpensesCollapsed] = useState(false);
   const [balancesCollapsed, setBalancesCollapsed] = useState(false);
   const [paybackCollapsed, setPaybackCollapsed] = useState(true);
@@ -142,6 +174,113 @@ export function SharedCostsDrawer({
     return categories;
   }, [categories, category]);
   const canSettle = useMemo(() => balances.some((balance) => Math.abs(balance.balance) > 0.01), [balances]);
+  const settlementQueryKey = useMemo(() => ["/api/events", eventId, "settlement", "latest"], [eventId]);
+  const startManualSettlement = useMutation({
+    mutationFn: async () => {
+      if (!eventId) throw new Error("Event not found");
+      const res = await fetch(`/api/events/${eventId}/settlement/manual`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({} as ApiError));
+        const error = new Error(body.message || "Failed to start settlement") as Error & { code?: string };
+        error.code = body.code;
+        throw error;
+      }
+      return res.json() as Promise<{
+        ensured: boolean;
+        hasSettlement: boolean;
+        settlementId: string | null;
+        latest: SettlementResponse;
+      }>;
+    },
+    onError: (error) => {
+      const err = error as Error & { code?: string };
+      const message = err.message || "Couldn’t start settlement.";
+      if (err.code === "only_creator_can_start_settlement") {
+        toastError("Only the plan creator can start settlement.");
+        return;
+      }
+      toastError(message);
+    },
+    onSuccess: (result) => {
+      queryClient.setQueryData(settlementQueryKey, result.latest ?? { settlement: null, transfers: [] });
+    },
+  });
+  const latestSettlementQuery = useQuery<SettlementResponse>({
+    queryKey: settlementQueryKey,
+    queryFn: async () => {
+      if (!eventId) return { settlement: null, transfers: [] };
+      const res = await fetch(`/api/events/${eventId}/settlement/latest`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load settlement");
+      return res.json();
+    },
+    enabled: !!eventId && open,
+    staleTime: 15_000,
+  });
+  const markTransferPaid = useMutation({
+    mutationFn: async ({ settlementId, transferId }: { settlementId: string; transferId: string }) => {
+      if (!eventId) throw new Error("Event not found");
+      const res = await fetch(`/api/events/${eventId}/settlement/${settlementId}/transfers/${transferId}/mark-paid`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({} as ApiError));
+        const error = new Error(body.message || "Failed to mark transfer paid") as Error & { code?: string };
+        error.code = body.code;
+        throw error;
+      }
+      return res.json() as Promise<{ transferId: string; paidAt: string | null }>;
+    },
+    onMutate: async ({ transferId }) => {
+      await queryClient.cancelQueries({ queryKey: settlementQueryKey });
+      const previous = queryClient.getQueryData<SettlementResponse>(settlementQueryKey);
+      const nowIso = new Date().toISOString();
+      queryClient.setQueryData<SettlementResponse>(settlementQueryKey, (old) => {
+        if (!old) return old;
+        const nextTransfers = old.transfers.map((transfer) => (
+          transfer.id === transferId ? { ...transfer, paidAt: nowIso } : transfer
+        ));
+        const total = nextTransfers.length;
+        const paid = nextTransfers.filter((transfer) => !!transfer.paidAt).length;
+        return {
+          ...old,
+          settlement: old.settlement ? {
+            ...old.settlement,
+            status: total > 0 && paid >= total ? "settled" : (paid > 0 ? "in_progress" : old.settlement.status),
+          } : old.settlement,
+          transfers: nextTransfers,
+        };
+      });
+      return { previous };
+    },
+    onError: (error, _vars, context) => {
+      if (context?.previous) queryClient.setQueryData(settlementQueryKey, context.previous);
+      const err = error as Error & { code?: string };
+      const message = err.message || "Couldn’t mark transfer as paid.";
+      if (err.code === "not_transfer_participant") {
+        toastError("Only the payer or receiver can mark this as paid.");
+        return;
+      }
+      toastError(message);
+    },
+    onSuccess: () => {
+      toastSuccess("Transfer marked as paid");
+    },
+    onSettled: async () => {
+      await queryClient.invalidateQueries({ queryKey: settlementQueryKey });
+    },
+  });
+  const settlementData = latestSettlementQuery.data ?? { settlement: null, transfers: [] };
+  const settlementTransfers = settlementData.transfers;
+  const settlementLocked = !!settlementData.settlement;
+  const paidTransfersCount = settlementTransfers.filter((transfer) => !!transfer.paidAt).length;
+  const unpaidTransfers = settlementTransfers.filter((transfer) => !transfer.paidAt);
+  const outstandingAmount = unpaidTransfers.reduce((sum, transfer) => sum + Number(transfer.amount || 0), 0);
+  const isSettlementComplete = settlementTransfers.length > 0
+    && (settlementData.settlement?.status === "settled" || paidTransfersCount >= settlementTransfers.length);
   const isCreator = !!(currentUserId && creatorUserId && currentUserId === creatorUserId);
   const myParticipant = useMemo(
     () => (currentUserId ? participants.find((participant) => participant.userId === currentUserId) ?? null : null),
@@ -240,23 +379,13 @@ export function SharedCostsDrawer({
     setView("expense-form");
   };
 
-  const openSettlementExpenseForm = (settlement: Settlement) => {
-    const payer = participants.find((participant) => participant.name === settlement.from);
-    setEditingExpenseId(null);
-    setParticipantId(payer ? String(payer.id) : participants[0] ? String(participants[0].id) : "");
-    setCategory(categories.includes("Other") ? "Other" : categories[0] ?? "Other");
-    setItem(`Settlement to ${settlement.to}`);
-    setAmount(String(settlement.amount));
-    setSplitMode("everyone");
-    setIncludedUserIds(participants.map((participant) => String(participant.id)));
-    setSplitEditorOpen(false);
-    setConfirmDeleteOpen(false);
-    setView("expense-form");
-  };
-
   const handleCreateExpense = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!eventId || !participantId || !item.trim() || !amount || Number(amount) <= 0 || !canSubmitExpenseForm) return;
+    if (settlementLocked) {
+      toastError("Expenses are locked after settlement starts.");
+      return;
+    }
     if (splitMode === "selected" && includedUserIds.length === 0) return;
 
     try {
@@ -307,12 +436,21 @@ export function SharedCostsDrawer({
       resetAddForm();
       setView("overview");
     } catch (error) {
-      toastError((error as Error).message || (editingExpense ? "Couldn’t update expense. Try again." : "Couldn’t add expense. Try again."));
+      const message = (error as Error).message || (editingExpense ? "Couldn’t update expense. Try again." : "Couldn’t add expense. Try again.");
+      if (message.includes("Settlement is active; expenses are locked.")) {
+        toastError("Expenses are locked after settlement starts.");
+        return;
+      }
+      toastError(message);
     }
   };
 
   const handleDeleteExpense = async () => {
     if (!eventId || !editingExpense) return;
+    if (settlementLocked) {
+      toastError("Expenses are locked after settlement starts.");
+      return;
+    }
     try {
       await deleteExpense.mutateAsync(editingExpense.id);
       await queryClient.refetchQueries({ queryKey: ['/api/barbecues', eventId, 'expenses'], exact: true });
@@ -321,7 +459,12 @@ export function SharedCostsDrawer({
       resetAddForm();
       setView("overview");
     } catch (error) {
-      toastError((error as Error).message || "Couldn’t delete expense. Try again.");
+      const message = (error as Error).message || "Couldn’t delete expense. Try again.";
+      if (message.includes("Settlement is active; expenses are locked.")) {
+        toastError("Expenses are locked after settlement starts.");
+        return;
+      }
+      toastError(message);
     }
   };
 
@@ -335,7 +478,7 @@ export function SharedCostsDrawer({
     && amount
     && Number(amount) > 0
     && (splitMode === "everyone" || includedUserIds.length > 0),
-  );
+  ) && !settlementLocked;
   const splitIncludedCount = splitMode === "everyone" ? participants.length : includedUserIds.length;
   const collapseStorageKey = eventId ? `sharedCosts:collapsed:${eventId}` : null;
 
@@ -611,33 +754,101 @@ export function SharedCostsDrawer({
 
                 <section className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
                   <h3 className="text-sm font-semibold text-slate-900 dark:text-neutral-100">Settle up</h3>
-                  {!canSettle ? (
-                    <p className="mt-2 text-sm text-slate-500 dark:text-neutral-400">Nothing to settle.</p>
-                  ) : settlements.length > 0 ? (
+                  {expenses.length === 0 ? (
+                    <p className="mt-2 text-sm text-slate-500 dark:text-neutral-400">Settlement will appear when available.</p>
+                  ) : latestSettlementQuery.isLoading ? (
+                    <p className="mt-2 inline-flex items-center gap-2 text-sm text-slate-500 dark:text-neutral-400">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Loading settlement…
+                    </p>
+                  ) : latestSettlementQuery.isError ? (
+                    <p className="mt-2 text-sm text-rose-600 dark:text-rose-300">Couldn’t load settlement.</p>
+                  ) : settlementTransfers.length === 0 ? (
                     <div className="mt-3 space-y-2">
-                      {settlements.map((settlement, index) => (
-                        <div
-                          key={`settle-up-row-${index}-${settlement.from}-${settlement.to}`}
-                          className="rounded-xl border border-slate-200/80 px-3 py-2 dark:border-neutral-700"
-                        >
-                          <p className="text-sm text-slate-800 dark:text-neutral-100">
-                            <span className="font-medium">{settlement.from}</span>
-                            <span className="text-slate-500 dark:text-neutral-400"> pays </span>
-                            <span className="font-medium">{settlement.to}</span>
-                            <span className="text-slate-500 dark:text-neutral-400"> · {formatMoney(settlement.amount)}</span>
+                      {isCreator ? (
+                        <>
+                          <p className="text-sm text-slate-600 dark:text-neutral-300">
+                            No settlement yet. Start a settlement plan based on current balances.
                           </p>
-                          <div className="mt-2">
-                            <Button type="button" size="sm" variant="outline" onClick={() => openSettlementExpenseForm(settlement)}>
-                              Record as expense
+                          <Button
+                            type="button"
+                            onClick={() => {
+                              void startManualSettlement.mutateAsync();
+                            }}
+                            disabled={startManualSettlement.isPending}
+                          >
+                            {startManualSettlement.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Scale className="mr-1.5 h-4 w-4" />}
+                            Start settlement plan
+                          </Button>
+                        </>
+                      ) : (
+                        <p className="text-sm text-slate-500 dark:text-neutral-400">
+                          Only the plan creator can start settlement.
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <>
+                      <p className="mt-2 text-xs text-slate-600 dark:text-neutral-300">
+                        {isSettlementComplete ? "All settled up 🎉" : `${formatMoney(outstandingAmount)} left to settle`}
+                      </p>
+                      <div className="mt-3 space-y-2">
+                        {settlementTransfers.map((transfer) => {
+                          const paid = !!transfer.paidAt;
+                          return (
+                            <div
+                              key={`settle-up-row-${transfer.id}`}
+                              className="rounded-xl border border-slate-200/80 px-3 py-2 dark:border-neutral-700"
+                            >
+                              <p className="text-sm text-slate-800 dark:text-neutral-100">
+                                <span className="font-medium">{transfer.fromName || "Someone"}</span>
+                                <span className="text-slate-500 dark:text-neutral-400"> pays </span>
+                                <span className="font-medium">{transfer.toName || "Someone"}</span>
+                                <span className="text-slate-500 dark:text-neutral-400"> · {formatMoney(Number(transfer.amount || 0))}</span>
+                              </p>
+                              <div className="mt-2">
+                                {paid ? (
+                                  <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-300">
+                                    <span aria-hidden>✓</span>
+                                    Paid
+                                  </span>
+                                ) : currentUserId && (currentUserId === transfer.fromUserId || currentUserId === transfer.toUserId) ? (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => markTransferPaid.mutate({
+                                      settlementId: transfer.settlementId,
+                                      transferId: transfer.id,
+                                    })}
+                                    disabled={markTransferPaid.isPending || isSettlementComplete}
+                                  >
+                                    Mark as paid
+                                  </Button>
+                                ) : (
+                                  <span className="text-xs text-slate-500 dark:text-neutral-400">
+                                    Only payer/receiver can mark paid
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {isSettlementComplete ? (
+                        <div className="mt-4 rounded-xl border border-emerald-300 bg-emerald-50/80 p-3 dark:border-emerald-500/40 dark:bg-emerald-500/10">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700 dark:text-emerald-300">
+                              <span aria-hidden>✓</span>
+                              All settled up!
+                            </p>
+                            <Button type="button" size="sm" onClick={() => onOpenChange(false)}>
+                              Done
                             </Button>
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="mt-2 text-sm text-slate-500 dark:text-neutral-400">
-                      Suggested paybacks appear once balances are uneven.
-                    </p>
+                      ) : null}
+                    </>
                   )}
                 </section>
               </div>
@@ -648,7 +859,7 @@ export function SharedCostsDrawer({
                     type="button"
                     className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
                     onClick={openAddExpenseView}
-                    disabled={participants.length === 0}
+                    disabled={participants.length === 0 || settlementLocked}
                   >
                     <Receipt className="mr-1.5 h-4 w-4" />
                     Add expense
@@ -657,7 +868,7 @@ export function SharedCostsDrawer({
                     type="button"
                     variant="outline"
                     className="w-full"
-                    onClick={openSettleUpView}
+                    onClick={() => setConfirmSettleUpOpen(true)}
                     disabled={!canSettle}
                     title={!canSettle ? "Nothing to settle" : undefined}
                   >
@@ -667,6 +878,8 @@ export function SharedCostsDrawer({
                 </div>
                 {!canSettle ? (
                   <p className="text-xs text-slate-500 dark:text-neutral-400">Nothing to settle.</p>
+                ) : settlementLocked ? (
+                  <p className="text-xs text-slate-500 dark:text-neutral-400">Expenses are locked after settlement starts.</p>
                 ) : null}
 
               <section className="rounded-2xl border border-slate-200 bg-white p-4 transition-colors hover:border-slate-300 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-neutral-700">
@@ -693,7 +906,11 @@ export function SharedCostsDrawer({
                         type="button"
                         key={`shared-cost-expense-${expense.id}`}
                         className="flex w-full items-center justify-between gap-2 rounded-xl border border-slate-200/80 px-3 py-2 text-left transition-colors hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 dark:border-neutral-700 dark:hover:border-neutral-600 dark:hover:bg-neutral-800/70"
-                        onClick={() => openEditExpenseView(expense)}
+                        onClick={() => {
+                          if (settlementLocked) return;
+                          openEditExpenseView(expense);
+                        }}
+                        disabled={settlementLocked}
                       >
                         <div className="min-w-0">
                           <p className="truncate text-sm text-slate-800 dark:text-neutral-100">{expense.item}</p>
@@ -823,6 +1040,28 @@ export function SharedCostsDrawer({
             >
               {isMutationPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
               Delete expense
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={confirmSettleUpOpen} onOpenChange={setConfirmSettleUpOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Open settle up?</AlertDialogTitle>
+            <AlertDialogDescription>
+              We will prepare the latest transfer plan based on current balances.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                setConfirmSettleUpOpen(false);
+                openSettleUpView();
+              }}
+            >
+              Continue
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -76,6 +76,7 @@ function Router() {
       <Route path="/basic" component={Basic} />
       <Route path="/login" component={AuthAwareLanding} />
       <Route path="/signup" component={AuthAwareLanding} />
+      <Route path="/app/e/:eventId/overview" component={AppRoute} />
       <Route path="/app/e/:eventId" component={AppRoute} />
       <Route path="/app/home" component={AppRoute} />
       <Route path="/app/private" component={AppRoute} />

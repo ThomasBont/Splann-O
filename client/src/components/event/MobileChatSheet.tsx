@@ -14,6 +14,7 @@ type MobileChatSheetProps = {
   participantCount?: number;
   sharedTotal?: number;
   currency?: string;
+  onSummaryClick?: () => void;
   currentUser?: { id?: number | null; username?: string | null; avatarUrl?: string | null } | null;
   enabled?: boolean;
 };
@@ -28,6 +29,7 @@ export function MobileChatSheet({
   participantCount = 0,
   sharedTotal = 0,
   currency = "EUR",
+  onSummaryClick,
   currentUser,
   enabled = true,
 }: MobileChatSheetProps) {
@@ -69,6 +71,7 @@ export function MobileChatSheet({
             participantCount={participantCount}
             sharedTotal={sharedTotal}
             currency={currency}
+            onSummaryClick={onSummaryClick}
             currentUser={currentUser}
             enabled={enabled}
             className="h-full min-h-0 rounded-none border-0 bg-transparent"

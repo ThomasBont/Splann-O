@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Plus, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SkeletonLine } from "@/components/ui/load-states";
@@ -34,6 +34,20 @@ export function GuestsWidget({ eventId, canInvite = true, variant = "default", c
     : members.length > 0
       ? "Everyone’s in"
       : "Invite friends to plan together";
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onOpenCrew = (event: Event) => {
+      const custom = event as CustomEvent<{ eventId?: number }>;
+      const targetEventId = Number(custom.detail?.eventId);
+      if (!Number.isFinite(targetEventId) || targetEventId !== eventId) return;
+      setOpen(true);
+    };
+    window.addEventListener("splanno:open-crew", onOpenCrew as EventListener);
+    return () => {
+      window.removeEventListener("splanno:open-crew", onOpenCrew as EventListener);
+    };
+  }, [eventId]);
 
   return (
     <>

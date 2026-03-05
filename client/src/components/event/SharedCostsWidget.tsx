@@ -59,9 +59,19 @@ export function SharedCostsWidget({
       setInitialView("expense-form");
       setOpen(true);
     };
+    const onOpenExpenses = (event: Event) => {
+      const custom = event as CustomEvent<{ eventId?: number }>;
+      const targetEventId = Number(custom.detail?.eventId);
+      if (!Number.isFinite(targetEventId) || targetEventId !== eventId) return;
+      setInitialExpenseId(null);
+      setInitialView("overview");
+      setOpen(true);
+    };
     window.addEventListener("splanno:open-expense", onOpenExpense as EventListener);
+    window.addEventListener("splanno:open-expenses", onOpenExpenses as EventListener);
     return () => {
       window.removeEventListener("splanno:open-expense", onOpenExpense as EventListener);
+      window.removeEventListener("splanno:open-expenses", onOpenExpenses as EventListener);
     };
   }, [eventId]);
 

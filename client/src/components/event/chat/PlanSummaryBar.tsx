@@ -6,6 +6,7 @@ type PlanSummaryBarProps = {
   participantCount: number;
   sharedTotal: number;
   currency: string;
+  onClick?: () => void;
 };
 
 function formatDateTime(value: Date | string | null): string | null {
@@ -43,6 +44,7 @@ export function PlanSummaryBar({
   participantCount,
   sharedTotal,
   currency,
+  onClick,
 }: PlanSummaryBarProps) {
   const items: Array<{ key: string; icon: JSX.Element; label: string }> = [];
   if (location && location.trim()) {
@@ -75,7 +77,19 @@ export function PlanSummaryBar({
   });
 
   return (
-    <div className="sticky top-0 z-10 w-full cursor-pointer border-b border-border/70 bg-background/80 px-3 py-2 text-sm backdrop-blur transition-colors hover:bg-muted/50">
+    <div
+      className="sticky top-0 z-10 w-full cursor-pointer border-b border-border/70 bg-background/80 px-3 py-2 text-sm backdrop-blur transition-colors hover:bg-muted/50"
+      onClick={onClick}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={onClick ? (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onClick();
+        }
+      } : undefined}
+      aria-label={onClick ? "Open plan details" : undefined}
+    >
       <div className="flex items-center gap-2">
         <div className="grid min-w-0 flex-1 grid-cols-2 gap-x-4 gap-y-1">
           {items.map((item) => (

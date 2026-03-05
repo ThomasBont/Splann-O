@@ -505,6 +505,18 @@ export function ChatSidebar({
   const peopleLabel = `${participantCount} ${participantCount === 1 ? "person" : "people"}`;
   const dateLabel = formatHeaderDate(dateTime);
   const sharedLabel = `${formatMoneyForSystem(sharedTotal, currency)} shared`;
+  const hasEventId = Number.isFinite(Number(eventId)) && Number(eventId) > 0;
+  const openPlanDetails = () => {
+    onSummaryClick?.();
+  };
+  const openCrew = () => {
+    if (!hasEventId) return;
+    window.dispatchEvent(new CustomEvent("splanno:open-crew", { detail: { eventId } }));
+  };
+  const openExpenses = () => {
+    if (!hasEventId) return;
+    window.dispatchEvent(new CustomEvent("splanno:open-expenses", { detail: { eventId } }));
+  };
 
   return (
     <aside
@@ -521,46 +533,57 @@ export function ChatSidebar({
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <span className="font-semibold text-foreground">Plan chat</span>
             <span>·</span>
-            <span className="truncate">{eventName ? `${eventName} room` : "Plan room"}</span>
+            <button
+              type="button"
+              aria-label="Open plan details"
+              onClick={openPlanDetails}
+              className="inline-flex h-8 items-center rounded-full px-3 text-sm text-muted-foreground transition hover:bg-muted/60 hover:text-foreground active:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              <span className="truncate">{eventName ? `${eventName} room` : "Plan room"}</span>
+            </button>
           </div>
           <div className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-card px-2 py-1 text-[10px] text-muted-foreground">
             <span className={`inline-block h-1.5 w-1.5 rounded-full ${liveLabel.cls}`} />
             {liveLabel.text}
           </div>
         </div>
-        <div
-          className={cn(
-            "mt-2 flex w-full flex-wrap items-center gap-x-6 gap-y-2 text-sm text-muted-foreground",
-            onSummaryClick ? "cursor-pointer" : "",
-          )}
-          onClick={onSummaryClick}
-          role={onSummaryClick ? "button" : undefined}
-          tabIndex={onSummaryClick ? 0 : undefined}
-          onKeyDown={onSummaryClick
-            ? (event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                onSummaryClick();
-              }
-            }
-            : undefined}
-        >
-          <span className="inline-flex items-center gap-2">
+        <div className="mt-2 flex w-full flex-wrap items-center gap-2 text-sm text-muted-foreground">
+          <button
+            type="button"
+            aria-label="Open plan location details"
+            onClick={openPlanDetails}
+            className="inline-flex h-9 items-center gap-2 rounded-full px-3 text-sm text-muted-foreground transition hover:bg-muted/60 hover:text-foreground active:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          >
             <MapPin className="h-4 w-4" />
             <span>{locationLabel}</span>
-          </span>
-          <span className="inline-flex items-center gap-2">
+          </button>
+          <button
+            type="button"
+            aria-label="Open crew drawer"
+            onClick={openCrew}
+            className="inline-flex h-9 items-center gap-2 rounded-full px-3 text-sm text-muted-foreground transition hover:bg-muted/60 hover:text-foreground active:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          >
             <Users className="h-4 w-4" />
             <span>{peopleLabel}</span>
-          </span>
-          <span className="inline-flex items-center gap-2">
+          </button>
+          <button
+            type="button"
+            aria-label="Open plan date details"
+            onClick={openPlanDetails}
+            className="inline-flex h-9 items-center gap-2 rounded-full px-3 text-sm text-muted-foreground transition hover:bg-muted/60 hover:text-foreground active:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          >
             <Calendar className="h-4 w-4" />
             <span>{dateLabel}</span>
-          </span>
-          <span className="inline-flex items-center gap-2">
+          </button>
+          <button
+            type="button"
+            aria-label="Open shared costs drawer"
+            onClick={openExpenses}
+            className="inline-flex h-9 items-center gap-2 rounded-full px-3 text-sm text-muted-foreground transition hover:bg-muted/60 hover:text-foreground active:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          >
             <CreditCard className="h-4 w-4" />
             <span>{sharedLabel}</span>
-          </span>
+          </button>
         </div>
       </header>
 
@@ -573,7 +596,8 @@ export function ChatSidebar({
           setIsNearBottom(delta < 64);
         }}
       >
-        <div className="mx-auto flex min-h-full w-full max-w-[1040px] flex-col justify-end gap-2 px-4 py-4 sm:px-8 sm:py-6">
+        <div className="mx-auto flex min-h-full w-full max-w-[1040px] px-4 py-4 sm:px-8 sm:py-6">
+        <div className="flex min-h-full w-full flex-col justify-end gap-2">
         {hasMoreHistory ? (
           <div className="flex justify-center pb-1">
             <Button
@@ -941,6 +965,7 @@ export function ChatSidebar({
             );
           })
         )}
+        </div>
         </div>
       </div>
 

@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { Plus, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SkeletonLine } from "@/components/ui/load-states";
 import { useEventGuests } from "@/hooks/use-event-guests";
-import GuestsModal from "@/components/event/GuestsModal";
 import { cn } from "@/lib/utils";
+const GuestsModal = lazy(() => import("@/components/event/GuestsModal"));
 
 type GuestsWidgetProps = {
   eventId: number;
@@ -135,14 +135,18 @@ export function GuestsWidget({ eventId, canInvite = true, variant = "default", c
         )}
       </div>
 
-      <GuestsModal
-        open={open}
-        onOpenChange={(next) => {
-          setOpen(next);
-          if (next) void refresh();
-        }}
-        guests={guests}
-      />
+      {open ? (
+        <Suspense fallback={null}>
+          <GuestsModal
+            open={open}
+            onOpenChange={(next) => {
+              setOpen(next);
+              if (next) void refresh();
+            }}
+            guests={guests}
+          />
+        </Suspense>
+      ) : null}
     </>
   );
 }

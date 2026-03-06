@@ -119,9 +119,6 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
       }
       toastError(err.message || "Couldn’t mark transfer as paid.");
     },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey });
-    },
   });
 
   const transfers = settlementQuery.data?.transfers ?? [];

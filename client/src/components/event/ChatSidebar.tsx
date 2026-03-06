@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar, CreditCard, Loader2, MapPin, MessageCircle, MoreHorizontal, Paperclip, Reply, SendHorizontal, Smile, Users } from "lucide-react";
@@ -577,11 +578,16 @@ export function ChatSidebar({
       if (!Array.isArray(old)) return old;
       return old.filter((item) => Number((item as { id?: number }).id) !== expenseId);
     });
+    queryClient.setQueryData(["expenses", eventId], (old: unknown) => {
+      if (!Array.isArray(old)) return old;
+      return old.filter((item) => Number((item as { id?: number }).id) !== expenseId);
+    });
     try {
       await deleteExpense.mutateAsync(expenseId);
     } catch (error) {
       setOptimisticallyDeletedExpenseIds((prev) => prev.filter((id) => id !== expenseId));
       await queryClient.invalidateQueries({ queryKey: ['/api/barbecues', eventId, 'expenses'] });
+      await queryClient.invalidateQueries({ queryKey: ["expenses", eventId] });
       toastError(error instanceof Error ? error.message : "Couldn’t delete expense. Try again.");
     }
   }, [deleteExpense, eventId, queryClient, toastError]);
@@ -681,6 +687,13 @@ export function ChatSidebar({
     }
     return groups;
   }, [messages]);
+  const rowVirtualizer = useVirtualizer({
+    count: messageGroups.length,
+    getScrollElement: () => listRef.current,
+    estimateSize: () => 72,
+    overscan: 10,
+  });
+  const virtualRows = rowVirtualizer.getVirtualItems();
 
   return (
     <aside
@@ -787,305 +800,325 @@ export function ChatSidebar({
             </div>
           </div>
         ) : (
-          messageGroups.map((group, groupIndex) => {
-            const firstMsg = group.messages[0];
-            if (!firstMsg) return null;
-            const previousGroup = groupIndex > 0 ? messageGroups[groupIndex - 1] : null;
-            const previousDate = previousGroup?.messages[0]?.createdAt;
-            const showDateSeparator = !previousDate
-              || !isSameDay(new Date(firstMsg.createdAt), new Date(previousDate));
+          <div className="relative w-full" style={{ height: rowVirtualizer.getTotalSize() }}>
+            {virtualRows.map((virtualRow) => {
+              const group = messageGroups[virtualRow.index];
+              if (!group) return null;
+              const firstMsg = group.messages[0];
+              if (!firstMsg) return null;
+              const previousGroup = virtualRow.index > 0 ? messageGroups[virtualRow.index - 1] : null;
+              const previousDate = previousGroup?.messages[0]?.createdAt;
+              const showDateSeparator = !previousDate
+                || !isSameDay(new Date(firstMsg.createdAt), new Date(previousDate));
 
-            if (group.isSystem) {
-              const msg = firstMsg;
-              const systemName = msg.user?.name || SYSTEM_USER_NAME;
-              const expenseMeta = toExpenseMetadata(msg.metadata ?? null);
-              const settlementMeta = toSettlementMetadata(msg.metadata ?? null);
-              const settlementPaymentMeta = toSettlementPaymentMetadata(msg.metadata ?? null);
-              const settlementCache = settlementPaymentMeta
-                ? queryClient.getQueryData<SettlementCacheResponse>([
-                  "/api/events",
-                  Number(msg.eventId || eventId || 0),
-                  "settlement",
-                  settlementPaymentMeta.settlementId,
-                ])
-                : null;
-              const paymentTransfer = settlementPaymentMeta
-                ? settlementCache?.transfers?.find((transfer) => transfer.id === settlementPaymentMeta.transferId)
-                : null;
-              const fromName = paymentTransfer?.fromName
-                || (settlementPaymentMeta ? membersById.get(String(settlementPaymentMeta.fromUserId))?.name : null)
-                || null;
-              const toName = paymentTransfer?.toName
-                || (settlementPaymentMeta ? membersById.get(String(settlementPaymentMeta.toUserId))?.name : null)
-                || null;
-              const paymentAmount = settlementPaymentMeta
-                ? formatMoneyForSystem(
-                  paymentTransfer?.amount ?? settlementPaymentMeta.amount,
-                  paymentTransfer?.currency ?? settlementPaymentMeta.currency,
-                )
-                : null;
-              return (
-                <div key={group.id} className="mb-5">
-                  {showDateSeparator ? (
-                    <div className="my-2 flex justify-center">
-                      <span className="self-center rounded-full border border-border/70 bg-muted/60 px-3 py-1 text-xs text-muted-foreground">
-                        {formatDateSeparator(msg.createdAt)}
-                      </span>
-                    </div>
-                  ) : null}
-                  <div className="mt-2 flex justify-start">
-                    <div className="mr-2 flex w-10 flex-col items-center pt-0.5">
-                      <span className="grid h-7 w-7 place-items-center rounded-full border border-border/70 bg-muted text-[11px] font-semibold text-muted-foreground">
-                        S
-                      </span>
-                    </div>
-                    <div className="max-w-[84%] sm:max-w-[78%]">
-                      <div className="mb-1 px-1 text-[11px] text-muted-foreground">
-                        <span className="font-semibold text-foreground/90">{systemName}</span>
-                        <span className="ml-1 rounded-full border border-border/60 bg-card/60 px-1.5 py-0 text-[9px] uppercase tracking-wide">System</span>
-                        <span className="px-1 text-muted-foreground/70">·</span>
-                        <span className="text-[10px] text-muted-foreground/70">{formatMessageTime(msg.createdAt)}</span>
-                      </div>
-                      {expenseMeta ? (
-                        <ExpenseCard
-                          eventId={Number(msg.eventId || eventId || 0)}
-                          expenseId={expenseMeta.expenseId}
-                          action={expenseMeta.action}
-                          fallback={{
-                            item: expenseMeta.item,
-                            amount: expenseMeta.amount,
-                            currency: expenseMeta.currency,
-                            paidBy: expenseMeta.paidBy,
-                          }}
-                          optimisticDeleted={optimisticallyDeletedExpenseIds.includes(expenseMeta.expenseId)}
-                          onOpenEdit={openExpenseEditor}
-                          onDelete={(expenseId) => { void handleDeleteExpenseFromCard(expenseId); }}
-                          onCopyAmount={handleCopyAmount}
-                        />
-                      ) : settlementMeta ? (
-                        <SettlementCard
-                          eventId={Number(msg.eventId || eventId || 0)}
-                          settlementId={settlementMeta.settlementId}
-                          currency={settlementMeta.currency || currency}
-                        />
-                      ) : settlementPaymentMeta ? (
-                        <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/8 px-4 py-2.5 text-sm text-emerald-800 dark:text-emerald-300">
-                          {fromName && toName && paymentAmount ? (
-                            <p className="whitespace-pre-wrap break-words font-medium">
-                              {fromName}
-                              {" paid "}
-                              {toName}
-                              {" "}
-                              <span className="font-semibold">{paymentAmount}</span>
-                            </p>
-                          ) : (
-                            <p className="whitespace-pre-wrap break-words font-medium">
-                              Payment recorded
-                              {paymentAmount ? (
-                                <>
+              if (group.isSystem) {
+                const msg = firstMsg;
+                const systemName = msg.user?.name || SYSTEM_USER_NAME;
+                const expenseMeta = toExpenseMetadata(msg.metadata ?? null);
+                const settlementMeta = toSettlementMetadata(msg.metadata ?? null);
+                const settlementPaymentMeta = toSettlementPaymentMetadata(msg.metadata ?? null);
+                const settlementCache = settlementPaymentMeta
+                  ? queryClient.getQueryData<SettlementCacheResponse>([
+                    "/api/events",
+                    Number(msg.eventId || eventId || 0),
+                    "settlement",
+                    settlementPaymentMeta.settlementId,
+                  ])
+                  : null;
+                const paymentTransfer = settlementPaymentMeta
+                  ? settlementCache?.transfers?.find((transfer) => transfer.id === settlementPaymentMeta.transferId)
+                  : null;
+                const fromName = paymentTransfer?.fromName
+                  || (settlementPaymentMeta ? membersById.get(String(settlementPaymentMeta.fromUserId))?.name : null)
+                  || null;
+                const toName = paymentTransfer?.toName
+                  || (settlementPaymentMeta ? membersById.get(String(settlementPaymentMeta.toUserId))?.name : null)
+                  || null;
+                const paymentAmount = settlementPaymentMeta
+                  ? formatMoneyForSystem(
+                    paymentTransfer?.amount ?? settlementPaymentMeta.amount,
+                    paymentTransfer?.currency ?? settlementPaymentMeta.currency,
+                  )
+                  : null;
+                return (
+                  <div
+                    key={group.id}
+                    ref={rowVirtualizer.measureElement}
+                    data-index={virtualRow.index}
+                    className="absolute left-0 top-0 w-full"
+                    style={{ transform: `translateY(${virtualRow.start}px)` }}
+                  >
+                    <div className="mb-5">
+                      {showDateSeparator ? (
+                        <div className="my-2 flex justify-center">
+                          <span className="self-center rounded-full border border-border/70 bg-muted/60 px-3 py-1 text-xs text-muted-foreground">
+                            {formatDateSeparator(msg.createdAt)}
+                          </span>
+                        </div>
+                      ) : null}
+                      <div className="mt-2 flex justify-start">
+                        <div className="mr-2 flex w-10 flex-col items-center pt-0.5">
+                          <span className="grid h-7 w-7 place-items-center rounded-full border border-border/70 bg-muted text-[11px] font-semibold text-muted-foreground">
+                            S
+                          </span>
+                        </div>
+                        <div className="max-w-[84%] sm:max-w-[78%]">
+                          <div className="mb-1 px-1 text-[11px] text-muted-foreground">
+                            <span className="font-semibold text-foreground/90">{systemName}</span>
+                            <span className="ml-1 rounded-full border border-border/60 bg-card/60 px-1.5 py-0 text-[9px] uppercase tracking-wide">System</span>
+                            <span className="px-1 text-muted-foreground/70">·</span>
+                            <span className="text-[10px] text-muted-foreground/70">{formatMessageTime(msg.createdAt)}</span>
+                          </div>
+                          {expenseMeta ? (
+                            <ExpenseCard
+                              eventId={Number(msg.eventId || eventId || 0)}
+                              expenseId={expenseMeta.expenseId}
+                              action={expenseMeta.action}
+                              fallback={{
+                                item: expenseMeta.item,
+                                amount: expenseMeta.amount,
+                                currency: expenseMeta.currency,
+                                paidBy: expenseMeta.paidBy,
+                              }}
+                              optimisticDeleted={optimisticallyDeletedExpenseIds.includes(expenseMeta.expenseId)}
+                              onOpenEdit={openExpenseEditor}
+                              onDelete={(expenseId) => { void handleDeleteExpenseFromCard(expenseId); }}
+                              onCopyAmount={handleCopyAmount}
+                            />
+                          ) : settlementMeta ? (
+                            <SettlementCard
+                              eventId={Number(msg.eventId || eventId || 0)}
+                              settlementId={settlementMeta.settlementId}
+                              currency={settlementMeta.currency || currency}
+                            />
+                          ) : settlementPaymentMeta ? (
+                            <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/8 px-4 py-2.5 text-sm text-emerald-800 dark:text-emerald-300">
+                              {fromName && toName && paymentAmount ? (
+                                <p className="whitespace-pre-wrap break-words font-medium">
+                                  {fromName}
+                                  {" paid "}
+                                  {toName}
                                   {" "}
                                   <span className="font-semibold">{paymentAmount}</span>
-                                </>
-                              ) : null}
-                            </p>
+                                </p>
+                              ) : (
+                                <p className="whitespace-pre-wrap break-words font-medium">
+                                  Payment recorded
+                                  {paymentAmount ? (
+                                    <>
+                                      {" "}
+                                      <span className="font-semibold">{paymentAmount}</span>
+                                    </>
+                                  ) : null}
+                                </p>
+                              )}
+                              <p className="mt-0.5 text-[11px] text-emerald-700/80 dark:text-emerald-300/80">
+                                Marked as paid
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="mx-auto max-w-[560px] rounded-2xl border border-border/70 bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                              <p className="whitespace-pre-wrap break-words">{msg.text}</p>
+                            </div>
                           )}
-                          <p className="mt-0.5 text-[11px] text-emerald-700/80 dark:text-emerald-300/80">
-                            Marked as paid
-                          </p>
                         </div>
-                      ) : (
-                        <div className="mx-auto max-w-[560px] rounded-2xl border border-border/70 bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                          <p className="whitespace-pre-wrap break-words">{msg.text}</p>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              const senderId = String(firstMsg.user?.id ?? "");
+              const senderFromMember = senderId ? membersById.get(senderId) : undefined;
+              const senderName = firstMsg.user?.name || senderFromMember?.name || "Unknown user";
+              const senderAvatar = firstMsg.user?.avatarUrl ?? senderFromMember?.avatarUrl ?? null;
+              const mine = senderId !== SYSTEM_USER_ID
+                && (senderId === String(currentUser?.id ?? "") || firstMsg.user?.name === currentUser?.username);
+              const latestMessage = group.messages[group.messages.length - 1];
+              const groupReactionSummary = summarizeMessageReactions(
+                group.messages.flatMap((message) => message.reactions ?? []),
+              );
+              const hasGroupReactions = groupReactionSummary.length > 0;
+
+              return (
+                <div
+                  key={group.id}
+                  ref={rowVirtualizer.measureElement}
+                  data-index={virtualRow.index}
+                  className="absolute left-0 top-0 w-full"
+                  style={{ transform: `translateY(${virtualRow.start}px)` }}
+                >
+                  <div className="mb-5">
+                    {showDateSeparator ? (
+                      <div className="my-2 flex justify-center">
+                        <span className="self-center rounded-full border border-border/70 bg-muted/60 px-3 py-1 text-xs text-muted-foreground">
+                          {formatDateSeparator(firstMsg.createdAt)}
+                        </span>
+                      </div>
+                    ) : null}
+                    <div className={cn("mt-4 flex items-start", mine ? "justify-end" : "justify-start gap-3")}>
+                      {!mine ? (
+                        <div className="w-8 shrink-0 pt-0.5">
+                          {senderAvatar ? (
+                            <img src={senderAvatar} alt="" className="h-7 w-7 rounded-full border border-border/70 object-cover" />
+                          ) : (
+                            <span className="grid h-7 w-7 place-items-center rounded-full border border-border/70 bg-card text-[10px] font-semibold text-muted-foreground">
+                              {getInitials(senderName)}
+                            </span>
+                          )}
                         </div>
-                      )}
+                      ) : null}
+                      <div className={cn("flex flex-col", mine ? "max-w-[88%] items-end sm:max-w-[80%]" : "max-w-[88%] items-start sm:max-w-[80%]")}>
+                        <div className={cn("mb-1 px-1 text-xs text-muted-foreground", mine ? "text-right" : "")}>
+                          <span className="font-medium text-foreground">{mine ? "You" : senderName}</span>
+                          <span className="px-1.5 text-muted-foreground/70">·</span>
+                          <span>{formatMessageTime(firstMsg.createdAt)}</span>
+                        </div>
+                        <div className={cn("group/bubble inline-flex flex-col", mine ? "items-end" : "items-start")}>
+                          <div className="relative">
+                            <div
+                              className={cn(
+                                "rounded-2xl px-4 py-2 text-sm leading-snug shadow-sm",
+                                mine
+                                  ? "bg-primary text-slate-900"
+                                  : "border border-border/70 bg-background/95 text-foreground dark:bg-neutral-800/92 dark:border-neutral-700/80",
+                              )}
+                            >
+                              <div className="flex flex-col gap-1.5">
+                                {group.messages.map((msg, msgIndexInGroup) => (
+                                  <div
+                                    key={msg.id}
+                                    className={cn(
+                                      "whitespace-pre-wrap break-words leading-snug",
+                                      msgIndexInGroup > 0 ? "border-t border-border/40 pt-1" : "",
+                                    )}
+                                  >
+                                    <p>{msg.text}</p>
+                                    {msg.status === "sending" ? (
+                                      <div className={cn("mt-1 text-[10px]", mine ? "text-slate-800/70" : "text-muted-foreground")}>
+                                        sending…
+                                      </div>
+                                    ) : null}
+                                    {msg.status === "failed" && msg.clientMessageId ? (
+                                      <div className="mt-1 flex items-center gap-2">
+                                        <p className={cn("text-[10px]", mine ? "text-white/90" : "text-destructive")}>failed</p>
+                                        <button
+                                          type="button"
+                                          className={cn("text-[10px] underline underline-offset-2", mine ? "text-white" : "text-foreground")}
+                                          onClick={() => {
+                                            void retrySend(msg.clientMessageId!, {
+                                              id: currentUser?.id ?? null,
+                                              name: currentUser?.username ?? "You",
+                                              avatarUrl: currentUser?.avatarUrl ?? null,
+                                            });
+                                          }}
+                                        >
+                                          Retry
+                                        </button>
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                            <div
+                              className={cn(
+                                "pointer-events-none absolute top-1/2 z-20 hidden -translate-y-1/2 items-center gap-1 opacity-0 transition duration-150 md:flex md:group-hover/bubble:pointer-events-auto md:group-hover/bubble:opacity-100",
+                                mine ? "left-[-36px]" : "right-[-36px]",
+                              )}
+                            >
+                              <Popover
+                                open={reactionPickerMessageId === latestMessage.id}
+                                onOpenChange={(open) => setReactionPickerMessageId(open ? latestMessage.id : null)}
+                              >
+                                <PopoverTrigger asChild>
+                                  <button
+                                    type="button"
+                                    aria-label="React to message"
+                                    className="inline-flex h-7 w-7 items-center justify-center rounded-full border bg-background shadow-sm transition hover:bg-muted"
+                                  >
+                                    <Smile className="h-3.5 w-3.5" />
+                                  </button>
+                                </PopoverTrigger>
+                                <PopoverContent align={mine ? "end" : "start"} className="w-44 p-2">
+                                  <div className="grid grid-cols-4 gap-1">
+                                    {QUICK_EMOJIS.map((emoji) => (
+                                      <button
+                                        key={`${latestMessage.id}-hover-${emoji}`}
+                                        type="button"
+                                        className="grid h-8 w-8 place-items-center rounded-md text-base transition hover:bg-muted"
+                                        onClick={() => {
+                                          void toggleReaction({
+                                            messageId: latestMessage.id,
+                                            emoji,
+                                            actorId: currentUser?.id ?? null,
+                                          });
+                                          setReactionPickerMessageId(null);
+                                        }}
+                                      >
+                                        {emoji}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </PopoverContent>
+                              </Popover>
+                              <button
+                                type="button"
+                                aria-label="Reply to message"
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-full border bg-background shadow-sm transition hover:bg-muted"
+                                onClick={() => {
+                                  const replyTarget = mine ? "You" : senderName;
+                                  const prefix = `@${replyTarget} `;
+                                  setDraft((prev) => (prev.trim() ? `${prefix}${prev}` : prefix));
+                                  inputRef.current?.focus();
+                                }}
+                              >
+                                <Reply className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                aria-label="More message actions"
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-full border bg-background shadow-sm transition hover:bg-muted"
+                                onClick={() => toastInfo("More actions coming soon.")}
+                              >
+                                <MoreHorizontal className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                          {hasGroupReactions ? (
+                            <div className={cn("mt-1 flex gap-1", mine ? "justify-end self-end" : "justify-start self-start")}>
+                              {groupReactionSummary.map((reaction) => (
+                                <button
+                                  key={`${group.id}-${reaction.emoji}`}
+                                  type="button"
+                                  className={cn(
+                                    "flex items-center gap-1 rounded-full border bg-background/80 px-2 py-[2px] text-xs transition",
+                                    reaction.me
+                                      ? "border-primary/40 text-foreground"
+                                      : "border-border/70 text-muted-foreground hover:text-foreground",
+                                  )}
+                                  onClick={() => {
+                                    void toggleReaction({
+                                      messageId: latestMessage.id,
+                                      emoji: reaction.emoji,
+                                      actorId: currentUser?.id ?? null,
+                                    });
+                                  }}
+                                >
+                                  <span>{reaction.emoji}</span>
+                                  <span>{reaction.count}</span>
+                                </button>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
               );
-            }
-
-            const senderId = String(firstMsg.user?.id ?? "");
-            const senderFromMember = senderId ? membersById.get(senderId) : undefined;
-            const senderName = firstMsg.user?.name || senderFromMember?.name || "Unknown user";
-            const senderAvatar = firstMsg.user?.avatarUrl ?? senderFromMember?.avatarUrl ?? null;
-            const mine = senderId !== SYSTEM_USER_ID
-              && (senderId === String(currentUser?.id ?? "") || firstMsg.user?.name === currentUser?.username);
-            const latestMessage = group.messages[group.messages.length - 1];
-            const groupReactionSummary = summarizeMessageReactions(
-              group.messages.flatMap((message) => message.reactions ?? []),
-            );
-            const hasGroupReactions = groupReactionSummary.length > 0;
-
-            return (
-              <div key={group.id} className="mb-5">
-                {showDateSeparator ? (
-                  <div className="my-2 flex justify-center">
-                    <span className="self-center rounded-full border border-border/70 bg-muted/60 px-3 py-1 text-xs text-muted-foreground">
-                      {formatDateSeparator(firstMsg.createdAt)}
-                    </span>
-                  </div>
-                ) : null}
-                <div className={cn("mt-4 flex items-start", mine ? "justify-end" : "justify-start gap-3")}>
-                  {!mine ? (
-                    <div className="w-8 shrink-0 pt-0.5">
-                      {senderAvatar ? (
-                        <img src={senderAvatar} alt="" className="h-7 w-7 rounded-full border border-border/70 object-cover" />
-                      ) : (
-                        <span className="grid h-7 w-7 place-items-center rounded-full border border-border/70 bg-card text-[10px] font-semibold text-muted-foreground">
-                          {getInitials(senderName)}
-                        </span>
-                      )}
-                    </div>
-                  ) : null}
-                  <div className={cn("flex flex-col", mine ? "max-w-[88%] items-end sm:max-w-[80%]" : "max-w-[88%] items-start sm:max-w-[80%]")}>
-                    <div className={cn("mb-1 px-1 text-xs text-muted-foreground", mine ? "text-right" : "")}>
-                      <span className="font-medium text-foreground">{mine ? "You" : senderName}</span>
-                      <span className="px-1.5 text-muted-foreground/70">·</span>
-                      <span>{formatMessageTime(firstMsg.createdAt)}</span>
-                    </div>
-                    <div className={cn("group/bubble inline-flex flex-col", mine ? "items-end" : "items-start")}>
-                      <div className="relative">
-                        <div
-                          className={cn(
-                            "rounded-2xl px-4 py-2 text-sm leading-snug shadow-sm",
-                            mine
-                              ? "bg-primary text-slate-900"
-                              : "border border-border/70 bg-background/95 text-foreground dark:bg-neutral-800/92 dark:border-neutral-700/80",
-                          )}
-                        >
-                          <div className="flex flex-col gap-1.5">
-                            {group.messages.map((msg, msgIndexInGroup) => (
-                              <div
-                                key={msg.id}
-                                className={cn(
-                                  "whitespace-pre-wrap break-words leading-snug",
-                                  msgIndexInGroup > 0 ? "border-t border-border/40 pt-1" : "",
-                                )}
-                              >
-                                <p>{msg.text}</p>
-                                {msg.status === "sending" ? (
-                                  <div className={cn("mt-1 text-[10px]", mine ? "text-slate-800/70" : "text-muted-foreground")}>
-                                    sending…
-                                  </div>
-                                ) : null}
-                                {msg.status === "failed" && msg.clientMessageId ? (
-                                  <div className="mt-1 flex items-center gap-2">
-                                    <p className={cn("text-[10px]", mine ? "text-white/90" : "text-destructive")}>failed</p>
-                                    <button
-                                      type="button"
-                                      className={cn("text-[10px] underline underline-offset-2", mine ? "text-white" : "text-foreground")}
-                                      onClick={() => {
-                                        void retrySend(msg.clientMessageId!, {
-                                          id: currentUser?.id ?? null,
-                                          name: currentUser?.username ?? "You",
-                                          avatarUrl: currentUser?.avatarUrl ?? null,
-                                        });
-                                      }}
-                                    >
-                                      Retry
-                                    </button>
-                                  </div>
-                                ) : null}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                        <div
-                          className={cn(
-                            "pointer-events-none absolute top-1/2 z-20 hidden -translate-y-1/2 items-center gap-1 opacity-0 transition duration-150 md:flex md:group-hover/bubble:pointer-events-auto md:group-hover/bubble:opacity-100",
-                            mine ? "left-[-36px]" : "right-[-36px]",
-                          )}
-                        >
-                          <Popover
-                            open={reactionPickerMessageId === latestMessage.id}
-                            onOpenChange={(open) => setReactionPickerMessageId(open ? latestMessage.id : null)}
-                          >
-                            <PopoverTrigger asChild>
-                              <button
-                                type="button"
-                                aria-label="React to message"
-                                className="inline-flex h-7 w-7 items-center justify-center rounded-full border bg-background shadow-sm transition hover:bg-muted"
-                              >
-                                <Smile className="h-3.5 w-3.5" />
-                              </button>
-                            </PopoverTrigger>
-                            <PopoverContent align={mine ? "end" : "start"} className="w-44 p-2">
-                              <div className="grid grid-cols-4 gap-1">
-                                {QUICK_EMOJIS.map((emoji) => (
-                                  <button
-                                    key={`${latestMessage.id}-hover-${emoji}`}
-                                    type="button"
-                                    className="grid h-8 w-8 place-items-center rounded-md text-base transition hover:bg-muted"
-                                    onClick={() => {
-                                      void toggleReaction({
-                                        messageId: latestMessage.id,
-                                        emoji,
-                                        actorId: currentUser?.id ?? null,
-                                      });
-                                      setReactionPickerMessageId(null);
-                                    }}
-                                  >
-                                    {emoji}
-                                  </button>
-                                ))}
-                              </div>
-                            </PopoverContent>
-                          </Popover>
-                          <button
-                            type="button"
-                            aria-label="Reply to message"
-                            className="inline-flex h-7 w-7 items-center justify-center rounded-full border bg-background shadow-sm transition hover:bg-muted"
-                            onClick={() => {
-                              const replyTarget = mine ? "You" : senderName;
-                              const prefix = `@${replyTarget} `;
-                              setDraft((prev) => (prev.trim() ? `${prefix}${prev}` : prefix));
-                              inputRef.current?.focus();
-                            }}
-                          >
-                            <Reply className="h-3.5 w-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            aria-label="More message actions"
-                            className="inline-flex h-7 w-7 items-center justify-center rounded-full border bg-background shadow-sm transition hover:bg-muted"
-                            onClick={() => toastInfo("More actions coming soon.")}
-                          >
-                            <MoreHorizontal className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                      {hasGroupReactions ? (
-                        <div className={cn("mt-1 flex gap-1", mine ? "justify-end self-end" : "justify-start self-start")}>
-                          {groupReactionSummary.map((reaction) => (
-                            <button
-                              key={`${group.id}-${reaction.emoji}`}
-                              type="button"
-                              className={cn(
-                                "flex items-center gap-1 rounded-full border bg-background/80 px-2 py-[2px] text-xs transition",
-                                reaction.me
-                                  ? "border-primary/40 text-foreground"
-                                  : "border-border/70 text-muted-foreground hover:text-foreground",
-                              )}
-                              onClick={() => {
-                                void toggleReaction({
-                                  messageId: latestMessage.id,
-                                  emoji: reaction.emoji,
-                                  actorId: currentUser?.id ?? null,
-                                });
-                              }}
-                            >
-                              <span>{reaction.emoji}</span>
-                              <span>{reaction.count}</span>
-                            </button>
-                          ))}
-                        </div>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })
+            })}
+          </div>
         )}
         </div>
         </div>

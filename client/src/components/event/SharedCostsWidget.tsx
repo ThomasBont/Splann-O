@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import SharedCostsDrawer from "@/components/event/SharedCostsDrawer";
 import { cn } from "@/lib/utils";
 import type { ExpenseWithParticipant } from "@shared/schema";
 import type { Balance, Settlement } from "@/lib/split/calc";
+const SharedCostsDrawer = lazy(() => import("@/components/event/SharedCostsDrawer"));
 
 type SharedCostsWidgetProps = {
   eventId: number | null;
@@ -153,32 +153,36 @@ export function SharedCostsWidget({
         </p>
       </div>
 
-      <SharedCostsDrawer
-        eventId={eventId}
-        currentUserId={currentUserId}
-        creatorUserId={creatorUserId}
-        open={open}
-        onOpenChange={(next) => {
-          setOpen(next);
-          if (!next) {
-            setInitialExpenseId(null);
-            setInitialExpensePrefill(null);
-          }
-        }}
-        initialView={initialView}
-        initialExpenseId={initialExpenseId}
-        initialExpensePrefill={initialExpensePrefill}
-        planName={planName}
-        peopleCount={peopleCount}
-        totalSpentLabel={totalSpentLabel}
-        expenseCount={expenseCount}
-        categories={categories}
-        participants={participants}
-        expenses={expenses}
-        balances={balances}
-        settlements={settlements}
-        formatMoney={formatMoney}
-      />
+      {open ? (
+        <Suspense fallback={null}>
+          <SharedCostsDrawer
+            eventId={eventId}
+            currentUserId={currentUserId}
+            creatorUserId={creatorUserId}
+            open={open}
+            onOpenChange={(next) => {
+              setOpen(next);
+              if (!next) {
+                setInitialExpenseId(null);
+                setInitialExpensePrefill(null);
+              }
+            }}
+            initialView={initialView}
+            initialExpenseId={initialExpenseId}
+            initialExpensePrefill={initialExpensePrefill}
+            planName={planName}
+            peopleCount={peopleCount}
+            totalSpentLabel={totalSpentLabel}
+            expenseCount={expenseCount}
+            categories={categories}
+            participants={participants}
+            expenses={expenses}
+            balances={balances}
+            settlements={settlements}
+            formatMoney={formatMoney}
+          />
+        </Suspense>
+      ) : null}
     </>
   );
 }

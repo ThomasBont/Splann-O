@@ -5,12 +5,10 @@ import {
   useAcceptFriendRequestNotification,
   useAcceptPlanInvite,
   useBarbecues,
-  fetchPlan,
   useDeclineFriendRequestNotification,
   useDeclinePlanInvite,
   useNotifications,
 } from "@/hooks/use-bbq-data";
-import { useQueryClient } from "@tanstack/react-query";
 import Home from "@/pages/home";
 import {
   Loader2,
@@ -62,10 +60,7 @@ import type { Barbecue } from "@shared/schema";
 import { isPrivateEvent } from "@shared/event-visibility";
 import { InlineQueryError, SkeletonCard } from "@/components/ui/load-states";
 import { EMPTY_COPY } from "@/lib/emotional-copy";
-import { fetchExpenses, expensesQueryKey } from "@/hooks/use-expenses";
-import { fetchParticipants, participantsQueryKey, fetchEventMembers, eventMembersQueryKey } from "@/hooks/use-participants";
-import { fetchPlanMessages, planMessagesQueryKey } from "@/hooks/use-event-chat";
-import { PLAN_STALE_TIME_MS } from "@/lib/query-stale";
+import { usePrefetchPlan } from "@/hooks/use-prefetch-plan";
 
 type AppSection = "home" | "private" | "event";
 type DevDisableFlags = {
@@ -264,7 +259,7 @@ function AppSidebar({
   eventViewMode?: "chat" | "overview";
 }) {
   const [, setLocation] = useLocation();
-  const queryClient = useQueryClient();
+  const { prefetchPlan, prefetchPlanOnHover, cancelHoverPrefetch } = usePrefetchPlan();
   const { data: events = [], isLoading: eventsLoading, error: eventsError, refetch: refetchEvents } = useBarbecues();
   const { user } = useAuth();
   const [recentCollapsed, setRecentCollapsed] = useState(false);
@@ -406,55 +401,22 @@ function AppSidebar({
             onMouseEnter={() => {
               const planId = Number(event.id);
               if (!Number.isFinite(planId)) return;
-              void queryClient.prefetchQuery({
-                queryKey: ["plan", planId],
-                queryFn: () => fetchPlan(planId),
-                staleTime: PLAN_STALE_TIME_MS,
-              });
-              void queryClient.prefetchQuery({
-                queryKey: planMessagesQueryKey(planId),
-                queryFn: () => fetchPlanMessages(planId),
-                staleTime: PLAN_STALE_TIME_MS,
-              });
-              void queryClient.prefetchQuery({
-                queryKey: expensesQueryKey(planId),
-                queryFn: () => fetchExpenses(planId),
-                staleTime: PLAN_STALE_TIME_MS,
-              });
-              void queryClient.prefetchQuery({
-                queryKey: participantsQueryKey(planId),
-                queryFn: () => fetchParticipants(planId),
-                staleTime: PLAN_STALE_TIME_MS,
-              });
-              void queryClient.prefetchQuery({
-                queryKey: eventMembersQueryKey(planId),
-                queryFn: () => fetchEventMembers(planId),
-                staleTime: PLAN_STALE_TIME_MS,
-              });
+              prefetchPlanOnHover(planId);
+            }}
+            onMouseLeave={() => {
+              const planId = Number(event.id);
+              if (!Number.isFinite(planId)) return;
+              cancelHoverPrefetch(planId);
             }}
             onFocus={() => {
               const planId = Number(event.id);
               if (!Number.isFinite(planId)) return;
-              void queryClient.prefetchQuery({
-                queryKey: planMessagesQueryKey(planId),
-                queryFn: () => fetchPlanMessages(planId),
-                staleTime: PLAN_STALE_TIME_MS,
-              });
-              void queryClient.prefetchQuery({
-                queryKey: expensesQueryKey(planId),
-                queryFn: () => fetchExpenses(planId),
-                staleTime: PLAN_STALE_TIME_MS,
-              });
-              void queryClient.prefetchQuery({
-                queryKey: eventMembersQueryKey(planId),
-                queryFn: () => fetchEventMembers(planId),
-                staleTime: PLAN_STALE_TIME_MS,
-              });
-              void queryClient.prefetchQuery({
-                queryKey: participantsQueryKey(planId),
-                queryFn: () => fetchParticipants(planId),
-                staleTime: PLAN_STALE_TIME_MS,
-              });
+              prefetchPlan(planId);
+            }}
+            onTouchStart={() => {
+              const planId = Number(event.id);
+              if (!Number.isFinite(planId)) return;
+              prefetchPlan(planId);
             }}
           >
             <p className="truncate font-medium text-foreground">{event.name}</p>
@@ -876,6 +838,7 @@ export default function AppRoute() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [mobileRecentCollapsed, setMobileRecentCollapsed] = useState(false);
+  const { prefetchPlan, prefetchPlanOnHover, cancelHoverPrefetch } = usePrefetchPlan();
 
   const pathname = typeof window !== "undefined" ? window.location.pathname : (location.split("?")[0] || "/app");
   const search = typeof window !== "undefined" ? window.location.search : "";
@@ -1278,6 +1241,26 @@ export default function AppRoute() {
                         <Link key={`mobile-event-${event.id}`} href={`/app/e/${event.id}`}>
                           <a
                             onClick={() => setIsSidebarOpen(false)}
+                            onMouseEnter={() => {
+                              const planId = Number(event.id);
+                              if (!Number.isFinite(planId)) return;
+                              prefetchPlanOnHover(planId);
+                            }}
+                            onMouseLeave={() => {
+                              const planId = Number(event.id);
+                              if (!Number.isFinite(planId)) return;
+                              cancelHoverPrefetch(planId);
+                            }}
+                            onFocus={() => {
+                              const planId = Number(event.id);
+                              if (!Number.isFinite(planId)) return;
+                              prefetchPlan(planId);
+                            }}
+                            onTouchStart={() => {
+                              const planId = Number(event.id);
+                              if (!Number.isFinite(planId)) return;
+                              prefetchPlan(planId);
+                            }}
                             className="block rounded-md border border-transparent px-2 py-1.5 text-xs hover:border-border/60 hover:bg-muted/30"
                           >
                             <p className="truncate font-medium">{event.name}</p>

@@ -4,7 +4,7 @@ import { getApiBase, getEventChatWsUrl } from "@/lib/network";
 import { planBalancesQueryKey, type RealtimePlanBalances } from "@/hooks/use-expenses";
 import { dedupeExpenseSystemMessages } from "@/lib/chat/dedupe-expense-system-messages";
 import { filterChatMessages } from "@/lib/chat/filter-chat-messages";
-import { PLAN_STALE_TIME_MS } from "@/lib/query-stale";
+import { PLAN_GC_TIME_MS, PLAN_STALE_TIME_MS } from "@/lib/query-stale";
 
 export type ChatMessage = {
   id: string;
@@ -57,7 +57,7 @@ export type PlanMessagesPage = {
 };
 
 export function planMessagesQueryKey(planId: number | null) {
-  return ["planMessages", planId] as const;
+  return ["messages", planId] as const;
 }
 
 export async function fetchPlanMessages(planId: number, before?: string | null): Promise<PlanMessagesPage> {
@@ -317,6 +317,9 @@ export function useEventChat(eventId: number | null, enabled = true) {
         queryKey: cacheKey,
         queryFn: () => fetchHistoryPage(null),
         staleTime: PLAN_STALE_TIME_MS,
+        gcTime: PLAN_GC_TIME_MS,
+        refetchOnWindowFocus: false,
+        refetchOnReconnect: true,
       });
       setMessages(dedupeAndSort(page.messages));
       setNextCursor(page.nextCursor);

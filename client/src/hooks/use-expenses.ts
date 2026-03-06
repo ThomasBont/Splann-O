@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, buildUrl } from "@shared/routes";
 import type { InsertExpense, UpdateExpenseRequest } from "@shared/routes";
-import { PLAN_STALE_TIME_MS } from "@/lib/query-stale";
+import { PLAN_GC_TIME_MS, PLAN_STALE_TIME_MS } from "@/lib/query-stale";
 
 export type RealtimePlanBalances = {
   type: "plan:balancesUpdated";
@@ -18,6 +18,19 @@ export function planBalancesQueryKey(planId: number | null) {
 
 export function expensesQueryKey(bbqId: number | null) {
   return ['/api/barbecues', bbqId, 'expenses'] as const;
+}
+
+function planExpensesQueryKey(bbqId: number | null) {
+  return ["expenses", bbqId] as const;
+}
+
+function updateExpenseCaches(
+  queryClient: ReturnType<typeof useQueryClient>,
+  bbqId: number | null,
+  updater: (old: unknown) => unknown,
+) {
+  queryClient.setQueryData(expensesQueryKey(bbqId), updater);
+  queryClient.setQueryData(planExpensesQueryKey(bbqId), updater);
 }
 
 export async function fetchExpenses(bbqId: number) {
@@ -45,6 +58,9 @@ export function useExpenses(bbqId: number | null) {
     },
     enabled: !!bbqId,
     staleTime: PLAN_STALE_TIME_MS,
+    gcTime: PLAN_GC_TIME_MS,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: true,
   });
 }
 
@@ -62,8 +78,11 @@ export function useCreateExpense(bbqId: number | null) {
       if (!res.ok) throw new Error("Failed to create expense");
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/barbecues', bbqId, 'expenses'] });
+    onSuccess: (createdExpense) => {
+      updateExpenseCaches(queryClient, bbqId, (old) => {
+        if (!Array.isArray(old)) return [createdExpense];
+        return [...old, createdExpense];
+      });
       queryClient.invalidateQueries({ queryKey: ['/api/barbecues', bbqId, 'expense-shares'] });
     },
   });
@@ -82,8 +101,14 @@ export function useUpdateExpense(bbqId: number | null) {
       if (!res.ok) throw new Error("Failed to update expense");
       return res.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/barbecues', bbqId, 'expenses'] });
+    onSuccess: (updatedExpense) => {
+      updateExpenseCaches(queryClient, bbqId, (old) => {
+        if (!Array.isArray(old)) return old;
+        return old.map((expense) => {
+          if (Number((expense as { id?: unknown }).id) !== Number((updatedExpense as { id?: unknown }).id)) return expense;
+          return { ...expense, ...updatedExpense };
+        });
+      });
     },
   });
 }
@@ -96,8 +121,11 @@ export function useDeleteExpense(bbqId: number | null) {
       const res = await fetch(url, { method: "DELETE" });
       if (!res.ok) throw new Error("Failed to delete expense");
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/barbecues', bbqId, 'expenses'] });
+    onSuccess: (_result, deletedId) => {
+      updateExpenseCaches(queryClient, bbqId, (old) => {
+        if (!Array.isArray(old)) return old;
+        return old.filter((expense) => Number((expense as { id?: unknown }).id) !== deletedId);
+      });
     },
   });
 }

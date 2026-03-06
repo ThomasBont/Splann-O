@@ -17,7 +17,6 @@ import {
 } from "@/components/ui/select";
 import { Loader2, Plus, Upload, Trash2, ExternalLink, Check } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { useQueryClient } from "@tanstack/react-query";
 import { getCategoryDef, getPlaceholderKeyForCategory } from "@/config/expenseCategories";
 import { getExpensePlaceholderKey, getThemeConfig, type ThemeId } from "@/themes/themeRegistry";
 import { getSmartDefaultsForGroup, resolveExpenseDefaults, updateSmartDefaultsAfterExpenseCreate } from "@/lib/smart-defaults";
@@ -75,7 +74,6 @@ function parseIncludedUserIds(value: unknown): string[] {
 export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, currencySymbol, categories: categoriesProp, defaultItem: defaultItemProp, defaultCategory: defaultCategoryProp, defaultOptIn: defaultOptInProp, allowOptIn = false, onAddCustomCategory, eventType, eventKind = "party", currentUsername, currencyCode, groupHomeCurrencyCode, lastExpense, privateTone = false, showReceipt = false }: AddExpenseDialogProps) {
   const { t } = useLanguage();
   const { toast } = useToast();
-  const queryClient = useQueryClient();
   const participants = useParticipants(bbqId);
   const createExpense = useCreateExpense(bbqId);
   const updateExpense = useUpdateExpense(bbqId);
@@ -237,11 +235,6 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
             await uploadReceipt.mutateAsync({ expenseId: editingExpense.id, dataUrl: receiptDataUrl });
           }
         }
-        // Ensure all cost-dependent UI (expenses, balances, paybacks) updates immediately while drawers stay open.
-        if (bbqId) {
-          await queryClient.refetchQueries({ queryKey: ['/api/barbecues', bbqId, 'expenses'], exact: true });
-          await queryClient.refetchQueries({ queryKey: ['/api/barbecues', bbqId, 'expense-shares'], exact: true });
-        }
         toast({ variant: "success", message: t.modals.expenseUpdated });
         setSavedPulse(true);
         globalThis.setTimeout(() => setSavedPulse(false), 450);
@@ -269,9 +262,6 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
             participantIds: [parseInt(participantId)],
             category,
           });
-          // Ensure all cost-dependent UI (expenses, balances, paybacks) updates immediately while drawers stay open.
-          await queryClient.refetchQueries({ queryKey: ['/api/barbecues', bbqId, 'expenses'], exact: true });
-          await queryClient.refetchQueries({ queryKey: ['/api/barbecues', bbqId, 'expense-shares'], exact: true });
         }
         toast({ variant: "success", message: t.modals.expenseAdded });
         setSavedPulse(true);

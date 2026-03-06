@@ -1,18 +1,18 @@
-import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from "react";
+import { lazy, Suspense, useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from "react";
 import { Link, useLocation } from "wouter";
 import { normalizeCountryCode } from "@shared/lib/country-code";
 import { useLanguage, getCurrency, type CurrencyCode, convertCurrency } from "@/hooks/use-language";
 import { useAuth } from "@/hooks/use-auth";
 import { useUserProfile } from "@/hooks/use-user-profile";
 import {
-  useParticipants, useCreateParticipant, useDeleteParticipant, useUpdateParticipantName,
+  useCreateParticipant, useDeleteParticipant, useUpdateParticipantName,
   usePendingRequests, useMemberships, useJoinBarbecue,
   useAcceptParticipant, useRejectParticipant,
-  useInvitedParticipants, useInviteParticipant, useEventMembers,
+  useInvitedParticipants, useInviteParticipant,
   useAcceptInvite, useDeclineInvite,
 } from "@/hooks/use-participants";
-import { useExpenses, useDeleteExpense, useExpenseShares, useRealtimePlanBalances, useSetExpenseShare } from "@/hooks/use-expenses";
-import { useBarbecues, useCreateBarbecue, useDeleteBarbecue, useUpdateBarbecue, useEnsureInviteToken, useSettleUp, useCheckoutPublicListing, useDeactivateListing, useExploreEvents, usePublicEventRsvpRequests, useUpdatePublicEventRsvpRequest, useConversations, useConversation, useSendConversationMessage, useUpdateConversationStatus, useUploadEventBanner, useDeleteEventBanner, useNotifications, useAcceptPlanInvite, useDeclinePlanInvite, useAcceptFriendRequestNotification, useDeclineFriendRequestNotification, useLeaveBarbecue, usePlanById, type ExploreEvent, type PlanInviteNotification } from "@/hooks/use-bbq-data";
+import { useDeleteExpense, useExpenseShares, useRealtimePlanBalances, useSetExpenseShare } from "@/hooks/use-expenses";
+import { useBarbecues, useCreateBarbecue, useDeleteBarbecue, useUpdateBarbecue, useEnsureInviteToken, useSettleUp, useCheckoutPublicListing, useDeactivateListing, useExploreEvents, usePublicEventRsvpRequests, useUpdatePublicEventRsvpRequest, useConversations, useConversation, useSendConversationMessage, useUpdateConversationStatus, useUploadEventBanner, useDeleteEventBanner, useNotifications, useAcceptPlanInvite, useDeclinePlanInvite, useAcceptFriendRequestNotification, useDeclineFriendRequestNotification, useLeaveBarbecue, type ExploreEvent } from "@/hooks/use-bbq-data";
 import { useQueryClient } from "@tanstack/react-query";
 import { useFriends, useFriendRequests, useAllPendingRequests, useAcceptFriendRequest, useRemoveFriend, useSearchUsers, useSendFriendRequest } from "@/hooks/use-friends";
 import { Button } from "@/components/ui/button";
@@ -47,12 +47,8 @@ import { CurrencyPicker } from "@/components/currency-picker";
 import { type LocationOption, currencyForCountry } from "@/lib/locations-data";
 import { EventHeader } from "@/components/event/EventHeader";
 import { ChatSidebar } from "@/components/event/ChatSidebar";
-import { MobileChatSheet } from "@/components/event/MobileChatSheet";
 import GuestsWidget from "@/components/event/GuestsWidget";
 import SharedCostsWidget from "@/components/event/SharedCostsWidget";
-import PlanDetailsDrawer from "@/components/event/PlanDetailsDrawer";
-import PlanTypeDrawer from "@/components/event/PlanTypeDrawer";
-import ActivityDrawer from "@/components/event/ActivityDrawer";
 import AccountSettingsContent from "@/components/account/AccountSettingsContent";
 import { PrivateEventHero } from "@/components/event/PrivateEventHero";
 import EventSettingsModal from "@/components/event/EventSettingsModal";
@@ -89,6 +85,7 @@ import { useAppToast } from "@/hooks/use-app-toast";
 import { useUpgrade } from "@/contexts/UpgradeContext";
 import { useNewPlanWizard } from "@/contexts/new-plan-wizard";
 import { UpgradeRequiredError } from "@/lib/upgrade";
+import { usePlan, usePlanCrew, usePlanExpenses } from "@/hooks/use-plan-data";
 import {
   getEventTemplate,
   getTemplateData,
@@ -156,6 +153,11 @@ import {
   getPlanSubcategoryLabel,
 } from "@shared/lib/plan-types";
 import type { ExpenseWithParticipant, Barbecue, Participant, FriendInfo, PendingRequestWithBbq } from "@shared/schema";
+
+const PlanDetailsDrawer = lazy(() => import("@/components/event/PlanDetailsDrawer"));
+const PlanTypeDrawer = lazy(() => import("@/components/event/PlanTypeDrawer"));
+const ActivityDrawer = lazy(() => import("@/components/event/ActivityDrawer"));
+const NotificationsDrawer = lazy(() => import("@/components/event/NotificationsDrawer"));
 
 /** Fallback colors for expense chart. Extended for custom categories (hash-based). */
 const CATEGORY_COLORS: Record<string, string> = {
@@ -1150,7 +1152,7 @@ export default function Home({
   const settleUp = useSettleUp();
   const checkoutPublicListing = useCheckoutPublicListing();
   const deactivateListing = useDeactivateListing();
-  const selectedPlanQuery = usePlanById(selectedBbqId, !!selectedBbqId);
+  const selectedPlanQuery = usePlan(selectedBbqId);
 
   const selectedBbq = selectedPlanQuery.data
     ?? barbecuesForArea.find((b: Barbecue) => Number(b.id) === selectedBbqId)
@@ -1272,8 +1274,9 @@ export default function Home({
   const showPrivateChatTab = import.meta.env.VITE_ENABLE_PRIVATE_CHAT === "true";
   const privateMood = getCircleMoodTokens(isPrivateContext ? getCirclePersonalityFromEvent(selectedBbq) : "minimal");
 
-  const { data: participants = [] } = useParticipants(selectedBbqId);
-  const { data: eventMembers = [] } = useEventMembers(selectedBbqId);
+  const planCrewQuery = usePlanCrew(selectedBbqId);
+  const participants = planCrewQuery.data?.participants ?? [];
+  const eventMembers = planCrewQuery.data?.members ?? [];
   const usernameByUserId = useMemo(() => {
     const map = new Map<number, string>();
     for (const member of eventMembers) {
@@ -1281,7 +1284,7 @@ export default function Home({
     }
     return map;
   }, [eventMembers]);
-  const { data: expenses = [] } = useExpenses(selectedBbqId);
+  const { data: expenses = [] } = usePlanExpenses(selectedBbqId);
   const { data: realtimeBalancesSnapshot } = useRealtimePlanBalances(selectedBbqId);
   const [showLocalSuggestionsModal, setShowLocalSuggestionsModal] = useState(false);
   const [privateSuggestionState, setPrivateSuggestionState] = useState(defaultPrivateSuggestionState());
@@ -2345,143 +2348,57 @@ export default function Home({
       </header>
       )}
 
-      <Sheet open={notifOpen} onOpenChange={setNotifOpen}>
-        <SheetContent
-          side="right"
-          className="h-full w-[420px] max-w-[92vw] border-l border-slate-200 bg-white p-0 shadow-2xl dark:border-neutral-800 dark:bg-[#121212]"
-        >
-          <div className="flex h-full flex-col">
-            <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-5 py-4 backdrop-blur dark:border-neutral-800 dark:bg-[#121212]/95">
-              <SheetHeader className="space-y-1 text-left">
-                <SheetTitle className="text-lg font-semibold text-slate-900 dark:text-neutral-100">Notifications</SheetTitle>
-                <SheetDescription className="text-sm text-slate-500 dark:text-neutral-400">
-                  Friend requests and plan invites
-                </SheetDescription>
-              </SheetHeader>
-            </header>
+      {notifOpen ? (
+        <Suspense fallback={null}>
+          <NotificationsDrawer
+            open={notifOpen}
+            onOpenChange={setNotifOpen}
+            pendingFriendRequests={pendingFriendRequests}
+            pendingPlanInvites={pendingPlanInvites}
+            acceptFriendPending={acceptFriendRequestNotif.isPending}
+            declineFriendPending={declineFriendRequestNotif.isPending}
+            acceptPlanPending={acceptPlanInvite.isPending}
+            declinePlanPending={declinePlanInvite.isPending}
+            onAcceptFriend={(friendshipId) => {
+              acceptFriendRequestNotif.mutate(friendshipId, {
+                onSuccess: () => toastSuccess("Friend request accepted"),
+                onError: (error) => toastError(error instanceof Error ? error.message : "Couldn’t accept request."),
+              });
+            }}
+            onDeclineFriend={(friendshipId) => {
+              declineFriendRequestNotif.mutate(friendshipId, {
+                onSuccess: () => toastInfo("Friend request declined"),
+                onError: (error) => toastError(error instanceof Error ? error.message : "Couldn’t decline request."),
+              });
+            }}
+            onAcceptPlan={(invite) => {
+              acceptPlanInvite.mutate(invite.id, {
+                onSuccess: async (payload) => {
+                  await Promise.all([
+                    queryClient.invalidateQueries({ queryKey: ["/api/memberships"] }),
+                    queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] }),
+                    queryClient.invalidateQueries({ queryKey: ["/api/events", payload.eventId, "members"] }),
+                    queryClient.refetchQueries({ queryKey: ["/api/barbecues"] }),
+                  ]);
+                  setSelectedBbqId(payload.eventId);
+                  setNotifOpen(false);
+                  setLocation(`/app/e/${payload.eventId}`);
+                  toastSuccess("Invite accepted");
+                },
+                onError: (error) => toastError(error instanceof Error ? error.message : "Couldn’t accept invite."),
+              });
+            }}
+            onDeclinePlan={(inviteId) => {
+              declinePlanInvite.mutate(inviteId, {
+                onSuccess: () => toastInfo("Invite declined"),
+                onError: (error) => toastError(error instanceof Error ? error.message : "Couldn’t decline invite."),
+              });
+            }}
+          />
+        </Suspense>
+      ) : null}
 
-            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 space-y-4">
-              <section className="rounded-2xl border border-border bg-card p-4">
-                <h3 className="text-sm font-semibold text-foreground">Friend requests</h3>
-                <div className="mt-3 space-y-2">
-                  {pendingFriendRequests.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No friend requests</p>
-                  ) : (
-                    pendingFriendRequests.map((request) => {
-                      const displayName = request.displayName || request.username;
-                      return (
-                        <div key={request.friendshipId} className="flex items-center justify-between gap-2 rounded-xl border border-border/70 bg-background/40 px-3 py-2">
-                          <div className="min-w-0 flex items-center gap-2.5">
-                            <span className="grid h-8 w-8 place-items-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-                              {(displayName[0] || "?").toUpperCase()}
-                            </span>
-                            <div className="min-w-0">
-                              <p className="truncate text-sm text-foreground">{displayName}</p>
-                              <p className="text-[11px] text-muted-foreground">@{request.username}</p>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            <Button
-                              type="button"
-                              size="icon"
-                              variant="ghost"
-                              disabled={acceptFriendRequestNotif.isPending}
-                              onClick={() => {
-                                acceptFriendRequestNotif.mutate(request.friendshipId, {
-                                  onSuccess: () => toastSuccess("Friend request accepted"),
-                                  onError: (error) => toastError(error instanceof Error ? error.message : "Couldn’t accept request."),
-                                });
-                              }}
-                            >
-                              <UserCheck className="w-3.5 h-3.5 text-green-500" />
-                            </Button>
-                            <Button
-                              type="button"
-                              size="icon"
-                              variant="ghost"
-                              disabled={declineFriendRequestNotif.isPending}
-                              onClick={() => {
-                                declineFriendRequestNotif.mutate(request.friendshipId, {
-                                  onSuccess: () => toastInfo("Friend request declined"),
-                                  onError: (error) => toastError(error instanceof Error ? error.message : "Couldn’t decline request."),
-                                });
-                              }}
-                            >
-                              <UserX className="w-3.5 h-3.5 text-red-500" />
-                            </Button>
-                          </div>
-                        </div>
-                      );
-                    })
-                  )}
-                </div>
-              </section>
-
-              <section className="rounded-2xl border border-border bg-card p-4">
-                <h3 className="text-sm font-semibold text-foreground">Plan invites</h3>
-                <div className="mt-3 space-y-2">
-                  {pendingPlanInvites.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No plan invites</p>
-                  ) : (
-                    pendingPlanInvites.map((invite: PlanInviteNotification) => (
-                      <div key={invite.id} className="flex items-center justify-between gap-2 rounded-xl border border-border/70 bg-background/40 px-3 py-2">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium text-foreground">{invite.eventName}</p>
-                          <p className="text-[11px] text-muted-foreground truncate">
-                            {invite.inviterName ? `${invite.inviterName} invited you` : "Pending invite"}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <Button
-                            type="button"
-                            size="icon"
-                            variant="ghost"
-                            disabled={acceptPlanInvite.isPending}
-                            onClick={() => {
-                              acceptPlanInvite.mutate(invite.id, {
-                                onSuccess: async (payload) => {
-                                  await Promise.all([
-                                    queryClient.invalidateQueries({ queryKey: ["/api/memberships"] }),
-                                    queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] }),
-                                    queryClient.invalidateQueries({ queryKey: ["/api/events", payload.eventId, "members"] }),
-                                    queryClient.refetchQueries({ queryKey: ["/api/barbecues"] }),
-                                  ]);
-                                  setSelectedBbqId(payload.eventId);
-                                  setNotifOpen(false);
-                                  setLocation(`/app/e/${payload.eventId}`);
-                                  toastSuccess("Invite accepted");
-                                },
-                                onError: (error) => toastError(error instanceof Error ? error.message : "Couldn’t accept invite."),
-                              });
-                            }}
-                          >
-                            <UserCheck className="w-3.5 h-3.5 text-green-500" />
-                          </Button>
-                          <Button
-                            type="button"
-                            size="icon"
-                            variant="ghost"
-                            disabled={declinePlanInvite.isPending}
-                            onClick={() => {
-                              declinePlanInvite.mutate(invite.id, {
-                                onSuccess: () => toastInfo("Invite declined"),
-                                onError: (error) => toastError(error instanceof Error ? error.message : "Couldn’t decline invite."),
-                              });
-                            }}
-                          >
-                            <UserX className="w-3.5 h-3.5 text-red-500" />
-                          </Button>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </section>
-            </div>
-          </div>
-        </SheetContent>
-      </Sheet>
-
+      {isAccountDrawerOpen ? (
       <Sheet open={isAccountDrawerOpen} onOpenChange={(next) => setIsAccountDrawerOpen(next)}>
         <SheetContent
           side="right"
@@ -3183,6 +3100,7 @@ export default function Home({
           </div>
         </SheetContent>
       </Sheet>
+      ) : null}
 
       {/* Legacy top controls (hidden in managed /app routes, moved to sidebar) */}
       {!isManagedAppRoute && (
@@ -3664,82 +3582,94 @@ export default function Home({
                       </div>
                     </div>
 
-                    <PlanDetailsDrawer
-                      open={isPlanDetailsOpen}
-                      onOpenChange={setIsPlanDetailsOpen}
-                      plan={selectedBbq}
-                      saving={updateBbq.isPending}
-                      isCreator={isCreator}
-                      deleting={deleteBbq.isPending}
-                      leaving={leaveBbq.isPending}
-                      onDelete={selectedBbq ? () => handleDeleteBbq(selectedBbq.id) : undefined}
-                      onLeave={selectedBbq && (isCreator || !!myParticipant) ? () => handleLeaveBbq(selectedBbq.id) : undefined}
-                      leaveTransferTargetName={isCreator ? creatorLeaveSuccessorName : null}
-                      willDeleteOnLeave={isCreator && !creatorLeaveSuccessorName}
-                      onSave={async (updates) => {
-                        if (!selectedBbq) return;
-                        const payload: {
-                          id: number;
-                          name: string;
-                          locationText: string;
-                          date: string;
-                          bannerImageUrl: string | null;
-                        } = {
-                          id: selectedBbq.id,
-                          name: updates.name,
-                          locationText: updates.locationText,
-                          date: updates.date,
-                          bannerImageUrl: updates.bannerUrl,
-                        };
-                        await updateBbq.mutateAsync(payload);
-                        await queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] });
-                        await queryClient.refetchQueries({ queryKey: ["/api/barbecues"] });
-                        toastSuccess("Plan details updated");
-                      }}
-                    />
-                    <PlanTypeDrawer
-                      open={isPlanTypeOpen}
-                      onOpenChange={setIsPlanTypeOpen}
-                      plan={selectedBbq}
-                      saving={updateBbq.isPending}
-                      onSave={async ({ mainType, subcategory }) => {
-                        if (!selectedBbq) return;
-                        const currentTemplateData = selectedBbq.templateData && typeof selectedBbq.templateData === "object"
-                          ? (selectedBbq.templateData as Record<string, unknown>)
-                          : {};
-                        const nextTemplateData = {
-                          ...currentTemplateData,
-                          mainCategory: mainType,
-                          privateMainCategory: mainType,
-                          subCategory: subcategory ?? null,
-                          privateSubCategory: subcategory ?? null,
-                          privateEventTypeId: subcategory ?? null,
-                        };
-                        await updateBbq.mutateAsync({
-                          id: selectedBbq.id,
-                          eventType: getEventTypeForPlanType(mainType, subcategory),
-                          templateData: nextTemplateData,
-                        });
-                        await queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] });
-                        await queryClient.refetchQueries({ queryKey: ["/api/barbecues"] });
-                        toastSuccess("Plan type updated");
-                        setIsPlanTypeOpen(false);
-                      }}
-                    />
-                    <ActivityDrawer
-                      open={isActivityDrawerOpen}
-                      onOpenChange={(next) => {
-                        setIsActivityDrawerOpen(next);
-                        if (next) {
-                          void markAllAsRead();
-                        }
-                      }}
-                      items={planActivityItems}
-                      loading={planActivityLoading}
-                      highlightedId={highlightedActivityId}
-                      unreadCount={planActivityUnreadCount}
-                      onMarkAllAsRead={markAllAsRead}
-                    />
+                    {isPlanDetailsOpen ? (
+                      <Suspense fallback={null}>
+                        <PlanDetailsDrawer
+                          open={isPlanDetailsOpen}
+                          onOpenChange={setIsPlanDetailsOpen}
+                          plan={selectedBbq}
+                          saving={updateBbq.isPending}
+                          isCreator={isCreator}
+                          deleting={deleteBbq.isPending}
+                          leaving={leaveBbq.isPending}
+                          onDelete={selectedBbq ? () => handleDeleteBbq(selectedBbq.id) : undefined}
+                          onLeave={selectedBbq && (isCreator || !!myParticipant) ? () => handleLeaveBbq(selectedBbq.id) : undefined}
+                          leaveTransferTargetName={isCreator ? creatorLeaveSuccessorName : null}
+                          willDeleteOnLeave={isCreator && !creatorLeaveSuccessorName}
+                          onSave={async (updates) => {
+                            if (!selectedBbq) return;
+                            const payload: {
+                              id: number;
+                              name: string;
+                              locationText: string;
+                              date: string;
+                              bannerImageUrl: string | null;
+                            } = {
+                              id: selectedBbq.id,
+                              name: updates.name,
+                              locationText: updates.locationText,
+                              date: updates.date,
+                              bannerImageUrl: updates.bannerUrl,
+                            };
+                            await updateBbq.mutateAsync(payload);
+                            await queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] });
+                            await queryClient.refetchQueries({ queryKey: ["/api/barbecues"] });
+                            toastSuccess("Plan details updated");
+                          }}
+                        />
+                      </Suspense>
+                    ) : null}
+                    {isPlanTypeOpen ? (
+                      <Suspense fallback={null}>
+                        <PlanTypeDrawer
+                          open={isPlanTypeOpen}
+                          onOpenChange={setIsPlanTypeOpen}
+                          plan={selectedBbq}
+                          saving={updateBbq.isPending}
+                          onSave={async ({ mainType, subcategory }) => {
+                            if (!selectedBbq) return;
+                            const currentTemplateData = selectedBbq.templateData && typeof selectedBbq.templateData === "object"
+                              ? (selectedBbq.templateData as Record<string, unknown>)
+                              : {};
+                            const nextTemplateData = {
+                              ...currentTemplateData,
+                              mainCategory: mainType,
+                              privateMainCategory: mainType,
+                              subCategory: subcategory ?? null,
+                              privateSubCategory: subcategory ?? null,
+                              privateEventTypeId: subcategory ?? null,
+                            };
+                            await updateBbq.mutateAsync({
+                              id: selectedBbq.id,
+                              eventType: getEventTypeForPlanType(mainType, subcategory),
+                              templateData: nextTemplateData,
+                            });
+                            await queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] });
+                            await queryClient.refetchQueries({ queryKey: ["/api/barbecues"] });
+                            toastSuccess("Plan type updated");
+                            setIsPlanTypeOpen(false);
+                          }}
+                        />
+                      </Suspense>
+                    ) : null}
+                    {isActivityDrawerOpen ? (
+                      <Suspense fallback={null}>
+                        <ActivityDrawer
+                          open={isActivityDrawerOpen}
+                          onOpenChange={(next) => {
+                            setIsActivityDrawerOpen(next);
+                            if (next) {
+                              void markAllAsRead();
+                            }
+                          }}
+                          items={planActivityItems}
+                          loading={planActivityLoading}
+                          highlightedId={highlightedActivityId}
+                          unreadCount={planActivityUnreadCount}
+                          onMarkAllAsRead={markAllAsRead}
+                        />
+                      </Suspense>
+                    ) : null}
                   </section>
                 </div>
               </div>

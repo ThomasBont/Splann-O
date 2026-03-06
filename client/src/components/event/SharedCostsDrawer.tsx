@@ -477,10 +477,6 @@ export function SharedCostsDrawer({
         });
       }
 
-      // Shared costs cards derive from expenses/expense-shares; force canonical refresh after mutation.
-      await queryClient.refetchQueries({ queryKey: ['/api/barbecues', eventId, 'expenses'], exact: true });
-      await queryClient.refetchQueries({ queryKey: ['/api/barbecues', eventId, 'expense-shares'], exact: true });
-
       toastSuccess(editingExpense ? "Expense updated" : "Expense added");
       resetAddForm();
       setView("overview");
@@ -502,8 +498,6 @@ export function SharedCostsDrawer({
     }
     try {
       await deleteExpense.mutateAsync(editingExpense.id);
-      await queryClient.refetchQueries({ queryKey: ['/api/barbecues', eventId, 'expenses'], exact: true });
-      await queryClient.refetchQueries({ queryKey: ['/api/barbecues', eventId, 'expense-shares'], exact: true });
       toastSuccess("Expense deleted");
       resetAddForm();
       setView("overview");

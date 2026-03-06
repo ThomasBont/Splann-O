@@ -3,7 +3,7 @@ import { Plus, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SkeletonLine } from "@/components/ui/load-states";
 import { useEventGuests } from "@/hooks/use-event-guests";
-import { cn } from "@/lib/utils";
+import { circularActionButtonClass, cn } from "@/lib/utils";
 const GuestsModal = lazy(() => import("@/components/event/GuestsModal"));
 
 type GuestsWidgetProps = {
@@ -90,7 +90,7 @@ export function GuestsWidget({ eventId, canInvite = true, variant = "default", c
                 type="button"
                 size="icon"
                 variant="outline"
-                className="h-8 w-8 rounded-full border-border/70 bg-background/70 text-muted-foreground hover:bg-muted/30 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
+                className={`h-8 w-8 ${circularActionButtonClass()}`}
                 aria-label="Add friend to this plan"
                 onClick={(event) => {
                   event.stopPropagation();

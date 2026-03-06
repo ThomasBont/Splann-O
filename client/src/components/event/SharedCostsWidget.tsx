@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { circularActionButtonClass, cn } from "@/lib/utils";
 import type { ExpenseWithParticipant } from "@shared/schema";
 import type { Balance, Settlement } from "@/lib/split/calc";
 const SharedCostsDrawer = lazy(() => import("@/components/event/SharedCostsDrawer"));
@@ -133,7 +133,7 @@ export function SharedCostsWidget({
                 type="button"
                 size="icon"
                 variant="outline"
-                className="h-8 w-8 rounded-full border-border/70 bg-background/70 text-muted-foreground hover:bg-muted/30 hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/40"
+                className={`h-8 w-8 ${circularActionButtonClass()}`}
                 aria-label="Add expense for this plan"
                 onClick={(event) => {
                   event.stopPropagation();

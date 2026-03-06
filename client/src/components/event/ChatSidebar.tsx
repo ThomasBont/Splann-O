@@ -1,16 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar, CreditCard, LayoutGrid, Loader2, MapPin, MessageCircle, MoreHorizontal, Paperclip, Reply, SendHorizontal, Smile, Users } from "lucide-react";
+import { Calendar, CreditCard, Loader2, MapPin, MessageCircle, MoreHorizontal, Paperclip, Reply, SendHorizontal, Smile, Users } from "lucide-react";
 import { InlineQueryError, SkeletonLine } from "@/components/ui/load-states";
 import { useEventChat } from "@/hooks/use-event-chat";
 import { useAppToast } from "@/hooks/use-app-toast";
 import { useEventMembers } from "@/hooks/use-participants";
 import { useDeleteExpense } from "@/hooks/use-expenses";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { cn } from "@/lib/utils";
+import { circularActionButtonClass, cn } from "@/lib/utils";
 import { usePanel } from "@/state/panel";
 import type { SendMessageResult } from "@/hooks/use-event-chat";
 import { SYSTEM_USER_ID, SYSTEM_USER_NAME } from "@shared/lib/system-user";
@@ -26,7 +26,6 @@ type ChatSidebarProps = {
   sharedTotal?: number;
   currency?: string;
   onSummaryClick?: () => void;
-  onOpenOverview?: () => void;
   currentUser?: { id?: number | null; username?: string | null; avatarUrl?: string | null } | null;
   enabled?: boolean;
   className?: string;
@@ -294,7 +293,6 @@ export function ChatSidebar({
   sharedTotal = 0,
   currency = "EUR",
   onSummaryClick,
-  onOpenOverview,
   currentUser,
   enabled = true,
   className,
@@ -314,6 +312,7 @@ export function ChatSidebar({
   const didInitialScrollRef = useRef(false);
   const prevMessageLengthRef = useRef(0);
   const prevLastMessageIdRef = useRef<string | null>(null);
+  const olderHistoryAnchorRef = useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
   const [unseenCount, setUnseenCount] = useState(0);
   const [showNewPill, setShowNewPill] = useState(false);
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
@@ -418,6 +417,17 @@ export function ChatSidebar({
     prevMessageLengthRef.current = nextLength;
     prevLastMessageIdRef.current = nextLastId;
   }, [messages, historyLoadingOlder, scrollToBottom]);
+
+  useLayoutEffect(() => {
+    if (historyLoadingOlder) return;
+    const anchor = olderHistoryAnchorRef.current;
+    const el = listRef.current;
+    if (!anchor || !el) return;
+
+    const delta = el.scrollHeight - anchor.scrollHeight;
+    el.scrollTop = anchor.scrollTop + Math.max(delta, 0);
+    olderHistoryAnchorRef.current = null;
+  }, [historyLoadingOlder, messages]);
 
   useEffect(() => {
     return () => {
@@ -650,7 +660,6 @@ export function ChatSidebar({
       },
     }));
   };
-  const isOverviewOpen = panel?.type === "overview";
   const isExpensesOpen = panel?.type === "expenses";
   const isCrewOpen = panel?.type === "crew";
   const isPlanDetailsOpen = panel?.type === "plan-details";
@@ -662,6 +671,14 @@ export function ChatSidebar({
     }
     openPanel({ type: "expense", id: String(expenseId) });
   }, [isMobile, openExpenseEditor, openPanel]);
+  const handleLoadOlder = useCallback(async () => {
+    if (historyLoadingOlder) return;
+    const el = listRef.current;
+    olderHistoryAnchorRef.current = el
+      ? { scrollHeight: el.scrollHeight, scrollTop: el.scrollTop }
+      : null;
+    await loadOlder();
+  }, [historyLoadingOlder, loadOlder]);
   const messageGroups = useMemo(() => {
     type ChatMessage = (typeof messages)[number];
     type MessageGroup = {
@@ -727,7 +744,7 @@ export function ChatSidebar({
 
   return (
     <aside
-      className={cn("pointer-events-auto relative flex h-full min-h-0 flex-col overflow-hidden bg-background", className)}
+      className={cn("pointer-events-auto relative flex h-full min-h-0 flex-col overflow-hidden bg-[hsl(var(--surface-1))]", className)}
       style={
         {
           "--chat-bg":
@@ -735,7 +752,7 @@ export function ChatSidebar({
         } as CSSProperties
       }
     >
-      <header className="shrink-0 border-b border-border/70 bg-background px-6 py-4">
+      <header className="shrink-0 border-b border-black/5 bg-[hsl(var(--surface-1))] px-6 py-4 dark:border-white/6">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
             <button
@@ -749,28 +766,11 @@ export function ChatSidebar({
                   : "text-foreground/95 hover:text-foreground",
               )}
             >
-              <span className="block truncate text-xl font-semibold tracking-tight">{eventName || "Plan"}</span>
+              <span className="block truncate text-xl font-semibold tracking-tight">Chat</span>
             </button>
           </div>
           <div className="flex items-center gap-2">
-            {onOpenOverview ? (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className={cn(
-                  "hidden rounded-full border transition lg:inline-flex",
-                  isOverviewOpen
-                    ? "border-border bg-muted text-foreground ring-1 ring-border/70"
-                    : "border-border/70 bg-background/60 text-muted-foreground hover:text-foreground",
-                )}
-                onClick={onOpenOverview}
-              >
-                <LayoutGrid className="h-4 w-4" />
-                Overview
-              </Button>
-            ) : null}
-            <div className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-card px-2 py-1 text-[10px] text-muted-foreground">
+            <div className="inline-flex items-center gap-1.5 rounded-full border border-black/5 bg-card px-2 py-1 text-[10px] text-muted-foreground dark:border-white/6">
               <span className={`inline-block h-1.5 w-1.5 rounded-full ${liveLabel.cls}`} />
               {liveLabel.text}
             </div>
@@ -859,7 +859,7 @@ export function ChatSidebar({
               variant="ghost"
               size="sm"
               className="h-7 rounded-full px-3 text-xs text-muted-foreground"
-              onClick={() => void loadOlder()}
+              onClick={() => void handleLoadOlder()}
               disabled={historyLoadingOlder}
             >
               {historyLoadingOlder ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Load older messages"}
@@ -1118,7 +1118,7 @@ export function ChatSidebar({
                                   <button
                                     type="button"
                                     aria-label="React to message"
-                                    className="inline-flex h-7 w-7 items-center justify-center rounded-full border bg-background shadow-sm transition hover:bg-muted"
+                                    className={`${circularActionButtonClass()} inline-flex h-7 w-7 items-center justify-center`}
                                   >
                                     <Smile className="h-3.5 w-3.5" />
                                   </button>
@@ -1148,7 +1148,7 @@ export function ChatSidebar({
                               <button
                                 type="button"
                                 aria-label="Reply to message"
-                                className="inline-flex h-7 w-7 items-center justify-center rounded-full border bg-background shadow-sm transition hover:bg-muted"
+                                className={`${circularActionButtonClass()} inline-flex h-7 w-7 items-center justify-center`}
                                 onClick={() => {
                                   const replyTarget = mine ? "You" : senderName;
                                   const prefix = `@${replyTarget} `;
@@ -1161,7 +1161,7 @@ export function ChatSidebar({
                               <button
                                 type="button"
                                 aria-label="More message actions"
-                                className="inline-flex h-7 w-7 items-center justify-center rounded-full border bg-background shadow-sm transition hover:bg-muted"
+                                className={`${circularActionButtonClass()} inline-flex h-7 w-7 items-center justify-center`}
                                 onClick={() => toastInfo("More actions coming soon.")}
                               >
                                 <MoreHorizontal className="h-3.5 w-3.5" />
@@ -1282,7 +1282,7 @@ export function ChatSidebar({
             type="button"
             size="icon"
             variant="outline"
-            className="h-10 w-10 shrink-0 rounded-full border-border/70 bg-background/85 text-muted-foreground hover:bg-muted/50"
+            className={`h-10 w-10 shrink-0 ${circularActionButtonClass()}`}
             aria-label="Attach file"
             disabled
           >

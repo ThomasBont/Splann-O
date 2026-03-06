@@ -43,33 +43,52 @@ export function PanelHeader({
   title,
   meta,
 }: {
-  label: string;
+  label?: string;
   title: string;
   meta?: ReactNode;
 }) {
-  const { closePanel } = usePanel();
+  const { panel, closePanel, replacePanel } = usePanel();
+  const showBackButton = !!panel && panel.type !== "overview";
+  const backTarget = panel?.type === "member-profile" && panel.source === "crew"
+    ? { label: "Crew", panel: { type: "crew" } as const }
+    : { label: "Overview", panel: { type: "overview" } as const };
 
   return (
-    <div className="flex items-start justify-between gap-4 border-b border-[hsl(var(--border-subtle))] px-5 py-5">
-      <div className="min-w-0">
-        <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted-foreground">{label}</p>
-        <h2 className="mt-1 truncate text-xl font-semibold tracking-tight text-foreground">{title}</h2>
+    <div className="border-b border-[hsl(var(--border-subtle))] px-5 py-5">
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          {showBackButton ? (
+            <button
+              type="button"
+              onClick={() => replacePanel(backTarget.panel)}
+              className="inline-flex items-center text-sm text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              ← {backTarget.label}
+            </button>
+          ) : null}
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="h-9 w-9 shrink-0 rounded-md transition hover:bg-[hsl(var(--surface-2))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={closePanel}
+          aria-label="Close panel"
+        >
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+      <div className={cn("min-w-0", showBackButton ? "mt-3" : "mt-0")}>
+        {label ? (
+          <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted-foreground">{label}</p>
+        ) : null}
+        <h2 className={cn("truncate text-xl font-semibold tracking-tight text-foreground", label ? "mt-1" : "mt-0")}>{title}</h2>
         {meta ? (
           <div className="mt-3 flex flex-col gap-1.5 text-sm text-muted-foreground">
             {meta}
           </div>
         ) : null}
       </div>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        className="h-9 w-9 shrink-0 rounded-md transition hover:bg-[hsl(var(--surface-2))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        onClick={closePanel}
-        aria-label="Close panel"
-      >
-        <X className="h-4 w-4" />
-      </Button>
     </div>
   );
 }
@@ -104,7 +123,7 @@ export function PanelSection({
 
 export function PanelShell({ children }: { children: ReactNode }) {
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[hsl(var(--surface-1))]/95 backdrop-blur-md">
+    <div className="flex h-full min-h-0 flex-col rounded-[inherit] bg-transparent">
       {children}
     </div>
   );

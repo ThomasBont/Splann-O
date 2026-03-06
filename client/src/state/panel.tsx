@@ -5,7 +5,8 @@ export type PanelState =
   | { type: "expense"; id: string }
   | { type: "expenses" }
   | { type: "crew" }
-  | { type: "next-actions" }
+  | { type: "member-profile"; username: string; source?: "overview" | "crew" }
+  | { type: "next-action" }
   | { type: "plan-details" }
   | null;
 

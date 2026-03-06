@@ -7,10 +7,12 @@ import { auditLog } from "../lib/audit";
 import { resolveTripCurrency } from "../lib/country-currency";
 import { isPublicListingActive, slugifyPublicEvent } from "../lib/public-listing";
 import { db } from "../db";
-import { eventMembers, eventChatMessages, expenses, participants, planActivity, type Barbecue } from "@shared/schema";
+import { eventMembers, eventChatMessages, expenseShares, expenses, participants, planActivity, type Barbecue } from "@shared/schema";
 import { normalizeCountryCode } from "@shared/lib/country-code";
+import { computeSplit } from "@shared/lib/split/calc";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { resolveLegacyAssetIdToPublicPath } from "../lib/assets";
+import { buildEffectiveExpenseShares } from "../lib/planBalancesRealtime";
 
 const DEFAULT_LISTING_DURATION_DAYS = Number(process.env.PUBLIC_LISTING_DAYS ?? 30);
 const warnedPrivatePollutionIds = new Set<number>();
@@ -262,6 +264,8 @@ type BarbecueListItem = Barbecue & {
   expenseTotal: number;
   lastActivityAt: string | null;
   unreadCount: number;
+  myBalance: number | null;
+  participantPreview: Array<{ id: number; name: string }>;
 };
 
 export async function listBarbecues(currentUsername?: string, currentUserId?: number): Promise<BarbecueListItem[]> {
@@ -270,7 +274,7 @@ export async function listBarbecues(currentUsername?: string, currentUserId?: nu
   const eventIds = normalized.map((row) => row.id).filter((id): id is number => Number.isInteger(id));
   if (eventIds.length === 0) return [];
 
-  const [participantCounts, expenseTotals, lastChatActivity, lastPlanActivity, unreadByEvent] = await Promise.all([
+  const [participantCounts, expenseTotals, lastChatActivity, lastPlanActivity, unreadByEvent, participantRows, expenseRows, expenseShareRows] = await Promise.all([
     db
       .select({
         eventId: participants.barbecueId,
@@ -331,6 +335,34 @@ export async function listBarbecues(currentUsername?: string, currentUserId?: nu
         )
         .groupBy(planActivity.eventId)
       : Promise.resolve([] as Array<{ eventId: number; count: number }>),
+    db
+      .select({
+        eventId: participants.barbecueId,
+        id: participants.id,
+        name: participants.name,
+        userId: participants.userId,
+      })
+      .from(participants)
+      .where(and(inArray(participants.barbecueId, eventIds), eq(participants.status, "accepted"))),
+    db
+      .select({
+        eventId: expenses.barbecueId,
+        id: expenses.id,
+        participantId: expenses.participantId,
+        amount: expenses.amount,
+        includedUserIds: expenses.includedUserIds,
+      })
+      .from(expenses)
+      .where(inArray(expenses.barbecueId, eventIds)),
+    db
+      .select({
+        eventId: expenses.barbecueId,
+        expenseId: expenseShares.expenseId,
+        participantId: expenseShares.participantId,
+      })
+      .from(expenseShares)
+      .innerJoin(expenses, eq(expenses.id, expenseShares.expenseId))
+      .where(inArray(expenses.barbecueId, eventIds)),
   ]);
 
   const participantCountByEvent = new Map(participantCounts.map((row) => [row.eventId, Number(row.count ?? 0)]));
@@ -338,8 +370,65 @@ export async function listBarbecues(currentUsername?: string, currentUserId?: nu
   const lastChatByEvent = new Map(lastChatActivity.map((row) => [row.eventId, row.lastAt]));
   const lastPlanActivityByEvent = new Map(lastPlanActivity.map((row) => [row.eventId, row.lastAt]));
   const unreadByEventMap = new Map(unreadByEvent.map((row) => [row.eventId, Number(row.count ?? 0)]));
+  const participantsByEvent = new Map<number, Array<{ id: number; name: string; userId: number | null }>>();
+  for (const row of participantRows) {
+    const current = participantsByEvent.get(row.eventId);
+    const normalizedRow = {
+      id: row.id,
+      name: row.name,
+      userId: row.userId ?? null,
+    };
+    if (current) current.push(normalizedRow);
+    else participantsByEvent.set(row.eventId, [normalizedRow]);
+  }
+  const expensesByEvent = new Map<number, Array<{ id: number; participantId: number; amount: number; includedUserIds: string[] | null }>>();
+  for (const row of expenseRows) {
+    const current = expensesByEvent.get(row.eventId);
+    const normalizedRow = {
+      id: row.id,
+      participantId: row.participantId,
+      amount: Number(row.amount),
+      includedUserIds: row.includedUserIds ?? null,
+    };
+    if (current) current.push(normalizedRow);
+    else expensesByEvent.set(row.eventId, [normalizedRow]);
+  }
+  const expenseSharesByEvent = new Map<number, Array<{ expenseId: number; participantId: number }>>();
+  for (const row of expenseShareRows) {
+    const current = expenseSharesByEvent.get(row.eventId);
+    const normalizedRow = {
+      expenseId: row.expenseId,
+      participantId: row.participantId,
+    };
+    if (current) current.push(normalizedRow);
+    else expenseSharesByEvent.set(row.eventId, [normalizedRow]);
+  }
 
   return normalized.map((event) => {
+    const eventParticipants = participantsByEvent.get(event.id) ?? [];
+    const eventExpenses = expensesByEvent.get(event.id) ?? [];
+    const eventExpenseShares = expenseSharesByEvent.get(event.id) ?? [];
+    const effectiveExpenseShares = buildEffectiveExpenseShares({
+      participants: eventParticipants,
+      expenses: eventExpenses,
+      legacyShares: eventExpenseShares,
+      allowOptInExpenses: !!event.allowOptInExpenses,
+    });
+    const usesCustomSplit = !!event.allowOptInExpenses || eventExpenses.some((expense) => Array.isArray(expense.includedUserIds) && expense.includedUserIds.length > 0);
+    const balances = eventParticipants.length > 0
+      ? computeSplit(
+        eventParticipants.map((participant) => ({ id: participant.id, name: participant.name })),
+        eventExpenses.map((expense) => ({ id: expense.id, participantId: expense.participantId, amount: expense.amount })),
+        effectiveExpenseShares,
+        usesCustomSplit,
+      ).balances
+      : [];
+    const myParticipant = currentUserId != null
+      ? eventParticipants.find((participant) => participant.userId === currentUserId) ?? null
+      : null;
+    const myBalance = myParticipant
+      ? balances.find((entry) => entry.id === myParticipant.id)?.balance ?? null
+      : null;
     const lastCandidates = [
       lastChatByEvent.get(event.id),
       lastPlanActivityByEvent.get(event.id),
@@ -357,6 +446,11 @@ export async function listBarbecues(currentUsername?: string, currentUserId?: nu
       expenseTotal: expenseTotalByEvent.get(event.id) ?? 0,
       lastActivityAt,
       unreadCount: unreadByEventMap.get(event.id) ?? 0,
+      myBalance,
+      participantPreview: eventParticipants.slice(0, 5).map((participant) => ({
+        id: participant.id,
+        name: participant.name,
+      })),
     };
   });
 }

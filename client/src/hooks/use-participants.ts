@@ -244,6 +244,7 @@ export function useDeleteParticipant(bbqId: number | null) {
 }
 
 export type EventMemberView = {
+  id: string;
   userId: number;
   name: string;
   username?: string | null;

@@ -1,7 +1,15 @@
+import { useMemo } from "react";
 import { Plus, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useAuth } from "@/hooks/use-auth";
 import { useEventGuests } from "@/hooks/use-event-guests";
+import { usePlanCrew, usePlanExpenses } from "@/hooks/use-plan-data";
+import { resolveAssetUrl } from "@/lib/asset-url";
+import { cn } from "@/lib/utils";
 import { PanelHeader, PanelSection, PanelShell, useActiveEventId } from "@/components/panels/panel-primitives";
+import { usePanel } from "@/state/panel";
+import { buildCrewContributionRows } from "@/components/panels/crew-contribution";
 
 function initials(name: string) {
   return name
@@ -21,13 +29,41 @@ function formatJoined(value?: string | null) {
 
 export function CrewPanel() {
   const eventId = useActiveEventId();
+  const { user } = useAuth();
+  const { replacePanel } = usePanel();
   const guests = useEventGuests(eventId);
   const { members, invitesPending, loading, error } = guests;
+  const crewQuery = usePlanCrew(eventId);
+  const expensesQuery = usePlanExpenses(eventId);
+  const participants = crewQuery.data?.participants ?? [];
+  const expenses = expensesQuery.data ?? [];
+
+  const orderedMembers = useMemo(() => {
+    if (members.length === 0) return members;
+    const rankedRows = buildCrewContributionRows({ participants, members, expenses });
+    if (rankedRows.length === 0) return members;
+
+    const rankedMembers = rankedRows
+      .map((row) => members.find((member) => member.userId === row.userId || member.name.trim().toLowerCase() === row.name.trim().toLowerCase()) ?? null)
+      .filter((member): member is (typeof members)[number] => !!member);
+
+    const remainingMembers = members.filter((member) => !rankedMembers.some((ranked) => ranked.id === member.id));
+    const combined = [...rankedMembers, ...remainingMembers];
+    const currentUserIndex = combined.findIndex((member) => Number(member.userId) === Number(user?.id));
+    if (currentUserIndex <= 0) return combined;
+    const [currentUserMember] = combined.splice(currentUserIndex, 1);
+    return [currentUserMember, ...combined];
+  }, [expenses, members, participants, user?.id]);
+
+  const openMemberProfile = (username?: string | null) => {
+    const targetUsername = username?.trim();
+    if (!targetUsername) return;
+    replacePanel({ type: "member-profile", username: targetUsername, source: "crew" });
+  };
 
   return (
     <PanelShell>
       <PanelHeader
-        label="Crew"
         title="Crew"
         meta={<span className="inline-flex items-center gap-2"><Users className="h-4 w-4" />{members.length} members · {invitesPending.length} pending</span>}
       />
@@ -45,21 +81,53 @@ export function CrewPanel() {
           <>
             <PanelSection title="Members" variant="list">
               <div className="divide-y divide-[hsl(var(--border-subtle))]">
-                {members.length > 0 ? members.map((member) => (
-                  <div key={`crew-member-${member.userId}`} className="flex items-center gap-3 px-1 py-3 first:pt-0 last:pb-0">
-                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
-                      {initials(member.name)}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-foreground">{member.name}</p>
-                      <p className="truncate text-xs text-muted-foreground">
-                        {member.username ? `@${member.username}` : member.role} · {formatJoined(member.joinedAt)}
-                      </p>
+                {orderedMembers.length > 0 ? orderedMembers.map((member) => (
+                  member.username ? (
+                    <button
+                      key={`crew-member-${member.id}`}
+                      type="button"
+                      onClick={() => openMemberProfile(member.username)}
+                      className="flex w-full items-start gap-3 rounded-xl px-1 py-3 text-left transition first:pt-0 last:pb-0 hover:bg-[hsl(var(--surface-2))]/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    >
+                      <Avatar className="h-10 w-10">
+                        {member.avatarUrl ? <AvatarImage src={resolveAssetUrl(member.avatarUrl) ?? member.avatarUrl} alt={member.name} /> : null}
+                        <AvatarFallback className="bg-primary/10 text-sm font-semibold text-primary">
+                          {initials(member.name)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-foreground">{member.name}</p>
+                        <p className="truncate text-xs text-muted-foreground">@{member.username}</p>
+                        <p className="mt-1 text-xs text-muted-foreground/70">{member.role === "owner" ? "Owner" : "Member"}</p>
+                      </div>
+                      <div className="shrink-0 pt-0.5 text-right">
+                        <span className="block text-[11px] text-muted-foreground/75">
+                          {formatJoined(member.joinedAt)}
+                        </span>
+                        <span className="mt-1 block text-[11px] text-muted-foreground/60">
+                          View profile
+                        </span>
+                      </div>
+                    </button>
+                  ) : (
+                    <div key={`crew-member-${member.id}`} className="flex items-start gap-3 px-1 py-3 first:pt-0 last:pb-0">
+                      <Avatar className="h-10 w-10">
+                        {member.avatarUrl ? <AvatarImage src={resolveAssetUrl(member.avatarUrl) ?? member.avatarUrl} alt={member.name} /> : null}
+                        <AvatarFallback className="bg-primary/10 text-sm font-semibold text-primary">
+                          {initials(member.name)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-foreground">{member.name}</p>
+                        <p className={cn("mt-1 text-xs", member.role === "owner" ? "text-muted-foreground/70" : "text-muted-foreground/70")}>
+                          {member.role === "owner" ? "Owner" : "Member"}
+                        </p>
+                      </div>
+                      <span className="shrink-0 pt-0.5 text-[11px] text-muted-foreground/75">
+                        {formatJoined(member.joinedAt)}
+                      </span>
                     </div>
-                    <span className="shrink-0 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-                      {member.role}
-                    </span>
-                  </div>
+                  )
                 )) : (
                   <p className="text-sm text-muted-foreground">No crew members yet.</p>
                 )}

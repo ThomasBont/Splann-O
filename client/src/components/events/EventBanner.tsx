@@ -10,6 +10,7 @@ import {
   getBannerPresetClass,
   type EventBannerPresetId,
 } from "@/lib/event-banner";
+import { circularActionButtonClass } from "@/lib/utils";
 
 type EventBannerProps = {
   event: Barbecue;
@@ -171,7 +172,7 @@ export function EventBanner({
                       type="button"
                       size="icon"
                       variant="ghost"
-                      className="h-8 w-8 rounded-full border border-white/40 bg-white/70 text-foreground shadow-sm backdrop-blur transition-transform duration-[180ms] hover:scale-105 dark:border-white/20 dark:bg-black/40"
+                      className={`${circularActionButtonClass()} h-8 w-8 backdrop-blur hover:scale-105`}
                       aria-label="Change banner"
                     >
                       <Pencil className="w-3.5 h-3.5" />

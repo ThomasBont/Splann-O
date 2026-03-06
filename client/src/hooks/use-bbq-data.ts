@@ -6,6 +6,15 @@ import { UpgradeRequiredError, type UpgradeRequiredPayload } from "@/lib/upgrade
 import { resolveAssetUrl } from "@/lib/asset-url";
 import { PLAN_STALE_TIME_MS } from "@/lib/query-stale";
 
+export type BarbecueListItem = Barbecue & {
+  participantCount: number;
+  expenseTotal: number;
+  lastActivityAt: string | null;
+  unreadCount: number;
+  myBalance: number | null;
+  participantPreview: Array<{ id: number; name: string }>;
+};
+
 export type ExploreEvent = {
   id: number;
   title: string;
@@ -131,7 +140,7 @@ export type PublicProfilePayload = {
 export async function fetchBarbecues() {
   const res = await fetch(api.barbecues.list.path, { credentials: "include" });
   if (!res.ok) throw new Error("Failed to fetch barbecues");
-  return res.json() as Promise<Barbecue[]>;
+  return res.json() as Promise<BarbecueListItem[]>;
 }
 
 export async function fetchPlan(planId: number) {
@@ -148,13 +157,13 @@ export function useBarbecues() {
 
 export function usePlanById(planId: number | null, enabled = true) {
   const queryClient = useQueryClient();
-  return useQuery<Barbecue | null>({
+  return useQuery<BarbecueListItem | null>({
     queryKey: ["plan", planId],
     enabled: !!planId && enabled,
     staleTime: PLAN_STALE_TIME_MS,
     queryFn: async () => {
       if (!planId) return null;
-      const cached = queryClient.getQueryData<Barbecue[]>(['/api/barbecues']);
+      const cached = queryClient.getQueryData<BarbecueListItem[]>(['/api/barbecues']);
       if (Array.isArray(cached)) {
         const plan = cached.find((item) => Number(item.id) === planId) ?? null;
         if (plan) return plan;

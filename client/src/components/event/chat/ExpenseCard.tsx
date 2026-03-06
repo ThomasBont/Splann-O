@@ -60,18 +60,16 @@ function formatAmount(amount: number, currency: string): string {
   return `${prefix}${safeAmount.toFixed(2)}`;
 }
 
-function actionLabel(action: ExpenseAction): string {
-  if (action === "added") return "Added";
-  if (action === "updated") return "Updated";
-  return "Deleted";
-}
-
 function compactItemLabel(item: string): string {
   const value = item.trim();
-  if (!value) return "Expense";
-  const MAX = 28;
-  if (value.length <= MAX) return value;
-  return `${value.slice(0, MAX - 1).trimEnd()}…`;
+  return value || "Expense";
+}
+
+function actionSummary(action: ExpenseAction, actor: string): string {
+  const safeActor = actor.trim() || "Someone";
+  if (action === "added") return `${safeActor} added an expense`;
+  if (action === "updated") return `${safeActor} updated an expense`;
+  return `${safeActor} deleted an expense`;
 }
 
 export function ExpenseCard({
@@ -153,17 +151,18 @@ export function ExpenseCard({
 
   const displayItem = resolved.deleted ? "Deleted expense" : compactItemLabel(resolved.item);
   const formattedAmount = formatAmount(resolved.amount, resolved.currency);
-  const splitLabel = resolved.splitCount > 0 ? `split ${resolved.splitCount}` : "split everyone";
-  const subtitle = resolved.deleted
-    ? `${formattedAmount} · originally paid by ${resolved.paidBy} · ${splitLabel}`
-    : `${formattedAmount} · paid by ${resolved.paidBy} · ${splitLabel}`;
+  const splitChipLabel = resolved.splitCount > 0 ? `Split ${resolved.splitCount}` : "Everyone";
+  const summary = actionSummary(action, resolved.paidBy);
+  const amountLine = resolved.deleted
+    ? `${formattedAmount} · originally paid by ${resolved.paidBy}`
+    : `${formattedAmount} · paid by ${resolved.paidBy}`;
 
   return (
     <div
       role="button"
       tabIndex={0}
       className={cn(
-        "group w-full max-w-[70%] cursor-pointer rounded-2xl border border-border/70 bg-card/60 px-4 py-2 text-left transition hover:border-border hover:bg-card/80 dark:border-neutral-700/70 dark:bg-neutral-800/65 dark:hover:bg-neutral-800/80",
+        "relative w-full max-w-[95%] cursor-pointer rounded-2xl border border-border/65 bg-muted/45 px-4 py-2.5 text-left transition hover:border-border hover:bg-muted/55 dark:border-neutral-700/75 dark:bg-neutral-800/78 dark:hover:bg-neutral-800/88",
         resolved.deleted && "opacity-80",
         className,
       )}
@@ -175,67 +174,42 @@ export function ExpenseCard({
         }
       }}
     >
-      <div className="grid w-full grid-cols-[20px,1fr,28px] items-start gap-x-2">
-        <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-border/60 bg-card/70 text-muted-foreground dark:border-neutral-700/80 dark:bg-neutral-900/40">
-          <ReceiptText className="h-3.5 w-3.5" />
+      <span className="absolute right-3 top-2.5 inline-flex h-fit items-center rounded-full border border-border/70 bg-background/75 px-2 py-0.5 text-[11px] font-medium text-muted-foreground shadow-sm dark:border-neutral-700/80 dark:bg-neutral-900/60 dark:text-neutral-300">
+        {splitChipLabel}
+      </span>
+      <div className="grid w-full grid-cols-[24px,minmax(0,1fr)] items-start gap-x-3">
+        <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-border/60 bg-background/65 text-muted-foreground dark:border-neutral-700/80 dark:bg-neutral-900/45 dark:text-neutral-300">
+          <ReceiptText className="h-4 w-4" />
         </span>
         <div className="min-w-0">
-          <div className="flex min-w-0 items-center gap-1">
-            <span className={cn("min-w-0 truncate text-sm font-semibold text-foreground", resolved.deleted && "line-through text-foreground/80")}>
-              {displayItem}
-            </span>
-          </div>
-          <div className="mt-0.5 flex min-w-0 items-center justify-between gap-2">
-            <p className={cn("min-w-0 truncate text-xs leading-4 text-muted-foreground", resolved.deleted && "text-muted-foreground/90")}>
-              {subtitle}
-            </p>
-            <span
-              className={cn(
-                "inline-flex shrink-0 items-center rounded-full border px-1.5 py-0 text-[10px] font-semibold uppercase tracking-wide",
-                resolved.deleted
-                  ? "border-border/60 bg-card/60 text-muted-foreground"
-                  : "border-primary/30 bg-primary/15 text-foreground",
-              )}
-            >
-              {actionLabel(action)}
-            </span>
-          </div>
+          <p className="overflow-hidden whitespace-nowrap pr-24 text-[11px] font-medium tracking-wide text-muted-foreground/95 dark:text-neutral-400">
+            {summary}
+          </p>
+          <p className={cn("mt-1 text-[15px] font-medium leading-5 text-foreground", resolved.deleted && "line-through text-foreground/80")}>
+            {displayItem}
+          </p>
+          <p
+            className={cn(
+              "mt-0.5 whitespace-nowrap pr-2 text-sm font-medium leading-5 text-foreground/90 dark:text-neutral-200",
+              resolved.deleted && "text-foreground/75 dark:text-neutral-300/85",
+            )}
+          >
+            <span>{amountLine}</span>
+          </p>
           {resolved.notLoaded ? (
-            <p className={cn("truncate text-[10px] leading-4 text-muted-foreground/70", resolved.deleted && "text-muted-foreground/70")}>
+            <p className={cn("truncate text-[10px] leading-4 text-muted-foreground/75 dark:text-neutral-500", resolved.deleted && "text-muted-foreground/75")}>
               · Not loaded
             </p>
           ) : null}
-          <div className="mt-1 hidden items-center gap-1.5 md:flex md:opacity-0 md:transition-opacity md:group-hover:opacity-100">
-            <button
-              type="button"
-              className="rounded-full border border-border/70 px-2 py-0.5 text-[11px] text-muted-foreground transition hover:bg-muted/60 hover:text-foreground"
-              onClick={(event) => {
-                event.stopPropagation();
-                handleOpenDetail();
-              }}
-            >
-              View
-            </button>
-            <button
-              type="button"
-              className="rounded-full border border-border/70 px-2 py-0.5 text-[11px] text-muted-foreground transition hover:bg-muted/60 hover:text-foreground"
-              onClick={(event) => {
-                event.stopPropagation();
-                handleEdit();
-              }}
-            >
-              Edit
-            </button>
-          </div>
         </div>
-        <div className="shrink-0">
+        <div className="absolute bottom-2 right-2 shrink-0 md:hidden">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7 rounded-full text-muted-foreground/80 hover:text-foreground md:hidden"
+                className="h-7 w-7 rounded-full text-muted-foreground/85 hover:bg-background/70 hover:text-foreground dark:hover:bg-neutral-900/60 md:hidden"
                 onClick={(event) => event.stopPropagation()}
                 aria-label="Expense actions"
               >

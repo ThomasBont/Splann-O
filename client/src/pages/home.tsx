@@ -12,7 +12,7 @@ import {
   useAcceptInvite, useDeclineInvite,
 } from "@/hooks/use-participants";
 import { useDeleteExpense, useExpenseShares, useRealtimePlanBalances, useSetExpenseShare } from "@/hooks/use-expenses";
-import { useBarbecues, useCreateBarbecue, useDeleteBarbecue, useUpdateBarbecue, useEnsureInviteToken, useSettleUp, useCheckoutPublicListing, useDeactivateListing, useExploreEvents, usePublicEventRsvpRequests, useUpdatePublicEventRsvpRequest, useConversations, useConversation, useSendConversationMessage, useUpdateConversationStatus, useUploadEventBanner, useDeleteEventBanner, useNotifications, useAcceptPlanInvite, useDeclinePlanInvite, useAcceptFriendRequestNotification, useDeclineFriendRequestNotification, useLeaveBarbecue, type ExploreEvent } from "@/hooks/use-bbq-data";
+import { useBarbecues, useCreateBarbecue, useDeleteBarbecue, useUpdateBarbecue, useEnsureInviteToken, useSettleUp, useCheckoutPublicListing, useDeactivateListing, useExploreEvents, usePublicEventRsvpRequests, useUpdatePublicEventRsvpRequest, useConversations, useConversation, useSendConversationMessage, useUpdateConversationStatus, useUploadEventBanner, useDeleteEventBanner, useNotifications, useAcceptPlanInvite, useDeclinePlanInvite, useAcceptFriendRequestNotification, useDeclineFriendRequestNotification, useLeaveBarbecue, type BarbecueListItem, type ExploreEvent } from "@/hooks/use-bbq-data";
 import { useQueryClient } from "@tanstack/react-query";
 import { useFriends, useFriendRequests, useAllPendingRequests, useAcceptFriendRequest, useRemoveFriend, useSearchUsers, useSendFriendRequest } from "@/hooks/use-friends";
 import { Button } from "@/components/ui/button";
@@ -131,6 +131,8 @@ import { buildWhatsAppMessage, buildWhatsAppShareUrl } from "@/lib/share-message
 import { copyText } from "@/lib/copy-text";
 import { buildIcs, downloadIcs, inferEventDateRange } from "@/lib/calendar-ics";
 import { buildMapsUrl, openMaps } from "@/lib/maps";
+import { circularActionButtonClass, cn } from "@/lib/utils";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { InlineQueryError, SkeletonAvatar, SkeletonCard, SkeletonLine } from "@/components/ui/load-states";
 import { EMPTY_COPY, UI_COPY } from "@/lib/emotional-copy";
 import { FEATURE_PUBLIC_PLANS } from "@/lib/features";
@@ -169,6 +171,45 @@ const CATEGORY_COLORS: Record<string, string> = {
   Activities: '#06b6d4', Groceries: '#84cc16', Snacks: '#f59e0b', Supplies: '#6b7280',
   Parking: '#6366f1', Tips: '#ec4899', Entertainment: '#14b8a6',
 };
+
+type PrivatePlanSort = "recent" | "date";
+type ActiveSurface = "chat" | "panel";
+const PRIVATE_PLAN_SORT_STORAGE_KEY = "splanno.private-plan-sort.v1";
+
+function initialsFromName(name: string) {
+  return name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("") || "?";
+}
+
+function firstNameFromName(name: string) {
+  return name.trim().split(/\s+/)[0] || name;
+}
+
+function getGreetingForCurrentTime() {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 18) return "Good afternoon";
+  return "Good evening";
+}
+
+function getPrivatePlanGradient(event: Pick<Barbecue, "eventType" | "name">) {
+  const eventType = String(event.eventType ?? "").toLowerCase();
+  const name = String(event.name ?? "").toLowerCase();
+  if (eventType.includes("barbecue") || eventType.includes("dinner") || name.includes("bbq")) {
+    return "from-orange-500 via-amber-500 to-rose-500";
+  }
+  if (eventType.includes("trip") || eventType.includes("vacation") || eventType.includes("camping")) {
+    return "from-sky-500 via-cyan-500 to-teal-500";
+  }
+  if (eventType.includes("birthday")) {
+    return "from-pink-500 via-rose-500 to-fuchsia-500";
+  }
+  return "from-violet-500 via-fuchsia-500 to-indigo-500";
+}
 
 function parseIncludedUserIds(value: unknown): string[] {
   if (Array.isArray(value)) {
@@ -635,7 +676,7 @@ export default function Home({
   const { toastSuccess, toastError, toastInfo, toastWarning } = useAppToast();
   const { showUpgrade } = useUpgrade();
   const { openNewPlanWizard } = useNewPlanWizard();
-  const { openPanel, closePanel } = usePanel();
+  const { panel, openPanel, closePanel } = usePanel();
   const shouldReduceMotion = useReducedMotion();
   const isManagedAppRoute = appRouteMode !== "legacy";
   const isEventChatRoute = isManagedAppRoute && appRouteMode === "event";
@@ -680,6 +721,8 @@ export default function Home({
     { id: "general", name: "General Admission", description: "", priceLabel: "", capacity: "", isFree: true },
   ]);
   const [newPublicListOnExplore, setNewPublicListOnExplore] = useState(false);
+  const [privatePlanSort, setPrivatePlanSort] = useState<PrivatePlanSort>("recent");
+  const [activeSurface, setActiveSurface] = useState<ActiveSurface>("chat");
 
   useEffect(() => {
     if (appRouteMode === "private" || !FEATURE_PUBLIC_PLANS) setEventVisibilityTab("private");
@@ -693,6 +736,10 @@ export default function Home({
   }, [isManagedAppRoute, appRouteMode]);
 
   useEffect(() => {
+    if (!panel) setActiveSurface("chat");
+  }, [panel]);
+
+  useEffect(() => {
     if (newEventLocation) {
       setNewBbqCurrency((currencyForCountry(newEventLocation.countryCode) ?? "EUR") as CurrencyCode);
     }
@@ -703,6 +750,29 @@ export default function Home({
     const userDefault = (user?.defaultCurrencyCode as CurrencyCode | undefined) ?? "EUR";
     setNewBbqCurrency((current) => (current === "EUR" ? userDefault : current));
   }, [user?.defaultCurrencyCode, newEventLocation]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(`${PRIVATE_PLAN_SORT_STORAGE_KEY}:${user?.id ?? user?.username ?? "anon"}`);
+      if (raw === "recent" || raw === "date") {
+        setPrivatePlanSort(raw);
+      } else {
+        setPrivatePlanSort("recent");
+      }
+    } catch {
+      // ignore storage read errors
+    }
+  }, [user?.id, user?.username]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(`${PRIVATE_PLAN_SORT_STORAGE_KEY}:${user?.id ?? user?.username ?? "anon"}`, privatePlanSort);
+    } catch {
+      // ignore storage write errors
+    }
+  }, [privatePlanSort, user?.id, user?.username]);
 
   const [isAddPersonOpen, setIsAddPersonOpen] = useState(false);
   const [isAddExpenseOpen, setIsAddExpenseOpen] = useState(false);
@@ -786,11 +856,22 @@ export default function Home({
     if (typeof window === "undefined") return;
     const openNotifications = () => setNotifOpen(true);
     const openAccount = () => setIsAccountDrawerOpen(true);
+    const openProfile = (event: Event) => {
+      const detail = (event as CustomEvent<{ username?: string | null }>).detail;
+      const targetUsername = detail?.username?.trim();
+      if (!targetUsername) return;
+      setProfileTargetUsername(targetUsername);
+      setAccountView("profile");
+      setSelectedFriendId(null);
+      setIsAccountDrawerOpen(true);
+    };
     window.addEventListener("splanno:open-notifications", openNotifications as EventListener);
     window.addEventListener("splanno:open-account", openAccount as EventListener);
+    window.addEventListener("splanno:open-profile", openProfile as EventListener);
     return () => {
       window.removeEventListener("splanno:open-notifications", openNotifications as EventListener);
       window.removeEventListener("splanno:open-account", openAccount as EventListener);
+      window.removeEventListener("splanno:open-profile", openProfile as EventListener);
     };
   }, []);
 
@@ -1123,6 +1204,22 @@ export default function Home({
       .sort((a: Barbecue, b: Barbecue) => getEventSortTime(b) - getEventSortTime(a)),
     [barbecues]
   );
+  const sortedPrivatePlansForOverview = useMemo(() => {
+    const items = [...privatePlansForOverview] as BarbecueListItem[];
+    if (privatePlanSort === "date") {
+      return items.sort((a, b) => {
+        const aDate = a.date ? new Date(a.date).getTime() : 0;
+        const bDate = b.date ? new Date(b.date).getTime() : 0;
+        if (aDate !== bDate) return bDate - aDate;
+        return getEventSortTime(b) - getEventSortTime(a);
+      });
+    }
+    return items.sort((a, b) => {
+      const aRecent = a.lastActivityAt ? new Date(a.lastActivityAt).getTime() : getEventSortTime(a);
+      const bRecent = b.lastActivityAt ? new Date(b.lastActivityAt).getTime() : getEventSortTime(b);
+      return bRecent - aRecent;
+    });
+  }, [privatePlanSort, privatePlansForOverview]);
   const listBarbecuesForArea = eventVisibilityTab === "private" ? privateBarbecuesForArea : publicBarbecuesForArea;
   const formatPlanSharedTotal = useCallback((amount: number, currencyCode?: string | null) => {
     const safeAmount = Number.isFinite(amount) ? amount : 0;
@@ -2185,7 +2282,6 @@ export default function Home({
   const isPrivateBasicsValid = !!newBbqName.trim() && !!newBbqDate && !!newEventLocation?.locationName.trim();
   const headerPrimaryActionLabel = !isPublicBuilderContext && activeEventTab === "people" ? "Invite" : UI_COPY.actions.addExpense;
   const headerPrimaryActionVisible = !isPublicBuilderContext && (activeEventTab === "expenses" || activeEventTab === "people");
-  const nextActionPendingCount = Math.max(invitedParticipants.length, pendingRequests.length);
   const handleHeaderPrimaryAction = () => {
     if (isPublicBuilderContext) return;
     if (activeEventTab === "people") {
@@ -2196,30 +2292,6 @@ export default function Home({
     setEditingExpense(null);
     setIsAddExpenseOpen(true);
   };
-  const handleOpenNextAction = useCallback(() => {
-    if (nextActionPendingCount > 0) {
-      setActiveEventTab("people");
-      return;
-    }
-    setRecommendedExpenseTemplate({ item: "Expense", category: "Other" });
-    setEditingExpense(null);
-    setIsAddExpenseOpen(true);
-  }, [nextActionPendingCount]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const onOpenNextAction = (event: Event) => {
-      const custom = event as CustomEvent<{ eventId?: number }>;
-      const targetEventId = Number(custom.detail?.eventId);
-      if (!selectedBbq || !Number.isFinite(targetEventId) || targetEventId !== selectedBbq.id) return;
-      handleOpenNextAction();
-    };
-    window.addEventListener("splanno:open-next-action", onOpenNextAction as EventListener);
-    return () => {
-      window.removeEventListener("splanno:open-next-action", onOpenNextAction as EventListener);
-    };
-  }, [selectedBbq, handleOpenNextAction]);
-
   const newEventWizardFooter = (
     <div className="w-full space-y-2">
       {newBbqVisibilityOrigin === "public" && newPublicCreateStep <= 4 && (
@@ -2489,7 +2561,7 @@ export default function Home({
                       type="button"
                       variant="outline"
                       size="icon"
-                      className="h-9 w-9 rounded-full border-border/70 bg-card text-muted-foreground hover:bg-muted hover:text-foreground"
+                      className={`h-9 w-9 ${circularActionButtonClass()}`}
                       onClick={() => setAccountView("settings")}
                       aria-label="Open settings"
                     >
@@ -3410,30 +3482,53 @@ export default function Home({
           if (useNewManagedEventLayout && appRouteMode === "event" && isPrivateContext && selectedBbq) {
             return (
               <div className="h-full w-full overflow-hidden px-1 py-1 sm:px-2 sm:py-2 lg:px-3">
-                <div className="flex h-full min-h-0 overflow-hidden rounded-3xl border border-border/60 bg-background shadow-sm">
-                  <ChatSidebar
-                    eventId={selectedBbq.id}
-                    eventName={selectedBbq.name}
-                    location={
-                      selectedBbq.locationText
-                      ?? selectedBbq.locationName
-                      ?? ([selectedBbq.city, selectedBbq.countryName].filter(Boolean).join(", ") || null)
-                    }
-                    dateTime={selectedBbq.date ?? null}
-                    participantCount={participants.length}
-                    sharedTotal={Number(totalSpent)}
-                    currency={(selectedBbq.currency as string) || defaultCurrency}
-                    onSummaryClick={() => openPanel({ type: "plan-details" })}
-                    onOpenOverview={() => openPanel({ type: "overview" })}
-                    currentUser={{
-                      id: user?.id ?? null,
-                      username: user?.username ?? null,
-                      avatarUrl: user?.avatarUrl ?? null,
-                    }}
-                    enabled={!!user}
-                    className="h-full min-w-0 flex-1"
+                <div className="flex h-full min-h-0 overflow-visible gap-0 p-2 dark:bg-transparent">
+                  <div
+                    className={cn(
+                      "relative h-full min-w-0 flex-1 transition-[box-shadow,transform] duration-150 ease-out lg:mr-[-10px]",
+                      activeSurface === "chat" ? "z-20 -translate-y-px" : "z-10 translate-y-0",
+                    )}
+                    onMouseDown={() => setActiveSurface("chat")}
+                  >
+                    <ChatSidebar
+                      eventId={selectedBbq.id}
+                      eventName={selectedBbq.name}
+                      location={
+                        selectedBbq.locationText
+                        ?? selectedBbq.locationName
+                        ?? ([selectedBbq.city, selectedBbq.countryName].filter(Boolean).join(", ") || null)
+                      }
+                      dateTime={selectedBbq.date ?? null}
+                      participantCount={participants.length}
+                      sharedTotal={Number(totalSpent)}
+                      currency={(selectedBbq.currency as string) || defaultCurrency}
+                      onSummaryClick={() => openPanel({ type: "plan-details" })}
+                      currentUser={{
+                        id: user?.id ?? null,
+                        username: user?.username ?? null,
+                        avatarUrl: user?.avatarUrl ?? null,
+                      }}
+                      enabled={!!user}
+                      className={cn(
+                        "h-full min-w-0 flex-1 rounded-[28px] border bg-[hsl(var(--surface-1))]",
+                        activeSurface === "chat"
+                          ? "border-black/5 shadow-[0_8px_20px_rgba(15,23,42,0.06)] dark:border-white/10 dark:bg-[hsl(var(--surface-1))] dark:shadow-[0_10px_24px_rgba(0,0,0,0.24)]"
+                          : "border-black/5 shadow-[0_4px_12px_rgba(15,23,42,0.045)] dark:border-white/6 dark:bg-[hsl(var(--surface-1))]/95 dark:shadow-[0_4px_12px_rgba(0,0,0,0.16)]",
+                      )}
+                    />
+                  </div>
+                  <ContextPanelHost
+                    className={cn(
+                      "transition-[box-shadow,transform] duration-150 ease-out",
+                      activeSurface === "panel" ? "z-20 -translate-y-px" : "z-10 translate-y-0",
+                    )}
+                    shellClassName={cn(
+                      activeSurface === "panel"
+                        ? "border-black/5 bg-[hsl(var(--surface-1))] shadow-[0_8px_20px_rgba(15,23,42,0.06)] dark:border-white/10 dark:bg-[hsl(var(--surface-1))] dark:shadow-[0_10px_24px_rgba(0,0,0,0.24)]"
+                        : "border-black/5 bg-[hsl(var(--surface-2))]/94 shadow-[0_4px_12px_rgba(15,23,42,0.05)] dark:border-white/8 dark:bg-[hsl(var(--surface-1))]/98 dark:shadow-[0_5px_14px_rgba(0,0,0,0.18)]",
+                    )}
+                    onMouseDown={() => setActiveSurface("panel")}
                   />
-                  <ContextPanelHost />
                 </div>
 
                 {isPlanDetailsOpen ? (
@@ -4969,65 +5064,107 @@ export default function Home({
             </EventThemeProvider>
           );
         })() : appRouteMode === "private" ? (
-          <div className="mx-auto w-full max-w-[1400px] px-4 py-6 sm:px-6 lg:px-10">
-            <div className="mb-5">
+          <div className="mx-auto h-full min-h-0 w-full max-w-[1400px] px-4 py-6 sm:px-6 lg:px-10">
+            <div className="mb-6">
               <div>
-                <h2 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">Friends plans</h2>
-                <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Plans you&apos;re part of.</p>
+                <h2 className="text-3xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+                  {getGreetingForCurrentTime()}, {firstNameFromName(user?.displayName || user?.username || "there")} 👋
+                </h2>
+                <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+                  You have {sortedPrivatePlansForOverview.length} active {sortedPrivatePlansForOverview.length === 1 ? "plan" : "plans"}
+                </p>
               </div>
             </div>
 
+            <div className="mb-6 flex flex-wrap gap-2">
+              {[
+                { id: "recent" as const, label: "Recent activity" },
+                { id: "date" as const, label: "Date" },
+              ].map((option) => (
+                <button
+                  key={`private-plan-sort-${option.id}`}
+                  type="button"
+                  onClick={() => setPrivatePlanSort(option.id)}
+                  className={`rounded-full border px-4 py-2 text-sm font-medium transition ${
+                    privatePlanSort === option.id
+                      ? "border-primary/40 bg-primary text-primary-foreground shadow-sm"
+                      : "border-border/70 bg-background/80 text-muted-foreground hover:border-border hover:bg-muted/40 hover:text-foreground"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+
             {isLoadingBbqs ? (
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {Array.from({ length: 4 }).map((_, idx) => (
-                  <div key={`private-plan-skeleton-${idx}`} className="rounded-2xl border border-border/60 bg-card p-4 shadow-sm">
-                    <SkeletonLine className="h-5 w-2/3 rounded" />
-                    <SkeletonLine className="mt-2 h-4 w-1/2 rounded" />
-                    <div className="mt-4 flex items-center gap-2">
-                      <SkeletonCard className="h-5 w-16 rounded-full" />
-                      <SkeletonCard className="h-5 w-20 rounded-full" />
+                  <div key={`private-plan-skeleton-${idx}`} className="overflow-hidden rounded-[28px] border border-border/60 bg-card shadow-sm">
+                    <SkeletonCard className="h-[120px] rounded-none" />
+                    <div className="space-y-3 px-3 py-2">
+                      <SkeletonLine className="h-4 w-2/3 rounded" />
+                      <div className="flex items-center gap-2">
+                        <SkeletonAvatar className="h-7 w-7" />
+                        <SkeletonAvatar className="h-7 w-7" />
+                        <SkeletonCard className="h-4 w-32 rounded-full" />
+                      </div>
                     </div>
                   </div>
                 ))}
               </div>
-            ) : privatePlansForOverview.length === 0 ? (
-              <div className="rounded-2xl border border-border/60 bg-card p-10 text-center">
-                <p className="text-base font-medium text-slate-800 dark:text-slate-100">No plans yet. Start one with your friends.</p>
-                <Button
-                  type="button"
-                  className="mt-4"
-                  onClick={() => { setNewEventArea(area); setNewEventType(area === "trips" ? "city_trip" : "barbecue"); openNewPlanWizard("BASICS"); }}
-                >
-                  <Plus className="mr-1.5 h-4 w-4" />
-                  Create your first plan
-                </Button>
+            ) : sortedPrivatePlansForOverview.length === 0 ? (
+              <div className="flex min-h-[420px] items-center justify-center rounded-[32px] border border-border/60 bg-card px-6 py-12 text-center shadow-sm">
+                <div className="max-w-sm">
+                  <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-primary/10 text-4xl">🗺️</div>
+                  <p className="mt-6 text-2xl font-semibold text-slate-900 dark:text-slate-100">No plans yet</p>
+                  <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Create your first plan and invite your friends</p>
+                  <Button
+                    type="button"
+                    className="mt-6 rounded-full px-5 shadow-sm"
+                    onClick={() => { setNewEventArea(area); setNewEventType(area === "trips" ? "city_trip" : "barbecue"); openNewPlanWizard("BASICS"); }}
+                  >
+                    <Plus className="mr-1.5 h-4 w-4" />
+                    New Plan +
+                  </Button>
+                </div>
               </div>
             ) : (
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                {privatePlansForOverview.map((plan: Barbecue) => {
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {sortedPrivatePlansForOverview.map((plan) => {
                   const planId = Number(plan.id);
                   if (!Number.isFinite(planId)) return null;
-                  const planWithStats = plan as Barbecue & {
-                    participantCount?: number;
-                    expenseTotal?: number | string;
-                    unreadCount?: number;
-                    lastActivityAt?: string | null;
-                  };
                   const dateLabel = plan.date
                     ? new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" }).format(new Date(plan.date))
-                    : null;
+                    : "Date TBA";
                   const locationLabel = plan.locationText
                     || plan.locationName
                     || [plan.city, plan.countryName].filter(Boolean).join(", ")
-                    || null;
-                  const meta = [dateLabel, locationLabel].filter(Boolean).join(" · ");
-                  const participantCountLabel = Number.isFinite(planWithStats.participantCount)
-                    ? Number(planWithStats.participantCount)
-                    : 0;
-                  const sharedTotal = Number(planWithStats.expenseTotal ?? 0);
-                  const unreadCount = Number(planWithStats.unreadCount ?? 0);
-                  const lastActivityAt = planWithStats.lastActivityAt ?? (plan.updatedAt as unknown as string | null);
-                  // TODO: if unreadCount is not available in list payload for some environments, keep badge hidden.
+                    || "Location TBA";
+                  const participantCountLabel = Number.isFinite(plan.participantCount) ? Number(plan.participantCount) : 0;
+                  const sharedTotal = Number(plan.expenseTotal ?? 0);
+                  const unreadCount = Number(plan.unreadCount ?? 0);
+                  const lastActivityAt = plan.lastActivityAt ?? (plan.updatedAt as unknown as string | null);
+                  const balance = Number(plan.myBalance ?? 0);
+                  const participantPreview = Array.isArray(plan.participantPreview) ? plan.participantPreview : [];
+                  const bannerUrl = resolveAssetUrl(plan.bannerImageUrl ?? null);
+                  const shownParticipants = participantPreview.slice(0, 4);
+                  const extraCount = Math.max(0, participantCountLabel - shownParticipants.length);
+                  const personalStatus = sharedTotal <= 0
+                    ? null
+                    : balance > 0.009
+                      ? {
+                        label: `You are owed ${formatPlanSharedTotal(balance, (plan.currency as string) || defaultCurrency)}`,
+                        className: "border-emerald-200/80 bg-emerald-100 text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-200",
+                      }
+                      : balance < -0.009
+                        ? {
+                          label: `You owe ${formatPlanSharedTotal(Math.abs(balance), (plan.currency as string) || defaultCurrency)}`,
+                          className: "border-orange-200/80 bg-orange-100 text-orange-800 dark:border-orange-500/30 dark:bg-orange-500/15 dark:text-orange-200",
+                        }
+                        : {
+                          label: "All settled",
+                          className: "border-slate-200/80 bg-slate-100 text-slate-700 dark:border-white/10 dark:bg-white/10 dark:text-slate-200",
+                        };
                   return (
                     <a
                       key={`private-plan-card-${planId}`}
@@ -5038,36 +5175,71 @@ export default function Home({
                           console.log("[private-plan-card:navigate]", { id: planId, href: `/app/e/${planId}` });
                         }
                       }}
-                      className="pointer-events-auto relative z-10 block w-full cursor-pointer rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition-all duration-200 hover:border-slate-300 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-neutral-700"
+                      className="group pointer-events-auto relative z-10 block overflow-hidden rounded-[28px] border border-border/70 bg-card p-0 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                       data-testid={`private-plan-card-${planId}`}
                     >
-                      <div className="flex items-start justify-between gap-3">
-                        <h3 className="min-w-0 truncate text-lg font-semibold tracking-tight text-slate-900 dark:text-slate-100">{plan.name}</h3>
+                      <div className="relative h-[120px] overflow-hidden">
+                        {bannerUrl ? (
+                          <img
+                            src={bannerUrl}
+                            alt=""
+                            className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]"
+                          />
+                        ) : (
+                          <div className={`h-full w-full bg-gradient-to-br ${getPrivatePlanGradient(plan)}`} />
+                        )}
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/18 to-transparent" />
                         {unreadCount > 0 ? (
-                          <span
-                            className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-semibold text-primary-foreground"
-                            aria-label={`${unreadCount} unread message${unreadCount === 1 ? "" : "s"}`}
-                          >
-                            {unreadCount > 9 ? "9+" : unreadCount}
+                          <span className="absolute right-4 top-4 inline-flex items-center rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground shadow-sm">
+                            {unreadCount > 9 ? "9+" : unreadCount} new
                           </span>
                         ) : null}
+                        <div className="absolute inset-x-0 bottom-0 px-4 py-3">
+                          <h3 className="text-base font-semibold tracking-tight text-white drop-shadow-md">{plan.name}</h3>
+                          <p className="mt-0.5 text-xs text-white/90 drop-shadow-md">{dateLabel}</p>
+                          <p className="text-xs text-white/90 drop-shadow-md">{locationLabel}</p>
+                        </div>
                       </div>
-                      <p className="mt-2 truncate text-sm text-slate-500 dark:text-neutral-400">
-                        {meta || "Date and location to be confirmed"}
-                      </p>
-                      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 dark:text-neutral-400">
-                        <span className="inline-flex items-center gap-1.5">
-                          <Users className="h-3.5 w-3.5" />
-                          {participantCountLabel}
-                        </span>
-                        <span className="inline-flex items-center gap-1.5">
-                          <Receipt className="h-3.5 w-3.5" />
-                          {`${formatPlanSharedTotal(sharedTotal, (plan.currency as string) || defaultCurrency)} shared`}
-                        </span>
-                        <span className="inline-flex items-center gap-1.5">
-                          <Clock className="h-3.5 w-3.5" />
-                          {formatLastActivity(lastActivityAt)}
-                        </span>
+                      <div className="border-t border-border/50 bg-card px-3 py-2">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <div className="flex -space-x-2">
+                              {shownParticipants.map((participant, index) => (
+                                <Avatar key={`private-plan-${planId}-participant-${participant.id}`} className="h-7 w-7 border-2 border-background shadow-sm">
+                                  <AvatarFallback className={`text-[11px] font-semibold ${
+                                    index === 0
+                                      ? "bg-primary/20 text-primary dark:bg-primary/25 dark:text-primary-foreground"
+                                      : "bg-muted text-foreground"
+                                  }`}>
+                                    {initialsFromName(participant.name)}
+                                  </AvatarFallback>
+                                </Avatar>
+                              ))}
+                              {extraCount > 0 ? (
+                                <div className="flex h-7 w-7 items-center justify-center rounded-full border-2 border-background bg-card text-[10px] font-semibold text-muted-foreground shadow-sm">
+                                  +{extraCount}
+                                </div>
+                              ) : null}
+                            </div>
+                            <span className="truncate text-foreground">
+                              {participantCountLabel} {participantCountLabel === 1 ? "person" : "people"}
+                            </span>
+                          </div>
+                          <span className="text-border/80">·</span>
+                          <span className="text-muted-foreground">{formatLastActivity(lastActivityAt)}</span>
+                          <span className="text-border/80">·</span>
+                          <span className="font-medium text-foreground">
+                            {formatPlanSharedTotal(sharedTotal, (plan.currency as string) || defaultCurrency)} shared
+                          </span>
+                          {personalStatus ? (
+                            <>
+                              <span className="text-border/80">·</span>
+                              <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${personalStatus.className}`}>
+                              {personalStatus.label}
+                              </span>
+                            </>
+                          ) : null}
+                        </div>
                       </div>
                     </a>
                   );

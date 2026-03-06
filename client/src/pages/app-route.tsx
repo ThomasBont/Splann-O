@@ -5,6 +5,7 @@ import {
   useAcceptFriendRequestNotification,
   useAcceptPlanInvite,
   useBarbecues,
+  type BarbecueListItem,
   useDeclineFriendRequestNotification,
   useDeclinePlanInvite,
   useNotifications,
@@ -12,7 +13,6 @@ import {
 import Home from "@/pages/home";
 import {
   Loader2,
-  Home as HomeIcon,
   Plus,
   Pin,
   PinOff,
@@ -40,6 +40,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { circularActionButtonClass } from "@/lib/utils";
 import { EventHeaderPreferencesProvider } from "@/hooks/use-event-header-preferences";
 import { useNewPlanWizard } from "@/contexts/new-plan-wizard";
 import NewPlanWizardDrawer from "@/components/event/NewPlanWizardDrawer";
@@ -252,10 +253,18 @@ function AppSidebar({
   section,
   onCreatePlan,
   selectedEventId,
+  totalPendingNotifications,
+  displayPendingCount,
+  onOpenNotifications,
+  onOpenAccount,
 }: {
   section: AppSection;
   onCreatePlan: () => void;
   selectedEventId?: number | null;
+  totalPendingNotifications: number;
+  displayPendingCount: string;
+  onOpenNotifications: () => void;
+  onOpenAccount: () => void;
 }) {
   const [, setLocation] = useLocation();
   const { prefetchPlan, prefetchPlanOnHover, cancelHoverPrefetch } = usePrefetchPlan();
@@ -339,7 +348,7 @@ function AppSidebar({
   const recentEvents = useMemo(() => {
     if (recentOpenedIds.length === 0) return allSortedEvents.slice(0, 12);
     const byId = new Map(allSortedEvents.map((event) => [event.id, event]));
-    const fromHistory = recentOpenedIds.map((id) => byId.get(id)).filter((event): event is Barbecue => !!event);
+    const fromHistory = recentOpenedIds.map((id) => byId.get(id)).filter((event): event is BarbecueListItem => !!event);
     if (fromHistory.length >= 8) return fromHistory.slice(0, 12);
     const existingIds = new Set(fromHistory.map((e) => e.id));
     return [...fromHistory, ...allSortedEvents.filter((e) => !existingIds.has(e.id))].slice(0, 12);
@@ -353,7 +362,7 @@ function AppSidebar({
     return Array.from(ids);
   }, [pinGroups]);
   const pinnedEvents = useMemo(
-    () => pinnedEventIds.map((id) => eventById.get(id)).filter((event): event is Barbecue => !!event).slice(0, 8),
+    () => pinnedEventIds.map((id) => eventById.get(id)).filter((event): event is BarbecueListItem => !!event).slice(0, 8),
     [pinnedEventIds, eventById],
   );
 
@@ -374,7 +383,7 @@ function AppSidebar({
       .slice(0, 8);
   }, [allSortedEvents]);
 
-  const renderEventList = (list: Barbecue[], emptyMessage: string, limit = 12) => (
+  const renderEventList = (list: BarbecueListItem[], emptyMessage: string, limit = 12) => (
     <div className="space-y-1 pr-1">
       {eventsLoading ? (
         <div className="space-y-2 py-1">
@@ -447,25 +456,9 @@ function AppSidebar({
             <div className="flex items-center gap-2">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label="Home"
-                    onClick={() => setLocation("/app/private")}
-                    className={`inline-flex h-10 w-10 items-center justify-center rounded-xl border border-primary/80 bg-primary text-primary-foreground transition hover:brightness-95 ${
-                      section === "home" || section === "event" ? "ring-1 ring-primary/70" : ""
-                    }`}
-                  >
-                    <HomeIcon className="h-4 w-4" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="right">Home</TooltipContent>
-              </Tooltip>
-
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div>
+                  <div className="flex-1">
                     <NewEventMenuButton
-                      className="h-10 rounded-full border border-primary/80 bg-primary px-5 py-2 text-sm font-medium text-primary-foreground transition hover:brightness-95"
+                      className="w-full flex-1 rounded-full border border-primary/80 bg-primary px-5 py-3 text-sm font-medium text-primary-foreground transition hover:brightness-95"
                       size="default"
                       align="start"
                       onCreate={onCreatePlan}
@@ -476,6 +469,31 @@ function AppSidebar({
                 </TooltipTrigger>
                 <TooltipContent side="right">Create new plan</TooltipContent>
               </Tooltip>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className={`relative h-11 w-11 ${circularActionButtonClass()}`}
+                aria-label="Open notifications"
+                onClick={onOpenNotifications}
+              >
+                <Bell className="h-4 w-4" />
+                {totalPendingNotifications > 0 ? (
+                  <span className="absolute -right-0.5 -top-0.5 grid h-5 min-w-5 place-items-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">
+                    {displayPendingCount}
+                  </span>
+                ) : null}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className={`h-11 w-11 ${circularActionButtonClass()}`}
+                aria-label="Open profile"
+                onClick={onOpenAccount}
+              >
+                <UserCircle className="h-4 w-4" />
+              </Button>
             </div>
           </TooltipProvider>
           <div className="mx-0 my-2 h-px bg-border/60" />
@@ -540,7 +558,7 @@ function AppSidebar({
                         <p className="px-1 pb-1 text-[11px] uppercase tracking-wide text-muted-foreground">Pin groups</p>
                         <div className="space-y-2">
                           {pinGroups.map((group) => {
-                            const groupEvents = group.eventIds.map((id) => eventById.get(id)).filter((event): event is Barbecue => !!event);
+                            const groupEvents = group.eventIds.map((id) => eventById.get(id)).filter((event): event is BarbecueListItem => !!event);
                             return (
                               <div key={group.id} className="rounded-lg border border-border/50 p-2">
                                 <p className="text-xs font-medium mb-1">{group.name}</p>
@@ -581,6 +599,12 @@ function RightActionRail({
   const [, setLocation] = useLocation();
   const { panel, closePanel, openPanel } = usePanel();
   const isEvent = section === "event" && !!selectedEventId;
+  const isOverviewOpen = isEvent && panel?.type === "overview";
+  const isCrewOpen = isEvent && panel?.type === "crew";
+  const isExpensesOpen = isEvent && panel?.type === "expenses";
+  const isNextActionOpen = isEvent && panel?.type === "next-action";
+  const railButtonClass = (active: boolean) =>
+    `${circularActionButtonClass(active)} inline-flex h-10 w-10 items-center justify-center ${isEvent ? "" : "pointer-events-none opacity-45"}`;
   return (
     <aside className="pointer-events-none hidden h-full w-16 shrink-0 py-4 lg:flex lg:items-center lg:justify-center">
       <div className="pointer-events-auto flex h-full max-h-[calc(100vh-10rem)] flex-col items-center gap-2 rounded-2xl border border-border/50 border-l bg-background/80 p-2 shadow-lg backdrop-blur-md">
@@ -590,11 +614,7 @@ function RightActionRail({
             title="Overview"
             aria-label="Overview"
             disabled={!isEvent}
-            className={`inline-flex h-10 w-10 items-center justify-center rounded-full transition ${
-              isEvent && panel?.type === "overview"
-                ? "bg-muted ring-1 ring-border text-foreground"
-                : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-            } ${isEvent ? "" : "pointer-events-none opacity-45"}`}
+            className={railButtonClass(isOverviewOpen)}
             onClick={() => {
               if (!isEvent) return;
               openPanel({ type: "overview" });
@@ -607,11 +627,7 @@ function RightActionRail({
             title="Chat"
             aria-label="Chat"
             disabled={!isEvent}
-            className={`inline-flex h-10 w-10 items-center justify-center rounded-full transition ${
-              isEvent && !panel
-                ? "bg-muted ring-1 ring-border text-foreground"
-                : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-            } ${isEvent ? "" : "pointer-events-none opacity-45"}`}
+            className={railButtonClass(isEvent && !panel)}
             onClick={() => {
               if (!isEvent) return;
               closePanel();
@@ -625,8 +641,11 @@ function RightActionRail({
             title="Crew"
             aria-label="Crew"
             disabled={!isEvent}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted/50 hover:text-foreground disabled:pointer-events-none disabled:opacity-45"
-            onClick={() => window.dispatchEvent(new CustomEvent("splanno:open-crew", { detail: { eventId: selectedEventId } }))}
+            className={railButtonClass(isCrewOpen)}
+            onClick={() => {
+              if (!isEvent) return;
+              openPanel({ type: "crew" });
+            }}
           >
             <Users className="h-4 w-4" />
           </button>
@@ -635,8 +654,11 @@ function RightActionRail({
             title="Expenses"
             aria-label="Expenses"
             disabled={!isEvent}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted/50 hover:text-foreground disabled:pointer-events-none disabled:opacity-45"
-            onClick={() => window.dispatchEvent(new CustomEvent("splanno:open-expenses", { detail: { eventId: selectedEventId } }))}
+            className={railButtonClass(isExpensesOpen)}
+            onClick={() => {
+              if (!isEvent) return;
+              openPanel({ type: "expenses" });
+            }}
           >
             <Receipt className="h-4 w-4" />
           </button>
@@ -645,8 +667,11 @@ function RightActionRail({
             title="Next action"
             aria-label="Next action"
             disabled={!isEvent}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted/50 hover:text-foreground disabled:pointer-events-none disabled:opacity-45"
-            onClick={() => window.dispatchEvent(new CustomEvent("splanno:open-next-action", { detail: { eventId: selectedEventId } }))}
+            className={railButtonClass(isNextActionOpen)}
+            onClick={() => {
+              if (!isEvent) return;
+              openPanel({ type: "next-action" });
+            }}
           >
             <Zap className="h-4 w-4" />
           </button>
@@ -656,7 +681,7 @@ function RightActionRail({
             type="button"
             title="Notifications"
             aria-label="Notifications"
-            className="relative inline-flex h-10 w-10 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted/50 hover:text-foreground"
+            className={`${circularActionButtonClass()} relative inline-flex h-10 w-10 items-center justify-center`}
             onClick={onOpenNotifications}
           >
             <Bell className="h-4 w-4" />
@@ -670,7 +695,7 @@ function RightActionRail({
             type="button"
             title="Profile"
             aria-label="Profile"
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted/50 hover:text-foreground"
+            className={`${circularActionButtonClass()} inline-flex h-10 w-10 items-center justify-center`}
             onClick={onOpenAccount}
           >
             <UserCircle className="h-4 w-4" />
@@ -1195,25 +1220,7 @@ export default function AppRoute() {
                   <X className="h-4 w-4" />
                 </Button>
               </div>
-              <nav className="p-3 space-y-1 shrink-0">
-                {[
-                  { href: "/app/private", label: "Home", icon: HomeIcon, key: "home" as AppSection },
-                ].map((item) => {
-                  const Icon = item.icon;
-                  const active = section === item.key || (section === "event" && item.key === "home");
-                  return (
-                    <Link key={`mobile-nav-${item.href}`} href={item.href}>
-                      <a
-                        onClick={() => setIsSidebarOpen(false)}
-                        className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition ${active ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"}`}
-                      >
-                        <Icon className="h-4 w-4" />
-                        <span>{item.label}</span>
-                      </a>
-                    </Link>
-                  );
-                })}
-              </nav>
+              <nav className="shrink-0" />
               <div className="border-y border-border/60 px-3 py-3 space-y-2 shrink-0">
                 <NewEventMenuButton
                   className="w-full justify-start"
@@ -1290,8 +1297,12 @@ export default function AppRoute() {
           section={section}
           onCreatePlan={handleOpenNewPlan}
           selectedEventId={routeEventId ?? null}
+          totalPendingNotifications={totalPendingNotifications}
+          displayPendingCount={displayPendingCount}
+          onOpenNotifications={() => setNotifOpen(true)}
+          onOpenAccount={handleOpenAccount}
         />
-        <main className="min-w-0 flex-1 overflow-hidden">
+        <main className={`min-w-0 flex-1 ${section === "event" ? "overflow-hidden" : "min-h-0 overflow-y-auto"}`}>
           {section === "home" && <AppDashboardHome onCreatePlan={handleOpenNewPlan} />}
           {section === "private" && (
             devDisable.homeEffects
@@ -1311,7 +1322,7 @@ export default function AppRoute() {
               )
           )}
         </main>
-        {section !== "event" ? (
+        {section === "event" ? (
           <RightActionRail
             section={section}
             selectedEventId={routeEventId ?? null}

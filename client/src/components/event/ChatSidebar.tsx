@@ -3,13 +3,15 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar, CreditCard, Loader2, MapPin, MessageCircle, MoreHorizontal, Paperclip, Reply, SendHorizontal, Smile, Users } from "lucide-react";
+import { Calendar, CreditCard, LayoutGrid, Loader2, MapPin, MessageCircle, MoreHorizontal, Paperclip, Reply, SendHorizontal, Smile, Users } from "lucide-react";
 import { InlineQueryError, SkeletonLine } from "@/components/ui/load-states";
 import { useEventChat } from "@/hooks/use-event-chat";
 import { useAppToast } from "@/hooks/use-app-toast";
 import { useEventMembers } from "@/hooks/use-participants";
 import { useDeleteExpense } from "@/hooks/use-expenses";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
+import { usePanel } from "@/state/panel";
 import type { SendMessageResult } from "@/hooks/use-event-chat";
 import { SYSTEM_USER_ID, SYSTEM_USER_NAME } from "@shared/lib/system-user";
 import { ExpenseCard, type ExpenseMessageMetadata } from "@/components/event/chat/ExpenseCard";
@@ -24,6 +26,7 @@ type ChatSidebarProps = {
   sharedTotal?: number;
   currency?: string;
   onSummaryClick?: () => void;
+  onOpenOverview?: () => void;
   currentUser?: { id?: number | null; username?: string | null; avatarUrl?: string | null } | null;
   enabled?: boolean;
   className?: string;
@@ -291,11 +294,14 @@ export function ChatSidebar({
   sharedTotal = 0,
   currency = "EUR",
   onSummaryClick,
+  onOpenOverview,
   currentUser,
   enabled = true,
   className,
 }: ChatSidebarProps) {
   const { toastError, toastInfo } = useAppToast();
+  const { openPanel, panel } = usePanel();
+  const isMobile = useIsMobile();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -607,15 +613,27 @@ export function ChatSidebar({
   const sharedLabel = `${formatMoneyForSystem(sharedTotal, currency)} shared`;
   const hasEventId = Number.isFinite(Number(eventId)) && Number(eventId) > 0;
   const openPlanDetails = () => {
-    onSummaryClick?.();
+    if (isMobile) {
+      onSummaryClick?.();
+      return;
+    }
+    openPanel({ type: "plan-details" });
   };
   const openCrew = () => {
     if (!hasEventId) return;
-    window.dispatchEvent(new CustomEvent("splanno:open-crew", { detail: { eventId } }));
+    if (isMobile) {
+      window.dispatchEvent(new CustomEvent("splanno:open-crew", { detail: { eventId } }));
+      return;
+    }
+    openPanel({ type: "crew" });
   };
   const openExpenses = () => {
     if (!hasEventId) return;
-    window.dispatchEvent(new CustomEvent("splanno:open-expenses", { detail: { eventId } }));
+    if (isMobile) {
+      window.dispatchEvent(new CustomEvent("splanno:open-expenses", { detail: { eventId } }));
+      return;
+    }
+    openPanel({ type: "expenses" });
   };
   const openCreateExpenseFromSuggestion = () => {
     if (!hasEventId || !expenseSuggestion) return;
@@ -632,6 +650,18 @@ export function ChatSidebar({
       },
     }));
   };
+  const isOverviewOpen = panel?.type === "overview";
+  const isExpensesOpen = panel?.type === "expenses";
+  const isCrewOpen = panel?.type === "crew";
+  const isPlanDetailsOpen = panel?.type === "plan-details";
+  const isAnyPanelOpen = panel !== null;
+  const openExpenseDetail = useCallback((expenseId: number) => {
+    if (isMobile) {
+      openExpenseEditor(expenseId);
+      return;
+    }
+    openPanel({ type: "expense", id: String(expenseId) });
+  }, [isMobile, openExpenseEditor, openPanel]);
   const messageGroups = useMemo(() => {
     type ChatMessage = (typeof messages)[number];
     type MessageGroup = {
@@ -706,60 +736,105 @@ export function ChatSidebar({
       }
     >
       <header className="shrink-0 border-b border-border/70 bg-background px-6 py-4">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <span className="font-semibold text-foreground">Plan chat</span>
-            <span>·</span>
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0 flex-1">
             <button
               type="button"
               aria-label="Open plan details"
               onClick={openPlanDetails}
-              className="inline-flex h-8 items-center rounded-full px-3 text-sm text-muted-foreground transition hover:bg-muted/60 hover:text-foreground active:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              className={cn(
+                "block max-w-full rounded-md text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                isPlanDetailsOpen
+                  ? "text-foreground"
+                  : "text-foreground/95 hover:text-foreground",
+              )}
             >
-              <span className="truncate">{eventName ? `${eventName} room` : "Plan room"}</span>
+              <span className="block truncate text-xl font-semibold tracking-tight">{eventName || "Plan"}</span>
             </button>
           </div>
-          <div className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-card px-2 py-1 text-[10px] text-muted-foreground">
-            <span className={`inline-block h-1.5 w-1.5 rounded-full ${liveLabel.cls}`} />
-            {liveLabel.text}
+          <div className="flex items-center gap-2">
+            {onOpenOverview ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className={cn(
+                  "hidden rounded-full border transition lg:inline-flex",
+                  isOverviewOpen
+                    ? "border-border bg-muted text-foreground ring-1 ring-border/70"
+                    : "border-border/70 bg-background/60 text-muted-foreground hover:text-foreground",
+                )}
+                onClick={onOpenOverview}
+              >
+                <LayoutGrid className="h-4 w-4" />
+                Overview
+              </Button>
+            ) : null}
+            <div className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-card px-2 py-1 text-[10px] text-muted-foreground">
+              <span className={`inline-block h-1.5 w-1.5 rounded-full ${liveLabel.cls}`} />
+              {liveLabel.text}
+            </div>
           </div>
         </div>
-        <div className="mt-2 flex w-full flex-wrap items-center gap-2 text-sm text-muted-foreground">
+        <div className="mt-3 flex w-full flex-wrap items-center gap-x-1 gap-y-1.5 text-sm text-muted-foreground">
           <button
             type="button"
             aria-label="Open plan location details"
             onClick={openPlanDetails}
-            className="inline-flex h-9 items-center gap-2 rounded-full px-3 text-sm text-muted-foreground transition hover:bg-muted/60 hover:text-foreground active:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-sm transition active:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+              isPlanDetailsOpen
+                ? "text-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
           >
-            <MapPin className="h-4 w-4" />
-            <span>{locationLabel}</span>
+            <MapPin className="h-3.5 w-3.5" />
+            <span className="truncate">{locationLabel}</span>
           </button>
+          <span className="text-muted-foreground/45">•</span>
           <button
             type="button"
             aria-label="Open crew drawer"
             onClick={openCrew}
-            className="inline-flex h-9 items-center gap-2 rounded-full px-3 text-sm text-muted-foreground transition hover:bg-muted/60 hover:text-foreground active:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-sm transition active:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+              isCrewOpen
+                ? "text-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
           >
-            <Users className="h-4 w-4" />
+            <Users className="h-3.5 w-3.5" />
             <span>{peopleLabel}</span>
           </button>
+          <span className="text-muted-foreground/45">•</span>
           <button
             type="button"
             aria-label="Open plan date details"
             onClick={openPlanDetails}
-            className="inline-flex h-9 items-center gap-2 rounded-full px-3 text-sm text-muted-foreground transition hover:bg-muted/60 hover:text-foreground active:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-sm transition active:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+              isPlanDetailsOpen
+                ? "text-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
           >
-            <Calendar className="h-4 w-4" />
+            <Calendar className="h-3.5 w-3.5" />
             <span>{dateLabel}</span>
           </button>
+          <span className="text-muted-foreground/45">•</span>
           <button
             type="button"
             aria-label="Open shared costs drawer"
             onClick={openExpenses}
-            className="inline-flex h-9 items-center gap-2 rounded-full px-3 text-sm text-muted-foreground transition hover:bg-muted/60 hover:text-foreground active:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-sm transition active:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+              isExpensesOpen
+                ? "text-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
           >
-            <CreditCard className="h-4 w-4" />
-            <span>{sharedLabel}</span>
+            <CreditCard className="h-3.5 w-3.5" />
+            <span className={cn("font-medium", isExpensesOpen ? "text-foreground" : "")}>{sharedLabel}</span>
           </button>
         </div>
       </header>
@@ -768,7 +843,14 @@ export function ChatSidebar({
         ref={listRef}
         className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden bg-[var(--chat-bg)]"
       >
-        <div className="mx-auto flex min-h-full w-full max-w-[1040px] px-4 py-4 sm:px-8 sm:py-6">
+        <div
+          className={cn(
+            "mx-auto flex min-h-full w-full py-4 sm:py-6",
+            isAnyPanelOpen
+              ? "max-w-3xl px-6 sm:px-8 lg:px-10"
+              : "max-w-[1040px] px-4 sm:px-8",
+          )}
+        >
         <div className="flex min-h-full w-full flex-col justify-end gap-2">
         {hasMoreHistory ? (
           <div className="flex justify-center pb-1">
@@ -882,6 +964,7 @@ export function ChatSidebar({
                               }}
                               optimisticDeleted={optimisticallyDeletedExpenseIds.includes(expenseMeta.expenseId)}
                               onOpenEdit={openExpenseEditor}
+                              onOpenDetail={openExpenseDetail}
                               onDelete={(expenseId) => { void handleDeleteExpenseFromCard(expenseId); }}
                               onCopyAmount={handleCopyAmount}
                             />

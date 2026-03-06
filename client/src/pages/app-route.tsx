@@ -61,6 +61,7 @@ import { isPrivateEvent } from "@shared/event-visibility";
 import { InlineQueryError, SkeletonCard } from "@/components/ui/load-states";
 import { EMPTY_COPY } from "@/lib/emotional-copy";
 import { usePrefetchPlan } from "@/hooks/use-prefetch-plan";
+import { usePanel } from "@/state/panel";
 
 type AppSection = "home" | "private" | "event";
 type DevDisableFlags = {
@@ -251,12 +252,10 @@ function AppSidebar({
   section,
   onCreatePlan,
   selectedEventId,
-  eventViewMode,
 }: {
   section: AppSection;
   onCreatePlan: () => void;
   selectedEventId?: number | null;
-  eventViewMode?: "chat" | "overview";
 }) {
   const [, setLocation] = useLocation();
   const { prefetchPlan, prefetchPlanOnHover, cancelHoverPrefetch } = usePrefetchPlan();
@@ -566,7 +565,6 @@ function AppSidebar({
 
 function RightActionRail({
   section,
-  eventViewMode,
   selectedEventId,
   totalPendingNotifications,
   displayPendingCount,
@@ -574,44 +572,54 @@ function RightActionRail({
   onOpenAccount,
 }: {
   section: AppSection;
-  eventViewMode: "chat" | "overview";
   selectedEventId?: number | null;
   totalPendingNotifications: number;
   displayPendingCount: string;
   onOpenNotifications: () => void;
   onOpenAccount: () => void;
 }) {
+  const [, setLocation] = useLocation();
+  const { panel, closePanel, openPanel } = usePanel();
   const isEvent = section === "event" && !!selectedEventId;
   return (
     <aside className="pointer-events-none hidden h-full w-16 shrink-0 py-4 lg:flex lg:items-center lg:justify-center">
       <div className="pointer-events-auto flex h-full max-h-[calc(100vh-10rem)] flex-col items-center gap-2 rounded-2xl border border-border/50 border-l bg-background/80 p-2 shadow-lg backdrop-blur-md">
         <div className="flex flex-col items-center gap-2">
-          <Link href={isEvent ? `/app/e/${selectedEventId}/overview` : "/app/private"}>
-            <a
-              title="Overview"
-              aria-label="Overview"
-              className={`inline-flex h-10 w-10 items-center justify-center rounded-full transition ${
-                isEvent && eventViewMode === "overview"
-                  ? "bg-muted ring-1 ring-border text-foreground"
-                  : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-              } ${isEvent ? "" : "pointer-events-none opacity-45"}`}
-            >
-              <LayoutGrid className="h-4 w-4" />
-            </a>
-          </Link>
-          <Link href={isEvent ? `/app/e/${selectedEventId}` : "/app/private"}>
-            <a
-              title="Chat"
-              aria-label="Chat"
-              className={`inline-flex h-10 w-10 items-center justify-center rounded-full transition ${
-                isEvent && eventViewMode === "chat"
-                  ? "bg-muted ring-1 ring-border text-foreground"
-                  : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-              } ${isEvent ? "" : "pointer-events-none opacity-45"}`}
-            >
-              <MessageCircle className="h-4 w-4" />
-            </a>
-          </Link>
+          <button
+            type="button"
+            title="Overview"
+            aria-label="Overview"
+            disabled={!isEvent}
+            className={`inline-flex h-10 w-10 items-center justify-center rounded-full transition ${
+              isEvent && panel?.type === "overview"
+                ? "bg-muted ring-1 ring-border text-foreground"
+                : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+            } ${isEvent ? "" : "pointer-events-none opacity-45"}`}
+            onClick={() => {
+              if (!isEvent) return;
+              openPanel({ type: "overview" });
+            }}
+          >
+            <LayoutGrid className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            title="Chat"
+            aria-label="Chat"
+            disabled={!isEvent}
+            className={`inline-flex h-10 w-10 items-center justify-center rounded-full transition ${
+              isEvent && !panel
+                ? "bg-muted ring-1 ring-border text-foreground"
+                : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+            } ${isEvent ? "" : "pointer-events-none opacity-45"}`}
+            onClick={() => {
+              if (!isEvent) return;
+              closePanel();
+              setLocation(`/app/e/${selectedEventId}`);
+            }}
+          >
+            <MessageCircle className="h-4 w-4" />
+          </button>
           <button
             type="button"
             title="Crew"
@@ -822,6 +830,7 @@ function PrivateHomePage({ user, onCreatePlan }: { user: { id?: number | null; u
 
 export default function AppRoute() {
   const [location, setLocation] = useLocation();
+  const { closePanel } = usePanel();
   const { user, isLoading: isAuthLoading } = useAuth();
   const { toast } = useToast();
   const { openNewPlanWizard } = useNewPlanWizard();
@@ -903,17 +912,12 @@ export default function AppRoute() {
 
   let section: AppSection = "home";
   let routeEventId: number | null = null;
-  let eventViewMode: "chat" | "overview" = "chat";
   if (pathname.startsWith("/app/e/")) {
     section = "event";
     const afterPrefix = pathname.split("/app/e/")[1] ?? "";
     const raw = afterPrefix.split("/")[0];
     const n = Number(raw);
     routeEventId = Number.isFinite(n) ? n : null;
-    const tail = afterPrefix.split("/").slice(1).join("/");
-    if (tail.startsWith("overview")) {
-      eventViewMode = "overview";
-    }
   } else if (pathname === "/app/private") {
     section = "private";
   } else {
@@ -949,6 +953,10 @@ export default function AppRoute() {
   useEffect(() => {
     setIsSidebarOpen(false);
   }, [pathname, search]);
+
+  useEffect(() => {
+    closePanel();
+  }, [pathname, search, closePanel]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1282,7 +1290,6 @@ export default function AppRoute() {
           section={section}
           onCreatePlan={handleOpenNewPlan}
           selectedEventId={routeEventId ?? null}
-          eventViewMode={eventViewMode}
         />
         <main className="min-w-0 flex-1 overflow-hidden">
           {section === "home" && <AppDashboardHome onCreatePlan={handleOpenNewPlan} />}
@@ -1299,21 +1306,21 @@ export default function AppRoute() {
                   key={`event-route-${routeEventId ?? "none"}`}
                   appRouteMode="event"
                   routeEventId={routeEventId}
-                  eventViewMode={eventViewMode}
                   debugDisableDiscoverModal={devDisable.discoverModal}
                 />
               )
           )}
         </main>
-        <RightActionRail
-          section={section}
-          eventViewMode={eventViewMode}
-          selectedEventId={routeEventId ?? null}
-          totalPendingNotifications={totalPendingNotifications}
-          displayPendingCount={displayPendingCount}
-          onOpenNotifications={() => setNotifOpen(true)}
-          onOpenAccount={handleOpenAccount}
-        />
+        {section !== "event" ? (
+          <RightActionRail
+            section={section}
+            selectedEventId={routeEventId ?? null}
+            totalPendingNotifications={totalPendingNotifications}
+            displayPendingCount={displayPendingCount}
+            onOpenNotifications={() => setNotifOpen(true)}
+            onOpenAccount={handleOpenAccount}
+          />
+        ) : null}
         <NewPlanWizardDrawer />
         <Sheet open={notifOpen} onOpenChange={setNotifOpen}>
           <SheetContent side="right" className="w-full max-w-sm p-0">

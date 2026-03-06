@@ -83,6 +83,7 @@ export function ExpenseCard({
   optimisticDeleted = false,
   onEdit,
   onOpenEdit,
+  onOpenDetail,
   onDelete,
   onCopyAmount,
 }: {
@@ -94,6 +95,7 @@ export function ExpenseCard({
   optimisticDeleted?: boolean;
   onEdit?: ((expenseId: number) => void) | undefined;
   onOpenEdit?: ((expenseId: number) => void) | undefined;
+  onOpenDetail?: ((expenseId: number) => void) | undefined;
   onDelete?: ((expenseId: number) => void) | undefined;
   onCopyAmount?: ((expense: { amount: number; currency: string }) => void) | undefined;
 }) {
@@ -145,6 +147,9 @@ export function ExpenseCard({
     }
     onEdit?.(expenseId);
   };
+  const handleOpenDetail = () => {
+    onOpenDetail?.(expenseId);
+  };
 
   const displayItem = resolved.deleted ? "Deleted expense" : compactItemLabel(resolved.item);
   const formattedAmount = formatAmount(resolved.amount, resolved.currency);
@@ -158,15 +163,15 @@ export function ExpenseCard({
       role="button"
       tabIndex={0}
       className={cn(
-        "group w-full max-w-[70%] rounded-2xl border border-border/70 bg-card/60 px-4 py-2 text-left transition hover:border-border/80 hover:bg-card/75 dark:border-neutral-700/70 dark:bg-neutral-800/65 dark:hover:bg-neutral-800/80",
+        "group w-full max-w-[70%] cursor-pointer rounded-2xl border border-border/70 bg-card/60 px-4 py-2 text-left transition hover:border-border hover:bg-card/80 dark:border-neutral-700/70 dark:bg-neutral-800/65 dark:hover:bg-neutral-800/80",
         resolved.deleted && "opacity-80",
         className,
       )}
-      onClick={handleEdit}
+      onClick={handleOpenDetail}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
-          handleEdit();
+          handleOpenDetail();
         }
       }}
     >
@@ -206,9 +211,7 @@ export function ExpenseCard({
               className="rounded-full border border-border/70 px-2 py-0.5 text-[11px] text-muted-foreground transition hover:bg-muted/60 hover:text-foreground"
               onClick={(event) => {
                 event.stopPropagation();
-                window.dispatchEvent(new CustomEvent("splanno:open-expenses", {
-                  detail: { eventId, initialView: "overview" },
-                }));
+                handleOpenDetail();
               }}
             >
               View

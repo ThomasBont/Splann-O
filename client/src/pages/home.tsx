@@ -106,6 +106,7 @@ import { EventActivityFeed } from "@/components/event/EventActivityFeed";
 import { NotesTab } from "@/components/event/NotesTab";
 import { ExpenseReactionBar } from "@/components/event/ExpenseReactionBar";
 import { AnimatedBalance } from "@/components/event/AnimatedBalance";
+import ContextPanelHost from "@/components/panels/ContextPanelHost";
 import { useExpenseReactions } from "@/hooks/use-expense-reactions";
 import { usePlanActivity } from "@/hooks/use-plan-activity";
 import { getEventTheme } from "@/theme/useEventTheme";
@@ -116,6 +117,7 @@ import { computeSplit, getFairShareForParticipant } from "@/lib/split/calc";
 import { getEventCategoryFromData, getEventTheme as getCategoryTheme, getEventThemeStyle } from "@/lib/eventTheme";
 import { EventCategoryBadge } from "@/components/event/EventCategoryBadge";
 import { getCircleMoodTokens, getCirclePersonalityFromEvent, getDefaultCirclePersonality } from "@/lib/circlePersonality";
+import { usePanel } from "@/state/panel";
 import {
   getPrivateTemplateById,
   getPrivateTemplateForEvent,
@@ -301,7 +303,14 @@ export function AuthDialog({
   onOpenChange,
   isCheckingAuth = false,
   onSuccess,
-}: { open: boolean; onOpenChange: (open: boolean) => void; isCheckingAuth?: boolean; onSuccess?: () => void }) {
+  googleRedirectTo,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  isCheckingAuth?: boolean;
+  onSuccess?: () => void;
+  googleRedirectTo?: string;
+}) {
   const { t } = useLanguage();
   const { toast } = useToast();
   const { login, register, forgotPassword } = useAuth();
@@ -356,6 +365,10 @@ export function AuthDialog({
   };
 
   const isLoading = login.isPending || register.isPending || forgotPassword.isPending;
+  const handleGoogleContinue = () => {
+    const redirectSuffix = googleRedirectTo ? `?redirectTo=${encodeURIComponent(googleRedirectTo)}` : "";
+    window.location.href = `/api/auth/google${redirectSuffix}`;
+  };
 
   const titles: Record<typeof tab, string> = {
     login: t.auth.loginTitle,
@@ -412,6 +425,14 @@ export function AuthDialog({
         {/* Login form */}
         {tab === "login" && (
           <div className="space-y-3">
+            <Button type="button" variant="outline" className="w-full" onClick={handleGoogleContinue} data-testid="button-auth-google">
+              Continue with Google
+            </Button>
+            <div className="flex items-center gap-2 py-1 text-xs text-muted-foreground">
+              <div className="h-px flex-1 bg-border" />
+              <span>or</span>
+              <div className="h-px flex-1 bg-border" />
+            </div>
             <div className="space-y-1.5">
               <Label className="text-xs">{t.auth.username}</Label>
               <Input
@@ -465,6 +486,14 @@ export function AuthDialog({
         {/* Register form */}
         {tab === "register" && (
           <div className="space-y-3">
+            <Button type="button" variant="outline" className="w-full" onClick={handleGoogleContinue} data-testid="button-auth-google-register">
+              Continue with Google
+            </Button>
+            <div className="flex items-center gap-2 py-1 text-xs text-muted-foreground">
+              <div className="h-px flex-1 bg-border" />
+              <span>or</span>
+              <div className="h-px flex-1 bg-border" />
+            </div>
             <div className="space-y-1.5">
               <Label className="text-xs">{t.auth.displayName}</Label>
               <Input
@@ -588,7 +617,6 @@ type AccountView = "profile" | "friends" | "addFriend" | "friendProfile" | "edit
 type HomeProps = {
   appRouteMode?: HomeRouteMode;
   routeEventId?: number | null;
-  eventViewMode?: "chat" | "overview";
   debugDisableDiscoverModal?: boolean;
 };
 const LEAVE_REDIRECT_MARKER_KEY = "splanno.recentlyLeftPlan";
@@ -596,7 +624,6 @@ const LEAVE_REDIRECT_MARKER_KEY = "splanno.recentlyLeftPlan";
 export default function Home({
   appRouteMode = "legacy",
   routeEventId = null,
-  eventViewMode = "chat",
   debugDisableDiscoverModal = false,
 }: HomeProps) {
   const { t } = useLanguage();
@@ -608,11 +635,13 @@ export default function Home({
   const { toastSuccess, toastError, toastInfo, toastWarning } = useAppToast();
   const { showUpgrade } = useUpgrade();
   const { openNewPlanWizard } = useNewPlanWizard();
+  const { openPanel, closePanel } = usePanel();
   const shouldReduceMotion = useReducedMotion();
   const isManagedAppRoute = appRouteMode !== "legacy";
-  const isEventChatRoute = isManagedAppRoute && appRouteMode === "event" && eventViewMode === "chat";
+  const isEventChatRoute = isManagedAppRoute && appRouteMode === "event";
   // Managed event route should render the new dashboard layout.
   const useNewManagedEventLayout = true;
+  const desktopOverviewInitializedForEventRef = useRef<number | null>(null);
 
   const [area, setArea] = useState<"parties" | "trips">("parties");
   const [eventVisibilityTab, setEventVisibilityTab] = useState<"private" | "public">("private");
@@ -1247,6 +1276,31 @@ export default function Home({
     if (!selectedBbq) return;
     setEventVisibilityTab(isPublicEvent(selectedBbq) ? "public" : "private");
   }, [isManagedAppRoute, appRouteMode, selectedBbq]);
+
+  useEffect(() => {
+    if (!useNewManagedEventLayout || !isManagedAppRoute || appRouteMode !== "event") return;
+    if (!selectedBbq || selectedBbq.isPublic) return;
+
+    const eventId = Number(selectedBbq.id);
+    if (!Number.isFinite(eventId) || desktopOverviewInitializedForEventRef.current === eventId) return;
+
+    const isDesktop = typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches;
+    desktopOverviewInitializedForEventRef.current = eventId;
+
+    if (isDesktop) {
+      openPanel({ type: "overview" });
+      return;
+    }
+
+    closePanel();
+  }, [
+    appRouteMode,
+    closePanel,
+    isManagedAppRoute,
+    openPanel,
+    selectedBbq,
+    useNewManagedEventLayout,
+  ]);
   const selectedEventLabel = selectedBbq?.name ?? "All events";
   const customCategories = useMemo(
     () => (getTemplateData(selectedBbq, defaultBarbecueTemplateData) as BarbecueTemplateData).customCategories ?? [],
@@ -1410,6 +1464,10 @@ export default function Home({
     (sum: number, exp: ExpenseWithParticipant) => sum + (Number.isFinite(Number(exp.amount)) ? Number(exp.amount) : 0),
     0
   );
+  const splitExpenses = useMemo(
+    () => expenses.map((expense: ExpenseWithParticipant) => ({ ...expense, amount: Number(expense.amount || 0) })),
+    [expenses],
+  );
   const participantCount = participants.length;
   const allowOptIn = isPrivateContext && !!selectedBbq?.allowOptInExpenses;
   const hasCustomIncludedUsers = expenses.some((expense: ExpenseWithParticipant) => parseIncludedUserIds(expense.includedUserIds).length > 0);
@@ -1445,7 +1503,7 @@ export default function Home({
   }, [allowOptIn, expenseSharesList, expenses, hasCustomIncludedUsers, participants]);
   const shareSet = new Set(effectiveExpenseShares.map((s) => `${s.expenseId}:${s.participantId}`));
   const _getFairShareForParticipant = (participantId: number) =>
-    getFairShareForParticipant(participantId, expenses, effectiveExpenseShares, participants, shouldUseCustomSplit);
+    getFairShareForParticipant(participantId, splitExpenses, effectiveExpenseShares, participants, shouldUseCustomSplit);
   const myParticipant = user?.id ? participants.find((p: Participant) => p.userId === user.id) : null;
   const creatorLeaveSuccessorName = useMemo(() => {
     if (!selectedBbqId || !user?.id) return null;
@@ -1625,8 +1683,8 @@ export default function Home({
         settlements: realtimeBalancesSnapshot.suggestedPaybacks,
       };
     }
-    return computeSplit(participants, expenses, effectiveExpenseShares, shouldUseCustomSplit);
-  }, [effectiveExpenseShares, expenses, participants, realtimeBalancesSnapshot, selectedBbqId, shouldUseCustomSplit]);
+    return computeSplit(participants, splitExpenses, effectiveExpenseShares, shouldUseCustomSplit);
+  }, [effectiveExpenseShares, participants, realtimeBalancesSnapshot, selectedBbqId, shouldUseCustomSplit, splitExpenses]);
   const lastExpenseForRepeat = useMemo(() => {
     if (!expenses.length) return null;
     return [...expenses].sort((a: ExpenseWithParticipant, b: ExpenseWithParticipant) => {
@@ -3350,239 +3408,35 @@ export default function Home({
           }
 
           if (useNewManagedEventLayout && appRouteMode === "event" && isPrivateContext && selectedBbq) {
-            const pendingCount = Math.max(invitedParticipants.length, pendingRequests.length);
-            const isChatView = eventViewMode === "chat";
-            const fallbackHeroImage = "https://images.unsplash.com/photo-1559339352-11d035aa65de?auto=format&fit=crop&w=1600&q=80";
-            const heroImage = !dashboardHeroBannerFailed && displayedDashboardHeroBannerUrl
-              ? displayedDashboardHeroBannerUrl
-              : fallbackHeroImage;
-            const glassCardClass = "rounded-2xl border border-white/10 bg-white/5 backdrop-blur-md shadow-sm";
             return (
-              <div
-                className={
-                  isChatView
-                    ? "w-full h-full overflow-hidden px-1 py-1 sm:px-2 sm:py-2 lg:px-3"
-                    : "mx-auto w-full max-w-[1400px] rounded-2xl border border-border/60 bg-background px-4 py-6 sm:px-6 lg:px-10"
-                }
-              >
-                <div className={isChatView ? "flex h-full min-h-0 flex-col gap-4" : "flex min-h-[calc(100vh-11rem)] flex-col gap-6"}>
-                  <section className={`min-w-0 min-h-0 flex-1 ${eventViewMode === "chat" ? "" : "hidden"}`}>
-                    <div className={isChatView ? "h-full min-h-0 w-full" : "h-[calc(100vh-10.5rem)] min-h-[560px] w-full"}>
-                      <ChatSidebar
-                        eventId={selectedBbq.id}
-                        eventName={selectedBbq.name}
-                        location={
-                          selectedBbq.locationText
-                          ?? selectedBbq.locationName
-                          ?? ([selectedBbq.city, selectedBbq.countryName].filter(Boolean).join(", ") || null)
-                        }
-                        dateTime={selectedBbq.date ?? null}
-                        participantCount={participants.length}
-                        sharedTotal={Number(totalSpent)}
-                        currency={(selectedBbq.currency as string) || defaultCurrency}
-                        onSummaryClick={() => setIsPlanDetailsOpen(true)}
-                        currentUser={{
-                          id: user?.id ?? null,
-                          username: user?.username ?? null,
-                          avatarUrl: user?.avatarUrl ?? null,
-                        }}
-                        enabled={!!user}
-                        className="h-full w-full"
-                      />
-                    </div>
-                  </section>
+              <div className="h-full w-full overflow-hidden px-1 py-1 sm:px-2 sm:py-2 lg:px-3">
+                <div className="flex h-full min-h-0 overflow-hidden rounded-3xl border border-border/60 bg-background shadow-sm">
+                  <ChatSidebar
+                    eventId={selectedBbq.id}
+                    eventName={selectedBbq.name}
+                    location={
+                      selectedBbq.locationText
+                      ?? selectedBbq.locationName
+                      ?? ([selectedBbq.city, selectedBbq.countryName].filter(Boolean).join(", ") || null)
+                    }
+                    dateTime={selectedBbq.date ?? null}
+                    participantCount={participants.length}
+                    sharedTotal={Number(totalSpent)}
+                    currency={(selectedBbq.currency as string) || defaultCurrency}
+                    onSummaryClick={() => openPanel({ type: "plan-details" })}
+                    onOpenOverview={() => openPanel({ type: "overview" })}
+                    currentUser={{
+                      id: user?.id ?? null,
+                      username: user?.username ?? null,
+                      avatarUrl: user?.avatarUrl ?? null,
+                    }}
+                    enabled={!!user}
+                    className="h-full min-w-0 flex-1"
+                  />
+                  <ContextPanelHost />
+                </div>
 
-                  {eventViewMode === "overview" ? (
-                    <div className="min-w-0">
-                      <h2 className="text-2xl font-semibold tracking-tight">Overview</h2>
-                      <p className="mt-1 text-sm text-muted-foreground">Plan dashboard and actions.</p>
-                    </div>
-                  ) : null}
-
-                  <section className={`min-w-0 pb-6 md:pb-0 h-full min-h-0 flex flex-col ${eventViewMode === "overview" ? "" : "hidden"}`}>
-                    <div className="md:hidden sticky top-0 z-20 -mx-1 rounded-xl border border-border/60 bg-background/95 px-3 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="line-clamp-2 text-sm font-semibold text-foreground">
-                          {selectedBbq.name}
-                        </p>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="h-9 rounded-full px-3"
-                            onClick={() => setIsPlanDetailsOpen(true)}
-                          >
-                            Edit
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className="h-9 rounded-full px-3"
-                            onClick={() => setIsMobileChatOpen(true)}
-                          >
-                            Chat
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                    <div
-                      role="button"
-                      tabIndex={0}
-                      className="relative mt-3 md:mt-0 w-full cursor-pointer overflow-hidden rounded-3xl border border-border/70 bg-card text-left shadow-sm transition-all duration-200 hover:border-border focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 min-h-[360px] md:min-h-[520px] md:h-[calc(100vh-11rem)]"
-                      onClick={(event) => {
-                        if (shouldIgnorePlanDetailsOpen(event.target)) return;
-                        setIsPlanDetailsOpen(true);
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.target !== event.currentTarget) return;
-                        if (shouldIgnorePlanDetailsOpen(event.target)) return;
-                        if (event.key === "Enter" || event.key === " ") {
-                          event.preventDefault();
-                          setIsPlanDetailsOpen(true);
-                        }
-                      }}
-                      aria-label="Open plan details"
-                    >
-                      {!dashboardHeroImageLoaded && (
-                        <div className="absolute inset-0 animate-pulse bg-muted/40" />
-                      )}
-                      <img
-                        src={heroImage}
-                        alt={selectedBbq.name}
-                        className="absolute inset-0 h-full w-full object-cover"
-                        onLoad={() => {
-                          setDashboardHeroBannerFailed(false);
-                          setDashboardHeroImageLoaded(true);
-                        }}
-                        onError={(event) => {
-                          const failedUrl = event.currentTarget.currentSrc || event.currentTarget.src || heroImage;
-                          console.error("BANNER_LOAD_FAILED", failedUrl);
-                          setDashboardHeroBannerFailed(true);
-                          setDashboardHeroImageLoaded(true);
-                        }}
-                      />
-                      <div className="pointer-events-none absolute inset-0 rounded-3xl bg-gradient-to-b from-black/60 via-black/20 to-transparent" />
-                      <div className="pointer-events-none absolute inset-0 rounded-3xl bg-gradient-to-t from-black/70 via-black/25 to-transparent" />
-
-                      <div className="relative z-10 flex h-full flex-col p-5 md:p-7">
-                        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                          <div className="pointer-events-none min-w-0">
-                            <h2 className="line-clamp-2 text-2xl font-semibold tracking-tight text-white drop-shadow-sm md:text-3xl lg:text-4xl">
-                              {selectedBbq.name}
-                            </h2>
-                            <p className="mt-1 truncate text-sm text-white/85 drop-shadow-sm md:text-base">
-                              {heroMetaLine}
-                            </p>
-                          </div>
-                          <div className="max-w-[320px] rounded-xl border border-white/20 bg-black/25 px-3 py-2 backdrop-blur-sm">
-                            <div className="inline-flex items-center gap-2">
-                              <button
-                                type="button"
-                                className="inline-flex items-center gap-2 rounded-lg border border-white/30 bg-white/10 px-2 py-1 text-white/90 transition hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
-                                aria-label="Edit plan type"
-                                onClick={(event) => {
-                                  event.preventDefault();
-                                  event.stopPropagation();
-                                  setIsPlanTypeOpen(true);
-                                  window.requestAnimationFrame(() => {
-                                    const target = document.getElementById("plan-type-section");
-                                    if (target) {
-                                      target.scrollIntoView({ block: "start", behavior: "smooth" });
-                                      const firstControl = target.querySelector("button");
-                                      if (firstControl instanceof HTMLButtonElement) firstControl.focus();
-                                    }
-                                  });
-                                }}
-                              >
-                                {selectedPlanCategoryMeta.icons.map((Icon, index) => (
-                                  <span
-                                    key={`hero-category-icon-${index}`}
-                                    className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-white/30 bg-white/10"
-                                  >
-                                    <Icon className="h-3.5 w-3.5" />
-                                  </span>
-                                ))}
-                              </button>
-                              <button
-                                type="button"
-                                className="relative inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/30 bg-white/10 text-white/90 transition hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
-                                aria-label="Open activity"
-                                onClick={(event) => {
-                                  event.preventDefault();
-                                  event.stopPropagation();
-                                  setIsActivityDrawerOpen(true);
-                                  void markAllAsRead();
-                                }}
-                              >
-                                <Bell className="h-4 w-4" />
-                                {planActivityUnreadCount > 0 ? (
-                                  <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white">
-                                    {planActivityUnreadCount > 9 ? "9+" : planActivityUnreadCount}
-                                  </span>
-                                ) : null}
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="flex-1" />
-
-                        <div className="relative z-10 space-y-3 md:space-y-0 md:grid md:grid-cols-3 md:gap-3">
-                          <GuestsWidget
-                            eventId={selectedBbq.id}
-                            canInvite={canEditEvent}
-                            variant="glass"
-                          />
-
-                          <SharedCostsWidget
-                            eventId={selectedBbq.id}
-                            currentUserId={user?.id ?? null}
-                            creatorUserId={selectedBbq.creatorUserId ?? null}
-                            planName={selectedBbq.name}
-                            peopleCount={participantCount}
-                            totalSpentLabel={formatMoney(totalSpent)}
-                            expenseCount={expenses.length}
-                            categories={getCategoriesForEvent((selectedBbq as any)?.eventType, customCategories)}
-                            participants={participants}
-                            expenses={expenses}
-                            balances={balances}
-                            settlements={settlements}
-                            formatMoney={formatMoney}
-                            canAddExpense={canManage}
-                            variant="glass"
-                          />
-
-                          <div className={`p-4 md:min-w-0 ${glassCardClass}`} onClick={(event) => event.stopPropagation()}>
-                            <p className="text-xs font-medium uppercase tracking-wide text-white/80">Next action</p>
-                            <p className="mt-2 text-sm text-white/90">
-                              {pendingCount > 0
-                                ? `Invite your crew to confirm the plan (${pendingCount} pending).`
-                                : expenses.length === 0
-                                  ? "Add the first expense to start shared costs."
-                                  : "Open shared costs to review balances and settle up."}
-                            </p>
-                            <div className="mt-3">
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                className="rounded-xl border-white/30 bg-white/10 text-white hover:bg-white/20"
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  handleOpenNextAction();
-                                }}
-                              >
-                                {pendingCount > 0 ? "Open people" : "Add expense"}
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {isPlanDetailsOpen ? (
+                {isPlanDetailsOpen ? (
                       <Suspense fallback={null}>
                         <PlanDetailsDrawer
                           open={isPlanDetailsOpen}
@@ -3619,7 +3473,7 @@ export default function Home({
                         />
                       </Suspense>
                     ) : null}
-                    {isPlanTypeOpen ? (
+                {isPlanTypeOpen ? (
                       <Suspense fallback={null}>
                         <PlanTypeDrawer
                           open={isPlanTypeOpen}
@@ -3652,7 +3506,7 @@ export default function Home({
                         />
                       </Suspense>
                     ) : null}
-                    {isActivityDrawerOpen ? (
+                {isActivityDrawerOpen ? (
                       <Suspense fallback={null}>
                         <ActivityDrawer
                           open={isActivityDrawerOpen}
@@ -3670,8 +3524,6 @@ export default function Home({
                         />
                       </Suspense>
                     ) : null}
-                  </section>
-                </div>
               </div>
             );
           }

@@ -14,6 +14,7 @@ import Basic from "@/pages/basic";
 import AppRoute from "@/pages/app-route";
 import ResetPassword from "@/pages/reset-password";
 import JoinPage from "@/pages/join";
+import LoginPage from "@/pages/login";
 import UpgradePage from "@/pages/upgrade";
 import CheckEmailPage from "@/pages/check-email";
 import VerifiedPage from "@/pages/verified";
@@ -25,6 +26,7 @@ import { FEATURE_PUBLIC_PLANS } from "@/lib/features";
 import { getApiBase, getWsBase } from "@/lib/network";
 import { AppErrorBoundary } from "@/components/AppErrorBoundary";
 import { useAuth } from "@/hooks/use-auth";
+import { PanelProvider } from "@/state/panel";
 
 function PublicDisabledPage() {
   const [, setLocation] = useLocation();
@@ -74,9 +76,8 @@ function Router() {
       <Route path="/join/:token" component={JoinPage} />
       <Route path="/invite/:token" component={JoinPage} />
       <Route path="/basic" component={Basic} />
-      <Route path="/login" component={AuthAwareLanding} />
-      <Route path="/signup" component={AuthAwareLanding} />
-      <Route path="/app/e/:eventId/overview" component={AppRoute} />
+      <Route path="/login" component={LoginPage} />
+      <Route path="/signup" component={LoginPage} />
       <Route path="/app/e/:eventId" component={AppRoute} />
       <Route path="/app/home" component={AppRoute} />
       <Route path="/app/private" component={AppRoute} />
@@ -210,10 +211,12 @@ function App() {
         <LanguageProvider>
           <UpgradeProvider>
             <NewPlanWizardProvider>
-              <AppErrorBoundary>
-                <Router />
-                <Toaster />
-              </AppErrorBoundary>
+              <PanelProvider>
+                <AppErrorBoundary>
+                  <Router />
+                  <Toaster />
+                </AppErrorBoundary>
+              </PanelProvider>
             </NewPlanWizardProvider>
           </UpgradeProvider>
         </LanguageProvider>

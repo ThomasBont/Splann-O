@@ -36,6 +36,13 @@ function getAppBase(req: Request): string {
   return base.replace(/\/$/, "");
 }
 
+function sanitizeAppRedirect(value: unknown): string | null {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw.startsWith("/")) return null;
+  if (raw.startsWith("//")) return null;
+  return raw;
+}
+
 function requireAdmin(req: Request): void {
   const admins = (process.env.ADMIN_USERNAMES ?? "")
     .split(",")
@@ -87,6 +94,13 @@ router.get(
 router.get(
   "/auth/google",
   ensureGoogleOAuthConfigured,
+  (req, _res, next) => {
+    const redirectTo = sanitizeAppRedirect(req.query.redirectTo);
+    if (req.session) {
+      req.session.oauthRedirectTo = redirectTo ?? undefined;
+    }
+    next();
+  },
   passport.authenticate("google", { scope: ["profile", "email"] }),
 );
 
@@ -98,6 +112,10 @@ router.get(
     const user = req.user as { id: number; username: string } | undefined;
     if (!user) return res.redirect("/login?error=google");
 
+    const redirectTo = sanitizeAppRedirect(req.session?.oauthRedirectTo) ?? "/app";
+    if (req.session) {
+      delete req.session.oauthRedirectTo;
+    }
     req.session!.userId = user.id;
     req.session!.username = user.username;
     req.session!.save((err: Error) => {
@@ -105,7 +123,7 @@ router.get(
         console.error("[session] save error on google callback:", err);
         return res.status(500).json({ message: "Session error" });
       }
-      return res.redirect("/app");
+      return res.redirect(redirectTo);
     });
   }),
 );

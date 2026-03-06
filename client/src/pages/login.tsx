@@ -9,15 +9,23 @@ import { ArrowLeft, Loader2 } from "lucide-react";
  * Dedicated full-page Login/Sign-up. Redirects to /app on success or when already logged in.
  */
 export default function LoginPage() {
+  const search = typeof window !== "undefined" ? window.location.search : "";
+  const params = new URLSearchParams(search);
+  const redirectTo = (() => {
+    const raw = params.get("redirect")?.trim() ?? "";
+    if (!raw.startsWith("/")) return "/app";
+    if (raw.startsWith("//")) return "/app";
+    return raw;
+  })();
   const [, setLocation] = useLocation();
   const { user, isLoading: isAuthLoading } = useAuth();
   const [dialogOpen, setDialogOpen] = useState(true);
 
   useEffect(() => {
     if (!isAuthLoading && user) {
-      setLocation("/app");
+      setLocation(redirectTo);
     }
-  }, [user, isAuthLoading, setLocation]);
+  }, [redirectTo, user, isAuthLoading, setLocation]);
 
   if (isAuthLoading) {
     return (
@@ -57,7 +65,8 @@ export default function LoginPage() {
             if (!open) setLocation("/");
           }}
           isCheckingAuth={false}
-          onSuccess={() => setLocation("/app")}
+          googleRedirectTo={redirectTo}
+          onSuccess={() => setLocation(redirectTo)}
         />
       </div>
     </div>

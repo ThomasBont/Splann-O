@@ -9,13 +9,14 @@ import { useUpgrade } from "@/contexts/UpgradeContext";
 import { UpgradeRequiredError } from "@/lib/upgrade";
 import { Button } from "@/components/ui/button";
 import { SplannoLogo } from "@/components/splanno-logo";
-import { Loader2 } from "lucide-react";
+import { ArrowRight, Loader2 } from "lucide-react";
 
 interface JoinInfo {
   bbqId: number;
   name: string;
   eventType: string;
   currency: string;
+  inviterName?: string | null;
 }
 
 export default function JoinPage() {
@@ -25,19 +26,48 @@ export default function JoinPage() {
   const token = paramsInvite?.token ?? paramsJoin?.token;
   const { user, isLoading: isAuthLoading } = useAuth();
   const [joined, setJoined] = useState(false);
+  const [joinTriggered, setJoinTriggered] = useState(false);
   const queryClient = useQueryClient();
+  const invitePath = paramsInvite?.token ? `/invite/${token}` : `/join/${token}`;
+  const loginHref = `/login?redirect=${encodeURIComponent(invitePath)}`;
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["/api/invites", token],
     queryFn: async (): Promise<JoinInfo> => {
       const inviteRes = await fetch(`/api/invites/${token}`, { credentials: "include" });
       if (inviteRes.ok) {
-        const body = await inviteRes.json() as { eventId: number; name: string; eventType: string; currency: string };
-        return { bbqId: body.eventId, name: body.name, eventType: body.eventType, currency: body.currency };
+        const body = await inviteRes.json() as {
+          eventId?: number;
+          id?: number;
+          name: string;
+          eventType: string;
+          currency: string;
+          inviterName?: string | null;
+        };
+        return {
+          bbqId: Number(body.eventId ?? body.id),
+          name: body.name,
+          eventType: body.eventType,
+          currency: body.currency,
+          inviterName: body.inviterName ?? null,
+        };
       }
       const fallback = await fetch(`/api/join/${token}`, { credentials: "include" });
       if (!fallback.ok) throw new Error("Invite not found");
-      return fallback.json();
+      const body = await fallback.json() as {
+        id: number;
+        name: string;
+        eventType: string;
+        currency: string;
+        inviterName?: string | null;
+      };
+      return {
+        bbqId: Number(body.id),
+        name: body.name,
+        eventType: body.eventType,
+        currency: body.currency,
+        inviterName: body.inviterName ?? null,
+      };
     },
     enabled: !!token,
   });
@@ -53,6 +83,8 @@ export default function JoinPage() {
 
   const handleJoin = () => {
     if (!user || !data) return;
+    if (joinTriggered) return;
+    setJoinTriggered(true);
     if (paramsInvite?.token) {
       fetch(`/api/invites/${token}/accept`, { method: "POST", credentials: "include" })
         .then(async (res) => {
@@ -76,6 +108,7 @@ export default function JoinPage() {
           setJoined(true);
         })
         .catch((err: unknown) => {
+          setJoinTriggered(false);
           if ((err as Error).message.includes("already")) setJoined(true);
         });
       return;
@@ -85,6 +118,7 @@ export default function JoinPage() {
       {
         onSuccess: () => setJoined(true),
         onError: (err: unknown) => {
+          setJoinTriggered(false);
           if (err instanceof UpgradeRequiredError) {
             showUpgrade(err.payload);
             return;
@@ -96,6 +130,11 @@ export default function JoinPage() {
       }
     );
   };
+
+  useEffect(() => {
+    if (!user || !data || joined || joinTriggered || joinBbq.isPending) return;
+    handleJoin();
+  }, [data, joinBbq.isPending, joinTriggered, joined, user]);
 
   if (!token) {
     return (
@@ -130,20 +169,37 @@ export default function JoinPage() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center gap-8 p-6 bg-background">
       <SplannoLogo />
-      <div className="text-center space-y-2">
-        <h1 className="text-xl font-semibold">You&apos;re invited to</h1>
-        <p className="text-2xl font-bold text-primary">{data?.name}</p>
-      </div>
-      {!user ? (
-        <div className="space-y-4">
-          <p className="text-sm text-muted-foreground">Log in to join this event.</p>
-          <Button onClick={() => setLocation("/login")}>Log in</Button>
+      <div className="w-full max-w-md rounded-3xl border border-border/60 bg-card px-6 py-7 shadow-sm">
+        <div className="text-center space-y-3">
+          <p className="text-sm font-medium text-muted-foreground">You&apos;re invited to join a plan</p>
+          <div className="space-y-1.5">
+            <h1 className="text-2xl font-semibold tracking-tight text-foreground">{data?.name}</h1>
+            <p className="text-sm text-muted-foreground">
+              {data?.inviterName ? `${data.inviterName} invited you to join this plan.` : "Open the invite and join the plan in one step."}
+            </p>
+          </div>
         </div>
-      ) : joinBbq.isPending || joined ? (
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-      ) : (
-        <Button onClick={handleJoin}>Join event</Button>
-      )}
+        {!user ? (
+          <div className="mt-6 space-y-3">
+            <Button className="w-full" onClick={() => setLocation(loginHref)}>
+              Join plan
+              <ArrowRight className="h-4 w-4" />
+            </Button>
+            <p className="text-center text-xs text-muted-foreground">
+              Create an account or log in, and we&apos;ll take you straight into the plan.
+            </p>
+          </div>
+        ) : joinBbq.isPending || joined || joinTriggered || isAuthLoading ? (
+          <div className="mt-6 flex flex-col items-center gap-3 py-2">
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            <p className="text-sm text-muted-foreground">Joining plan...</p>
+          </div>
+        ) : (
+          <div className="mt-6">
+            <Button className="w-full" onClick={handleJoin}>Join plan</Button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

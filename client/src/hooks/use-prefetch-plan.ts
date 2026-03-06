@@ -34,8 +34,6 @@ export function usePrefetchPlan() {
         queryFn,
         staleTime: PLAN_STALE_TIME_MS,
         gcTime: PLAN_GC_TIME_MS,
-        refetchOnWindowFocus: false,
-        refetchOnReconnect: true,
       });
     };
 

@@ -19,17 +19,25 @@ import { assertEventAccessOrThrow, asyncHandler, getBarbecueOr404, isEventMember
 
 const router = Router();
 
-router.get("/join/:token", asyncHandler(async (req, res) => {
-  const item = await participantRepo.getBarbecueByToken(String(req.params.token ?? ""));
+async function getInvitePreview(token: string) {
+  const item = await participantRepo.getBarbecueByToken(token);
   if (!item) notFound("Invite not found");
   if (item.visibility !== "private") forbidden("Invite is only available for private events");
+
+  const creator = item.creatorUserId ? await userRepo.findById(item.creatorUserId) : undefined;
+  return {
+    ...item,
+    inviterName: creator?.displayName || creator?.username || null,
+  };
+}
+
+router.get("/join/:token", asyncHandler(async (req, res) => {
+  const item = await getInvitePreview(String(req.params.token ?? ""));
   res.json(item);
 }));
 
 router.get("/invites/:token", asyncHandler(async (req, res) => {
-  const item = await participantRepo.getBarbecueByToken(String(req.params.token ?? ""));
-  if (!item) notFound("Invite not found");
-  if (item.visibility !== "private") forbidden("Invite is only available for private events");
+  const item = await getInvitePreview(String(req.params.token ?? ""));
   res.json(item);
 }));
 

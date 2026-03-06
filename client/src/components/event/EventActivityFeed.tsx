@@ -23,7 +23,7 @@ export interface EventActivityFeedProps {
   items: ActivityItem[];
   maxItems?: number;
   /** Optional: for i18n of "Recent activity" */
-  title?: string;
+  title?: string | null;
   className?: string;
 }
 
@@ -42,24 +42,26 @@ export function EventActivityFeed({
 
   return (
     <div className={className}>
-      <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
-        {title}
-      </h3>
+      {title ? (
+        <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          {title}
+        </h3>
+      ) : null}
       <ul className="space-y-0 divide-y divide-border/50">
         {displayItems.map((item) => (
           <li
             key={item.id}
-            className="flex items-start gap-3 py-2.5 px-1 -mx-1 rounded-lg hover:bg-muted/30 transition-colors"
+            className="mx-[-0.25rem] flex items-start gap-3 rounded-lg px-1 py-2.5 transition-colors hover:bg-[hsl(var(--surface-2))]"
           >
             <span
-              className="flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-sm bg-muted/50"
+              className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-[hsl(var(--surface-2))] text-sm"
               aria-hidden
             >
               {item.icon ?? "•"}
             </span>
             <div className="flex-1 min-w-0">
-              <p className="text-sm text-foreground/90">{item.message}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">
+              <p className="text-sm text-foreground">{item.message}</p>
+              <p className="mt-0.5 text-xs text-muted-foreground">
                 {formatRelativeTime(item.timestamp)}
               </p>
             </div>

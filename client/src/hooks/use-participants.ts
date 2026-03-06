@@ -3,23 +3,33 @@ import { api, buildUrl } from "@shared/routes";
 import type { InsertParticipant } from "@shared/routes";
 import type { Membership } from "@shared/schema";
 import { UpgradeRequiredError } from "@/lib/upgrade";
+import { PLAN_STALE_TIME_MS } from "@/lib/query-stale";
 
 type ApiRequestError = Error & {
   status?: number;
   code?: string;
 };
 
+export function participantsQueryKey(bbqId: number | null) {
+  return ['/api/barbecues', bbqId, 'participants'] as const;
+}
+
+export async function fetchParticipants(bbqId: number) {
+  const url = buildUrl(api.participants.list.path, { bbqId });
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Failed to fetch participants");
+  return res.json();
+}
+
 export function useParticipants(bbqId: number | null) {
   return useQuery({
-    queryKey: ['/api/barbecues', bbqId, 'participants'],
+    queryKey: participantsQueryKey(bbqId),
     queryFn: async () => {
       if (!bbqId) return [];
-      const url = buildUrl(api.participants.list.path, { bbqId });
-      const res = await fetch(url);
-      if (!res.ok) throw new Error("Failed to fetch participants");
-      return res.json();
+      return fetchParticipants(bbqId);
     },
     enabled: !!bbqId,
+    staleTime: PLAN_STALE_TIME_MS,
   });
 }
 
@@ -258,16 +268,25 @@ export type EventInviteView = {
   expiresAt?: string | null;
 };
 
+export function eventMembersQueryKey(eventId: number | null) {
+  return ["/api/events", eventId, "members"] as const;
+}
+
+export async function fetchEventMembers(eventId: number) {
+  const res = await fetch(`/api/events/${eventId}/members`, { credentials: "include" });
+  if (!res.ok) throw new Error("Failed to fetch members");
+  return (await res.json()) as EventMemberView[];
+}
+
 export function useEventMembers(eventId: number | null) {
   return useQuery<EventMemberView[]>({
-    queryKey: ["/api/events", eventId, "members"],
+    queryKey: eventMembersQueryKey(eventId),
     queryFn: async () => {
       if (!eventId) return [];
-      const res = await fetch(`/api/events/${eventId}/members`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch members");
-      return (await res.json()) as EventMemberView[];
+      return fetchEventMembers(eventId);
     },
     enabled: !!eventId,
+    staleTime: PLAN_STALE_TIME_MS,
   });
 }
 

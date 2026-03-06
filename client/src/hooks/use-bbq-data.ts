@@ -4,6 +4,7 @@ import type { Barbecue } from "@shared/schema";
 import { normalizeCountryCode } from "@shared/lib/country-code";
 import { UpgradeRequiredError, type UpgradeRequiredPayload } from "@/lib/upgrade";
 import { resolveAssetUrl } from "@/lib/asset-url";
+import { PLAN_STALE_TIME_MS } from "@/lib/query-stale";
 
 export type ExploreEvent = {
   id: number;
@@ -127,13 +128,42 @@ export type PublicProfilePayload = {
   events: PublicProfileEvent[];
 };
 
+export async function fetchBarbecues() {
+  const res = await fetch(api.barbecues.list.path, { credentials: "include" });
+  if (!res.ok) throw new Error("Failed to fetch barbecues");
+  return res.json() as Promise<Barbecue[]>;
+}
+
+export async function fetchPlan(planId: number) {
+  const all = await fetchBarbecues();
+  return all.find((plan) => Number(plan.id) === planId) ?? null;
+}
+
 export function useBarbecues() {
   return useQuery({
     queryKey: ['/api/barbecues'],
+    queryFn: fetchBarbecues,
+  });
+}
+
+export function usePlanById(planId: number | null, enabled = true) {
+  const queryClient = useQueryClient();
+  return useQuery<Barbecue | null>({
+    queryKey: ["plan", planId],
+    enabled: !!planId && enabled,
+    staleTime: PLAN_STALE_TIME_MS,
     queryFn: async () => {
-      const res = await fetch(api.barbecues.list.path, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch barbecues");
-      return res.json() as Promise<Barbecue[]>;
+      if (!planId) return null;
+      const cached = queryClient.getQueryData<Barbecue[]>(['/api/barbecues']);
+      if (Array.isArray(cached)) {
+        const plan = cached.find((item) => Number(item.id) === planId) ?? null;
+        if (plan) return plan;
+      }
+      const all = await queryClient.fetchQuery({
+        queryKey: ['/api/barbecues'],
+        queryFn: fetchBarbecues,
+      });
+      return all.find((item) => Number(item.id) === planId) ?? null;
     },
   });
 }

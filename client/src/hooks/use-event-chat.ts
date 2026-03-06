@@ -4,6 +4,7 @@ import { getApiBase, getEventChatWsUrl } from "@/lib/network";
 import { planBalancesQueryKey, type RealtimePlanBalances } from "@/hooks/use-expenses";
 import { dedupeExpenseSystemMessages } from "@/lib/chat/dedupe-expense-system-messages";
 import { filterChatMessages } from "@/lib/chat/filter-chat-messages";
+import { PLAN_STALE_TIME_MS } from "@/lib/query-stale";
 
 export type ChatMessage = {
   id: string;
@@ -48,6 +49,50 @@ type IncomingServerMessage = {
   reactions?: Array<{ emoji?: string; count?: number; me?: boolean }>;
   user?: { id?: string | number | null; name?: string | null; avatarUrl?: string | null };
 };
+
+export type PlanMessagesPage = {
+  messages: ChatMessage[];
+  nextCursor: string | null;
+  locked: boolean;
+};
+
+export function planMessagesQueryKey(planId: number | null) {
+  return ["planMessages", planId] as const;
+}
+
+export async function fetchPlanMessages(planId: number, before?: string | null): Promise<PlanMessagesPage> {
+  const planUrl = before
+    ? `/api/plans/${planId}/chat/messages?limit=50&before=${encodeURIComponent(before)}`
+    : `/api/plans/${planId}/chat/messages?limit=50`;
+  const legacyUrl = before
+    ? `/api/events/${planId}/chat?limit=50&before=${encodeURIComponent(before)}`
+    : `/api/events/${planId}/chat?limit=50`;
+
+  const load = async (url: string) => {
+    const res = await fetch(url, { credentials: "include" });
+    const body = await res.json().catch(() => ({}));
+    return { res, body };
+  };
+
+  let { res, body } = await load(planUrl);
+  if (!res.ok && res.status === 404) {
+    ({ res, body } = await load(legacyUrl));
+  }
+  if (!res.ok) throw new Error((body as { message?: string })?.message || "Failed to load chat");
+
+  const raw = body as { messages?: unknown; nextCursor?: unknown; locked?: unknown };
+  const incoming = Array.isArray(raw.messages)
+    ? (raw.messages as IncomingServerMessage[])
+      .map(normalizeIncomingMessage)
+      .filter((message): message is ChatMessage => !!message)
+    : [];
+
+  return {
+    messages: incoming,
+    nextCursor: typeof raw.nextCursor === "string" && raw.nextCursor ? raw.nextCursor : null,
+    locked: raw.locked === true,
+  };
+}
 
 function createClientMessageId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
@@ -230,51 +275,21 @@ export function useEventChat(eventId: number | null, enabled = true) {
 
   const fetchHistoryPage = useCallback(async (before?: string | null) => {
     if (!eventId || !enabled) return { messages: [] as ChatMessage[], nextCursor: null as string | null, locked: false };
-    const planUrl = before
-      ? `/api/plans/${eventId}/chat/messages?limit=50&before=${encodeURIComponent(before)}`
-      : `/api/plans/${eventId}/chat/messages?limit=50`;
-    const legacyUrl = before
-      ? `/api/events/${eventId}/chat?limit=50&before=${encodeURIComponent(before)}`
-      : `/api/events/${eventId}/chat?limit=50`;
-
-    const load = async (url: string) => {
-      if (import.meta.env.DEV) {
-        console.log("[chat-history] fetch", { eventId, url, before: before ?? null });
-      }
-      const res = await fetch(url, { credentials: "include" });
-      const body = await res.json().catch(() => ({}));
-      return { res, body };
-    };
-
-    let { res, body } = await load(planUrl);
-    if (!res.ok && res.status === 404) {
-      ({ res, body } = await load(legacyUrl));
+    if (import.meta.env.DEV) {
+      console.log("[chat-history] fetch", { eventId, before: before ?? null });
     }
-    if (!res.ok) throw new Error((body as { message?: string })?.message || "Failed to load chat");
-
-    const raw = body as { messages?: unknown; nextCursor?: unknown; locked?: unknown };
-    const incoming = Array.isArray(raw.messages)
-      ? (raw.messages as IncomingServerMessage[])
-        .map(normalizeIncomingMessage)
-        .filter((message): message is ChatMessage => !!message)
-      : [];
-
+    const page = await fetchPlanMessages(eventId, before);
     if (import.meta.env.DEV) {
       console.log("[chat-history] loaded", {
         eventId,
-        count: incoming.length,
-        nextCursor: typeof raw.nextCursor === "string" ? raw.nextCursor : null,
+        count: page.messages.length,
+        nextCursor: page.nextCursor,
       });
-      if (incoming.length === 0) {
+      if (page.messages.length === 0) {
         console.warn("[chat-history] empty result; if messages are expected, verify DB persistence and eventId wiring", { eventId });
       }
     }
-
-    return {
-      messages: incoming,
-      nextCursor: typeof raw.nextCursor === "string" && raw.nextCursor ? raw.nextCursor : null,
-      locked: raw.locked === true,
-    };
+    return page;
   }, [enabled, eventId]);
 
   const fetchInitialHistory = useCallback(async () => {
@@ -283,12 +298,26 @@ export function useEventChat(eventId: number | null, enabled = true) {
       setNextCursor(null);
       return;
     }
-    setHistoryLoading(true);
+    const cacheKey = planMessagesQueryKey(eventId);
+    const cached = queryClient.getQueryData<PlanMessagesPage>(cacheKey);
+    if (cached) {
+      setMessages(dedupeAndSort(cached.messages));
+      setNextCursor(cached.nextCursor);
+      setIsLocked(cached.locked);
+      if (cached.locked) setConnectionStatus("locked");
+    }
+    setHistoryLoading(!cached);
     setHistoryError(null);
-    setIsLocked(false);
-    isLockedRef.current = false;
+    if (!cached) {
+      setIsLocked(false);
+      isLockedRef.current = false;
+    }
     try {
-      const page = await fetchHistoryPage(null);
+      const page = await queryClient.fetchQuery({
+        queryKey: cacheKey,
+        queryFn: () => fetchHistoryPage(null),
+        staleTime: PLAN_STALE_TIME_MS,
+      });
       setMessages(dedupeAndSort(page.messages));
       setNextCursor(page.nextCursor);
       setIsLocked(page.locked);
@@ -300,7 +329,7 @@ export function useEventChat(eventId: number | null, enabled = true) {
     } finally {
       setHistoryLoading(false);
     }
-  }, [enabled, eventId, fetchHistoryPage]);
+  }, [enabled, eventId, fetchHistoryPage, queryClient]);
 
   const loadOlder = useCallback(async () => {
     if (!eventId || !enabled || !nextCursor || historyLoadingOlder) return;
@@ -347,6 +376,15 @@ export function useEventChat(eventId: number | null, enabled = true) {
   useEffect(() => {
     void fetchInitialHistory();
   }, [fetchInitialHistory, retryTick]);
+
+  useEffect(() => {
+    if (!eventId || !enabled) return;
+    queryClient.setQueryData<PlanMessagesPage>(planMessagesQueryKey(eventId), {
+      messages,
+      nextCursor,
+      locked: isLocked,
+    });
+  }, [enabled, eventId, isLocked, messages, nextCursor, queryClient]);
 
   useEffect(() => {
     loggedTransportRef.current = false;

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar, CreditCard, Loader2, MapPin, MessageCircle, Paperclip, SendHorizontal, Smile, Users } from "lucide-react";
+import { Calendar, CreditCard, Loader2, MapPin, MessageCircle, MoreHorizontal, Paperclip, Reply, SendHorizontal, Smile, Users } from "lucide-react";
 import { InlineQueryError, SkeletonLine } from "@/components/ui/load-states";
 import { useEventChat } from "@/hooks/use-event-chat";
 import { useAppToast } from "@/hooks/use-app-toast";
@@ -30,6 +30,10 @@ type ChatSidebarProps = {
 
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
 const QUICK_EMOJIS = ["😀", "😂", "😍", "🙏", "🔥", "🎉", "👍", "❤️"];
+const NEAR_BOTTOM_THRESHOLD_PX = 120;
+const AMOUNT_PATTERN = /€\s?(\d+(?:[.,]\d{1,2})?)/i;
+const PAID_BY_PATTERN = /(paid by|by)\s+@?(\w+)/i;
+const SPLIT_PATTERN = /(split)\s+(\d+)/i;
 
 function formatMessageTime(value: string) {
   const date = new Date(value);
@@ -204,6 +208,60 @@ function formatHeaderDate(value: Date | string | null | undefined): string {
   return `${day} · ${time}`;
 }
 
+function parseExpenseSuggestion(text: string): {
+  amount?: number;
+  paidBy?: string;
+  splitCount?: number;
+  description?: string;
+} | null {
+  const source = text.trim();
+  if (!source) return null;
+  const amountMatch = source.match(AMOUNT_PATTERN);
+  const paidByMatch = source.match(PAID_BY_PATTERN);
+  const splitMatch = source.match(SPLIT_PATTERN);
+  const amount = amountMatch ? Number(amountMatch[1].replace(",", ".")) : undefined;
+  const paidBy = paidByMatch?.[2]?.trim();
+  const splitCount = splitMatch ? Number(splitMatch[2]) : undefined;
+
+  let description = source;
+  if (amountMatch?.[0]) description = description.replace(amountMatch[0], " ");
+  if (paidByMatch?.[0]) description = description.replace(paidByMatch[0], " ");
+  if (splitMatch?.[0]) description = description.replace(splitMatch[0], " ");
+  description = description.replace(/\s+/g, " ").trim();
+
+  const hasAny = (Number.isFinite(amount) && (amount ?? 0) > 0) || !!paidBy || (Number.isFinite(splitCount) && (splitCount ?? 0) > 0);
+  if (!hasAny) return null;
+  return {
+    amount: Number.isFinite(amount) && (amount ?? 0) > 0 ? amount : undefined,
+    paidBy: paidBy || undefined,
+    splitCount: Number.isFinite(splitCount) && (splitCount ?? 0) > 0 ? Math.floor(splitCount!) : undefined,
+    description: description || undefined,
+  };
+}
+
+function summarizeMessageReactions(
+  reactions: Array<{ emoji: string; count: number; me?: boolean }>,
+): Array<{ emoji: string; count: number; me: boolean }> {
+  const byEmoji = new Map<string, { emoji: string; count: number; me: boolean }>();
+  for (const reaction of reactions) {
+    const emoji = String(reaction.emoji ?? "").trim();
+    if (!emoji) continue;
+    const existing = byEmoji.get(emoji);
+    const nextCount = Number.isFinite(reaction.count) ? reaction.count : 0;
+    if (existing) {
+      existing.count += nextCount;
+      existing.me = existing.me || !!reaction.me;
+    } else {
+      byEmoji.set(emoji, {
+        emoji,
+        count: nextCount,
+        me: !!reaction.me,
+      });
+    }
+  }
+  return Array.from(byEmoji.values()).filter((item) => item.count > 0);
+}
+
 function isGroupedWithNeighbor(
   current: { type?: string; createdAt: string; user?: { id?: string | null; name?: string | null } },
   neighbor?: { type?: string; createdAt: string; user?: { id?: string | null; name?: string | null } },
@@ -245,6 +303,12 @@ export function ChatSidebar({
   const typingEmitTimerRef = useRef<number | null>(null);
   const typingStopTimerRef = useRef<number | null>(null);
   const [isNearBottom, setIsNearBottom] = useState(true);
+  const isNearBottomRef = useRef(true);
+  const didInitialScrollRef = useRef(false);
+  const prevMessageLengthRef = useRef(0);
+  const prevLastMessageIdRef = useRef<string | null>(null);
+  const [unseenCount, setUnseenCount] = useState(0);
+  const [showNewPill, setShowNewPill] = useState(false);
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
   const [optimisticallyDeletedExpenseIds, setOptimisticallyDeletedExpenseIds] = useState<number[]>([]);
   const {
@@ -279,12 +343,74 @@ export function ChatSidebar({
     return map;
   }, [membersQuery.data]);
 
+  const computeIsNearBottom = useCallback((el: HTMLDivElement): boolean => {
+    const remaining = el.scrollHeight - (el.scrollTop + el.clientHeight);
+    return remaining < NEAR_BOTTOM_THRESHOLD_PX;
+  }, []);
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    const el = listRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior });
+  }, []);
+
   useEffect(() => {
     const el = listRef.current;
     if (!el) return;
-    if (!isNearBottom) return;
-    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-  }, [messages, isNearBottom]);
+    let rafId: number | null = null;
+    const onScroll = () => {
+      if (rafId != null) return;
+      rafId = window.requestAnimationFrame(() => {
+        rafId = null;
+        const nearBottom = computeIsNearBottom(el);
+        isNearBottomRef.current = nearBottom;
+        setIsNearBottom((prev) => (prev === nearBottom ? prev : nearBottom));
+        if (nearBottom) {
+          setUnseenCount(0);
+          setShowNewPill(false);
+        }
+      });
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    onScroll();
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      if (rafId != null) window.cancelAnimationFrame(rafId);
+    };
+  }, [computeIsNearBottom]);
+
+  useEffect(() => {
+    const nextLength = messages.length;
+    const prevLength = prevMessageLengthRef.current;
+    const nextLastId = nextLength > 0 ? messages[nextLength - 1]?.id ?? null : null;
+
+    if (!didInitialScrollRef.current && nextLength > 0) {
+      scrollToBottom("auto");
+      didInitialScrollRef.current = true;
+      prevMessageLengthRef.current = nextLength;
+      prevLastMessageIdRef.current = nextLastId;
+      setUnseenCount(0);
+      setShowNewPill(false);
+      return;
+    }
+
+    if (nextLength > prevLength && prevLength > 0) {
+      const prevLastId = prevLastMessageIdRef.current;
+      const appendOnly = !!prevLastId && messages[prevLength - 1]?.id === prevLastId;
+      if (appendOnly && !historyLoadingOlder) {
+        if (isNearBottomRef.current) {
+          scrollToBottom("smooth");
+        } else {
+          const addedCount = Math.max(1, nextLength - prevLength);
+          setUnseenCount((count) => count + addedCount);
+          setShowNewPill(true);
+        }
+      }
+    }
+
+    prevMessageLengthRef.current = nextLength;
+    prevLastMessageIdRef.current = nextLastId;
+  }, [messages, historyLoadingOlder, scrollToBottom]);
 
   useEffect(() => {
     return () => {
@@ -435,6 +561,7 @@ export function ChatSidebar({
     const meId = String(currentUser?.id ?? "");
     return typingUsers.filter((user) => String(user.id) !== meId);
   }, [currentUser?.id, typingUsers]);
+  const expenseSuggestion = useMemo(() => parseExpenseSuggestion(draft), [draft]);
 
   const openExpenseEditor = useCallback((expenseId: number) => {
     if (!eventId) return;
@@ -484,10 +611,80 @@ export function ChatSidebar({
     if (!hasEventId) return;
     window.dispatchEvent(new CustomEvent("splanno:open-expenses", { detail: { eventId } }));
   };
+  const openCreateExpenseFromSuggestion = () => {
+    if (!hasEventId || !expenseSuggestion) return;
+    window.dispatchEvent(new CustomEvent("splanno:open-expenses", {
+      detail: {
+        eventId,
+        initialView: "expense-form",
+        prefill: {
+          amount: expenseSuggestion.amount ?? null,
+          item: expenseSuggestion.description ?? null,
+          paidBy: expenseSuggestion.paidBy ?? null,
+          splitCount: expenseSuggestion.splitCount ?? null,
+        },
+      },
+    }));
+  };
+  const messageGroups = useMemo(() => {
+    type ChatMessage = (typeof messages)[number];
+    type MessageGroup = {
+      id: string;
+      isSystem: boolean;
+      senderKey: string | null;
+      messages: ChatMessage[];
+      startTs: number;
+      lastTs: number;
+    };
+    const groups: MessageGroup[] = [];
+    for (const message of messages) {
+      const timestamp = new Date(message.createdAt).getTime();
+      const safeTs = Number.isFinite(timestamp) ? timestamp : Date.now();
+      if (message.type === "system") {
+        groups.push({
+          id: `sys-${message.id}`,
+          isSystem: true,
+          senderKey: null,
+          messages: [message],
+          startTs: safeTs,
+          lastTs: safeTs,
+        });
+        continue;
+      }
+      const senderKey = getMessageSenderKey(message) ?? `user:fallback:${message.id}`;
+      const lastGroup = groups[groups.length - 1];
+      const lastMessageInGroup = lastGroup?.messages[lastGroup.messages.length - 1];
+      const lastMessageTs = lastMessageInGroup ? new Date(lastMessageInGroup.createdAt).getTime() : NaN;
+      const sameDayAsLast = lastMessageInGroup
+        ? isSameDay(new Date(lastMessageInGroup.createdAt), new Date(message.createdAt))
+        : false;
+      if (
+        lastGroup
+        && !lastGroup.isSystem
+        && lastGroup.senderKey === senderKey
+        && Number.isFinite(lastMessageTs)
+        && Math.abs(safeTs - lastMessageTs) < GROUP_WINDOW_MS
+        && sameDayAsLast
+      ) {
+        lastGroup.messages.push(message);
+        lastGroup.lastTs = safeTs;
+      } else {
+        groups.push({
+          id: `usr-${message.id}`,
+          isSystem: false,
+          senderKey,
+          messages: [message],
+          startTs: safeTs,
+          lastTs: safeTs,
+        });
+      }
+    }
+    return groups;
+  }, [messages]);
 
   return (
     <aside
-      className={cn("pointer-events-auto flex h-full min-h-0 flex-col overflow-hidden bg-background", className)}
+      className={cn("pointer-events-auto relative flex h-full min-h-0 flex-col overflow-hidden bg-background", className)}
       style={
         {
           "--chat-bg":
@@ -557,11 +754,6 @@ export function ChatSidebar({
       <div
         ref={listRef}
         className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden bg-[var(--chat-bg)]"
-        onScroll={(e) => {
-          const el = e.currentTarget;
-          const delta = el.scrollHeight - (el.scrollTop + el.clientHeight);
-          setIsNearBottom(delta < 64);
-        }}
       >
         <div className="mx-auto flex min-h-full w-full max-w-[1040px] px-4 py-4 sm:px-8 sm:py-6">
         <div className="flex min-h-full w-full flex-col justify-end gap-2">
@@ -595,15 +787,16 @@ export function ChatSidebar({
             </div>
           </div>
         ) : (
-          messages.map((msg, msgIndex) => {
-            const previousMsg = msgIndex > 0 ? messages[msgIndex - 1] : undefined;
-            const currentDate = new Date(msg.createdAt);
-            const prevDate = previousMsg ? new Date(previousMsg.createdAt) : null;
-            const showDateSeparator = !prevDate
-              || Number.isNaN(prevDate.getTime())
-              || Number.isNaN(currentDate.getTime())
-              || !isSameDay(currentDate, prevDate);
-            if (msg.type === "system") {
+          messageGroups.map((group, groupIndex) => {
+            const firstMsg = group.messages[0];
+            if (!firstMsg) return null;
+            const previousGroup = groupIndex > 0 ? messageGroups[groupIndex - 1] : null;
+            const previousDate = previousGroup?.messages[0]?.createdAt;
+            const showDateSeparator = !previousDate
+              || !isSameDay(new Date(firstMsg.createdAt), new Date(previousDate));
+
+            if (group.isSystem) {
+              const msg = firstMsg;
               const systemName = msg.user?.name || SYSTEM_USER_NAME;
               const expenseMeta = toExpenseMetadata(msg.metadata ?? null);
               const settlementMeta = toSettlementMetadata(msg.metadata ?? null);
@@ -620,14 +813,10 @@ export function ChatSidebar({
                 ? settlementCache?.transfers?.find((transfer) => transfer.id === settlementPaymentMeta.transferId)
                 : null;
               const fromName = paymentTransfer?.fromName
-                || (settlementPaymentMeta
-                  ? membersById.get(String(settlementPaymentMeta.fromUserId))?.name
-                  : null)
+                || (settlementPaymentMeta ? membersById.get(String(settlementPaymentMeta.fromUserId))?.name : null)
                 || null;
               const toName = paymentTransfer?.toName
-                || (settlementPaymentMeta
-                  ? membersById.get(String(settlementPaymentMeta.toUserId))?.name
-                  : null)
+                || (settlementPaymentMeta ? membersById.get(String(settlementPaymentMeta.toUserId))?.name : null)
                 || null;
               const paymentAmount = settlementPaymentMeta
                 ? formatMoneyForSystem(
@@ -635,9 +824,8 @@ export function ChatSidebar({
                   paymentTransfer?.currency ?? settlementPaymentMeta.currency,
                 )
                 : null;
-              const groupedWithPrev = isGroupedWithNeighbor(msg, previousMsg);
               return (
-                <div key={msg.id}>
+                <div key={group.id} className="mb-5">
                   {showDateSeparator ? (
                     <div className="my-2 flex justify-center">
                       <span className="self-center rounded-full border border-border/70 bg-muted/60 px-3 py-1 text-xs text-muted-foreground">
@@ -645,23 +833,19 @@ export function ChatSidebar({
                       </span>
                     </div>
                   ) : null}
-                  <div className={`flex justify-start ${groupedWithPrev ? "mt-1" : "mt-2"}`}>
+                  <div className="mt-2 flex justify-start">
                     <div className="mr-2 flex w-10 flex-col items-center pt-0.5">
-                      {!groupedWithPrev ? (
-                        <span className="grid h-7 w-7 place-items-center rounded-full border border-border/70 bg-muted text-[11px] font-semibold text-muted-foreground">
-                          S
-                        </span>
-                      ) : null}
+                      <span className="grid h-7 w-7 place-items-center rounded-full border border-border/70 bg-muted text-[11px] font-semibold text-muted-foreground">
+                        S
+                      </span>
                     </div>
                     <div className="max-w-[84%] sm:max-w-[78%]">
-                      {!groupedWithPrev ? (
-                        <div className="mb-1 px-1 text-[11px] text-muted-foreground">
-                          <span className="font-semibold text-foreground/90">{systemName}</span>
-                          <span className="ml-1 rounded-full border border-border/60 bg-card/60 px-1.5 py-0 text-[9px] uppercase tracking-wide">System</span>
-                          <span className="px-1 text-muted-foreground/70">·</span>
-                          <span className="text-[10px] text-muted-foreground/70">{formatMessageTime(msg.createdAt)}</span>
-                        </div>
-                      ) : null}
+                      <div className="mb-1 px-1 text-[11px] text-muted-foreground">
+                        <span className="font-semibold text-foreground/90">{systemName}</span>
+                        <span className="ml-1 rounded-full border border-border/60 bg-card/60 px-1.5 py-0 text-[9px] uppercase tracking-wide">System</span>
+                        <span className="px-1 text-muted-foreground/70">·</span>
+                        <span className="text-[10px] text-muted-foreground/70">{formatMessageTime(msg.createdAt)}</span>
+                      </div>
                       {expenseMeta ? (
                         <ExpenseCard
                           eventId={Number(msg.eventId || eventId || 0)}
@@ -679,17 +863,11 @@ export function ChatSidebar({
                           onCopyAmount={handleCopyAmount}
                         />
                       ) : settlementMeta ? (
-                        settlementMeta.action === "settled" ? (
-                          <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/8 px-4 py-2.5 text-sm text-emerald-800 dark:text-emerald-300">
-                            <p className="whitespace-pre-wrap break-words font-medium">✅ All settled up</p>
-                          </div>
-                        ) : (
-                          <SettlementCard
-                            eventId={Number(msg.eventId || eventId || 0)}
-                            settlementId={settlementMeta.settlementId}
-                            currency={settlementMeta.currency || currency}
-                          />
-                        )
+                        <SettlementCard
+                          eventId={Number(msg.eventId || eventId || 0)}
+                          settlementId={settlementMeta.settlementId}
+                          currency={settlementMeta.currency || currency}
+                        />
                       ) : settlementPaymentMeta ? (
                         <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/8 px-4 py-2.5 text-sm text-emerald-800 dark:text-emerald-300">
                           {fromName && toName && paymentAmount ? (
@@ -726,133 +904,182 @@ export function ChatSidebar({
               );
             }
 
-            const senderId = String(msg.user?.id ?? "");
+            const senderId = String(firstMsg.user?.id ?? "");
             const senderFromMember = senderId ? membersById.get(senderId) : undefined;
-            const senderName = msg.user?.name || senderFromMember?.name || "Unknown user";
-            const senderAvatar = msg.user?.avatarUrl ?? senderFromMember?.avatarUrl ?? null;
-            const mine = senderId !== SYSTEM_USER_ID && (senderId === String(currentUser?.id ?? "") || msg.user?.name === currentUser?.username);
-            const groupedWithPrev = isGroupedWithNeighbor(msg, previousMsg);
+            const senderName = firstMsg.user?.name || senderFromMember?.name || "Unknown user";
+            const senderAvatar = firstMsg.user?.avatarUrl ?? senderFromMember?.avatarUrl ?? null;
+            const mine = senderId !== SYSTEM_USER_ID
+              && (senderId === String(currentUser?.id ?? "") || firstMsg.user?.name === currentUser?.username);
+            const latestMessage = group.messages[group.messages.length - 1];
+            const groupReactionSummary = summarizeMessageReactions(
+              group.messages.flatMap((message) => message.reactions ?? []),
+            );
+            const hasGroupReactions = groupReactionSummary.length > 0;
+
             return (
-              <div key={msg.id}>
+              <div key={group.id} className="mb-5">
                 {showDateSeparator ? (
                   <div className="my-2 flex justify-center">
                     <span className="self-center rounded-full border border-border/70 bg-muted/60 px-3 py-1 text-xs text-muted-foreground">
-                      {formatDateSeparator(msg.createdAt)}
+                      {formatDateSeparator(firstMsg.createdAt)}
                     </span>
                   </div>
                 ) : null}
-                <div className={`group/message flex ${mine ? "justify-end" : "justify-start"} ${groupedWithPrev ? "mt-1" : "mt-2"}`}>
+                <div className={cn("mt-4 flex items-start", mine ? "justify-end" : "justify-start gap-3")}>
                   {!mine ? (
-                    <div className="mr-2 flex w-10 flex-col items-center pt-0.5">
-                      {!groupedWithPrev ? (
-                        senderAvatar ? (
-                          <img src={senderAvatar} alt="" className="h-7 w-7 rounded-full border border-border/70 object-cover" />
-                        ) : (
-                          <span className="grid h-7 w-7 place-items-center rounded-full border border-border/70 bg-card text-[10px] font-semibold text-muted-foreground">
-                            {getInitials(senderName)}
-                          </span>
-                        )
-                      ) : null}
+                    <div className="w-8 shrink-0 pt-0.5">
+                      {senderAvatar ? (
+                        <img src={senderAvatar} alt="" className="h-7 w-7 rounded-full border border-border/70 object-cover" />
+                      ) : (
+                        <span className="grid h-7 w-7 place-items-center rounded-full border border-border/70 bg-card text-[10px] font-semibold text-muted-foreground">
+                          {getInitials(senderName)}
+                        </span>
+                      )}
                     </div>
                   ) : null}
-                  <div className={`${mine ? "max-w-[88%] items-end sm:max-w-[80%]" : "max-w-[88%] items-start sm:max-w-[80%]"} flex flex-col`}>
-                    {!groupedWithPrev ? (
-                      <div className={`mb-1 px-1 text-xs text-muted-foreground ${mine ? "text-right" : ""}`}>
-                        <span className="font-medium text-foreground">
-                          {mine ? "You" : senderName}
-                        </span>
-                        <span className="px-1.5 text-muted-foreground/70">·</span>
-                        <span>{formatMessageTime(msg.createdAt)}</span>
-                      </div>
-                    ) : null}
-                    <div
-                      className={`rounded-2xl px-4 py-2 text-sm leading-snug shadow-sm ${mine
-                        ? "rounded-tr-lg bg-primary text-slate-900"
-                        : "rounded-tl-lg border border-border/70 bg-background/95 text-foreground dark:bg-neutral-800/92 dark:border-neutral-700/80"}`}
-                    >
-                      <p className="whitespace-pre-wrap break-words">{msg.text}</p>
-                      {msg.status === "sending" ? (
-                        <div className={`mt-1 text-[10px] ${mine ? "text-slate-800/70" : "text-muted-foreground"}`}>
-                          sending…
-                        </div>
-                      ) : null}
-                      {msg.status === "failed" && msg.clientMessageId ? (
-                        <div className="mt-1 flex items-center gap-2">
-                          <p className={`text-[10px] ${mine ? "text-white/90" : "text-destructive"}`}>failed</p>
-                          <button
-                            type="button"
-                            className={`text-[10px] underline underline-offset-2 ${mine ? "text-white" : "text-foreground"}`}
-                            onClick={() => {
-                              void retrySend(msg.clientMessageId!, {
-                                id: currentUser?.id ?? null,
-                                name: currentUser?.username ?? "You",
-                                avatarUrl: currentUser?.avatarUrl ?? null,
-                              });
-                            }}
-                          >
-                            Retry
-                          </button>
-                        </div>
-                      ) : null}
+                  <div className={cn("flex flex-col", mine ? "max-w-[88%] items-end sm:max-w-[80%]" : "max-w-[88%] items-start sm:max-w-[80%]")}>
+                    <div className={cn("mb-1 px-1 text-xs text-muted-foreground", mine ? "text-right" : "")}>
+                      <span className="font-medium text-foreground">{mine ? "You" : senderName}</span>
+                      <span className="px-1.5 text-muted-foreground/70">·</span>
+                      <span>{formatMessageTime(firstMsg.createdAt)}</span>
                     </div>
-                    <div className="mt-1 flex items-center gap-1">
-                      {(msg.reactions ?? []).map((reaction) => (
-                        <button
-                          key={`${msg.id}-${reaction.emoji}`}
-                          type="button"
+                    <div className={cn("group/bubble inline-flex flex-col", mine ? "items-end" : "items-start")}>
+                      <div className="relative">
+                        <div
                           className={cn(
-                            "inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[11px] transition",
-                            reaction.me
-                              ? "border-primary/40 bg-primary/15 text-foreground"
-                              : "border-border/70 bg-card/70 text-muted-foreground hover:bg-muted/40",
+                            "rounded-2xl px-4 py-2 text-sm leading-snug shadow-sm",
+                            mine
+                              ? "bg-primary text-slate-900"
+                              : "border border-border/70 bg-background/95 text-foreground dark:bg-neutral-800/92 dark:border-neutral-700/80",
                           )}
-                          onClick={() => {
-                            void toggleReaction({
-                              messageId: msg.id,
-                              emoji: reaction.emoji,
-                              actorId: currentUser?.id ?? null,
-                            });
-                          }}
                         >
-                          <span>{reaction.emoji}</span>
-                          <span>{reaction.count}</span>
-                        </button>
-                      ))}
-                      <Popover
-                        open={reactionPickerMessageId === msg.id}
-                        onOpenChange={(open) => setReactionPickerMessageId(open ? msg.id : null)}
-                      >
-                        <PopoverTrigger asChild>
-                          <button
-                            type="button"
-                            aria-label="Add reaction"
-                            className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-border/60 bg-card/70 text-muted-foreground opacity-100 transition md:opacity-0 md:group-hover/message:opacity-100 hover:bg-muted/50"
-                          >
-                            <Smile className="h-3.5 w-3.5" />
-                          </button>
-                        </PopoverTrigger>
-                        <PopoverContent align={mine ? "end" : "start"} className="w-44 p-2">
-                          <div className="grid grid-cols-4 gap-1">
-                            {QUICK_EMOJIS.map((emoji) => (
-                              <button
-                                key={`${msg.id}-${emoji}`}
-                                type="button"
-                                className="grid h-8 w-8 place-items-center rounded-md text-base transition hover:bg-muted"
-                                onClick={() => {
-                                  void toggleReaction({
-                                    messageId: msg.id,
-                                    emoji,
-                                    actorId: currentUser?.id ?? null,
-                                  });
-                                  setReactionPickerMessageId(null);
-                                }}
+                          <div className="flex flex-col gap-1.5">
+                            {group.messages.map((msg, msgIndexInGroup) => (
+                              <div
+                                key={msg.id}
+                                className={cn(
+                                  "whitespace-pre-wrap break-words leading-snug",
+                                  msgIndexInGroup > 0 ? "border-t border-border/40 pt-1" : "",
+                                )}
                               >
-                                {emoji}
-                              </button>
+                                <p>{msg.text}</p>
+                                {msg.status === "sending" ? (
+                                  <div className={cn("mt-1 text-[10px]", mine ? "text-slate-800/70" : "text-muted-foreground")}>
+                                    sending…
+                                  </div>
+                                ) : null}
+                                {msg.status === "failed" && msg.clientMessageId ? (
+                                  <div className="mt-1 flex items-center gap-2">
+                                    <p className={cn("text-[10px]", mine ? "text-white/90" : "text-destructive")}>failed</p>
+                                    <button
+                                      type="button"
+                                      className={cn("text-[10px] underline underline-offset-2", mine ? "text-white" : "text-foreground")}
+                                      onClick={() => {
+                                        void retrySend(msg.clientMessageId!, {
+                                          id: currentUser?.id ?? null,
+                                          name: currentUser?.username ?? "You",
+                                          avatarUrl: currentUser?.avatarUrl ?? null,
+                                        });
+                                      }}
+                                    >
+                                      Retry
+                                    </button>
+                                  </div>
+                                ) : null}
+                              </div>
                             ))}
                           </div>
-                        </PopoverContent>
-                      </Popover>
+                        </div>
+                        <div
+                          className={cn(
+                            "pointer-events-none absolute top-1/2 z-20 hidden -translate-y-1/2 items-center gap-1 opacity-0 transition duration-150 md:flex md:group-hover/bubble:pointer-events-auto md:group-hover/bubble:opacity-100",
+                            mine ? "left-[-36px]" : "right-[-36px]",
+                          )}
+                        >
+                          <Popover
+                            open={reactionPickerMessageId === latestMessage.id}
+                            onOpenChange={(open) => setReactionPickerMessageId(open ? latestMessage.id : null)}
+                          >
+                            <PopoverTrigger asChild>
+                              <button
+                                type="button"
+                                aria-label="React to message"
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-full border bg-background shadow-sm transition hover:bg-muted"
+                              >
+                                <Smile className="h-3.5 w-3.5" />
+                              </button>
+                            </PopoverTrigger>
+                            <PopoverContent align={mine ? "end" : "start"} className="w-44 p-2">
+                              <div className="grid grid-cols-4 gap-1">
+                                {QUICK_EMOJIS.map((emoji) => (
+                                  <button
+                                    key={`${latestMessage.id}-hover-${emoji}`}
+                                    type="button"
+                                    className="grid h-8 w-8 place-items-center rounded-md text-base transition hover:bg-muted"
+                                    onClick={() => {
+                                      void toggleReaction({
+                                        messageId: latestMessage.id,
+                                        emoji,
+                                        actorId: currentUser?.id ?? null,
+                                      });
+                                      setReactionPickerMessageId(null);
+                                    }}
+                                  >
+                                    {emoji}
+                                  </button>
+                                ))}
+                              </div>
+                            </PopoverContent>
+                          </Popover>
+                          <button
+                            type="button"
+                            aria-label="Reply to message"
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-full border bg-background shadow-sm transition hover:bg-muted"
+                            onClick={() => {
+                              const replyTarget = mine ? "You" : senderName;
+                              const prefix = `@${replyTarget} `;
+                              setDraft((prev) => (prev.trim() ? `${prefix}${prev}` : prefix));
+                              inputRef.current?.focus();
+                            }}
+                          >
+                            <Reply className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            aria-label="More message actions"
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-full border bg-background shadow-sm transition hover:bg-muted"
+                            onClick={() => toastInfo("More actions coming soon.")}
+                          >
+                            <MoreHorizontal className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                      {hasGroupReactions ? (
+                        <div className={cn("mt-1 flex gap-1", mine ? "justify-end self-end" : "justify-start self-start")}>
+                          {groupReactionSummary.map((reaction) => (
+                            <button
+                              key={`${group.id}-${reaction.emoji}`}
+                              type="button"
+                              className={cn(
+                                "flex items-center gap-1 rounded-full border bg-background/80 px-2 py-[2px] text-xs transition",
+                                reaction.me
+                                  ? "border-primary/40 text-foreground"
+                                  : "border-border/70 text-muted-foreground hover:text-foreground",
+                              )}
+                              onClick={() => {
+                                void toggleReaction({
+                                  messageId: latestMessage.id,
+                                  emoji: reaction.emoji,
+                                  actorId: currentUser?.id ?? null,
+                                });
+                              }}
+                            >
+                              <span>{reaction.emoji}</span>
+                              <span>{reaction.count}</span>
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -864,7 +1091,56 @@ export function ChatSidebar({
         </div>
       </div>
 
+      {showNewPill && unseenCount > 0 ? (
+        <button
+          type="button"
+          onClick={() => {
+            scrollToBottom("smooth");
+            setUnseenCount(0);
+            setShowNewPill(false);
+          }}
+          className="absolute bottom-24 left-1/2 z-20 -translate-x-1/2 rounded-full border border-border/60 bg-background/90 px-4 py-2 text-sm text-foreground shadow-md backdrop-blur-md transition hover:bg-background"
+        >
+          {unseenCount > 1 ? `${unseenCount} new messages ↓` : "New messages ↓"}
+        </button>
+      ) : null}
+
       <div className="shrink-0 border-t border-border/70 bg-background/90 px-6 py-3 backdrop-blur">
+        {expenseSuggestion ? (
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-1.5">
+              {expenseSuggestion.amount ? (
+                <span className="rounded-full border border-border/70 bg-muted/60 px-2 py-1 text-xs text-muted-foreground">
+                  €{expenseSuggestion.amount.toFixed(2)}
+                </span>
+              ) : null}
+              {expenseSuggestion.paidBy ? (
+                <span className="rounded-full border border-border/70 bg-muted/60 px-2 py-1 text-xs text-muted-foreground">
+                  paid by @{expenseSuggestion.paidBy}
+                </span>
+              ) : null}
+              {expenseSuggestion.splitCount ? (
+                <span className="rounded-full border border-border/70 bg-muted/60 px-2 py-1 text-xs text-muted-foreground">
+                  split {expenseSuggestion.splitCount}
+                </span>
+              ) : null}
+              {expenseSuggestion.description ? (
+                <span className="rounded-full border border-border/70 bg-muted/60 px-2 py-1 text-xs text-muted-foreground">
+                  {expenseSuggestion.description}
+                </span>
+              ) : null}
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-7 shrink-0"
+              onClick={openCreateExpenseFromSuggestion}
+            >
+              Create expense
+            </Button>
+          </div>
+        ) : null}
         {isLocked ? (
           <p className="mb-2 text-xs text-muted-foreground">
             Chat closed after event. History remains visible.

@@ -1,6 +1,6 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, CircleDollarSign } from "lucide-react";
+import { CheckCircle2, ChevronDown, ChevronUp, CircleDollarSign } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useAppToast } from "@/hooks/use-app-toast";
@@ -133,9 +133,43 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
   const isSettled = (settlementQuery.data?.settlement?.status === "settled")
     || (totalTransfers > 0 && paidTransfers >= totalTransfers);
 
+  const orderedTransfers = useMemo(() => {
+    return [...transfers].sort((a, b) => {
+      const aPaid = !!a.paidAt;
+      const bPaid = !!b.paidAt;
+      if (aPaid !== bPaid) return aPaid ? 1 : -1;
+      return b.amount - a.amount;
+    });
+  }, [transfers]);
+
+  const [expanded, setExpanded] = useState(false);
+
+  const hasMoreThanPreview = orderedTransfers.length > 3;
+  const visibleTransfers = expanded ? orderedTransfers : orderedTransfers.slice(0, 3);
+
+  if (isSettled && !expanded) {
+    return (
+      <button
+        type="button"
+        className={cn(
+          "flex w-full items-center justify-between gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-left",
+          "transition hover:bg-emerald-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/35",
+          className,
+        )}
+        onClick={() => setExpanded(true)}
+      >
+        <span className="text-sm font-medium text-emerald-800 dark:text-emerald-300">✅ All settled up</span>
+        <span className="inline-flex items-center gap-1 text-xs text-emerald-700/85 dark:text-emerald-300/85">
+          View details
+          <ChevronDown className="h-3.5 w-3.5" />
+        </span>
+      </button>
+    );
+  }
+
   return (
     <div className={cn("w-full rounded-2xl border border-border/65 bg-muted/35 px-3 py-2.5 dark:border-neutral-700/70 dark:bg-neutral-800/65", className)}>
-      <div className="mb-2 flex items-center justify-between gap-2">
+      <div className="mb-2 flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground">
             <CircleDollarSign className="h-4 w-4 text-muted-foreground" />
@@ -145,19 +179,24 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
             <p className="mt-0.5 text-[11px] text-muted-foreground">{progressText}</p>
           ) : null}
         </div>
-        <span
-          className={cn(
-            "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
-            isSettled
-              ? "border border-emerald-500/35 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-              : "border border-primary/25 bg-primary/10 text-foreground",
-          )}
-        >
-          {isSettled ? "settled" : (settlementQuery.data?.settlement?.status ?? "proposed")}
-        </span>
+        {isSettled ? (
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300"
+            onClick={() => setExpanded((prev) => !prev)}
+          >
+            {expanded ? "Hide details" : "View details"}
+            {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+          </button>
+        ) : (
+          <span className="rounded-full border border-primary/25 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-foreground">
+            {settlementQuery.data?.settlement?.status ?? "proposed"}
+          </span>
+        )}
       </div>
-      {totalTransfers > 0 ? (
-        <div className="mb-2 h-1 w-full overflow-hidden rounded-full bg-border/50">
+
+      {totalTransfers > 0 && !isSettled ? (
+        <div className="mb-2 h-1.5 w-full overflow-hidden rounded-full bg-border/50">
           <div className="h-full rounded-full bg-emerald-500/80 transition-all" style={{ width: `${Math.max(0, Math.min(100, progressPercent))}%` }} />
         </div>
       ) : null}
@@ -165,12 +204,12 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
       {transfers.length === 0 ? (
         <p className="text-xs text-muted-foreground">No transfers needed.</p>
       ) : (
-        <div className="space-y-1.5">
-          {transfers.map((transfer) => {
+        <div className="divide-y divide-border/45 rounded-lg border border-border/55 bg-background/50 dark:bg-neutral-900/30">
+          {visibleTransfers.map((transfer) => {
             const paid = !!transfer.paidAt;
             const canMarkPaid = !!user && (user.id === transfer.fromUserId || user.id === transfer.toUserId);
             return (
-              <div key={transfer.id} className="flex items-center justify-between gap-2 rounded-lg border border-border/60 bg-background/60 px-2 py-1.5 text-xs dark:bg-neutral-900/35">
+              <div key={transfer.id} className="flex items-center justify-between gap-2 px-2 py-1.5 text-xs">
                 <p className="min-w-0 truncate text-muted-foreground">
                   <span className="font-medium text-foreground">{transfer.fromName || transfer.fromUserId}</span>
                   {" \u2192 "}
@@ -202,6 +241,19 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
           })}
         </div>
       )}
+
+      {!isSettled && hasMoreThanPreview ? (
+        <div className="mt-2 flex justify-end">
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground"
+            onClick={() => setExpanded((prev) => !prev)}
+          >
+            {expanded ? "Show less" : "View all"}
+            {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

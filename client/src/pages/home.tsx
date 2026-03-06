@@ -12,7 +12,7 @@ import {
   useAcceptInvite, useDeclineInvite,
 } from "@/hooks/use-participants";
 import { useExpenses, useDeleteExpense, useExpenseShares, useRealtimePlanBalances, useSetExpenseShare } from "@/hooks/use-expenses";
-import { useBarbecues, useCreateBarbecue, useDeleteBarbecue, useUpdateBarbecue, useEnsureInviteToken, useSettleUp, useCheckoutPublicListing, useDeactivateListing, useExploreEvents, usePublicEventRsvpRequests, useUpdatePublicEventRsvpRequest, useConversations, useConversation, useSendConversationMessage, useUpdateConversationStatus, useUploadEventBanner, useDeleteEventBanner, useNotifications, useAcceptPlanInvite, useDeclinePlanInvite, useAcceptFriendRequestNotification, useDeclineFriendRequestNotification, useLeaveBarbecue, type ExploreEvent, type PlanInviteNotification } from "@/hooks/use-bbq-data";
+import { useBarbecues, useCreateBarbecue, useDeleteBarbecue, useUpdateBarbecue, useEnsureInviteToken, useSettleUp, useCheckoutPublicListing, useDeactivateListing, useExploreEvents, usePublicEventRsvpRequests, useUpdatePublicEventRsvpRequest, useConversations, useConversation, useSendConversationMessage, useUpdateConversationStatus, useUploadEventBanner, useDeleteEventBanner, useNotifications, useAcceptPlanInvite, useDeclinePlanInvite, useAcceptFriendRequestNotification, useDeclineFriendRequestNotification, useLeaveBarbecue, usePlanById, type ExploreEvent, type PlanInviteNotification } from "@/hooks/use-bbq-data";
 import { useQueryClient } from "@tanstack/react-query";
 import { useFriends, useFriendRequests, useAllPendingRequests, useAcceptFriendRequest, useRemoveFriend, useSearchUsers, useSendFriendRequest } from "@/hooks/use-friends";
 import { Button } from "@/components/ui/button";
@@ -1150,8 +1150,10 @@ export default function Home({
   const settleUp = useSettleUp();
   const checkoutPublicListing = useCheckoutPublicListing();
   const deactivateListing = useDeactivateListing();
+  const selectedPlanQuery = usePlanById(selectedBbqId, !!selectedBbqId);
 
-  const selectedBbq = barbecuesForArea.find((b: Barbecue) => Number(b.id) === selectedBbqId)
+  const selectedBbq = selectedPlanQuery.data
+    ?? barbecuesForArea.find((b: Barbecue) => Number(b.id) === selectedBbqId)
     ?? (barbecues.find((b: Barbecue) => Number(b.id) === selectedBbqId) || null);
   const removePlanFromClientState = useCallback((planId: number) => {
     // Only clear local UI references. Authoritative plans list should come from server refetch.

@@ -37,6 +37,12 @@ type SharedCostsDrawerProps = {
   onOpenChange: (open: boolean) => void;
   initialView?: "overview" | "expense-form";
   initialExpenseId?: number | null;
+  initialExpensePrefill?: {
+    amount?: number | null;
+    item?: string | null;
+    paidBy?: string | null;
+    splitCount?: number | null;
+  } | null;
   planName: string;
   peopleCount: number;
   totalSpentLabel: string;
@@ -110,6 +116,7 @@ export function SharedCostsDrawer({
   onOpenChange,
   initialView = "overview",
   initialExpenseId = null,
+  initialExpensePrefill = null,
   planName,
   peopleCount,
   totalSpentLabel,
@@ -306,6 +313,46 @@ export function SharedCostsDrawer({
     setConfirmDeleteOpen(false);
   };
 
+  const applyExpensePrefill = (
+    prefill: {
+      amount?: number | null;
+      item?: string | null;
+      paidBy?: string | null;
+      splitCount?: number | null;
+    } | null | undefined,
+  ) => {
+    if (!prefill) return;
+    if (prefill.item && String(prefill.item).trim()) {
+      setItem(String(prefill.item).trim());
+    }
+    if (Number.isFinite(Number(prefill.amount)) && Number(prefill.amount) > 0) {
+      setAmount(String(Number(prefill.amount)));
+    }
+    const splitCount = Number(prefill.splitCount);
+    if (Number.isFinite(splitCount) && splitCount > 0 && participants.length > 0) {
+      const limited = participants.slice(0, Math.max(1, Math.min(participants.length, Math.floor(splitCount))));
+      if (limited.length >= participants.length) {
+        setSplitMode("everyone");
+        setIncludedUserIds(participants.map((participant) => String(participant.id)));
+      } else {
+        setSplitMode("selected");
+        setIncludedUserIds(limited.map((participant) => String(participant.id)));
+      }
+    }
+    if (prefill.paidBy && String(prefill.paidBy).trim() && canEditPayer) {
+      const query = String(prefill.paidBy).trim().toLowerCase();
+      const normalizedQuery = query.replace(/[^a-z0-9_]/g, "");
+      const matchedParticipant = participants.find((participant) => {
+        const name = participant.name.toLowerCase();
+        const normalizedName = name.replace(/[^a-z0-9_]/g, "");
+        return name === query || normalizedName === normalizedQuery || name.includes(query);
+      });
+      if (matchedParticipant) {
+        setParticipantId(String(matchedParticipant.id));
+      }
+    }
+  };
+
   useEffect(() => {
     if (open && !prevOpenRef.current) {
       setView(initialView);
@@ -315,6 +362,8 @@ export function SharedCostsDrawer({
         if (initialExpense) {
           openEditExpenseView(initialExpense);
         }
+      } else if (initialView === "expense-form") {
+        applyExpensePrefill(initialExpensePrefill);
       }
     }
     if (!open) {
@@ -322,7 +371,7 @@ export function SharedCostsDrawer({
       resetAddForm();
     }
     prevOpenRef.current = open;
-  }, [open, categories, participants, initialView, initialExpenseId, expenses]);
+  }, [open, categories, participants, initialView, initialExpenseId, expenses, initialExpensePrefill]);
 
   useEffect(() => {
     if (!open) return;

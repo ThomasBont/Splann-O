@@ -5,10 +5,12 @@ import {
   useAcceptFriendRequestNotification,
   useAcceptPlanInvite,
   useBarbecues,
+  fetchPlan,
   useDeclineFriendRequestNotification,
   useDeclinePlanInvite,
   useNotifications,
 } from "@/hooks/use-bbq-data";
+import { useQueryClient } from "@tanstack/react-query";
 import Home from "@/pages/home";
 import {
   Loader2,
@@ -60,6 +62,10 @@ import type { Barbecue } from "@shared/schema";
 import { isPrivateEvent } from "@shared/event-visibility";
 import { InlineQueryError, SkeletonCard } from "@/components/ui/load-states";
 import { EMPTY_COPY } from "@/lib/emotional-copy";
+import { fetchExpenses, expensesQueryKey } from "@/hooks/use-expenses";
+import { fetchParticipants, participantsQueryKey, fetchEventMembers, eventMembersQueryKey } from "@/hooks/use-participants";
+import { fetchPlanMessages, planMessagesQueryKey } from "@/hooks/use-event-chat";
+import { PLAN_STALE_TIME_MS } from "@/lib/query-stale";
 
 type AppSection = "home" | "private" | "event";
 type DevDisableFlags = {
@@ -212,19 +218,23 @@ function NewEventMenuButton({
   align = "start",
   onCreate,
   iconOnly = false,
+  label = "New plan",
+  showLeadingIcon = true,
 }: {
   className?: string;
   size?: "sm" | "md" | "default" | "lg" | "icon";
   align?: "start" | "end" | "center";
   onCreate?: () => void;
   iconOnly?: boolean;
+  label?: string;
+  showLeadingIcon?: boolean;
 }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button className={className} size={size}>
-          <Plus className={`h-4 w-4 ${iconOnly ? "" : "mr-1.5"}`} />
-          {iconOnly ? null : "New plan"}
+          {iconOnly || !showLeadingIcon ? null : <Plus className="mr-1.5 h-4 w-4" />}
+          {iconOnly ? null : label}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align={align} className="w-72">
@@ -253,6 +263,8 @@ function AppSidebar({
   selectedEventId?: number | null;
   eventViewMode?: "chat" | "overview";
 }) {
+  const [, setLocation] = useLocation();
+  const queryClient = useQueryClient();
   const { data: events = [], isLoading: eventsLoading, error: eventsError, refetch: refetchEvents } = useBarbecues();
   const { user } = useAuth();
   const [recentCollapsed, setRecentCollapsed] = useState(false);
@@ -391,6 +403,59 @@ function AppSidebar({
             key={`sidebar-event-${event.id}`}
             href={`/app/e/${event.id}`}
             className="pointer-events-auto relative z-10 block rounded-xl border border-border/50 bg-background/40 px-3 py-2.5 text-sm transition hover:border-border/70 hover:bg-muted/35"
+            onMouseEnter={() => {
+              const planId = Number(event.id);
+              if (!Number.isFinite(planId)) return;
+              void queryClient.prefetchQuery({
+                queryKey: ["plan", planId],
+                queryFn: () => fetchPlan(planId),
+                staleTime: PLAN_STALE_TIME_MS,
+              });
+              void queryClient.prefetchQuery({
+                queryKey: planMessagesQueryKey(planId),
+                queryFn: () => fetchPlanMessages(planId),
+                staleTime: PLAN_STALE_TIME_MS,
+              });
+              void queryClient.prefetchQuery({
+                queryKey: expensesQueryKey(planId),
+                queryFn: () => fetchExpenses(planId),
+                staleTime: PLAN_STALE_TIME_MS,
+              });
+              void queryClient.prefetchQuery({
+                queryKey: participantsQueryKey(planId),
+                queryFn: () => fetchParticipants(planId),
+                staleTime: PLAN_STALE_TIME_MS,
+              });
+              void queryClient.prefetchQuery({
+                queryKey: eventMembersQueryKey(planId),
+                queryFn: () => fetchEventMembers(planId),
+                staleTime: PLAN_STALE_TIME_MS,
+              });
+            }}
+            onFocus={() => {
+              const planId = Number(event.id);
+              if (!Number.isFinite(planId)) return;
+              void queryClient.prefetchQuery({
+                queryKey: planMessagesQueryKey(planId),
+                queryFn: () => fetchPlanMessages(planId),
+                staleTime: PLAN_STALE_TIME_MS,
+              });
+              void queryClient.prefetchQuery({
+                queryKey: expensesQueryKey(planId),
+                queryFn: () => fetchExpenses(planId),
+                staleTime: PLAN_STALE_TIME_MS,
+              });
+              void queryClient.prefetchQuery({
+                queryKey: eventMembersQueryKey(planId),
+                queryFn: () => fetchEventMembers(planId),
+                staleTime: PLAN_STALE_TIME_MS,
+              });
+              void queryClient.prefetchQuery({
+                queryKey: participantsQueryKey(planId),
+                queryFn: () => fetchParticipants(planId),
+                staleTime: PLAN_STALE_TIME_MS,
+              });
+            }}
           >
             <p className="truncate font-medium text-foreground">{event.name}</p>
             <p className="mt-0.5 truncate text-xs text-muted-foreground">
@@ -421,16 +486,16 @@ function AppSidebar({
             <div className="flex items-center gap-2">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Link href="/app/private">
-                    <a
-                      aria-label="Home"
-                      className={`inline-flex h-10 w-10 items-center justify-center rounded-full border border-border/60 bg-background text-muted-foreground transition hover:bg-muted hover:text-foreground ${
-                        section === "home" || section === "event" ? "bg-muted ring-1 ring-border text-foreground" : ""
-                      }`}
-                    >
-                      <HomeIcon className="h-4 w-4" />
-                    </a>
-                  </Link>
+                  <button
+                    type="button"
+                    aria-label="Home"
+                    onClick={() => setLocation("/app/private")}
+                    className={`inline-flex h-10 w-10 items-center justify-center rounded-xl border border-primary/80 bg-primary text-primary-foreground transition hover:brightness-95 ${
+                      section === "home" || section === "event" ? "ring-1 ring-primary/70" : ""
+                    }`}
+                  >
+                    <HomeIcon className="h-4 w-4" />
+                  </button>
                 </TooltipTrigger>
                 <TooltipContent side="right">Home</TooltipContent>
               </Tooltip>
@@ -439,11 +504,12 @@ function AppSidebar({
                 <TooltipTrigger asChild>
                   <div>
                     <NewEventMenuButton
-                      className="h-10 w-10 rounded-full border border-border/60 bg-background px-0 text-muted-foreground transition hover:bg-muted hover:text-foreground"
-                      size="icon"
+                      className="h-10 rounded-full border border-primary/80 bg-primary px-5 py-2 text-sm font-medium text-primary-foreground transition hover:brightness-95"
+                      size="default"
                       align="start"
                       onCreate={onCreatePlan}
-                      iconOnly
+                      label="New Plan +"
+                      showLeadingIcon={false}
                     />
                   </div>
                 </TooltipTrigger>
@@ -555,8 +621,8 @@ function RightActionRail({
 }) {
   const isEvent = section === "event" && !!selectedEventId;
   return (
-    <aside className="pointer-events-none fixed right-4 top-1/2 z-30 hidden -translate-y-1/2 lg:block">
-      <div className="pointer-events-auto flex flex-col items-center gap-2 rounded-2xl border border-border/50 bg-background/70 p-2 shadow-lg backdrop-blur-md">
+    <aside className="pointer-events-none hidden h-full w-16 shrink-0 py-4 lg:flex lg:items-center lg:justify-center">
+      <div className="pointer-events-auto flex h-full max-h-[calc(100vh-10rem)] flex-col items-center gap-2 rounded-2xl border border-border/50 border-l bg-background/80 p-2 shadow-lg backdrop-blur-md">
         <div className="flex flex-col items-center gap-2">
           <Link href={isEvent ? `/app/e/${selectedEventId}/overview` : "/app/private"}>
             <a
@@ -615,8 +681,7 @@ function RightActionRail({
             <Zap className="h-4 w-4" />
           </button>
         </div>
-        <div className="h-4" />
-        <div className="flex flex-col items-center gap-2">
+        <div className="mt-auto flex flex-col items-center gap-2">
           <button
             type="button"
             title="Notifications"
@@ -900,7 +965,7 @@ export default function AppRoute() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const hasInvalidEventRoute = section === "event" && (!routeEventId || routeEventId <= 0);
-    const shouldRedirectFromNoSelection = pathname === "/app" || pathname === "/app/private" || hasInvalidEventRoute;
+    const shouldRedirectFromNoSelection = pathname === "/app" || hasInvalidEventRoute;
     if (!shouldRedirectFromNoSelection) return;
     const url = new URL(window.location.href);
     const eventIdParam = Number(url.searchParams.get("eventId"));

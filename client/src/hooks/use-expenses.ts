@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, buildUrl } from "@shared/routes";
 import type { InsertExpense, UpdateExpenseRequest } from "@shared/routes";
+import { PLAN_STALE_TIME_MS } from "@/lib/query-stale";
 
 export type RealtimePlanBalances = {
   type: "plan:balancesUpdated";
@@ -15,6 +16,17 @@ export function planBalancesQueryKey(planId: number | null) {
   return ["/api/plans", planId, "balances-realtime"] as const;
 }
 
+export function expensesQueryKey(bbqId: number | null) {
+  return ['/api/barbecues', bbqId, 'expenses'] as const;
+}
+
+export async function fetchExpenses(bbqId: number) {
+  const url = buildUrl(api.expenses.list.path, { bbqId });
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Failed to fetch expenses");
+  return res.json();
+}
+
 export function useRealtimePlanBalances(planId: number | null) {
   return useQuery<RealtimePlanBalances | null>({
     queryKey: planBalancesQueryKey(planId),
@@ -26,15 +38,13 @@ export function useRealtimePlanBalances(planId: number | null) {
 
 export function useExpenses(bbqId: number | null) {
   return useQuery({
-    queryKey: ['/api/barbecues', bbqId, 'expenses'],
+    queryKey: expensesQueryKey(bbqId),
     queryFn: async () => {
       if (!bbqId) return [];
-      const url = buildUrl(api.expenses.list.path, { bbqId });
-      const res = await fetch(url);
-      if (!res.ok) throw new Error("Failed to fetch expenses");
-      return res.json();
+      return fetchExpenses(bbqId);
     },
     enabled: !!bbqId,
+    staleTime: PLAN_STALE_TIME_MS,
   });
 }
 

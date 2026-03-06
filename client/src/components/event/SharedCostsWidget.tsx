@@ -46,6 +46,12 @@ export function SharedCostsWidget({
   const [open, setOpen] = useState(false);
   const [initialView, setInitialView] = useState<"overview" | "expense-form">("overview");
   const [initialExpenseId, setInitialExpenseId] = useState<number | null>(null);
+  const [initialExpensePrefill, setInitialExpensePrefill] = useState<{
+    amount?: number | null;
+    item?: string | null;
+    paidBy?: string | null;
+    splitCount?: number | null;
+  } | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -56,15 +62,26 @@ export function SharedCostsWidget({
       if (!Number.isFinite(targetEventId) || targetEventId !== eventId) return;
       if (!Number.isFinite(targetExpenseId)) return;
       setInitialExpenseId(targetExpenseId);
+      setInitialExpensePrefill(null);
       setInitialView("expense-form");
       setOpen(true);
     };
     const onOpenExpenses = (event: Event) => {
-      const custom = event as CustomEvent<{ eventId?: number }>;
+      const custom = event as CustomEvent<{
+        eventId?: number;
+        initialView?: "overview" | "expense-form";
+        prefill?: {
+          amount?: number | null;
+          item?: string | null;
+          paidBy?: string | null;
+          splitCount?: number | null;
+        };
+      }>;
       const targetEventId = Number(custom.detail?.eventId);
       if (!Number.isFinite(targetEventId) || targetEventId !== eventId) return;
       setInitialExpenseId(null);
-      setInitialView("overview");
+      setInitialExpensePrefill(custom.detail?.prefill ?? null);
+      setInitialView(custom.detail?.initialView === "expense-form" ? "expense-form" : "overview");
       setOpen(true);
     };
     window.addEventListener("splanno:open-expense", onOpenExpense as EventListener);
@@ -143,10 +160,14 @@ export function SharedCostsWidget({
         open={open}
         onOpenChange={(next) => {
           setOpen(next);
-          if (!next) setInitialExpenseId(null);
+          if (!next) {
+            setInitialExpenseId(null);
+            setInitialExpensePrefill(null);
+          }
         }}
         initialView={initialView}
         initialExpenseId={initialExpenseId}
+        initialExpensePrefill={initialExpensePrefill}
         planName={planName}
         peopleCount={peopleCount}
         totalSpentLabel={totalSpentLabel}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent, type MouseEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, Camera, CheckCircle2, Crown, Link2, Loader2, Upload, Users } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -7,9 +7,11 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useAuth } from "@/hooks/use-auth";
 import { useAppToast } from "@/hooks/use-app-toast";
+import { convertCurrency } from "@/hooks/use-language";
 import { usePlan, usePlanCrew, usePlanExpenses } from "@/hooks/use-plan-data";
 import { useUpdateBarbecue, useUploadEventBanner } from "@/hooks/use-bbq-data";
 import { resolveAssetUrl, withCacheBust } from "@/lib/asset-url";
+import { getBannerPresetClass, getBannerPresetTone, getEventBanner } from "@/lib/event-banner";
 import { computeSplit } from "@/lib/split/calc";
 import { circularActionButtonClass, cn } from "@/lib/utils";
 import { usePanel } from "@/state/panel";
@@ -34,6 +36,10 @@ type SettlementResponse = {
     paidAt: string | null;
   }>;
 };
+
+type HeroStatusTone = "cta-outline" | "cta-primary" | "positive" | "negative" | "settled" | "muted";
+type HeroStatusAction = "invite" | "crew" | "expense" | null;
+type HeroStatus = { label: string; tone: HeroStatusTone; action: HeroStatusAction };
 
 function formatCurrency(amount: number, currencyCode?: string | null) {
   const safeAmount = Number.isFinite(amount) ? amount : 0;
@@ -220,9 +226,15 @@ export function OverviewPanel() {
     [expenses],
   );
   const currency = typeof plan?.currency === "string" ? plan.currency : "EUR";
+  const localCurrency = typeof plan?.localCurrency === "string" ? plan.localCurrency.trim().toUpperCase() : "";
+  const showLocalCurrency = !!localCurrency && localCurrency !== currency;
   const totalShared = useMemo(
     () => expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0),
     [expenses],
+  );
+  const localSharedTotal = useMemo(
+    () => (showLocalCurrency ? convertCurrency(totalShared, currency, localCurrency) : 0),
+    [currency, localCurrency, showLocalCurrency, totalShared],
   );
   const { balances, settlements } = useMemo(
     () => computeSplit(participants, splitExpenses, [], false),
@@ -243,13 +255,26 @@ export function OverviewPanel() {
   const activityItems = activityQuery.latestItems;
   const isCreator = Number(plan?.creatorUserId) === Number(user?.id);
 
-  const personalStatus = useMemo(() => {
-    if (!myParticipant || !myBalance) return { label: "No personal split yet", tone: "muted" as const };
+  const hasAnyExpenses = expenses.length > 0;
+  const hasOnlyCreator = participants.length <= 1;
+  const allBalancesZero = balances.every((entry) => Math.abs(Number(entry.balance) || 0) < 0.01);
+  const settlementCompleted = latestSettlement?.status === "settled" && allBalancesZero;
+  const personalStatus = useMemo<HeroStatus>(() => {
+    if (hasOnlyCreator && !hasAnyExpenses) {
+      return { label: "Invite friends", tone: "cta-outline", action: "invite" };
+    }
+    if (!hasOnlyCreator && !hasAnyExpenses) {
+      return { label: "Add expense", tone: "cta-primary", action: "expense" };
+    }
+    if (settlementCompleted) {
+      return { label: "All settled", tone: "settled", action: null };
+    }
+    if (!myParticipant || !myBalance) return { label: "No personal split yet", tone: "muted", action: null };
     const amount = Number(myBalance.balance) || 0;
-    if (Math.abs(amount) < 0.01) return { label: "All settled", tone: "settled" as const };
-    if (amount > 0) return { label: `You are owed ${formatCurrency(amount, currency)}`, tone: "positive" as const };
-    return { label: `You owe ${formatCurrency(Math.abs(amount), currency)}`, tone: "negative" as const };
-  }, [currency, myBalance, myParticipant]);
+    if (Math.abs(amount) < 0.01) return { label: "All settled", tone: "settled", action: null };
+    if (amount > 0) return { label: `You are owed ${formatCurrency(amount, currency)}`, tone: "positive", action: null };
+    return { label: `You owe ${formatCurrency(Math.abs(amount), currency)}`, tone: "negative", action: null };
+  }, [currency, hasAnyExpenses, hasOnlyCreator, myBalance, myParticipant, settlementCompleted]);
 
   const contributionRows = useMemo(() => {
     return buildCrewContributionRows({ participants, members, expenses }).map((row, index) => ({
@@ -283,6 +308,7 @@ export function OverviewPanel() {
   const openExpenses = () => replacePanel({ type: "expenses" });
   const openSettlement = () => replacePanel({ type: "settlement" });
   const openCrew = () => replacePanel({ type: "crew" });
+  const openInvite = () => replacePanel({ type: "invite", source: "overview" });
   const openPlanDetails = () => replacePanel({ type: "plan-details" });
   const openRecentActivity = () => replacePanel({ type: "recent-activity" });
   const openMemberProfile = (username?: string | null, source: "overview" | "crew" = "overview") => {
@@ -290,6 +316,31 @@ export function OverviewPanel() {
     if (!targetUsername) return;
     replacePanel({ type: "member-profile", username: targetUsername, source });
   };
+  const openAddExpenseFlow = () => {
+    if (!eventId) return;
+    replacePanel({ type: "add-expense", source: "overview" });
+  };
+  const heroActionHandlers: Partial<Record<Exclude<HeroStatusAction, null>, () => void>> = {
+    invite: openInvite,
+    crew: openCrew,
+    expense: openAddExpenseFlow,
+  };
+  const handleHeroAction = personalStatus.action ? heroActionHandlers[personalStatus.action] : undefined;
+  const handleHeroActionClick = handleHeroAction
+    ? (event: MouseEvent<HTMLDivElement>) => {
+        event.stopPropagation();
+        handleHeroAction();
+      }
+    : undefined;
+  const handleHeroActionKeyDown = personalStatus.action
+    ? (event: KeyboardEvent<HTMLDivElement>) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          event.stopPropagation();
+          handleHeroAction?.();
+        }
+      }
+    : undefined;
   const upNextItem = getUpNext({
     expensesCount: expenses.length,
     pendingInvitesCount: pendingInvites.length,
@@ -303,10 +354,14 @@ export function OverviewPanel() {
     ...upNextItem,
     onAction: upNextItem.action === "settlement"
       ? openSettlement
+      : upNextItem.action === "invite"
+        ? openInvite
+      : upNextItem.action === "add-expense"
+        ? openAddExpenseFlow
       : upNextItem.action === "crew"
         ? openCrew
-        : upNextItem.action === "expenses"
-          ? openExpenses
+      : upNextItem.action === "expenses"
+        ? openExpenses
           : upNextItem.action === "plan-details"
             ? openPlanDetails
             : null,
@@ -324,40 +379,52 @@ export function OverviewPanel() {
     : latestSettlement?.status === "settled"
       ? 100
       : 0;
+  const eventBanner = useMemo(() => getEventBanner(plan), [plan]);
+  const bannerPresetClass = useMemo(
+    () => getBannerPresetClass(eventBanner.presetId),
+    [eventBanner.presetId],
+  );
+  const bannerPresetTone = useMemo(
+    () => getBannerPresetTone(eventBanner.presetId) ?? "dark-content",
+    [eventBanner.presetId],
+  );
   const bannerVersionToken = (() => {
     const raw = (plan as { updatedAt?: string | Date | null } | null)?.updatedAt;
     if (raw instanceof Date) return raw.getTime();
     return raw ?? plan?.id ?? null;
   })();
   const planBannerUrl = withCacheBust(
-    plan?.bannerImageUrl ?? null,
+    eventBanner.uploadedUrl ?? null,
     bannerVersion || bannerVersionToken,
   );
   const hasVisibleBanner = !!planBannerUrl && !bannerImageFailed;
-  const heroPrimaryTextClass = hasVisibleBanner
-    ? bannerTone === "light-content"
+  const hasPresetBanner = !hasVisibleBanner && !!bannerPresetClass;
+  const hasHeroBanner = hasVisibleBanner || hasPresetBanner;
+  const activeBannerTone = hasVisibleBanner ? bannerTone : bannerPresetTone;
+  const heroPrimaryTextClass = hasHeroBanner
+    ? activeBannerTone === "light-content"
       ? "text-white [text-shadow:0_1px_10px_rgba(0,0,0,0.18)]"
       : "text-slate-950"
     : "text-foreground";
-  const heroSecondaryTextClass = hasVisibleBanner
-    ? bannerTone === "light-content"
+  const heroSecondaryTextClass = hasHeroBanner
+    ? activeBannerTone === "light-content"
       ? "text-white/84"
       : "text-slate-900/72"
     : "text-muted-foreground";
-  const heroIconButtonClass = hasVisibleBanner
-    ? bannerTone === "light-content"
+  const heroIconButtonClass = hasHeroBanner
+    ? activeBannerTone === "light-content"
       ? "border-white/20 bg-black/25 text-white/90"
       : "border-black/10 bg-white/70 text-slate-900"
     : "";
-  const heroPrimaryTextStyle = hasVisibleBanner
+  const heroPrimaryTextStyle = hasHeroBanner
     ? {
-        color: bannerTone === "light-content" ? "rgba(255, 255, 255, 0.98)" : "rgba(2, 6, 23, 0.96)",
-        textShadow: bannerTone === "light-content" ? "0 1px 10px rgba(0,0,0,0.18)" : undefined,
+        color: activeBannerTone === "light-content" ? "rgba(255, 255, 255, 0.98)" : "rgba(2, 6, 23, 0.96)",
+        textShadow: activeBannerTone === "light-content" ? "0 1px 10px rgba(0,0,0,0.18)" : undefined,
       }
     : undefined;
-  const heroSecondaryTextStyle = hasVisibleBanner
+  const heroSecondaryTextStyle = hasHeroBanner
     ? {
-        color: bannerTone === "light-content" ? "rgba(255, 255, 255, 0.84)" : "rgba(15, 23, 42, 0.72)",
+        color: activeBannerTone === "light-content" ? "rgba(255, 255, 255, 0.84)" : "rgba(15, 23, 42, 0.72)",
       }
     : undefined;
 
@@ -466,7 +533,18 @@ export function OverviewPanel() {
 
         {plan ? (
           <>
-            <section className="relative overflow-hidden rounded-[20px] border border-black/5 bg-primary/5 p-6 dark:border-white/10 dark:bg-[linear-gradient(180deg,rgba(250,204,21,0.12),rgba(255,255,255,0.03))] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+            <section
+              role="button"
+              tabIndex={0}
+              onClick={openPlanDetails}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  openPlanDetails();
+                }
+              }}
+              className="interactive-card relative overflow-hidden rounded-[20px] border border-black/5 bg-primary/5 p-6 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-white/10 dark:bg-[linear-gradient(180deg,rgba(250,204,21,0.12),rgba(255,255,255,0.03))] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]"
+            >
               {hasVisibleBanner ? (
                 <>
                   <img
@@ -489,6 +567,19 @@ export function OverviewPanel() {
                     )}
                   />
                 </>
+              ) : hasPresetBanner ? (
+                <>
+                  <div className={cn("absolute inset-0", bannerPresetClass)} />
+                  <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.1),transparent_42%),radial-gradient(circle_at_bottom_right,rgba(190,160,105,0.06),transparent_38%)]" />
+                  <div
+                    className={cn(
+                      "absolute inset-0",
+                      activeBannerTone === "light-content"
+                        ? "bg-gradient-to-t from-black/42 via-black/10 to-transparent"
+                        : "bg-gradient-to-t from-white/10 via-white/4 to-transparent",
+                    )}
+                  />
+                </>
               ) : null}
               <div className="relative z-10 space-y-4">
                 <div className="flex items-start justify-between gap-4">
@@ -508,9 +599,15 @@ export function OverviewPanel() {
                           variant="ghost"
                           size="icon"
                           className={cn(
-                            "h-9 w-9 shrink-0",
+                            "h-9 w-9 shrink-0 rounded-full",
                             heroIconButtonClass,
                           )}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                          }}
+                          onPointerDown={(event) => {
+                            event.stopPropagation();
+                          }}
                           aria-label="Change plan banner"
                         >
                           <Camera className="h-4 w-4" />
@@ -582,17 +679,40 @@ export function OverviewPanel() {
                   </p>
                 </div>
                 <div className={cn(
-                  "inline-flex w-fit items-center rounded-full border px-4 py-2 text-sm font-medium shadow-sm",
+                  "inline-flex w-fit items-center rounded-full border px-4 py-2 text-sm font-medium shadow-sm transition-[transform,box-shadow,background-color,border-color] duration-150",
+                  personalStatus.action && "cursor-pointer hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 active:shadow-sm",
                   hasVisibleBanner && "backdrop-blur-sm",
                   personalStatus.tone === "positive" && "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-300",
                   personalStatus.tone === "negative" && "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-200",
                   personalStatus.tone === "settled" && "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-300",
                   personalStatus.tone === "muted" && "border-border/70 bg-background/70 text-muted-foreground dark:border-white/8 dark:bg-[hsl(var(--surface-2))]/88",
+                  personalStatus.tone === "cta-outline" && "border-primary/50 bg-primary/10 text-foreground hover:border-primary/70 hover:bg-primary/16 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  personalStatus.tone === "cta-primary" && "border-primary/60 bg-primary text-slate-900 hover:border-primary/75 hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   hasVisibleBanner && bannerTone === "dark-content" && personalStatus.tone === "muted" && "border-black/10 bg-white/72 text-slate-900/78",
-                )}>
+                )}
+                  role={personalStatus.action ? "button" : undefined}
+                  tabIndex={personalStatus.action ? 0 : undefined}
+                  onClick={handleHeroActionClick}
+                  onKeyDown={handleHeroActionKeyDown}
+                >
                   {personalStatus.label}
                 </div>
               </div>
+              {showLocalCurrency ? (
+                <div className="pointer-events-none absolute bottom-5 right-5">
+                  <span
+                    className={cn(
+                      "inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-medium shadow-sm",
+                      hasVisibleBanner
+                        ? "border-white/20 bg-white/10 text-white/82 backdrop-blur-sm"
+                        : "border-border/70 bg-background/88 text-muted-foreground",
+                    )}
+                    style={!hasVisibleBanner ? heroSecondaryTextStyle : undefined}
+                  >
+                    {formatCurrency(localSharedTotal, localCurrency)}
+                  </span>
+                </div>
+              ) : null}
             </section>
 
             <div
@@ -605,7 +725,7 @@ export function OverviewPanel() {
                   openCrew();
                 }
               }}
-              className="w-full rounded-[18px] border border-black/5 bg-[hsl(var(--surface-1))]/78 p-4 text-left transition hover:bg-[hsl(var(--surface-1))]/88 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-white/9 dark:bg-[hsl(var(--surface-2))]/88 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] dark:hover:bg-[hsl(var(--surface-2))]/96"
+              className="interactive-card w-full rounded-[18px] border border-black/5 bg-[hsl(var(--surface-1))]/78 p-4 text-left hover:bg-[hsl(var(--surface-1))]/88 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-white/9 dark:bg-[hsl(var(--surface-2))]/88 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] dark:hover:bg-[hsl(var(--surface-2))]/96"
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -699,7 +819,7 @@ export function OverviewPanel() {
                   openExpenses();
                 }
               }}
-              className="cursor-pointer rounded-[18px] border border-black/5 bg-[hsl(var(--surface-1))]/78 p-4 transition hover:border-border/80 hover:bg-[hsl(var(--surface-1))]/88 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-white/9 dark:bg-[hsl(var(--surface-2))]/88 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] dark:hover:bg-[hsl(var(--surface-2))]/96"
+              className="interactive-card rounded-[18px] border border-black/5 bg-[hsl(var(--surface-1))]/78 p-4 hover:border-border/80 hover:bg-[hsl(var(--surface-1))]/88 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-white/9 dark:bg-[hsl(var(--surface-2))]/88 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] dark:hover:bg-[hsl(var(--surface-2))]/96"
             >
               <div className="flex items-center justify-between gap-3">
                 <div>
@@ -764,7 +884,7 @@ export function OverviewPanel() {
                 }
               }}
               className={cn(
-              "cursor-pointer rounded-[18px] border p-4 transition hover:border-border/80 hover:bg-[hsl(var(--surface-1))]/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              "interactive-card rounded-[18px] border p-4 hover:border-border/80 hover:bg-[hsl(var(--surface-1))]/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               latestSettlement?.status === "settled"
                 ? "border-emerald-200 bg-emerald-50/80 dark:border-emerald-500/25 dark:bg-emerald-500/10"
                 : "border-black/5 bg-[hsl(var(--surface-1))]/78 dark:border-white/9 dark:bg-[hsl(var(--surface-2))]/90 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
@@ -828,7 +948,7 @@ export function OverviewPanel() {
                   openRecentActivity();
                 }
               }}
-              className="cursor-pointer rounded-[18px] border border-black/5 bg-[hsl(var(--surface-1))]/76 p-4 transition hover:border-border/80 hover:bg-[hsl(var(--surface-1))]/88 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-white/8 dark:bg-[hsl(var(--surface-2))]/84 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]"
+              className="interactive-card rounded-[18px] border border-black/5 bg-[hsl(var(--surface-1))]/76 p-4 hover:border-border/80 hover:bg-[hsl(var(--surface-1))]/88 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-white/8 dark:bg-[hsl(var(--surface-2))]/84 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]"
             >
               <div className="flex items-center justify-between gap-3">
                 <div>

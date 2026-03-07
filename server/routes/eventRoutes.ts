@@ -68,6 +68,7 @@ router.post(p(api.barbecues.create.path), asyncHandler(async (req, res) => {
     countryCode: optionalCountryCodeSchema.nullable().optional(),
     latitude: z.coerce.number().finite().optional().nullable(),
     longitude: z.coerce.number().finite().optional().nullable(),
+    planCurrency: currencyCodeSchema.optional(),
     currency: currencyCodeSchema.optional(),
     currencySource: z.enum(["auto", "manual"]).optional(),
     visibility: visibilitySchema.optional(),
@@ -101,7 +102,7 @@ router.post(p(api.barbecues.create.path), asyncHandler(async (req, res) => {
   const input = {
     ...parsed,
     bannerImageUrl: parsed.bannerImageUrl === "" ? null : parsed.bannerImageUrl,
-    currencySource: (parsed.currencySource as "auto" | "manual" | undefined) ?? "auto",
+    currencySource: parsed.currencySource as "auto" | "manual" | undefined,
   };
   const created = await bbqService.createBarbecue(input, req.session?.username);
   const ownerUserId = req.session!.userId!;

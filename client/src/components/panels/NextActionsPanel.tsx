@@ -75,10 +75,19 @@ export function NextActionPanel() {
     isCreator,
   });
 
+  const openAddExpenseFlow = () => {
+    if (!eventId) return;
+    replacePanel({ type: "add-expense", source: "overview" });
+  };
+
   const onAction = upNext.action === "settlement"
     ? () => replacePanel({ type: "settlement" })
+    : upNext.action === "invite"
+      ? () => replacePanel({ type: "invite", source: "overview" })
     : upNext.action === "crew"
       ? () => replacePanel({ type: "crew" })
+      : upNext.action === "add-expense"
+        ? openAddExpenseFlow
       : upNext.action === "expenses"
         ? () => replacePanel({ type: "expenses" })
         : upNext.action === "plan-details"

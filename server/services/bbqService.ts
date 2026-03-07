@@ -9,10 +9,13 @@ import { isPublicListingActive, slugifyPublicEvent } from "../lib/public-listing
 import { db } from "../db";
 import { eventMembers, eventChatMessages, expenseShares, expenses, participants, planActivity, type Barbecue } from "@shared/schema";
 import { normalizeCountryCode } from "@shared/lib/country-code";
+import { inferPlanHeroBannerPreset, normalizeEventBannerPresetId } from "@shared/lib/plan-hero-banner";
 import { computeSplit } from "@shared/lib/split/calc";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { resolveLegacyAssetIdToPublicPath } from "../lib/assets";
 import { buildEffectiveExpenseShares } from "../lib/planBalancesRealtime";
+import { fetchCanonicalPlace } from "../lib/googlePlaces";
+import { resolveGoogleTimezoneId } from "../lib/googleTimezone";
 
 const DEFAULT_LISTING_DURATION_DAYS = Number(process.env.PUBLIC_LISTING_DAYS ?? 30);
 const warnedPrivatePollutionIds = new Set<number>();
@@ -109,17 +112,90 @@ function stripPublicOnlyFieldsForPrivateMutation<T extends Record<string, unknow
   } as T;
 }
 
-function sanitizeLocationMeta(input: unknown): { city?: string; countryCode?: string; countryName?: string; lat?: number; lng?: number } | null {
+function sanitizeLocationMeta(input: unknown): { city?: string; countryCode?: string; countryName?: string; lat?: number; lng?: number; locationCurrency?: string } | null {
   if (!input || typeof input !== "object") return null;
   const raw = input as Record<string, unknown>;
-  const out: { city?: string; countryCode?: string; countryName?: string; lat?: number; lng?: number } = {};
+  const out: { city?: string; countryCode?: string; countryName?: string; lat?: number; lng?: number; locationCurrency?: string } = {};
   if (typeof raw.city === "string" && raw.city.trim()) out.city = raw.city.trim();
   const countryCode = normalizeCountryCode(raw.countryCode);
   if (countryCode) out.countryCode = countryCode;
   if (typeof raw.countryName === "string" && raw.countryName.trim()) out.countryName = raw.countryName.trim();
   if (typeof raw.lat === "number" && Number.isFinite(raw.lat)) out.lat = raw.lat;
   if (typeof raw.lng === "number" && Number.isFinite(raw.lng)) out.lng = raw.lng;
+  if (typeof raw.locationCurrency === "string") {
+    const locationCurrency = raw.locationCurrency.trim().toUpperCase();
+    if (/^[A-Z]{3}$/.test(locationCurrency)) out.locationCurrency = locationCurrency;
+  }
   return Object.keys(out).length > 0 ? out : null;
+}
+
+function parseLocalDateParts(localDate: string | null | undefined): { year: number; month: number; day: number } | null {
+  if (typeof localDate !== "string") return null;
+  const value = localDate.trim();
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return { year, month, day };
+}
+
+function parseLocalTimeParts(localTime: string | null | undefined): { hour: number; minute: number } | null {
+  if (typeof localTime !== "string") return null;
+  const value = localTime.trim();
+  if (!value) return null;
+  const match = /^(\d{2}):(\d{2})$/.exec(value);
+  if (!match) return null;
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute)) return null;
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+  return { hour, minute };
+}
+
+function getTimeZoneOffsetMs(instant: Date, timeZone: string): number {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+  const parts = formatter.formatToParts(instant);
+  const pick = (type: string) => Number(parts.find((part) => part.type === type)?.value ?? "0");
+  const asUtc = Date.UTC(
+    pick("year"),
+    pick("month") - 1,
+    pick("day"),
+    pick("hour"),
+    pick("minute"),
+    pick("second"),
+  );
+  return asUtc - instant.getTime();
+}
+
+function localDateTimeToUtc(localDate: string, localTime: string, timeZone: string): Date | null {
+  const date = parseLocalDateParts(localDate);
+  const time = parseLocalTimeParts(localTime);
+  if (!date || !time) return null;
+  let utcMs = Date.UTC(date.year, date.month - 1, date.day, time.hour, time.minute, 0);
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const offsetMs = getTimeZoneOffsetMs(new Date(utcMs), timeZone);
+    const nextUtcMs = Date.UTC(date.year, date.month - 1, date.day, time.hour, time.minute, 0) - offsetMs;
+    if (Math.abs(nextUtcMs - utcMs) < 1000) {
+      utcMs = nextUtcMs;
+      break;
+    }
+    utcMs = nextUtcMs;
+  }
+  const result = new Date(utcMs);
+  if (!Number.isFinite(result.getTime())) return null;
+  return result;
 }
 
 export type PublicEventListItem = {
@@ -464,7 +540,9 @@ export async function createBarbecue(
   input: {
     name: string;
     date: Date | string;
+    planCurrency?: string;
     currency?: string;
+    localCurrency?: string | null;
     creatorId?: string | null;
     creatorUserId?: number | null;
     isPublic?: boolean;
@@ -481,6 +559,9 @@ export async function createBarbecue(
     latitude?: number | null;
     longitude?: number | null;
     placeId?: string | null;
+    localDate?: string | null;
+    localTime?: string | null;
+    timezoneId?: string | null;
     currencySource?: "auto" | "manual";
     visibility?: "private" | "public";
     visibilityOrigin?: "private" | "public";
@@ -494,9 +575,64 @@ export async function createBarbecue(
     publicDescription?: string | null;
     bannerImageUrl?: string | null;
     bannerAssetId?: string | null;
+    templateData?: unknown | null;
   },
   sessionUsername?: string
 ): Promise<Barbecue> {
+  const canonicalPlace = input.placeId ? await fetchCanonicalPlace(input.placeId).catch(() => null) : null;
+  const canonicalPlaceId = canonicalPlace?.placeId ?? input.placeId ?? null;
+  const canonicalLocationName =
+    canonicalPlace?.displayName
+    ?? input.locationName
+    ?? input.locationText
+    ?? null;
+  const canonicalFormattedAddress =
+    canonicalPlace?.formattedAddress
+    ?? input.locationText
+    ?? input.locationName
+    ?? null;
+  const canonicalCity = canonicalPlace?.city ?? input.city ?? null;
+  const canonicalCountryCode = canonicalPlace?.countryCode ?? normalizeCountryCode(input.countryCode) ?? null;
+  const canonicalCountryName = canonicalPlace?.countryName ?? input.countryName ?? null;
+  const canonicalLatitude = canonicalPlace?.latitude ?? input.latitude ?? null;
+  const canonicalLongitude = canonicalPlace?.longitude ?? input.longitude ?? null;
+  const parsedLocalDate = typeof input.localDate === "string" ? input.localDate.trim() : "";
+  const parsedLocalTime = typeof input.localTime === "string" ? input.localTime.trim() : "";
+  const localDateParts = parseLocalDateParts(parsedLocalDate);
+  const localTimeParts = parseLocalTimeParts(parsedLocalTime);
+  const timezoneLookupTimestamp = localDateParts
+    ? Date.UTC(
+      localDateParts.year,
+      localDateParts.month - 1,
+      localDateParts.day,
+      localTimeParts?.hour ?? 12,
+      localTimeParts?.minute ?? 0,
+      0,
+    ) / 1000
+    : Math.floor((typeof input.date === "string" ? new Date(input.date) : input.date).getTime() / 1000) || Math.floor(Date.now() / 1000);
+  const resolvedTimezoneId = (
+    (typeof input.timezoneId === "string" ? input.timezoneId.trim() : "")
+    || (
+      Number.isFinite(canonicalLatitude)
+      && Number.isFinite(canonicalLongitude)
+      ? await resolveGoogleTimezoneId({
+        latitude: Number(canonicalLatitude),
+        longitude: Number(canonicalLongitude),
+        timestampSeconds: timezoneLookupTimestamp,
+      }).catch(() => null)
+      : null
+    )
+    || null
+  );
+  const normalizedUtcStart =
+    localDateParts && localTimeParts && resolvedTimezoneId
+      ? localDateTimeToUtc(parsedLocalDate, parsedLocalTime, resolvedTimezoneId)
+      : null;
+  const fallbackDate =
+    localDateParts
+      ? new Date(Date.UTC(localDateParts.year, localDateParts.month - 1, localDateParts.day, 12, 0, 0))
+      : (typeof input.date === "string" ? new Date(input.date) : input.date);
+
   const creatorId = input.creatorId?.trim() || sessionUsername;
   const creatorUserIdFromInput = input.creatorUserId ?? null;
   const requestedVisibility = input.visibility ?? (input.isPublic ? "public" : "private");
@@ -513,9 +649,15 @@ export async function createBarbecue(
     if (count >= limits.maxEvents) upgradeRequired("more_events", { current: count, max: limits.maxEvents });
   }
 
-  const currencySource = input.currencySource ?? "auto";
-  const normalizedCountryCode = normalizeCountryCode(input.countryCode);
-  let currency = input.currency?.trim()?.toUpperCase();
+  const planCurrencyFromInput = input.planCurrency?.trim()?.toUpperCase() || input.currency?.trim()?.toUpperCase();
+  const currencySource = input.currencySource ?? (planCurrencyFromInput ? "manual" : "auto");
+  const normalizedCountryCode = normalizeCountryCode(canonicalCountryCode);
+  const locationCurrency = resolveTripCurrency({
+    countryCode: normalizedCountryCode,
+    userDefaultCurrency: null,
+  });
+  let currency = planCurrencyFromInput;
+  let localCurrency = input.localCurrency?.trim()?.toUpperCase() || null;
 
   if (currencySource !== "manual" || !currency) {
     currency = resolveTripCurrency({
@@ -526,6 +668,37 @@ export async function createBarbecue(
   if (!currency?.trim()) {
     currency = creatorUser?.defaultCurrencyCode ?? "EUR";
   }
+  if (!localCurrency && locationCurrency && locationCurrency !== currency) {
+    localCurrency = locationCurrency;
+  }
+  if (localCurrency && localCurrency === currency) {
+    localCurrency = null;
+  }
+
+  const rawTemplateData = input.templateData && typeof input.templateData === "object"
+    ? { ...(input.templateData as Record<string, unknown>) }
+    : {};
+  const currentBanner = rawTemplateData.banner && typeof rawTemplateData.banner === "object"
+    ? { ...(rawTemplateData.banner as Record<string, unknown>) }
+    : {};
+  const presetId = normalizeEventBannerPresetId(currentBanner.presetId ?? rawTemplateData.privateBannerPreset)
+    ?? inferPlanHeroBannerPreset({
+      eventType: input.eventType ?? null,
+      countryCode: normalizedCountryCode ?? null,
+      city: canonicalCity,
+      templateData: rawTemplateData,
+    });
+  const bannerMode = input.bannerImageUrl || input.bannerAssetId ? "uploaded" : "preset";
+  const mergedTemplateData = {
+    ...rawTemplateData,
+    privateBannerPreset: presetId,
+    banner: {
+      ...currentBanner,
+      mode: bannerMode,
+      type: bannerMode === "uploaded" ? "upload" : "preset",
+      presetId,
+    },
+  };
 
   requireVisibilityOriginAllowsPublic({ visibility: requestedVisibility, visibilityOrigin });
   requireListingForPublicVisibility(
@@ -541,12 +714,33 @@ export async function createBarbecue(
   const insertValues = stripPublicOnlyFieldsForPrivateMutation({
     ...input,
     creatorUserId: creatorUser?.id ?? null,
-    date: typeof input.date === "string" ? new Date(input.date) : input.date,
-    locationName: input.locationName ?? input.locationText ?? null,
-    locationText: input.locationText ?? input.locationName ?? null,
+    date: normalizedUtcStart ?? fallbackDate,
+    localDate: localDateParts ? parsedLocalDate : null,
+    localTime: localTimeParts ? parsedLocalTime : null,
+    timezoneId: resolvedTimezoneId,
+    locationName: canonicalLocationName,
+    locationText: canonicalFormattedAddress ?? canonicalLocationName,
     countryCode: normalizedCountryCode ?? null,
-    locationMeta: sanitizeLocationMeta(input.locationMeta),
+    locationMeta: sanitizeLocationMeta({
+      ...(input.locationMeta && typeof input.locationMeta === "object" ? input.locationMeta as Record<string, unknown> : {}),
+      city: canonicalCity,
+      countryCode: normalizedCountryCode ?? undefined,
+      countryName: canonicalCountryName ?? undefined,
+      locationCurrency: normalizedCountryCode ? locationCurrency : undefined,
+      lat: canonicalLatitude ?? undefined,
+      lng: canonicalLongitude ?? undefined,
+      placeId: canonicalPlaceId ?? undefined,
+      formattedAddress: canonicalFormattedAddress ?? undefined,
+      displayName: canonicalPlace?.displayName ?? undefined,
+    }),
+    city: canonicalCity,
+    countryName: canonicalCountryName,
+    latitude: canonicalLatitude,
+    longitude: canonicalLongitude,
+    placeId: canonicalPlaceId,
+    templateData: mergedTemplateData,
     currency: currency ?? "EUR",
+    localCurrency,
     currencySource,
     visibility: requestedVisibility,
     visibilityOrigin,
@@ -560,6 +754,19 @@ export async function createBarbecue(
     allowOptInExpenses: requestedVisibility === "private" ? input.allowOptInExpenses : false,
   } as Parameters<typeof bbqRepo.create>[0], visibilityOrigin === "private");
   const created = await bbqRepo.create(insertValues as Parameters<typeof bbqRepo.create>[0]);
+  if (process.env.NODE_ENV !== "production") {
+    const meta = created.locationMeta && typeof created.locationMeta === "object"
+      ? (created.locationMeta as Record<string, unknown>)
+      : null;
+    console.debug("[plan:create:currency]", {
+      eventId: created.id,
+      planCurrency: created.currency,
+      locationCurrency: typeof meta?.locationCurrency === "string" ? meta.locationCurrency : null,
+      localCurrency: created.localCurrency ?? null,
+      countryCode: created.countryCode,
+      creatorUserId: created.creatorUserId,
+    });
+  }
 
   if (creatorUser) {
     await participantRepo.create({
@@ -603,6 +810,7 @@ export async function updateBarbecue(
     locationText?: string | null;
     locationMeta?: unknown | null;
     currency?: string;
+    localCurrency?: string | null;
     currencySource?: "auto" | "manual";
     eventType?: string;
     eventVibe?: string;
@@ -687,6 +895,10 @@ export async function updateBarbecue(
   if (updates.currency !== undefined) {
     set.currency = updates.currency;
     set.currencySource = updates.currencySource ?? "manual";
+  }
+  if (updates.localCurrency !== undefined) {
+    const nextLocalCurrency = updates.localCurrency?.trim()?.toUpperCase() || null;
+    set.localCurrency = nextLocalCurrency === set.currency ? null : nextLocalCurrency;
   } else if (updates.currencySource !== undefined) {
     set.currencySource = updates.currencySource;
   } else if (updates.countryCode !== undefined && bbq.currencySource === "auto") {

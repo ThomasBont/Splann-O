@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import type { BarbecueListItem } from "@/hooks/use-bbq-data";
 import { getEventChatWsUrl } from "@/lib/network";
 
 export type PlanActivityItem = {
@@ -18,12 +20,21 @@ type PlanActivityResponse = {
 };
 
 export function usePlanActivity(eventId: number | null, enabled = true) {
+  const queryClient = useQueryClient();
   const [items, setItems] = useState<PlanActivityItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [highlightedId, setHighlightedId] = useState<number | null>(null);
   const seenIdsRef = useRef<Set<number>>(new Set());
+  const patchSidebarUnread = useCallback((targetEventId: number, unread: number) => {
+    queryClient.setQueryData<BarbecueListItem[]>(["/api/barbecues"], (prev) => {
+      if (!Array.isArray(prev)) return prev;
+      return prev.map((plan) => (
+        Number(plan.id) === targetEventId ? { ...plan, unreadCount: Math.max(0, Math.trunc(unread)) } : plan
+      ));
+    });
+  }, [queryClient]);
 
   useEffect(() => {
     if (!enabled || !eventId) {
@@ -51,11 +62,13 @@ export function usePlanActivity(eventId: number | null, enabled = true) {
         seenIdsRef.current = new Set(rows.map((row) => row.id));
         setItems(rows);
         setUnreadCount(unread);
+        patchSidebarUnread(eventId, unread);
       } catch (e) {
         if (cancelled) return;
         setError(e instanceof Error ? e.message : "Failed to load activity");
         setItems([]);
         setUnreadCount(0);
+        patchSidebarUnread(eventId, 0);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -84,7 +97,11 @@ export function usePlanActivity(eventId: number | null, enabled = true) {
       if (seenIdsRef.current.has(next.id)) return;
       seenIdsRef.current.add(next.id);
       setItems((prev) => [next, ...prev.filter((item) => item.id !== next.id)].slice(0, 50));
-      setUnreadCount((prev) => prev + 1);
+      setUnreadCount((prev) => {
+        const nextUnread = prev + 1;
+        patchSidebarUnread(eventId, nextUnread);
+        return nextUnread;
+      });
       setHighlightedId(next.id);
       window.setTimeout(() => {
         setHighlightedId((current) => (current === next.id ? null : current));
@@ -95,14 +112,13 @@ export function usePlanActivity(eventId: number | null, enabled = true) {
     };
   }, [enabled, eventId]);
 
-  const markAllAsRead = async () => {
+  const markAllAsRead = useCallback(async () => {
     if (!enabled || !eventId) return;
     setUnreadCount(0);
+    patchSidebarUnread(eventId, 0);
     await fetch(`/api/plans/${eventId}/activity/read`, {
       method: "POST",
       credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ readUpTo: new Date().toISOString() }),
     }).catch(() => undefined);
     const res = await fetch(`/api/plans/${eventId}/activity?limit=50`, { credentials: "include" });
     const body = await res.json().catch(() => ({}));
@@ -111,7 +127,8 @@ export function usePlanActivity(eventId: number | null, enabled = true) {
       : (body as PlanActivityResponse);
     const unread = Number.isFinite(Number(response.unreadCount)) ? Number(response.unreadCount) : 0;
     setUnreadCount(unread);
-  };
+    patchSidebarUnread(eventId, unread);
+  }, [enabled, eventId, patchSidebarUnread]);
 
   const latestItems = useMemo(() => items.slice(0, 3), [items]);
   return { items, latestItems, unreadCount, loading, error, highlightedId, markAllAsRead };

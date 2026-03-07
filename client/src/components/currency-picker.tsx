@@ -119,6 +119,8 @@ export interface CurrencyPickerProps {
   placeholder?: string;
   className?: string;
   triggerClassName?: string;
+  allowEmpty?: boolean;
+  emptyLabel?: string;
   /** Compact trigger (e.g. for header) */
   compact?: boolean;
   /** For testing */
@@ -135,6 +137,8 @@ export function CurrencyPicker({
   placeholder = "Select currency",
   className,
   triggerClassName,
+  allowEmpty = false,
+  emptyLabel = "None",
   compact = false,
   "data-testid": dataTestId,
 }: CurrencyPickerProps) {
@@ -156,6 +160,12 @@ export function CurrencyPicker({
   const handleSelect = (code: string) => {
     onChange(code);
     setRecentCodes(pushRecent(storageKey, code));
+    setOpen(false);
+    setSearch("");
+  };
+
+  const handleClear = () => {
+    onChange("");
     setOpen(false);
     setSearch("");
   };
@@ -224,6 +234,23 @@ export function CurrencyPicker({
             onWheelCapture={(event) => event.stopPropagation()}
           >
             <CommandEmpty>No currency found.</CommandEmpty>
+            {allowEmpty ? (
+              <CommandGroup heading="Optional">
+                <CommandItem
+                  value="__none__"
+                  onSelect={handleClear}
+                  className={cn(
+                    "flex items-center gap-3 min-h-[44px] py-0 pr-2",
+                    "rounded-md px-3 cursor-pointer"
+                  )}
+                >
+                  <div className="flex min-w-0 flex-1 items-center gap-2">
+                    <span className="truncate text-sm text-muted-foreground">{emptyLabel}</span>
+                  </div>
+                  {!value ? <Check className="h-4 w-4 shrink-0 text-primary" /> : null}
+                </CommandItem>
+              </CommandGroup>
+            ) : null}
             {suggestedCurrency && (
               <CommandGroup heading="Suggested">
                 <CurrencyPickerItem

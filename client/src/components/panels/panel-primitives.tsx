@@ -51,8 +51,11 @@ export function PanelHeader({
 }) {
   const { panel, closePanel, replacePanel } = usePanel();
   const showBackButton = !!panel && panel.type !== "overview";
-  const backTarget = panel?.type === "member-profile" && panel.source === "crew"
+  const backTarget = (panel?.type === "member-profile" && panel.source === "crew")
+    || (panel?.type === "invite" && panel.source === "crew")
     ? { label: "Crew", panel: { type: "crew" } as const }
+    : panel?.type === "add-expense" && panel.source === "expenses"
+      ? { label: "Expenses", panel: { type: "expenses" } as const }
     : { label: "Overview", panel: { type: "overview" } as const };
 
   return (

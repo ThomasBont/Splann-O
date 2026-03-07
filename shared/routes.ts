@@ -33,7 +33,9 @@ export const api = {
     create: {
       method: 'POST' as const,
       path: '/api/barbecues' as const,
-      input: insertBarbecueSchema,
+      input: insertBarbecueSchema.extend({
+        planCurrency: z.string().length(3).optional(),
+      }),
       responses: {
         201: z.custom<Barbecue>(),
         400: errorSchemas.validation,
@@ -66,6 +68,7 @@ export const api = {
         locationText: z.string().nullable().optional(),
         locationMeta: z.unknown().nullable().optional(),
         currency: z.string().length(3).optional(),
+        localCurrency: z.string().length(3).nullable().optional(),
         currencySource: z.enum(["auto", "manual"]).optional(),
         eventType: z.string().optional(),
         eventVibe: z.string().optional(),

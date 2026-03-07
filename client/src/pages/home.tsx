@@ -723,6 +723,14 @@ export default function Home({
   const [newPublicListOnExplore, setNewPublicListOnExplore] = useState(false);
   const [privatePlanSort, setPrivatePlanSort] = useState<PrivatePlanSort>("recent");
   const [activeSurface, setActiveSurface] = useState<ActiveSurface>("chat");
+  const lastActivityReadEventRef = useRef<number | null>(null);
+  const activityReadDebounceRef = useRef<number | null>(null);
+  const isInteractiveSurfaceTarget = useCallback((target: EventTarget | null) => {
+    if (!(target instanceof HTMLElement)) return false;
+    return !!target.closest(
+      'button,a,input,textarea,select,label,summary,[role="button"],[role="link"],[data-no-surface-focus]',
+    );
+  }, []);
 
   useEffect(() => {
     if (appRouteMode === "private" || !FEATURE_PUBLIC_PLANS) setEventVisibilityTab("private");
@@ -738,6 +746,25 @@ export default function Home({
   useEffect(() => {
     if (!panel) setActiveSurface("chat");
   }, [panel]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onOpenExpenses = (event: Event) => {
+      const custom = event as CustomEvent<{
+        eventId?: number;
+        initialView?: "overview" | "expense-form";
+      }>;
+      const targetEventId = Number(custom.detail?.eventId);
+      if (!Number.isFinite(targetEventId) || targetEventId <= 0) return;
+      if (selectedBbqId && Number(selectedBbqId) !== targetEventId) return;
+      if (!selectedBbqId) setSelectedBbqId(targetEventId);
+      if (custom.detail?.initialView === "expense-form") {
+        openPanel({ type: "add-expense", source: "overview" });
+      }
+    };
+    window.addEventListener("splanno:open-expenses", onOpenExpenses as EventListener);
+    return () => window.removeEventListener("splanno:open-expenses", onOpenExpenses as EventListener);
+  }, [openPanel, selectedBbqId]);
 
   useEffect(() => {
     if (newEventLocation) {
@@ -1479,6 +1506,50 @@ export default function Home({
   const inviteParticipant = useInviteParticipant(selectedBbqId);
   const acceptInvite = useAcceptInvite();
   const declineInvite = useDeclineInvite();
+
+  useEffect(() => {
+    if (appRouteMode !== "event" || !selectedBbqId || !isPrivateContext) return;
+    if (lastActivityReadEventRef.current === selectedBbqId) return;
+    lastActivityReadEventRef.current = selectedBbqId;
+    queryClient.setQueryData(["/api/barbecues"], (prev: unknown) => {
+      if (!Array.isArray(prev)) return prev;
+      return prev.map((plan) => {
+        if (!plan || typeof plan !== "object") return plan;
+        const currentId = Number((plan as { id?: number }).id);
+        if (!Number.isFinite(currentId) || currentId !== selectedBbqId) return plan;
+        return { ...(plan as Record<string, unknown>), unreadCount: 0 };
+      });
+    });
+    void fetch(`/api/plans/${selectedBbqId}/activity/read`, {
+      method: "POST",
+      credentials: "include",
+    }).finally(() => {
+      void markAllAsRead().finally(() => {
+        void queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] });
+      });
+    });
+  }, [appRouteMode, isPrivateContext, markAllAsRead, queryClient, selectedBbqId]);
+
+  useEffect(() => {
+    if (appRouteMode !== "event" || !selectedBbqId || !isPrivateContext) return;
+    if (planActivityUnreadCount <= 0) return;
+    if (activityReadDebounceRef.current != null) {
+      window.clearTimeout(activityReadDebounceRef.current);
+      activityReadDebounceRef.current = null;
+    }
+    activityReadDebounceRef.current = window.setTimeout(() => {
+      void markAllAsRead().finally(() => {
+        void queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] });
+      });
+      activityReadDebounceRef.current = null;
+    }, 700);
+    return () => {
+      if (activityReadDebounceRef.current != null) {
+        window.clearTimeout(activityReadDebounceRef.current);
+        activityReadDebounceRef.current = null;
+      }
+    };
+  }, [appRouteMode, isPrivateContext, markAllAsRead, planActivityUnreadCount, queryClient, selectedBbqId]);
 
   useEffect(() => {
     setDisplayCurrency(currency);
@@ -3496,7 +3567,10 @@ export default function Home({
                       "relative h-full min-w-0 flex-1 transition-[box-shadow,transform] duration-150 ease-out lg:mr-[-10px]",
                       activeSurface === "chat" ? "z-20 -translate-y-px" : "z-10 translate-y-0",
                     )}
-                    onMouseDown={() => setActiveSurface("chat")}
+                    onMouseDown={(event) => {
+                      if (isInteractiveSurfaceTarget(event.target)) return;
+                      setActiveSurface("chat");
+                    }}
                   >
                     <ChatSidebar
                       eventId={selectedBbq.id}
@@ -3535,7 +3609,10 @@ export default function Home({
                         ? "border-black/5 bg-[hsl(var(--surface-1))] shadow-[0_8px_20px_rgba(15,23,42,0.06)] dark:border-white/10 dark:bg-[hsl(var(--surface-1))] dark:shadow-[0_10px_24px_rgba(0,0,0,0.24)]"
                         : "border-black/5 bg-[hsl(var(--surface-2))]/94 shadow-[0_4px_12px_rgba(15,23,42,0.05)] dark:border-white/8 dark:bg-[hsl(var(--surface-1))]/98 dark:shadow-[0_5px_14px_rgba(0,0,0,0.18)]",
                     )}
-                    onMouseDown={() => setActiveSurface("panel")}
+                    onMouseDown={(event) => {
+                      if (isInteractiveSurfaceTarget(event.target)) return;
+                      setActiveSurface("panel");
+                    }}
                   />
                 </div>
 
@@ -5183,7 +5260,7 @@ export default function Home({
                           console.log("[private-plan-card:navigate]", { id: planId, href: `/app/e/${planId}` });
                         }
                       }}
-                      className="group pointer-events-auto relative z-10 block overflow-hidden rounded-[28px] border border-border/70 bg-card p-0 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                      className="interactive-card group pointer-events-auto relative z-10 block overflow-hidden rounded-[28px] border border-border/70 bg-card p-0 text-left shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                       data-testid={`private-plan-card-${planId}`}
                     >
                       <div className="relative h-[120px] overflow-hidden">

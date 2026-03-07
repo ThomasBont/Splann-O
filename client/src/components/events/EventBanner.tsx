@@ -8,6 +8,7 @@ import {
   EVENT_BANNER_PRESETS,
   getEventBanner,
   getBannerPresetClass,
+  getBannerPresetTone,
   type EventBannerPresetId,
 } from "@/lib/event-banner";
 import { circularActionButtonClass } from "@/lib/utils";
@@ -72,6 +73,7 @@ export function EventBanner({
   const { uploadedUrl, presetId: persistedPresetId } = getEventBanner(event);
   const activePresetId = localPresetId ?? persistedPresetId;
   const presetClass = getBannerPresetClass(activePresetId);
+  const presetTone = getBannerPresetTone(activePresetId) ?? "dark-content";
 
   useEffect(() => {
     setImageLoaded(false);
@@ -144,10 +146,10 @@ export function EventBanner({
       ) : (
         <div className={`h-36 sm:h-44 px-5 py-4 flex items-end justify-between transition-colors duration-[240ms] ${presetClass ?? templateFallbackClassName}`}>
           <div>
-            <p className="text-xs uppercase tracking-wide text-muted-foreground/90">
+            <p className={`text-xs uppercase tracking-wide ${presetTone === "light-content" ? "text-white/72" : "text-slate-900/62"}`}>
               {variant === "private" ? "Private event" : "Event"}
             </p>
-            <p className="text-sm font-semibold mt-1">{templateLabel}</p>
+            <p className={`mt-1 text-sm font-semibold ${presetTone === "light-content" ? "text-white" : "text-slate-950"}`}>{templateLabel}</p>
           </div>
           <div className="text-4xl sm:text-5xl leading-none" aria-hidden>
             {templateEmoji}

@@ -218,6 +218,7 @@ export function useEventChat(eventId: number | null, enabled = true) {
   const isLockedRef = useRef(false);
   const loggedTransportRef = useRef(false);
   const pendingAckTimersRef = useRef(new Map<string, number>());
+  const typingExpiryTimersRef = useRef(new Map<string, number>());
 
   const clearPendingAck = useCallback((clientMessageId?: string | null) => {
     const id = typeof clientMessageId === "string" ? clientMessageId.trim() : "";
@@ -397,6 +398,8 @@ export function useEventChat(eventId: number | null, enabled = true) {
       setIsLocked(false);
       setIsSubscribed(false);
       setTypingUsers([]);
+      typingExpiryTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
+      typingExpiryTimersRef.current.clear();
       pendingAckTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
       pendingAckTimersRef.current.clear();
       if (wsRef.current) {
@@ -464,19 +467,38 @@ export function useEventChat(eventId: number | null, enabled = true) {
         mergeMessages(systemMessage);
         return;
       }
-      if ((payload?.type === "chat:typing" || payload?.type === "chat:typing_start") && payload.user?.id) {
+      if (
+        (
+          payload?.type === "chat:typing"
+          || payload?.type === "typing"
+          || payload?.type === "chat:typing_start"
+          || payload?.type === "typing:start"
+        )
+        && payload.user?.id
+      ) {
         const nextUser = { id: String(payload.user.id), name: payload.user.name || "Someone" };
         setTypingUsers((prev) => {
           const existing = prev.filter((u) => u.id !== nextUser.id);
           return [...existing, nextUser];
         });
-        window.setTimeout(() => {
+        const existingTimer = typingExpiryTimersRef.current.get(nextUser.id);
+        if (existingTimer != null) {
+          window.clearTimeout(existingTimer);
+        }
+        const timer = window.setTimeout(() => {
+          typingExpiryTimersRef.current.delete(nextUser.id);
           setTypingUsers((prev) => prev.filter((u) => u.id !== nextUser.id));
         }, 3000);
+        typingExpiryTimersRef.current.set(nextUser.id, timer);
         return;
       }
       if ((payload?.type === "chat:typing_stop" || payload?.type === "typing:stop") && payload.user?.id) {
         const targetId = String(payload.user.id);
+        const existingTimer = typingExpiryTimersRef.current.get(targetId);
+        if (existingTimer != null) {
+          window.clearTimeout(existingTimer);
+          typingExpiryTimersRef.current.delete(targetId);
+        }
         setTypingUsers((prev) => prev.filter((u) => u.id !== targetId));
         return;
       }
@@ -565,6 +587,8 @@ export function useEventChat(eventId: number | null, enabled = true) {
 
     return () => {
       closedByCleanup = true;
+      typingExpiryTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
+      typingExpiryTimersRef.current.clear();
       pendingAckTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
       pendingAckTimersRef.current.clear();
       if (reconnectTimerRef.current != null) {

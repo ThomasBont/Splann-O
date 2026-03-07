@@ -83,9 +83,19 @@ export const areaEnum = ["parties", "trips"] as const;
 export const barbecues = pgTable("barbecues", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
+  /** UTC-normalized start timestamp (legacy/current canonical timestamp field). */
   date: timestamp("date").notNull().defaultNow(),
+  /** User local date intent at creation/update, e.g. "2026-03-07". */
+  localDate: text("local_date"),
+  /** User local time intent, nullable when user leaves time empty. */
+  localTime: text("local_time"),
+  /** IANA timezone identifier resolved from location, e.g. "Europe/Madrid". */
+  timezoneId: text("timezone_id"),
   durationMinutes: integer("duration_minutes").notNull().default(120),
+  /** Primary plan currency used for totals/balances. */
   currency: text("currency").notNull().default("EUR"),
+  /** Optional secondary/local currency for on-location spending context. */
+  localCurrency: text("local_currency"),
   creatorUserId: integer("creator_user_id").references(() => users.id, { onDelete: "set null" }),
   isPublic: boolean("is_public").notNull().default(true),
   allowOptInExpenses: boolean("allow_opt_in_expenses").notNull().default(false),
@@ -98,7 +108,7 @@ export const barbecues = pgTable("barbecues", {
   /** Human-entered location string used by private/public creation flows. */
   locationText: text("location_text"),
   /** Optional structured location info for future maps/place providers. */
-  locationMeta: json("location_meta").$type<{ city?: string; countryCode?: string; countryName?: string; lat?: number; lng?: number } | null>().default(null),
+  locationMeta: json("location_meta").$type<{ city?: string; countryCode?: string; countryName?: string; lat?: number; lng?: number; locationCurrency?: string } | null>().default(null),
   city: text("city"),
   countryCode: text("country_code"),
   countryName: text("country_name"),

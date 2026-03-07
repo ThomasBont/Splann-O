@@ -4,8 +4,10 @@ import { usePanel } from "@/state/panel";
 import OverviewPanel from "@/components/panels/OverviewPanel";
 import ExpenseDetailPanel from "@/components/panels/ExpenseDetailPanel";
 import ExpensesPanel from "@/components/panels/ExpensesPanel";
+import AddExpensePanel from "@/components/panels/AddExpensePanel";
 import SettlementPanel from "@/components/panels/SettlementPanel";
 import CrewPanel from "@/components/panels/CrewPanel";
+import InviteFlowPanel from "@/components/panels/InviteFlowPanel";
 import PlanDetailsPanel from "@/components/panels/PlanDetailsPanel";
 import NextActionPanel from "@/components/panels/NextActionsPanel";
 import MemberProfilePanel from "@/components/panels/MemberProfilePanel";
@@ -35,11 +37,17 @@ export function ContextPanelHost({
     case "expenses":
       content = <ExpensesPanel />;
       break;
+    case "add-expense":
+      content = <AddExpensePanel source={panel.source} />;
+      break;
     case "settlement":
       content = <SettlementPanel />;
       break;
     case "crew":
       content = <CrewPanel />;
+      break;
+    case "invite":
+      content = <InviteFlowPanel />;
       break;
     case "member-profile":
       content = <MemberProfilePanel username={panel.username} />;

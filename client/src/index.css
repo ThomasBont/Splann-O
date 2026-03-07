@@ -274,6 +274,21 @@
     transform: scale(0.98);
   }
 
+  .interactive-card {
+    cursor: pointer;
+    transition: transform 120ms ease, box-shadow 120ms ease;
+    will-change: transform;
+  }
+
+  .interactive-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+  }
+
+  .dark .interactive-card:hover {
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
+  }
+
   /* Demo confetti — lightweight animation */
   @keyframes demo-confetti-fall {
     0% {

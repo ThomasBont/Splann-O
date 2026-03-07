@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, Plus, Receipt, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usePlan, usePlanCrew, usePlanExpenses } from "@/hooks/use-plan-data";
@@ -27,15 +26,6 @@ function formatCreated(value?: string | null) {
   if (Number.isNaN(date.getTime())) return "Recently";
   return date.toLocaleDateString(undefined, { day: "numeric", month: "short" });
 }
-
-type SettlementStatusResponse = {
-  settlement: {
-    id: string;
-    status: "proposed" | "in_progress" | "settled";
-    currency: string | null;
-  } | null;
-  transfers: Array<unknown>;
-};
 
 export function ExpensesPanel() {
   const [recentExpanded, setRecentExpanded] = useState(false);
@@ -65,27 +55,9 @@ export function ExpensesPanel() {
     [expenses],
   );
   const visibleRecentExpenses = recentExpanded ? sortedExpenses : sortedExpenses.slice(0, 3);
-  const latestSettlementQuery = useQuery<SettlementStatusResponse>({
-    queryKey: ["/api/events", eventId, "settlement", "latest"],
-    queryFn: async () => {
-      if (!eventId) return { settlement: null, transfers: [] };
-      const res = await fetch(`/api/events/${eventId}/settlement/latest`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to load settlement");
-      return res.json() as Promise<SettlementStatusResponse>;
-    },
-    enabled: !!eventId,
-    staleTime: 15_000,
-    refetchInterval: eventId ? 5_000 : false,
-    refetchOnWindowFocus: true,
-  });
-  const settlementStarted = !!latestSettlementQuery.data?.settlement;
-
   const handleAddExpense = () => {
     if (!eventId) return;
-    if (settlementStarted) return;
-    window.dispatchEvent(new CustomEvent("splanno:open-expenses", {
-      detail: { eventId, initialView: "expense-form" },
-    }));
+    replacePanel({ type: "add-expense", source: "expenses" });
   };
   const openExpenseDetail = (expenseId: number) => {
     replacePanel({ type: "expense", id: String(expenseId) });
@@ -102,8 +74,8 @@ export function ExpensesPanel() {
             size="sm"
             className="h-9 rounded-full bg-primary px-4 text-slate-900 hover:bg-primary/90"
             onClick={handleAddExpense}
-            disabled={!eventId || settlementStarted}
-            title={settlementStarted ? "Expenses are locked after settlement starts" : "Add expense"}
+            disabled={!eventId}
+            title="Add expense"
           >
             <Plus className="mr-1.5 h-4 w-4" />
             Add expense
@@ -148,7 +120,7 @@ export function ExpensesPanel() {
                       type="button"
                       key={`expenses-panel-${expense.id}`}
                       onClick={() => openExpenseDetail(expense.id)}
-                      className="flex w-full items-center justify-between gap-3 rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))] px-3 py-2.5 text-left transition hover:border-border/80 hover:bg-[hsl(var(--surface-2))]/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className="interactive-card flex w-full items-center justify-between gap-3 rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))] px-3 py-2.5 text-left hover:border-border/80 hover:bg-[hsl(var(--surface-2))]/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       <div className="min-w-0">
                         <p className="truncate text-sm font-medium text-foreground">{expense.item || "Expense"}</p>

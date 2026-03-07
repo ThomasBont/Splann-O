@@ -195,6 +195,8 @@ export function useCreateBarbecue() {
       name: string;
       date: string;
       currency?: string;
+      planCurrency?: string;
+      localCurrency?: string | null;
       creatorUserId?: number;
       isPublic?: boolean;
       allowOptInExpenses?: boolean;
@@ -208,6 +210,9 @@ export function useCreateBarbecue() {
       latitude?: number | null;
       longitude?: number | null;
       placeId?: string | null;
+      localDate?: string | null;
+      localTime?: string | null;
+      timezoneId?: string | null;
       locationText?: string | null;
       locationMeta?: unknown;
       visibility?: "private" | "public";
@@ -228,6 +233,18 @@ export function useCreateBarbecue() {
       const normalizedCountryCode = normalizeCountryCode(data.countryCode);
       if (normalizedCountryCode) requestBody.countryCode = normalizedCountryCode;
       else delete requestBody.countryCode;
+      if (typeof data.planCurrency === "string" && data.planCurrency.trim()) {
+        requestBody.planCurrency = data.planCurrency.trim().toUpperCase();
+      }
+      if (typeof data.currency === "string" && data.currency.trim()) {
+        requestBody.currency = data.currency.trim().toUpperCase();
+      }
+      if (data.localCurrency === null) {
+        requestBody.localCurrency = null;
+      } else if (typeof data.localCurrency === "string") {
+        const normalizedLocal = data.localCurrency.trim().toUpperCase();
+        requestBody.localCurrency = normalizedLocal || null;
+      }
       if (data.locationMeta && typeof data.locationMeta === "object") {
         const meta = { ...(data.locationMeta as Record<string, unknown>) };
         const normalizedMetaCountryCode = normalizeCountryCode(meta.countryCode);
@@ -277,6 +294,7 @@ export function useUpdateBarbecue() {
       locationText?: string | null;
       locationMeta?: unknown;
       currency?: string;
+      localCurrency?: string | null;
       currencySource?: "auto" | "manual";
       eventType?: string;
       eventVibe?: string;
@@ -324,6 +342,7 @@ export function useUpdateBarbecue() {
         }
       }
       if (rest.currency !== undefined) body.currency = rest.currency;
+      if (rest.localCurrency !== undefined) body.localCurrency = rest.localCurrency ? rest.localCurrency.trim().toUpperCase() : null;
       if (rest.currencySource !== undefined) body.currencySource = rest.currencySource;
       if (rest.eventType !== undefined) body.eventType = rest.eventType;
       if (rest.eventVibe !== undefined) body.eventVibe = rest.eventVibe;

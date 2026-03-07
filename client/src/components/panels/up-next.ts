@@ -1,4 +1,4 @@
-export type UpNextAction = "settlement" | "crew" | "expenses" | "plan-details" | null;
+export type UpNextAction = "settlement" | "crew" | "invite" | "expenses" | "add-expense" | "plan-details" | null;
 
 export type UpNextItem = {
   type: "settlement" | "invite" | "expense" | "event" | "poll" | "done";
@@ -73,9 +73,9 @@ const pendingInvitesRule: UpNextRule = (context) => {
     title: context.pendingInvitesCount === 1
       ? "1 friend still needs to join"
       : `${context.pendingInvitesCount} friends still need to join`,
-    description: "Check the crew panel to see who is still pending and keep the plan moving.",
+    description: "Send reminders or copy the invite link to keep the plan moving.",
     ctaLabel: "View invites",
-    action: "crew",
+    action: "invite",
   };
 };
 
@@ -86,7 +86,7 @@ const noExpensesRule: UpNextRule = (context) => {
     title: "Add the first expense",
     description: "Start tracking shared costs so the group can see what has been spent.",
     ctaLabel: "Add expense",
-    action: "expenses",
+    action: "add-expense",
   };
 };
 

@@ -1261,19 +1261,16 @@ export function ChatSidebar({
             Chat closed after event. History remains visible.
           </p>
         ) : null}
-        <div className="mb-0 min-h-3">
+        <div className="mb-1 min-h-5">
           {visibleTypingUsers.length > 0 ? (
-            <p className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-              <span className="truncate">
-                {visibleTypingUsers[0]?.name}
-                {visibleTypingUsers.length > 1 ? ` +${visibleTypingUsers.length - 1}` : ""} is typing…
-              </span>
+            <div className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-muted/45 px-3 py-1.5 text-xs text-muted-foreground">
+              <span>Aan het typen...</span>
               <span className="inline-flex items-center gap-1">
                 <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/70 [animation-delay:-0.2s]" />
                 <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/70 [animation-delay:-0.1s]" />
                 <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/70" />
               </span>
-            </p>
+            </div>
           ) : null}
         </div>
         <div className="flex items-center gap-2">

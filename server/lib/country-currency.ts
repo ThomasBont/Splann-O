@@ -29,14 +29,14 @@ export function getDefaultCurrencyForCountry(countryCode: string): string | null
   return c ?? null;
 }
 
-/** Resolve event currency: country → user default → EUR */
+/** Resolve event currency: user default → country → EUR */
 export function resolveTripCurrency(opts: {
   countryCode?: string | null;
   userDefaultCurrency?: string | null;
 }): string {
-  const fromCountry = currencyForCountry(opts.countryCode);
-  if (fromCountry) return fromCountry;
   const user = opts.userDefaultCurrency?.trim?.();
   if (user && user.length === 3) return user.toUpperCase();
+  const fromCountry = currencyForCountry(opts.countryCode);
+  if (fromCountry) return fromCountry;
   return FALLBACK;
 }

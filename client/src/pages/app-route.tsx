@@ -32,7 +32,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -64,6 +64,7 @@ import { InlineQueryError, SkeletonCard } from "@/components/ui/load-states";
 import { EMPTY_COPY } from "@/lib/emotional-copy";
 import { usePrefetchPlan } from "@/hooks/use-prefetch-plan";
 import { usePanel } from "@/state/panel";
+import { resolveAssetUrl } from "@/lib/asset-url";
 
 type AppSection = "home" | "private" | "event";
 type DevDisableFlags = {
@@ -565,14 +566,27 @@ function AppSidebar({
           </div>
         </div>
 
-        <div className="mt-auto shrink-0 border-t border-border/50 bg-background px-3 py-3">
+        <div className="relative z-30 mt-auto shrink-0 border-t border-border/50 bg-background px-3 py-3 pointer-events-auto">
           <div className="flex items-center justify-between gap-2">
             <button
               type="button"
               onClick={onOpenAccount}
-              className="flex min-w-0 items-center gap-2 rounded-lg px-1.5 py-1 transition hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1.5 py-1 transition hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <Avatar className="h-9 w-9 border border-border/60">
+                {(user as { profileImageUrl?: string | null; avatarUrl?: string | null } | null)?.profileImageUrl
+                  || (user as { profileImageUrl?: string | null; avatarUrl?: string | null } | null)?.avatarUrl ? (
+                  <AvatarImage
+                    src={
+                      resolveAssetUrl(
+                        ((user as { profileImageUrl?: string | null; avatarUrl?: string | null } | null)?.profileImageUrl)
+                        || ((user as { profileImageUrl?: string | null; avatarUrl?: string | null } | null)?.avatarUrl)
+                        || null,
+                      ) ?? undefined
+                    }
+                    alt={user?.username || "Profile"}
+                  />
+                ) : null}
                 <AvatarFallback className="text-xs font-semibold">
                   {String(user?.username || user?.email || "U").slice(0, 2).toUpperCase()}
                 </AvatarFallback>
@@ -586,7 +600,7 @@ function AppSidebar({
                 ) : null}
               </span>
             </button>
-            <div className="flex items-center gap-1.5">
+            <div className="relative z-30 flex shrink-0 items-center gap-1.5">
               <button
                 type="button"
                 className="relative inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -602,7 +616,7 @@ function AppSidebar({
               </button>
               <button
                 type="button"
-                className="inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-events-auto"
                 aria-label="Open settings"
                 onClick={onOpenSettings}
               >

@@ -149,8 +149,8 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
       <button
         type="button"
         className={cn(
-          "flex w-full items-center justify-between gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-left",
-          "transition hover:bg-emerald-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/35",
+          "interactive-card flex w-full items-center justify-between gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-left",
+          "hover:bg-emerald-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/35",
           className,
         )}
         onClick={() => setExpanded(true)}

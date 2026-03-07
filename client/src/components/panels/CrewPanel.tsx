@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Plus, Users } from "lucide-react";
+import { Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useAuth } from "@/hooks/use-auth";
@@ -66,6 +66,16 @@ export function CrewPanel() {
       <PanelHeader
         title="Crew"
         meta={<span className="inline-flex items-center gap-2"><Users className="h-4 w-4" />{members.length} members · {invitesPending.length} pending</span>}
+        actions={(
+          <Button
+            type="button"
+            size="sm"
+            className="h-9 rounded-full px-4"
+            onClick={() => replacePanel({ type: "invite", source: "crew" })}
+          >
+            Invite friends
+          </Button>
+        )}
       />
 
       <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
@@ -150,14 +160,6 @@ export function CrewPanel() {
                 </div>
               </PanelSection>
             ) : null}
-
-            <div className="flex items-center gap-2 px-1">
-              <Button type="button" variant="outline" disabled>
-                <Plus className="h-4 w-4" />
-                Invite people
-              </Button>
-              <p className="text-xs text-muted-foreground">Invite flow can be moved into the panel next.</p>
-            </div>
           </>
         )}
       </div>

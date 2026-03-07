@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, Camera, CheckCircle2, Crown, Link2, Loader2, Upload, Users } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { formatRelativeTime } from "@/components/event/EventActivityFeed";
 import { useAuth } from "@/hooks/use-auth";
 import { useAppToast } from "@/hooks/use-app-toast";
 import { usePlan, usePlanCrew, usePlanExpenses } from "@/hooks/use-plan-data";
@@ -14,9 +13,11 @@ import { resolveAssetUrl, withCacheBust } from "@/lib/asset-url";
 import { computeSplit } from "@/lib/split/calc";
 import { circularActionButtonClass, cn } from "@/lib/utils";
 import { usePanel } from "@/state/panel";
-import { getEventActivity } from "@/utils/eventActivity";
 import { PanelShell, useActiveEventId } from "@/components/panels/panel-primitives";
 import { buildCrewContributionRows } from "@/components/panels/crew-contribution";
+import { getUpNext } from "@/components/panels/up-next";
+import { useEventGuests } from "@/hooks/use-event-guests";
+import { usePlanActivity } from "@/hooks/use-plan-activity";
 
 type SettlementResponse = {
   settlement: {
@@ -125,6 +126,57 @@ function detectBannerTone(image: HTMLImageElement): "light-content" | "dark-cont
   }
 }
 
+function formatActivityTime(value: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  const time = date.getTime();
+  if (!Number.isFinite(time)) return "";
+  const diffMs = Date.now() - time;
+  const minutes = Math.floor(diffMs / 60_000);
+  if (minutes < 1) return "Just now";
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return "Yesterday";
+  if (days < 7) return `${days}d ago`;
+  return date.toLocaleDateString();
+}
+
+function formatActivityPreview(item: { type: string; actorName: string | null; message: string; meta: Record<string, unknown> | null }, currencyCode: string) {
+  const actor = (item.actorName || "Someone").trim().split(/\s+/)[0] || "Someone";
+  const meta = item.meta ?? {};
+  const amount = typeof meta.amount === "number" ? meta.amount : Number(meta.amount);
+  const currency = typeof meta.currency === "string" && meta.currency.trim() ? meta.currency : currencyCode;
+  const title = typeof meta.title === "string"
+    ? meta.title.trim()
+    : item.type.startsWith("EXPENSE_")
+      ? (() => {
+          const match = item.message.match(/expense:\s*(.+?)\s*\((?:[A-Z]{3}|€|\$|£)/i);
+          return match?.[1]?.trim() ?? "";
+        })()
+      : "";
+
+  if (item.type === "EXPENSE_ADDED" && title) {
+    return `${actor} added ${title}${Number.isFinite(amount) ? ` · ${formatCurrency(amount, currency)}` : ""}`;
+  }
+  if (item.type === "EXPENSE_DELETED" && title) {
+    return `${actor} removed ${title}${Number.isFinite(amount) ? ` · ${formatCurrency(amount, currency)}` : ""}`;
+  }
+  if (item.type === "MEMBER_JOINED") {
+    return `${actor} joined the plan`;
+  }
+  if (item.type === "PLAN_UPDATED") {
+    return `${actor} updated the plan`;
+  }
+
+  return item.message
+    .replace(/^(.+?) added an expense:\s*/i, "$1 added ")
+    .replace(/^(.+?) deleted an expense:\s*/i, "$1 removed ")
+    .replace(/\s*\(([^)]+)\)\s*$/, " · $1")
+    .trim();
+}
+
 export function OverviewPanel() {
   const eventId = useActiveEventId();
   const queryClient = useQueryClient();
@@ -144,12 +196,16 @@ export function OverviewPanel() {
     },
     enabled: !!eventId,
     staleTime: 15_000,
+    refetchInterval: eventId ? 5_000 : false,
+    refetchOnWindowFocus: true,
   });
 
   const plan = planQuery.data;
   const participants = crewQuery.data?.participants ?? [];
   const members = crewQuery.data?.members ?? [];
   const expenses = expensesQuery.data ?? [];
+  const guests = useEventGuests(eventId);
+  const pendingInvites = guests.invitesPending;
   const [bannerMenuOpen, setBannerMenuOpen] = useState(false);
   const [bannerUrlInput, setBannerUrlInput] = useState("");
   const [bannerUrlError, setBannerUrlError] = useState<string | null>(null);
@@ -183,25 +239,8 @@ export function OverviewPanel() {
   const myBalance = myParticipant
     ? balances.find((entry) => entry.id === myParticipant.id) ?? null
     : null;
-  const activityItems = useMemo(() => {
-    if (!plan) return [];
-    return getEventActivity({
-      event: {
-        id: Number(plan.id),
-        name: plan.name,
-        date: plan.date ?? new Date(),
-        currency: typeof plan.currency === "string" ? plan.currency : undefined,
-        creatorUserId: plan.creatorUserId ?? null,
-      },
-      expenses: expenses.map((expense) => ({
-        id: expense.id,
-        item: expense.item,
-        amount: expense.amount,
-        participantName: expense.participantName ?? undefined,
-      })),
-      participants,
-    });
-  }, [plan, expenses, participants]);
+  const activityQuery = usePlanActivity(eventId, !!eventId);
+  const activityItems = activityQuery.latestItems;
   const isCreator = Number(plan?.creatorUserId) === Number(user?.id);
 
   const personalStatus = useMemo(() => {
@@ -241,90 +280,37 @@ export function OverviewPanel() {
     ...balanceRows.map((entry) => Math.abs(Number(entry.balance) || 0)),
   );
 
-  const startManualSettlement = useMutation({
-    mutationFn: async () => {
-      if (!eventId) throw new Error("Event not found");
-      const res = await fetch(`/api/events/${eventId}/settlement/manual`, {
-        method: "POST",
-        credentials: "include",
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({} as { message?: string; code?: string }));
-        const error = new Error(body.message || "Failed to start settlement") as Error & { code?: string };
-        error.code = body.code;
-        throw error;
-      }
-      return res.json() as Promise<{ latest: SettlementResponse }>;
-    },
-    onSuccess: (result) => {
-      queryClient.setQueryData(["/api/events", eventId, "settlement", "latest"], result.latest);
-    },
-    onError: (error) => {
-      const err = error as Error & { code?: string };
-      if (err.code === "only_creator_can_start_settlement") {
-        toastError("Only the plan creator can start settlement.");
-        return;
-      }
-      toastError(err.message || "Couldn’t start settlement.");
-    },
-  });
-
   const openExpenses = () => replacePanel({ type: "expenses" });
+  const openSettlement = () => replacePanel({ type: "settlement" });
   const openCrew = () => replacePanel({ type: "crew" });
+  const openPlanDetails = () => replacePanel({ type: "plan-details" });
+  const openRecentActivity = () => replacePanel({ type: "recent-activity" });
   const openMemberProfile = (username?: string | null, source: "overview" | "crew" = "overview") => {
     const targetUsername = username?.trim();
     if (!targetUsername) return;
     replacePanel({ type: "member-profile", username: targetUsername, source });
   };
-  const handleSettlementAction = () => {
-    if (latestSettlement) {
-      replacePanel({ type: "expenses" });
-      return;
-    }
-    if (!isCreator || !canSettle) return;
-    startManualSettlement.mutate();
+  const upNextItem = getUpNext({
+    expensesCount: expenses.length,
+    pendingInvitesCount: pendingInvites.length,
+    canSettle,
+    latestSettlementStatus: latestSettlement?.status ?? null,
+    unpaidTransfers,
+    eventDate: plan?.date,
+    isCreator,
+  });
+  const upNext = {
+    ...upNextItem,
+    onAction: upNextItem.action === "settlement"
+      ? openSettlement
+      : upNextItem.action === "crew"
+        ? openCrew
+        : upNextItem.action === "expenses"
+          ? openExpenses
+          : upNextItem.action === "plan-details"
+            ? openPlanDetails
+            : null,
   };
-
-  const nextAction = useMemo(() => {
-    if (expenses.length === 0) {
-      return {
-        title: "Add the first expense to get started",
-        actionLabel: "Add expense",
-        onAction: openExpenses,
-        tone: "warm" as const,
-      };
-    }
-    if (latestSettlement?.status === "settled") {
-      return {
-        title: "All done! Great trip 🎉",
-        actionLabel: null,
-        onAction: null,
-        tone: "done" as const,
-      };
-    }
-    if (latestSettlement) {
-      return {
-        title: `${unpaidTransfers} payment${unpaidTransfers === 1 ? "" : "s"} still outstanding`,
-        actionLabel: "View settlement",
-        onAction: handleSettlementAction,
-        tone: "warm" as const,
-      };
-    }
-    if (canSettle) {
-      return {
-        title: "Ready to settle up?",
-        actionLabel: isCreator ? "Start settlement" : "View balances",
-        onAction: isCreator ? handleSettlementAction : openExpenses,
-        tone: "warm" as const,
-      };
-    }
-    return {
-      title: "Keep the trip moving",
-      actionLabel: "Open money",
-      onAction: openExpenses,
-      tone: "warm" as const,
-    };
-  }, [canSettle, expenses.length, handleSettlementAction, isCreator, latestSettlement, openExpenses, unpaidTransfers]);
 
   const settlementStatusLabel = latestSettlement?.status === "settled"
     ? "SETTLED"
@@ -360,9 +346,9 @@ export function OverviewPanel() {
     : "text-muted-foreground";
   const heroIconButtonClass = hasVisibleBanner
     ? bannerTone === "light-content"
-      ? "border-white/20 bg-black/25 text-white/90 hover:bg-black/35 hover:text-white"
-      : "border-black/10 bg-white/70 text-slate-900 hover:bg-white/85 hover:text-slate-950"
-    : circularActionButtonClass();
+      ? "border-white/20 bg-black/25 text-white/90"
+      : "border-black/10 bg-white/70 text-slate-900"
+    : "";
   const heroPrimaryTextStyle = hasVisibleBanner
     ? {
         color: bannerTone === "light-content" ? "rgba(255, 255, 255, 0.98)" : "rgba(2, 6, 23, 0.96)",
@@ -507,14 +493,8 @@ export function OverviewPanel() {
               <div className="relative z-10 space-y-4">
                 <div className="flex items-start justify-between gap-4">
                   <div>
-                    <p
-                      className={cn("text-sm font-medium", !hasVisibleBanner && heroSecondaryTextClass)}
-                      style={heroSecondaryTextStyle}
-                    >
-                      Plan total
-                    </p>
                     <h2
-                      className={cn("mt-1 text-2xl font-semibold tracking-tight", !hasVisibleBanner && heroPrimaryTextClass)}
+                      className={cn("text-2xl font-semibold tracking-tight", !hasVisibleBanner && heroPrimaryTextClass)}
                       style={heroPrimaryTextStyle}
                     >
                       {plan.name}
@@ -694,12 +674,12 @@ export function OverviewPanel() {
             <section className="rounded-[18px] border border-primary/15 bg-primary/10 p-4 dark:border-primary/25 dark:bg-primary/12 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-sm font-semibold tracking-tight text-foreground">Next action</p>
-                  <p className="mt-1 text-sm text-foreground/90">{nextAction.title}</p>
+                  <p className="text-sm font-semibold tracking-tight text-foreground">Up next</p>
+                  <p className="mt-1 text-sm text-foreground/90">{upNext.title}</p>
                 </div>
-                {nextAction.actionLabel && nextAction.onAction ? (
-                  <Button type="button" size="sm" onClick={nextAction.onAction}>
-                    {nextAction.actionLabel}
+                {upNext.ctaLabel && upNext.onAction ? (
+                  <Button type="button" size="sm" onClick={upNext.onAction}>
+                    {upNext.ctaLabel}
                   </Button>
                 ) : (
                   <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold tracking-wide text-emerald-700 dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-300">
@@ -709,15 +689,24 @@ export function OverviewPanel() {
               </div>
             </section>
 
-            <section className="rounded-[18px] border border-black/5 bg-[hsl(var(--surface-1))]/78 p-4 dark:border-white/9 dark:bg-[hsl(var(--surface-2))]/88 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+            <section
+              role="button"
+              tabIndex={0}
+              onClick={openExpenses}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  openExpenses();
+                }
+              }}
+              className="cursor-pointer rounded-[18px] border border-black/5 bg-[hsl(var(--surface-1))]/78 p-4 transition hover:border-border/80 hover:bg-[hsl(var(--surface-1))]/88 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-white/9 dark:bg-[hsl(var(--surface-2))]/88 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] dark:hover:bg-[hsl(var(--surface-2))]/96"
+            >
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold tracking-tight text-foreground">Balances</p>
                   <p className="mt-1 text-xs text-muted-foreground">Who should receive and who still owes</p>
                 </div>
-                <Button type="button" variant="ghost" className="h-auto px-0 text-sm text-muted-foreground hover:text-foreground" onClick={openExpenses}>
-                  Open money
-                </Button>
+                <ArrowRight className="h-4 w-4 text-muted-foreground" />
               </div>
               <div className="mt-4 space-y-3">
                 {balanceRows.length > 0 ? balanceRows.map((entry) => {
@@ -764,8 +753,18 @@ export function OverviewPanel() {
               </div>
             </section>
 
-            <section className={cn(
-              "rounded-[18px] border p-4",
+            <section
+              role="button"
+              tabIndex={0}
+              onClick={openSettlement}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  openSettlement();
+                }
+              }}
+              className={cn(
+              "cursor-pointer rounded-[18px] border p-4 transition hover:border-border/80 hover:bg-[hsl(var(--surface-1))]/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               latestSettlement?.status === "settled"
                 ? "border-emerald-200 bg-emerald-50/80 dark:border-emerald-500/25 dark:bg-emerald-500/10"
                 : "border-black/5 bg-[hsl(var(--surface-1))]/78 dark:border-white/9 dark:bg-[hsl(var(--surface-2))]/90 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
@@ -816,29 +815,50 @@ export function OverviewPanel() {
                         : "Nothing to settle yet."}
                   </p>
                 )}
-                {latestSettlement?.status !== "settled" ? (
-                  <Button type="button" onClick={handleSettlementAction} disabled={!latestSettlement && (!isCreator || !canSettle || startManualSettlement.isPending)}>
-                    {startManualSettlement.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                    {latestSettlement ? "View settlement" : "Start settlement"}
-                  </Button>
-                ) : null}
               </div>
             </section>
 
-            <section className="rounded-[18px] border border-black/5 bg-[hsl(var(--surface-1))]/76 px-4 py-2 dark:border-white/8 dark:bg-[hsl(var(--surface-2))]/84 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-              <ul className="divide-y divide-border/50">
+            <section
+              role="button"
+              tabIndex={0}
+              onClick={openRecentActivity}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  openRecentActivity();
+                }
+              }}
+              className="cursor-pointer rounded-[18px] border border-black/5 bg-[hsl(var(--surface-1))]/76 p-4 transition hover:border-border/80 hover:bg-[hsl(var(--surface-1))]/88 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-white/8 dark:bg-[hsl(var(--surface-2))]/84 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold tracking-tight text-foreground">Recent activity</p>
+                  <p className="mt-1 text-xs text-muted-foreground">The latest moments from the plan</p>
+                </div>
+                <span className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground">
+                  View all
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </span>
+              </div>
+              <ul className="mt-4 space-y-1.5">
                 {activityItems.slice(0, 3).length > 0 ? activityItems.slice(0, 3).map((item) => (
-                  <li key={item.id} className="flex items-center gap-3 py-3">
-                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[hsl(var(--surface-2))] text-sm dark:bg-[hsl(var(--surface-1))]/95">
-                      {item.icon ?? "•"}
+                  <li key={item.id} className="flex items-start gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-background/40 dark:hover:bg-black/10">
+                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[hsl(var(--surface-2))] text-sm dark:bg-[hsl(var(--surface-1))]/95">
+                      {item.type.startsWith("EXPENSE_") ? "💸" : item.type === "MEMBER_JOINED" ? "👋" : "•"}
                     </span>
-                    <p className="min-w-0 flex-1 truncate text-sm text-foreground">
-                      {item.message}
-                      <span className="ml-2 text-xs text-muted-foreground">{formatRelativeTime(item.timestamp)}</span>
-                    </p>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="min-w-0 text-sm font-medium leading-5 text-foreground">
+                          <span className="line-clamp-2">{formatActivityPreview(item, currency)}</span>
+                        </p>
+                        <span className="shrink-0 pt-0.5 text-[11px] text-muted-foreground">
+                          {formatActivityTime(item.createdAt)}
+                        </span>
+                      </div>
+                    </div>
                   </li>
                 )) : (
-                  <li className="py-3 text-sm text-muted-foreground">No activity yet.</li>
+                  <li className="rounded-xl bg-background/40 px-2 py-3 text-sm text-muted-foreground">No activity yet.</li>
                 )}
               </ul>
             </section>

@@ -7,6 +7,7 @@ import { participantRepo } from "../repositories/participantRepo";
 import { buildEffectiveExpenseShares } from "./planBalancesRealtime";
 import { postSystemChatMessage } from "./systemChat";
 import { broadcastEventRealtime } from "./eventRealtime";
+import { logPlanActivity } from "./planActivity";
 
 type Transfer = {
   fromUserId: number;
@@ -194,6 +195,15 @@ export async function ensureAutoSettlement(eventId: number): Promise<void> {
   });
 
   if (!inserted) return;
+  await logPlanActivity({
+    eventId,
+    type: "SETTLEMENT_STARTED",
+    message: "Settlement started",
+    meta: {
+      settlementId: inserted.id,
+      source: "auto",
+    },
+  });
   await postSystemChatMessage(eventId, "Settlement proposed", {
     type: "settlement",
     settlementId: inserted.id,
@@ -243,6 +253,15 @@ export async function ensureSettlementForView(eventId: number): Promise<void> {
   });
 
   if (!inserted) return;
+  await logPlanActivity({
+    eventId,
+    type: "SETTLEMENT_STARTED",
+    message: "Settlement started",
+    meta: {
+      settlementId: inserted.id,
+      source: "manual",
+    },
+  });
   await postSystemChatMessage(eventId, "Settlement proposed", {
     type: "settlement",
     settlementId: inserted.id,
@@ -404,6 +423,25 @@ export async function markSettlementTransferPaid(input: {
   if (!txResult) return null;
 
   if (txResult.paymentStateChanged) {
+    const settlementSnapshot = await getSettlementById(input.eventId, input.settlementId);
+    const transferSnapshot = settlementSnapshot?.transfers.find((row) => row.id === txResult.transfer.id) ?? null;
+    await logPlanActivity({
+      eventId: input.eventId,
+      type: "SETTLEMENT_PAYMENT_PAID",
+      actorUserId: input.paidByUserId,
+      actorName: transferSnapshot?.fromUserId === input.paidByUserId
+        ? transferSnapshot.fromName
+        : transferSnapshot?.toName ?? null,
+      message: transferSnapshot
+        ? `${transferSnapshot.fromName} marked payment to ${transferSnapshot.toName} as paid`
+        : "A settlement payment was marked as paid",
+      meta: {
+        settlementId: input.settlementId,
+        transferId: txResult.transfer.id,
+        amount: fromCents(txResult.transfer.amountCents),
+        currency: txResult.transfer.currency,
+      },
+    });
     await postSystemChatMessage(input.eventId, "Settlement payment marked as paid", {
       type: "settlement_payment",
       settlementId: input.settlementId,
@@ -417,6 +455,16 @@ export async function markSettlementTransferPaid(input: {
   }
 
   if (txResult.settledTransitioned) {
+    await logPlanActivity({
+      eventId: input.eventId,
+      type: "SETTLEMENT_COMPLETED",
+      actorUserId: input.paidByUserId,
+      message: "Settlement completed",
+      meta: {
+        settlementId: input.settlementId,
+        currency: txResult.transfer.currency,
+      },
+    });
     await postSystemChatMessage(input.eventId, "✅ All settled up", {
       type: "settlement",
       settlementId: input.settlementId,

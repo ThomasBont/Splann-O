@@ -540,6 +540,14 @@ router.delete(p(api.participants.delete.path), requireAuth, asyncHandler(async (
       eventId: participant.barbecueId,
       userId: sessionUserId,
     });
+    await logPlanActivity({
+      eventId: participant.barbecueId,
+      type: "MEMBER_LEFT",
+      actorUserId: sessionUserId,
+      actorName: participant.name,
+      message: `${participant.name} left the plan`,
+      meta: { userId: sessionUserId },
+    });
     await postSystemChatMessage(participant.barbecueId, `${participant.name} left the plan`);
   }
 

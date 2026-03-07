@@ -1,8 +1,6 @@
 import { Clock3, Receipt, Tag, Users } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { useExpenses } from "@/hooks/use-expenses";
 import { usePlan, usePlanCrew } from "@/hooks/use-plan-data";
-import { usePanel } from "@/state/panel";
 import { PanelHeader, PanelSection, PanelShell, formatPanelDate, useActiveEventId } from "@/components/panels/panel-primitives";
 
 function parseIncludedUserIds(value: unknown): string[] {
@@ -36,7 +34,6 @@ function formatCurrency(amount: number, currencyCode?: string | null) {
 
 export function ExpenseDetailPanel({ id }: { id: string }) {
   const eventId = useActiveEventId();
-  const { closePanel } = usePanel();
   const expensesQuery = useExpenses(eventId);
   const planQuery = usePlan(eventId);
   const crewQuery = usePlanCrew(eventId);
@@ -48,13 +45,6 @@ export function ExpenseDetailPanel({ id }: { id: string }) {
     ? participants.filter((participant: { id: number }) => includedIds.includes(String(participant.id)))
     : participants;
   const currency = typeof planQuery.data?.currency === "string" ? planQuery.data.currency : "EUR";
-
-  const handleEdit = () => {
-    if (!eventId || !expense) return;
-    window.dispatchEvent(new CustomEvent("splanno:open-expense", {
-      detail: { eventId, expenseId: expense.id },
-    }));
-  };
 
   if (!eventId) {
     return (
@@ -135,15 +125,6 @@ export function ExpenseDetailPanel({ id }: { id: string }) {
             </div>
           </div>
         </PanelSection>
-
-        <div className="flex items-center gap-2">
-          <Button type="button" variant="outline" onClick={handleEdit}>
-            Edit expense
-          </Button>
-          <Button type="button" variant="ghost" onClick={closePanel}>
-            Close
-          </Button>
-        </div>
       </div>
     </PanelShell>
   );

@@ -4,9 +4,11 @@ export type PanelState =
   | { type: "overview" }
   | { type: "expense"; id: string }
   | { type: "expenses" }
+  | { type: "settlement" }
   | { type: "crew" }
   | { type: "member-profile"; username: string; source?: "overview" | "crew" }
   | { type: "next-action" }
+  | { type: "recent-activity" }
   | { type: "plan-details" }
   | null;
 

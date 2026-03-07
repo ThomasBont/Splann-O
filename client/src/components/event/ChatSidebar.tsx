@@ -1058,7 +1058,7 @@ export function ChatSidebar({
                           <span>{formatMessageTime(firstMsg.createdAt)}</span>
                         </div>
                         <div className={cn("group/bubble inline-flex flex-col", mine ? "items-end" : "items-start")}>
-                          <div className="relative">
+                          <div className={cn("flex items-center gap-2", mine ? "flex-row-reverse" : "flex-row")}>
                             <div
                               className={cn(
                                 "rounded-2xl px-4 py-2 text-sm leading-snug shadow-sm",
@@ -1106,8 +1106,7 @@ export function ChatSidebar({
                             </div>
                             <div
                               className={cn(
-                                "pointer-events-none absolute top-1/2 z-20 hidden -translate-y-1/2 items-center gap-1 opacity-0 transition duration-150 md:flex md:group-hover/bubble:pointer-events-auto md:group-hover/bubble:opacity-100",
-                                mine ? "left-[-36px]" : "right-[-36px]",
+                                "pointer-events-none hidden items-center gap-1 opacity-0 transition duration-150 md:flex md:group-hover/bubble:pointer-events-auto md:group-hover/bubble:opacity-100",
                               )}
                             >
                               <Popover
@@ -1221,7 +1220,7 @@ export function ChatSidebar({
         </button>
       ) : null}
 
-      <div className="shrink-0 border-t border-border/70 bg-background/90 px-6 py-3 backdrop-blur">
+      <div className="shrink-0 border-t border-border/70 bg-background/90 px-6 py-1 backdrop-blur">
         {expenseSuggestion ? (
           <div className="mb-2 flex items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-1.5">
@@ -1262,7 +1261,7 @@ export function ChatSidebar({
             Chat closed after event. History remains visible.
           </p>
         ) : null}
-        <div className="mb-2 min-h-5">
+        <div className="mb-0 min-h-3">
           {visibleTypingUsers.length > 0 ? (
             <p className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
               <span className="truncate">
@@ -1277,7 +1276,7 @@ export function ChatSidebar({
             </p>
           ) : null}
         </div>
-        <div className="flex items-end gap-2">
+        <div className="flex items-center gap-2">
           <Button
             type="button"
             size="icon"
@@ -1289,7 +1288,7 @@ export function ChatSidebar({
             <Paperclip className="h-4 w-4" />
           </Button>
           <div
-            className="flex max-h-[132px] flex-1 items-end rounded-2xl border border-border/70 bg-background px-4 py-2.5"
+            className="flex min-h-10 max-h-[132px] flex-1 items-center rounded-2xl border border-border/70 bg-background px-4 py-1.5"
             onMouseDown={(e) => {
               if (isLocked) return;
               e.preventDefault();
@@ -1303,7 +1302,7 @@ export function ChatSidebar({
               onChange={(e) => handleDraftChange(e.target.value)}
               onBlur={() => emitTypingStop()}
               placeholder="Message…"
-              className="pointer-events-auto min-h-[24px] max-h-[104px] w-full resize-none overflow-y-auto bg-transparent text-[16px] leading-normal text-foreground caret-primary outline-none placeholder:text-muted-foreground md:text-sm disabled:cursor-not-allowed disabled:text-muted-foreground/70"
+              className="pointer-events-auto min-h-[20px] max-h-[104px] w-full resize-none overflow-y-auto bg-transparent py-0.5 text-[16px] leading-normal text-foreground caret-primary outline-none placeholder:text-muted-foreground md:text-sm disabled:cursor-not-allowed disabled:text-muted-foreground/70"
               rows={1}
               disabled={isLocked}
               onKeyDown={(e) => {

@@ -4,10 +4,12 @@ import { usePanel } from "@/state/panel";
 import OverviewPanel from "@/components/panels/OverviewPanel";
 import ExpenseDetailPanel from "@/components/panels/ExpenseDetailPanel";
 import ExpensesPanel from "@/components/panels/ExpensesPanel";
+import SettlementPanel from "@/components/panels/SettlementPanel";
 import CrewPanel from "@/components/panels/CrewPanel";
 import PlanDetailsPanel from "@/components/panels/PlanDetailsPanel";
 import NextActionPanel from "@/components/panels/NextActionsPanel";
 import MemberProfilePanel from "@/components/panels/MemberProfilePanel";
+import RecentActivityPanel from "@/components/panels/RecentActivityPanel";
 
 export function ContextPanelHost({
   className,
@@ -33,6 +35,9 @@ export function ContextPanelHost({
     case "expenses":
       content = <ExpensesPanel />;
       break;
+    case "settlement":
+      content = <SettlementPanel />;
+      break;
     case "crew":
       content = <CrewPanel />;
       break;
@@ -41,6 +46,9 @@ export function ContextPanelHost({
       break;
     case "next-action":
       content = <NextActionPanel />;
+      break;
+    case "recent-activity":
+      content = <RecentActivityPanel />;
       break;
     case "plan-details":
       content = <PlanDetailsPanel />;

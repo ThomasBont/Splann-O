@@ -4,7 +4,17 @@ import { planActivity } from "@shared/schema";
 import { broadcastEventRealtime } from "./eventRealtime";
 import { postSystemChatMessage } from "./systemChat";
 
-export type PlanActivityType = "PLAN_UPDATED" | "EXPENSE_ADDED" | "EXPENSE_DELETED" | "MEMBER_JOINED";
+export type PlanActivityType =
+  | "PLAN_UPDATED"
+  | "EXPENSE_ADDED"
+  | "EXPENSE_UPDATED"
+  | "EXPENSE_DELETED"
+  | "MEMBER_JOINED"
+  | "MEMBER_LEFT"
+  | "INVITE_CREATED"
+  | "SETTLEMENT_STARTED"
+  | "SETTLEMENT_PAYMENT_PAID"
+  | "SETTLEMENT_COMPLETED";
 
 type LogPlanActivityInput = {
   eventId: number;

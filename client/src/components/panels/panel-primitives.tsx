@@ -42,10 +42,12 @@ export function PanelHeader({
   label,
   title,
   meta,
+  actions,
 }: {
   label?: string;
   title: string;
   meta?: ReactNode;
+  actions?: ReactNode;
 }) {
   const { panel, closePanel, replacePanel } = usePanel();
   const showBackButton = !!panel && panel.type !== "overview";
@@ -67,16 +69,19 @@ export function PanelHeader({
             </button>
           ) : null}
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="h-9 w-9 shrink-0 rounded-md transition hover:bg-[hsl(var(--surface-2))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={closePanel}
-          aria-label="Close panel"
-        >
-          <X className="h-4 w-4" />
-        </Button>
+        <div className="flex items-center gap-2">
+          {actions}
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-9 w-9 shrink-0 rounded-md transition hover:bg-[hsl(var(--surface-2))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            onClick={closePanel}
+            aria-label="Close panel"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
       <div className={cn("min-w-0", showBackButton ? "mt-3" : "mt-0")}>
         {label ? (

@@ -856,6 +856,12 @@ export default function Home({
     if (typeof window === "undefined") return;
     const openNotifications = () => setNotifOpen(true);
     const openAccount = () => setIsAccountDrawerOpen(true);
+    const openAccountSettings = () => {
+      setProfileTargetUsername(null);
+      setAccountView("settings");
+      setSelectedFriendId(null);
+      setIsAccountDrawerOpen(true);
+    };
     const openProfile = (event: Event) => {
       const detail = (event as CustomEvent<{ username?: string | null }>).detail;
       const targetUsername = detail?.username?.trim();
@@ -867,10 +873,12 @@ export default function Home({
     };
     window.addEventListener("splanno:open-notifications", openNotifications as EventListener);
     window.addEventListener("splanno:open-account", openAccount as EventListener);
+    window.addEventListener("splanno:open-account-settings", openAccountSettings as EventListener);
     window.addEventListener("splanno:open-profile", openProfile as EventListener);
     return () => {
       window.removeEventListener("splanno:open-notifications", openNotifications as EventListener);
       window.removeEventListener("splanno:open-account", openAccount as EventListener);
+      window.removeEventListener("splanno:open-account-settings", openAccountSettings as EventListener);
       window.removeEventListener("splanno:open-profile", openProfile as EventListener);
     };
   }, []);

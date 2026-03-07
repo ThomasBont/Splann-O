@@ -293,6 +293,19 @@ router.post("/:eventId/invites", requireAuth, asyncHandler(async (req, res) => {
       },
     });
 
+    await logPlanActivity({
+      eventId,
+      type: "INVITE_CREATED",
+      actorUserId: req.session!.userId ?? null,
+      actorName: req.session?.username ?? null,
+      message: `${invitee.displayName || invitee.username} was invited to the plan`,
+      meta: {
+        inviteId: invite.id,
+        inviteeUserId: invitee.id,
+        inviteeName: invitee.displayName || invitee.username,
+      },
+    });
+
     res.status(201).json({
       inviteId: invite.id,
       inviteeUserId: invite.acceptedByUserId ? Number(invite.acceptedByUserId) : null,

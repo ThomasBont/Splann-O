@@ -417,6 +417,14 @@ async function handleLeavePlan(req: Request, res: any, planIdRaw: string | undef
       eventId: id,
       userId: sessionUserId,
     });
+    await logPlanActivity({
+      eventId: id,
+      type: "MEMBER_LEFT",
+      actorUserId: sessionUserId,
+      actorName: req.session?.username ?? null,
+      message: `${req.session?.username || "Someone"} left the plan`,
+      meta: { userId: sessionUserId },
+    });
     await postSystemChatMessage(id, `${req.session?.username || "Someone"} left the plan`);
     if (outcome.newCreatorId) {
       broadcastEventRealtime(id, {

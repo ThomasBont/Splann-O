@@ -27,6 +27,7 @@ import {
   Zap,
   LayoutGrid,
   MessageCircle,
+  Settings,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -227,25 +228,16 @@ function NewEventMenuButton({
   showLeadingIcon?: boolean;
 }) {
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button className={className} size={size}>
-          {iconOnly || !showLeadingIcon ? null : <Plus className="mr-1.5 h-4 w-4" />}
-          {iconOnly ? null : label}
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align={align} className="w-72">
-        <DropdownMenuItem
-          className="flex flex-col items-start py-2"
-          onSelect={() => {
-            onCreate?.();
-          }}
-        >
-          <span className="text-sm font-medium">Friends plan</span>
-          <span className="text-xs text-muted-foreground">Plan with your crew and split costs</span>
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <Button
+      className={className}
+      size={size}
+      type="button"
+      onClick={onCreate}
+      aria-label={iconOnly ? (label ?? "Create new plan") : undefined}
+    >
+      {iconOnly || !showLeadingIcon ? null : <Plus className="mr-1.5 h-4 w-4" />}
+      {iconOnly ? null : label}
+    </Button>
   );
 }
 
@@ -257,6 +249,7 @@ function AppSidebar({
   displayPendingCount,
   onOpenNotifications,
   onOpenAccount,
+  onOpenSettings,
 }: {
   section: AppSection;
   onCreatePlan: () => void;
@@ -265,6 +258,7 @@ function AppSidebar({
   displayPendingCount: string;
   onOpenNotifications: () => void;
   onOpenAccount: () => void;
+  onOpenSettings: () => void;
 }) {
   const [, setLocation] = useLocation();
   const { prefetchPlan, prefetchPlanOnHover, cancelHoverPrefetch } = usePrefetchPlan();
@@ -405,7 +399,11 @@ function AppSidebar({
           <a
             key={`sidebar-event-${event.id}`}
             href={`/app/e/${event.id}`}
-            className="pointer-events-auto relative z-10 block rounded-xl border border-border/50 bg-background/40 px-3 py-2.5 text-sm transition hover:border-border/70 hover:bg-muted/35"
+            className={`pointer-events-auto relative z-10 block rounded-xl border bg-background/40 px-3 py-2 text-sm transition hover:bg-muted/50 ${
+              Number(selectedEventId) === Number(event.id)
+                ? "border-primary/30 bg-primary/10 pl-[10px] before:absolute before:inset-y-1 before:left-0 before:w-0.5 before:rounded-full before:bg-primary"
+                : "border-border/50 hover:border-border/70"
+            }`}
             onMouseEnter={() => {
               const planId = Number(event.id);
               if (!Number.isFinite(planId)) return;
@@ -427,10 +425,30 @@ function AppSidebar({
               prefetchPlan(planId);
             }}
           >
-            <p className="truncate font-medium text-foreground">{event.name}</p>
-            <p className="mt-0.5 truncate text-xs text-muted-foreground">
-              {formatEventLocation(event)}
-            </p>
+            <div className="flex items-start gap-2">
+              <span className="mt-[7px] h-2.5 w-2.5 shrink-0 rounded-full bg-muted-foreground/45" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-medium text-foreground">{event.name}</p>
+                <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                  {formatEventLocation(event)}
+                </p>
+              </div>
+              {Number((event as { unreadCount?: number }).unreadCount ?? 0) > 0 ? (
+                (() => {
+                  const unread = Number((event as { unreadCount?: number }).unreadCount ?? 0);
+                  const singleDigit = unread < 10;
+                  return (
+                    <span
+                      className={singleDigit
+                        ? "shrink-0 grid h-5 w-5 place-items-center rounded-full bg-primary text-xs font-semibold text-primary-foreground"
+                        : "shrink-0 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold text-primary-foreground"}
+                    >
+                      {unread}
+                    </span>
+                  );
+                })()
+              ) : null}
+            </div>
           </a>
         ))
       )}
@@ -454,46 +472,16 @@ function AppSidebar({
         <div className="shrink-0 px-3 pt-3 pb-2">
           <TooltipProvider delayDuration={100}>
             <div className="flex items-center gap-2">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="flex-1">
-                    <NewEventMenuButton
-                      className="w-full flex-1 rounded-full border border-primary/80 bg-primary px-5 py-3 text-sm font-medium text-primary-foreground transition hover:brightness-95"
-                      size="default"
-                      align="start"
-                      onCreate={onCreatePlan}
-                      label="New Plan +"
-                      showLeadingIcon={false}
-                    />
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="right">Create new plan</TooltipContent>
-              </Tooltip>
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className={`relative h-11 w-11 ${circularActionButtonClass()}`}
-                aria-label="Open notifications"
-                onClick={onOpenNotifications}
-              >
-                <Bell className="h-4 w-4" />
-                {totalPendingNotifications > 0 ? (
-                  <span className="absolute -right-0.5 -top-0.5 grid h-5 min-w-5 place-items-center rounded-full bg-destructive px-1 text-[10px] font-bold text-destructive-foreground">
-                    {displayPendingCount}
-                  </span>
-                ) : null}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                className={`h-11 w-11 ${circularActionButtonClass()}`}
-                aria-label="Open profile"
-                onClick={onOpenAccount}
-              >
-                <UserCircle className="h-4 w-4" />
-              </Button>
+              <div className="flex-1">
+                <NewEventMenuButton
+                  className="w-full flex-1 rounded-full border border-primary/80 bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground transition hover:brightness-95"
+                  size="default"
+                  align="start"
+                  onCreate={onCreatePlan}
+                  label="New Plan +"
+                  showLeadingIcon={false}
+                />
+              </div>
             </div>
           </TooltipProvider>
           <div className="mx-0 my-2 h-px bg-border/60" />
@@ -515,7 +503,7 @@ function AppSidebar({
                 )}
                 <div className="space-y-1">
                   <div className="flex items-center justify-between px-1">
-                <p className="text-[11px] font-medium text-muted-foreground">Recent plans</p>
+                    <p className="text-xs text-muted-foreground">Recent plans</p>
                     <div className="flex items-center gap-1">
                       <span className="text-[10px] text-muted-foreground">{searchedEvents.length}</span>
                       <button
@@ -574,6 +562,53 @@ function AppSidebar({
               </div>
 
             </section>
+          </div>
+        </div>
+
+        <div className="mt-auto shrink-0 border-t border-border/50 bg-background px-3 py-3">
+          <div className="flex items-center justify-between gap-2">
+            <button
+              type="button"
+              onClick={onOpenAccount}
+              className="flex min-w-0 items-center gap-2 rounded-lg px-1.5 py-1 transition hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <Avatar className="h-9 w-9 border border-border/60">
+                <AvatarFallback className="text-xs font-semibold">
+                  {String(user?.username || user?.email || "U").slice(0, 2).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+              <span className="min-w-0 text-left">
+                <span className="block truncate text-sm font-medium text-foreground">
+                  {user?.username || user?.email || "Profile"}
+                </span>
+                {(user as { isOnline?: boolean } | null)?.isOnline ? (
+                  <span className="block text-xs text-muted-foreground">Online</span>
+                ) : null}
+              </span>
+            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                className="relative inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label="Open notifications"
+                onClick={onOpenNotifications}
+              >
+                <Bell className="h-[18px] w-[18px]" />
+                {totalPendingNotifications > 0 ? (
+                  <span className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-destructive px-1 text-[9px] font-bold text-destructive-foreground">
+                    {displayPendingCount}
+                  </span>
+                ) : null}
+              </button>
+              <button
+                type="button"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label="Open settings"
+                onClick={onOpenSettings}
+              >
+                <Settings className="h-[18px] w-[18px]" />
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -1136,6 +1171,16 @@ export default function AppRoute() {
     }
     window.dispatchEvent(new Event("splanno:open-account"));
   };
+  const handleOpenAccountSettings = () => {
+    if (section === "home") {
+      setLocation("/app/private");
+      window.requestAnimationFrame(() => {
+        window.dispatchEvent(new Event("splanno:open-account-settings"));
+      });
+      return;
+    }
+    window.dispatchEvent(new Event("splanno:open-account-settings"));
+  };
   const getInitials = (displayName: string | null, username: string) => {
     const source = (displayName ?? username).trim();
     if (!source) return "?";
@@ -1301,6 +1346,7 @@ export default function AppRoute() {
           displayPendingCount={displayPendingCount}
           onOpenNotifications={() => setNotifOpen(true)}
           onOpenAccount={handleOpenAccount}
+          onOpenSettings={handleOpenAccountSettings}
         />
         <main className={`min-w-0 flex-1 ${section === "event" ? "overflow-hidden" : "min-h-0 overflow-y-auto"}`}>
           {section === "home" && <AppDashboardHome onCreatePlan={handleOpenNewPlan} />}

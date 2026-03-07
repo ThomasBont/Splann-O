@@ -1,10 +1,11 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, CheckCircle2, Plus, Receipt, Users } from "lucide-react";
+import { ChevronDown, Plus, Receipt, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usePlan, usePlanCrew, usePlanExpenses } from "@/hooks/use-plan-data";
 import { computeSplit } from "@/lib/split/calc";
 import { cn } from "@/lib/utils";
+import { usePanel } from "@/state/panel";
 import { PanelHeader, PanelSection, PanelShell, useActiveEventId } from "@/components/panels/panel-primitives";
 
 function formatCurrency(amount: number, currencyCode?: string | null) {
@@ -27,24 +28,19 @@ function formatCreated(value?: string | null) {
   return date.toLocaleDateString(undefined, { day: "numeric", month: "short" });
 }
 
-type SettlementResponse = {
+type SettlementStatusResponse = {
   settlement: {
     id: string;
     status: "proposed" | "in_progress" | "settled";
     currency: string | null;
   } | null;
-  transfers: Array<{
-    id: string;
-    settlementId: string;
-    fromName?: string;
-    toName?: string;
-    amount: number;
-    paidAt: string | null;
-  }>;
+  transfers: Array<unknown>;
 };
 
 export function ExpensesPanel() {
+  const [recentExpanded, setRecentExpanded] = useState(false);
   const eventId = useActiveEventId();
+  const { replacePanel } = usePanel();
   const planQuery = usePlan(eventId);
   const crewQuery = usePlanCrew(eventId);
   const expensesQuery = usePlanExpenses(eventId);
@@ -64,58 +60,35 @@ export function ExpensesPanel() {
   const significantBalances = balances
     .filter((entry) => Math.abs(Number(entry.balance) || 0) >= 0.01)
     .sort((a, b) => Math.abs(Number(b.balance) || 0) - Math.abs(Number(a.balance) || 0));
-  const recentExpenses = [...expenses]
-    .sort((a, b) => new Date(String(b.createdAt ?? 0)).getTime() - new Date(String(a.createdAt ?? 0)).getTime())
-    .slice(0, 3);
-  const latestSettlementQuery = useQuery<SettlementResponse>({
+  const sortedExpenses = useMemo(
+    () => [...expenses].sort((a, b) => new Date(String(b.createdAt ?? 0)).getTime() - new Date(String(a.createdAt ?? 0)).getTime()),
+    [expenses],
+  );
+  const visibleRecentExpenses = recentExpanded ? sortedExpenses : sortedExpenses.slice(0, 3);
+  const latestSettlementQuery = useQuery<SettlementStatusResponse>({
     queryKey: ["/api/events", eventId, "settlement", "latest"],
     queryFn: async () => {
       if (!eventId) return { settlement: null, transfers: [] };
       const res = await fetch(`/api/events/${eventId}/settlement/latest`, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to load settlement");
-      return res.json() as Promise<SettlementResponse>;
+      return res.json() as Promise<SettlementStatusResponse>;
     },
     enabled: !!eventId,
+    staleTime: 15_000,
+    refetchInterval: eventId ? 5_000 : false,
+    refetchOnWindowFocus: true,
   });
-  const latestSettlement = latestSettlementQuery.data?.settlement ?? null;
-  const settlementTransfers = latestSettlementQuery.data?.transfers ?? [];
-  const hasSettlementPlan = !!latestSettlement;
-  const settlementButtonLabel = hasSettlementPlan ? "View settlement plan" : settlements.length > 0 ? "Start settlement plan" : null;
-  const pendingTransfers = settlementTransfers.filter((transfer) => !transfer.paidAt);
-  const settlementWorkflowTitle = hasSettlementPlan
-    ? latestSettlement?.status === "settled"
-      ? "Settlement complete"
-      : pendingTransfers.length > 0
-        ? `${pendingTransfers.length} payment${pendingTransfers.length === 1 ? "" : "s"} still pending`
-        : "Settlement in progress"
-    : settlements.length > 0
-      ? "Ready to settle"
-      : "No settlement needed";
-  const settlementWorkflowBody = hasSettlementPlan
-    ? latestSettlement?.status === "settled"
-      ? "All transfers are marked paid. Open the settlement to review the final record."
-      : "Keep this moving by checking the transfers below and marking payments as they happen."
-    : settlements.length > 0
-      ? "Turn the current balances into a settlement plan so everyone knows what to pay next."
-      : "Keep adding shared expenses here. Settlement will appear once there is something to resolve.";
+  const settlementStarted = !!latestSettlementQuery.data?.settlement;
 
   const handleAddExpense = () => {
     if (!eventId) return;
+    if (settlementStarted) return;
     window.dispatchEvent(new CustomEvent("splanno:open-expenses", {
       detail: { eventId, initialView: "expense-form" },
     }));
   };
-  const handleSettlementAction = () => {
-    if (!eventId) return;
-    window.dispatchEvent(new CustomEvent("splanno:open-expenses", {
-      detail: { eventId, initialView: "overview" },
-    }));
-  };
-  const handleViewAllExpenses = () => {
-    if (!eventId) return;
-    window.dispatchEvent(new CustomEvent("splanno:open-expenses", {
-      detail: { eventId, initialView: "overview" },
-    }));
+  const openExpenseDetail = (expenseId: number) => {
+    replacePanel({ type: "expense", id: String(expenseId) });
   };
 
   return (
@@ -123,6 +96,19 @@ export function ExpensesPanel() {
       <PanelHeader
         label="Expenses"
         title="Shared money"
+        actions={(
+          <Button
+            type="button"
+            size="sm"
+            className="h-9 rounded-full bg-primary px-4 text-slate-900 hover:bg-primary/90"
+            onClick={handleAddExpense}
+            disabled={!eventId || settlementStarted}
+            title={settlementStarted ? "Expenses are locked after settlement starts" : "Add expense"}
+          >
+            <Plus className="mr-1.5 h-4 w-4" />
+            Add expense
+          </Button>
+        )}
         meta={(
           <>
             <span className="inline-flex items-center gap-2">
@@ -144,14 +130,48 @@ export function ExpensesPanel() {
           </div>
         ) : (
           <>
+            <section className="rounded-2xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-3.5 shadow-none">
+              <button
+                type="button"
+                className="flex w-full items-center justify-between gap-3 text-left"
+                onClick={() => setRecentExpanded((prev) => !prev)}
+                aria-expanded={recentExpanded}
+                aria-controls="recent-expenses-list"
+              >
+                <h3 className="text-sm font-semibold tracking-tight text-foreground">Recent expenses</h3>
+                <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", recentExpanded && "rotate-180")} />
+              </button>
+              {visibleRecentExpenses.length > 0 ? (
+                <div id="recent-expenses-list" className="mt-3 space-y-2">
+                  {visibleRecentExpenses.map((expense) => (
+                    <button
+                      type="button"
+                      key={`expenses-panel-${expense.id}`}
+                      onClick={() => openExpenseDetail(expense.id)}
+                      className="flex w-full items-center justify-between gap-3 rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))] px-3 py-2.5 text-left transition hover:border-border/80 hover:bg-[hsl(var(--surface-2))]/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-foreground">{expense.item || "Expense"}</p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {expense.participantName || "Unknown"} · {expense.category || "Other"} · {formatCreated(expense.createdAt ? String(expense.createdAt) : null)}
+                        </p>
+                      </div>
+                      <span className="shrink-0 text-sm font-semibold text-foreground">
+                        {formatCurrency(Number(expense.amount || 0), currency)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p id="recent-expenses-list" className="mt-3 text-sm text-muted-foreground">No expenses yet.</p>
+              )}
+            </section>
+
             <PanelSection title="Balances" variant="ledger">
               {settlements.length > 0 ? (
                 <div className="space-y-2">
                   {settlements.slice(0, 4).map((settlement, index) => (
                     <div key={`shared-money-settlement-${index}-${settlement.from}-${settlement.to}`} className="flex items-center gap-3 rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))] px-3 py-3">
-                      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
-                        <ArrowRight className="h-4 w-4" />
-                      </span>
                       <div className="min-w-0 flex-1 text-sm">
                         <p className="truncate font-medium text-foreground">
                           {settlement.from} owes {settlement.to}
@@ -166,88 +186,21 @@ export function ExpensesPanel() {
                 <div className="space-y-2">
                   {significantBalances.slice(0, 4).map((entry) => {
                     const amount = Math.abs(Number(entry.balance) || 0);
-                    const positive = Number(entry.balance) > 0;
                     return (
                       <div key={`shared-money-balance-${entry.id}`} className="flex items-center justify-between gap-3 rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))] px-3 py-2.5">
                         <div className="min-w-0">
                           <p className="truncate text-sm font-medium text-foreground">{entry.name}</p>
-                          <p className="text-xs text-muted-foreground">{positive ? "Should receive" : "Owes"}</p>
+                          <p className="text-xs text-muted-foreground">{Number(entry.balance) > 0 ? "Should receive" : "Owes"}</p>
                         </div>
-                        <span className={cn(
-                          "shrink-0 text-sm font-semibold",
-                          positive ? "text-emerald-700 dark:text-emerald-300" : "text-amber-700 dark:text-amber-200",
-                        )}>{formatCurrency(amount, currency)}</span>
+                        <span className={Number(entry.balance) > 0 ? "shrink-0 text-sm font-semibold text-emerald-700 dark:text-emerald-300" : "shrink-0 text-sm font-semibold text-amber-700 dark:text-amber-200"}>
+                          {formatCurrency(amount, currency)}
+                        </span>
                       </div>
                     );
                   })}
                 </div>
               ) : (
                 <p className="text-sm text-muted-foreground">Everyone is settled so far.</p>
-              )}
-            </PanelSection>
-
-            <PanelSection title="Settlement workflow" variant="workflow">
-              <div className="space-y-3">
-                <div>
-                  <h4 className="text-base font-semibold tracking-tight text-foreground">{settlementWorkflowTitle}</h4>
-                  <p className="mt-1.5 text-sm leading-6 text-muted-foreground">{settlementWorkflowBody}</p>
-                </div>
-                {hasSettlementPlan && settlementTransfers.length > 0 ? (
-                  <div className="space-y-2">
-                    {settlementTransfers.slice(0, 3).map((transfer) => (
-                      <div key={`expenses-transfer-${transfer.id}`} className="flex items-center justify-between gap-3 rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))]/80 px-3 py-2.5">
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium text-foreground">
-                            {transfer.fromName || "Someone"} pays {transfer.toName || "someone"}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {transfer.paidAt ? "Marked paid" : "Waiting for payment"}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {transfer.paidAt ? <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-300" /> : null}
-                          <span className="shrink-0 text-sm font-semibold text-foreground">{formatCurrency(transfer.amount, currency)}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-                <div className="flex items-center gap-2">
-                  {settlementButtonLabel ? (
-                    <Button type="button" onClick={handleSettlementAction}>
-                      {settlementButtonLabel}
-                    </Button>
-                  ) : null}
-                  <Button type="button" variant="outline" onClick={handleAddExpense}>
-                    <Plus className="h-4 w-4" />
-                    Add expense
-                  </Button>
-                </div>
-              </div>
-            </PanelSection>
-
-            <PanelSection title="Recent expenses" variant="ledger">
-              {recentExpenses.length > 0 ? (
-                <div className="space-y-2">
-                  {recentExpenses.map((expense) => (
-                    <div key={`expenses-panel-${expense.id}`} className="flex items-center justify-between gap-3 rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))] px-3 py-2.5">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-foreground">{expense.item || "Expense"}</p>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {expense.participantName || "Unknown"} · {expense.category || "Other"} · {formatCreated(expense.createdAt ? String(expense.createdAt) : null)}
-                        </p>
-                      </div>
-                      <span className="shrink-0 text-sm font-semibold text-foreground">
-                        {formatCurrency(Number(expense.amount || 0), currency)}
-                      </span>
-                    </div>
-                  ))}
-                  <Button type="button" variant="ghost" className="px-0 text-sm text-muted-foreground hover:text-foreground" onClick={handleViewAllExpenses}>
-                    View all expenses
-                  </Button>
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">No expenses yet.</p>
               )}
             </PanelSection>
           </>

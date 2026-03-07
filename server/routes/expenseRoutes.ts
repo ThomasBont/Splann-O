@@ -98,9 +98,10 @@ router.post(p(api.expenses.create.path), asyncHandler(async (req, res) => {
     type: "EXPENSE_ADDED",
     actorUserId: req.session?.userId ?? null,
     actorName,
-    message: `${actorName} added an expense: ${created.item} (${currency}${Number(created.amount).toFixed(2)})`,
+    message: `${actorName} added ${created.item} (${currency}${Number(created.amount).toFixed(2)})`,
     meta: {
       expenseId: created.id,
+      title: created.item,
       amount: Number(created.amount),
       currency: bbq.currency ?? null,
     },
@@ -161,6 +162,21 @@ router.put(p(api.expenses.update.path), asyncHandler(async (req, res) => {
     const actorName = req.session?.username || "Someone";
     const currency = bbq.currency ?? "€";
     const amount = Number(updated.amount);
+    await logPlanActivity({
+      eventId: updated.barbecueId,
+      type: "EXPENSE_UPDATED",
+      actorUserId: req.session?.userId ?? null,
+      actorName,
+      message: `${actorName} edited ${updated.item} (${currency}${Number.isFinite(amount) ? amount.toFixed(2) : "0.00"})`,
+      meta: {
+        expenseId: updated.id,
+        title: updated.item,
+        amount: Number.isFinite(amount) ? amount : null,
+        currency: bbq.currency ?? null,
+        previousTitle: before.item,
+        previousAmount: Number(before.amount),
+      },
+    });
     await postSystemChatMessage(updated.barbecueId, `${actorName} updated ${updated.item}`, {
       type: "expense",
       action: "updated",
@@ -193,7 +209,7 @@ router.delete(p(api.expenses.delete.path), requireAuth, asyncHandler(async (req,
   const expenseTitle = expense.item?.trim() || "Expense";
   const amount = Number(expense.amount);
   const currency = bbq.currency ?? "€";
-  const message = `${actorName} deleted an expense: ${expenseTitle} (${currency}${Number.isFinite(amount) ? amount.toFixed(2) : "0.00"})`;
+  const message = `${actorName} deleted ${expenseTitle}`;
   const paidByParticipant = expense.participantId
     ? await participantRepo.getById(Number(expense.participantId))
     : null;

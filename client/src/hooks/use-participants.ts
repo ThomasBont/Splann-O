@@ -301,6 +301,9 @@ export function usePendingEventInvites(eventId: number | null) {
       return (await res.json()) as EventInviteView[];
     },
     enabled: !!eventId,
+    staleTime: PLAN_STALE_TIME_MS,
+    refetchInterval: eventId ? 15_000 : false,
+    refetchOnWindowFocus: true,
   });
 }
 

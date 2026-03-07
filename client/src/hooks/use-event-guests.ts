@@ -52,6 +52,12 @@ export function useEventGuests(eventId: number | null) {
             if (prev.some((m) => m.userId === member.userId)) return prev;
             return [member, ...prev];
           });
+          queryClient.setQueryData<EventInviteView[]>(["/api/events", eventId, "invites", "pending"], (prev = []) =>
+            prev.filter((invite) => {
+              const inviteeUserId = Number(invite.inviteeUserId ?? invite.invitee?.userId ?? 0);
+              return !Number.isFinite(inviteeUserId) || inviteeUserId <= 0 || inviteeUserId !== Number(member.userId);
+            }),
+          );
           return;
         }
         if (payload.type === "event:invite_created") {

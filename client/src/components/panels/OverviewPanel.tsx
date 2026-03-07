@@ -397,6 +397,7 @@ export function OverviewPanel() {
     eventBanner.uploadedUrl ?? null,
     bannerVersion || bannerVersionToken,
   );
+  const hasCustomBanner = !!eventBanner.uploadedUrl;
   const hasVisibleBanner = !!planBannerUrl && !bannerImageFailed;
   const hasPresetBanner = !hasVisibleBanner && !!bannerPresetClass;
   const hasHeroBanner = hasVisibleBanner || hasPresetBanner;
@@ -543,7 +544,12 @@ export function OverviewPanel() {
                   openPlanDetails();
                 }
               }}
-              className="interactive-card relative overflow-hidden rounded-[20px] border border-black/5 bg-primary/5 p-6 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-white/10 dark:bg-[linear-gradient(180deg,rgba(250,204,21,0.12),rgba(255,255,255,0.03))] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]"
+              className={cn(
+                "interactive-card relative overflow-hidden rounded-[20px] p-6 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                hasVisibleBanner
+                  ? "border border-black/5 bg-primary/5 dark:border-white/10 dark:bg-[linear-gradient(180deg,rgba(250,204,21,0.12),rgba(255,255,255,0.03))] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]"
+                  : "border border-primary/15 bg-primary/10 shadow-[var(--shadow-sm)] dark:border-primary/25 dark:bg-primary/12 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]",
+              )}
             >
               {hasVisibleBanner ? (
                 <>
@@ -564,19 +570,6 @@ export function OverviewPanel() {
                       bannerTone === "light-content"
                         ? "bg-gradient-to-t from-black/48 via-black/16 to-transparent"
                         : "bg-gradient-to-t from-white/74 via-white/20 to-transparent",
-                    )}
-                  />
-                </>
-              ) : hasPresetBanner ? (
-                <>
-                  <div className={cn("absolute inset-0", bannerPresetClass)} />
-                  <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.1),transparent_42%),radial-gradient(circle_at_bottom_right,rgba(190,160,105,0.06),transparent_38%)]" />
-                  <div
-                    className={cn(
-                      "absolute inset-0",
-                      activeBannerTone === "light-content"
-                        ? "bg-gradient-to-t from-black/42 via-black/10 to-transparent"
-                        : "bg-gradient-to-t from-white/10 via-white/4 to-transparent",
                     )}
                   />
                 </>
@@ -725,7 +718,7 @@ export function OverviewPanel() {
                   openCrew();
                 }
               }}
-              className="interactive-card w-full rounded-[18px] border border-black/5 bg-[hsl(var(--surface-1))]/78 p-4 text-left hover:bg-[hsl(var(--surface-1))]/88 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-white/9 dark:bg-[hsl(var(--surface-2))]/88 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] dark:hover:bg-[hsl(var(--surface-2))]/96"
+              className="interactive-card w-full rounded-[18px] border border-black/5 bg-background/96 p-4 text-left hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-white/9 dark:bg-[hsl(var(--surface-1))]/96 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] dark:hover:bg-[hsl(var(--surface-1))]"
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -819,7 +812,7 @@ export function OverviewPanel() {
                   openExpenses();
                 }
               }}
-              className="interactive-card rounded-[18px] border border-black/5 bg-[hsl(var(--surface-1))]/78 p-4 hover:border-border/80 hover:bg-[hsl(var(--surface-1))]/88 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-white/9 dark:bg-[hsl(var(--surface-2))]/88 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] dark:hover:bg-[hsl(var(--surface-2))]/96"
+              className="interactive-card rounded-[18px] border border-black/5 bg-background/96 p-4 hover:border-border/80 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-white/9 dark:bg-[hsl(var(--surface-1))]/96 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] dark:hover:bg-[hsl(var(--surface-1))]"
             >
               <div className="flex items-center justify-between gap-3">
                 <div>
@@ -884,10 +877,10 @@ export function OverviewPanel() {
                 }
               }}
               className={cn(
-              "interactive-card rounded-[18px] border p-4 hover:border-border/80 hover:bg-[hsl(var(--surface-1))]/85 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              "interactive-card rounded-[18px] border p-4 hover:border-border/80 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               latestSettlement?.status === "settled"
                 ? "border-emerald-200 bg-emerald-50/80 dark:border-emerald-500/25 dark:bg-emerald-500/10"
-                : "border-black/5 bg-[hsl(var(--surface-1))]/78 dark:border-white/9 dark:bg-[hsl(var(--surface-2))]/90 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
+                : "border-black/5 bg-background/96 dark:border-white/9 dark:bg-[hsl(var(--surface-1))]/96 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
             )}>
               <div className="flex items-start justify-between gap-4">
                 <div>
@@ -948,7 +941,7 @@ export function OverviewPanel() {
                   openRecentActivity();
                 }
               }}
-              className="interactive-card rounded-[18px] border border-black/5 bg-[hsl(var(--surface-1))]/76 p-4 hover:border-border/80 hover:bg-[hsl(var(--surface-1))]/88 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-white/8 dark:bg-[hsl(var(--surface-2))]/84 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]"
+              className="interactive-card rounded-[18px] border border-black/5 bg-background/96 p-4 hover:border-border/80 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-white/8 dark:bg-[hsl(var(--surface-1))]/96 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]"
             >
               <div className="flex items-center justify-between gap-3">
                 <div>

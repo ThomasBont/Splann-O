@@ -5,6 +5,7 @@ import { planBalancesQueryKey, type RealtimePlanBalances } from "@/hooks/use-exp
 import { dedupeExpenseSystemMessages } from "@/lib/chat/dedupe-expense-system-messages";
 import { filterChatMessages } from "@/lib/chat/filter-chat-messages";
 import { PLAN_GC_TIME_MS, PLAN_STALE_TIME_MS } from "@/lib/query-stale";
+import { markPlanSwitchPerf } from "@/lib/plan-switch-perf";
 
 export type ChatMessage = {
   id: string;
@@ -378,6 +379,12 @@ export function useEventChat(eventId: number | null, enabled = true) {
   useEffect(() => {
     void fetchInitialHistory();
   }, [fetchInitialHistory, retryTick]);
+
+  useEffect(() => {
+    if (!import.meta.env.DEV || !eventId || historyLoading) return;
+    if (historyError) return;
+    markPlanSwitchPerf(eventId, "messages ready", { count: messages.length });
+  }, [eventId, historyError, historyLoading, messages.length]);
 
   useEffect(() => {
     if (!eventId || !enabled) return;

@@ -10,6 +10,7 @@ import { useAppToast } from "@/hooks/use-app-toast";
 import { useEventMembers } from "@/hooks/use-participants";
 import { useDeleteExpense } from "@/hooks/use-expenses";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { markPlanSwitchPerf } from "@/lib/plan-switch-perf";
 import { circularActionButtonClass, cn } from "@/lib/utils";
 import { usePanel } from "@/state/panel";
 import type { SendMessageResult } from "@/hooks/use-event-chat";
@@ -37,6 +38,7 @@ const NEAR_BOTTOM_THRESHOLD_PX = 120;
 const AMOUNT_PATTERN = /€\s?(\d+(?:[.,]\d{1,2})?)/i;
 const PAID_BY_PATTERN = /(paid by|by)\s+@?(\w+)/i;
 const SPLIT_PATTERN = /(split)\s+(\d+)/i;
+let chatSidebarDevInstanceCounter = 0;
 
 function formatMessageTime(value: string) {
   const date = new Date(value);
@@ -303,6 +305,7 @@ export function ChatSidebar({
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const devInstanceIdRef = useRef<number>(0);
   const listRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const typingEmitTimerRef = useRef<number | null>(null);
@@ -741,6 +744,56 @@ export function ChatSidebar({
     overscan: 10,
   });
   const virtualRows = rowVirtualizer.getVirtualItems();
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    chatSidebarDevInstanceCounter += 1;
+    devInstanceIdRef.current = chatSidebarDevInstanceCounter;
+    console.log("[chat-render] mounted", {
+      eventId,
+      instanceId: devInstanceIdRef.current,
+    });
+    return () => {
+      console.log("[chat-render] unmounted", {
+        eventId,
+        instanceId: devInstanceIdRef.current,
+      });
+    };
+  }, [eventId]);
+
+  useLayoutEffect(() => {
+    if (!import.meta.env.DEV || !eventId) return;
+    markPlanSwitchPerf(eventId, "chat first render commit", {
+      instanceId: devInstanceIdRef.current,
+    });
+  }, [eventId]);
+
+  useLayoutEffect(() => {
+    if (!import.meta.env.DEV || !eventId || historyLoading) return;
+    const rafId = window.requestAnimationFrame(() => {
+      markPlanSwitchPerf(eventId, "message list render complete", {
+        messages: messages.length,
+        renderedRows: virtualRows.length,
+        groups: messageGroups.length,
+        instanceId: devInstanceIdRef.current,
+      });
+      console.log("[chat-render] message list", {
+        eventId,
+        instanceId: devInstanceIdRef.current,
+        messages: messages.length,
+        renderedRows: virtualRows.length,
+        groups: messageGroups.length,
+      });
+      if (messages.length > 50) {
+        console.warn("[chat-render] message list exceeds 50 items; verify virtualization/render cost", {
+          eventId,
+          messages: messages.length,
+          renderedRows: virtualRows.length,
+        });
+      }
+    });
+    return () => window.cancelAnimationFrame(rafId);
+  }, [eventId, historyLoading, messageGroups.length, messages.length, virtualRows.length]);
 
   return (
     <aside

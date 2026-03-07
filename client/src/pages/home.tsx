@@ -131,6 +131,7 @@ import { buildWhatsAppMessage, buildWhatsAppShareUrl } from "@/lib/share-message
 import { copyText } from "@/lib/copy-text";
 import { buildIcs, downloadIcs, inferEventDateRange } from "@/lib/calendar-ics";
 import { buildMapsUrl, openMaps } from "@/lib/maps";
+import { markPlanSwitchPerf, measurePlanSwitchPerf } from "@/lib/plan-switch-perf";
 import { circularActionButtonClass, cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { InlineQueryError, SkeletonAvatar, SkeletonCard, SkeletonLine } from "@/components/ui/load-states";
@@ -687,7 +688,10 @@ export default function Home({
   const [area, setArea] = useState<"parties" | "trips">("parties");
   const [eventVisibilityTab, setEventVisibilityTab] = useState<"private" | "public">("private");
   const [selectedBbqId, setSelectedBbqId] = useState<number | null>(null);
-  const reactionScopeId = selectedBbqId != null ? `ev-${selectedBbqId}` : "ev-none";
+  const activeEventId = isManagedAppRoute && appRouteMode === "event"
+    ? (routeEventId ?? null)
+    : selectedBbqId;
+  const reactionScopeId = activeEventId != null ? `ev-${activeEventId}` : "ev-none";
   const { addReaction, getReactions, getReactionUsers, getUserReaction } = useExpenseReactions(reactionScopeId);
   const [isNewBbqOpen, setIsNewBbqOpen] = useState(false);
   const [newBbqName, setNewBbqName] = useState("");
@@ -1307,17 +1311,17 @@ export default function Home({
   const deleteBbq = useDeleteBarbecue();
   const leaveBbq = useLeaveBarbecue();
   const updateBbq = useUpdateBarbecue();
-  const uploadEventBanner = useUploadEventBanner(selectedBbqId);
-  const deleteEventBanner = useDeleteEventBanner(selectedBbqId);
+  const uploadEventBanner = useUploadEventBanner(activeEventId);
+  const deleteEventBanner = useDeleteEventBanner(activeEventId);
   const ensureInviteToken = useEnsureInviteToken();
   const settleUp = useSettleUp();
   const checkoutPublicListing = useCheckoutPublicListing();
   const deactivateListing = useDeactivateListing();
-  const selectedPlanQuery = usePlan(selectedBbqId);
+  const selectedPlanQuery = usePlan(activeEventId);
 
   const selectedBbq = selectedPlanQuery.data
-    ?? barbecuesForArea.find((b: Barbecue) => Number(b.id) === selectedBbqId)
-    ?? (barbecues.find((b: Barbecue) => Number(b.id) === selectedBbqId) || null);
+    ?? barbecuesForArea.find((b: Barbecue) => Number(b.id) === activeEventId)
+    ?? (barbecues.find((b: Barbecue) => Number(b.id) === activeEventId) || null);
   const removePlanFromClientState = useCallback((planId: number) => {
     // Only clear local UI references. Authoritative plans list should come from server refetch.
     setPinnedEventIds((prev) => prev.filter((id) => id !== planId));
@@ -1460,7 +1464,7 @@ export default function Home({
   const showPrivateChatTab = import.meta.env.VITE_ENABLE_PRIVATE_CHAT === "true";
   const privateMood = getCircleMoodTokens(isPrivateContext ? getCirclePersonalityFromEvent(selectedBbq) : "minimal");
 
-  const planCrewQuery = usePlanCrew(selectedBbqId);
+  const planCrewQuery = usePlanCrew(activeEventId);
   const participants = planCrewQuery.data?.participants ?? [];
   const eventMembers = planCrewQuery.data?.members ?? [];
   const usernameByUserId = useMemo(() => {
@@ -1470,21 +1474,22 @@ export default function Home({
     }
     return map;
   }, [eventMembers]);
-  const { data: expenses = [] } = usePlanExpenses(selectedBbqId);
-  const { data: realtimeBalancesSnapshot } = useRealtimePlanBalances(selectedBbqId);
+  const expensesQuery = usePlanExpenses(activeEventId);
+  const expenses = expensesQuery.data ?? [];
+  const { data: realtimeBalancesSnapshot } = useRealtimePlanBalances(activeEventId);
   const [showLocalSuggestionsModal, setShowLocalSuggestionsModal] = useState(false);
   const [privateSuggestionState, setPrivateSuggestionState] = useState(defaultPrivateSuggestionState());
-  const { data: expenseSharesList = [] } = useExpenseShares(selectedBbq?.allowOptInExpenses ? selectedBbqId : null);
-  const setExpenseShare = useSetExpenseShare(selectedBbqId);
-  const { data: pendingRequests = [] } = usePendingRequests(isCreator ? selectedBbqId : null);
-  const { data: publicRsvpRequests = [] } = usePublicEventRsvpRequests(selectedBbqId, isCreator && isPublicBuilderContext);
-  const updatePublicRsvpRequest = useUpdatePublicEventRsvpRequest(selectedBbqId);
-  const publicInboxList = useConversations(isCreator && isPublicBuilderContext ? selectedBbqId : null);
+  const { data: expenseSharesList = [] } = useExpenseShares(selectedBbq?.allowOptInExpenses ? activeEventId : null);
+  const setExpenseShare = useSetExpenseShare(activeEventId);
+  const { data: pendingRequests = [] } = usePendingRequests(isCreator ? activeEventId : null);
+  const { data: publicRsvpRequests = [] } = usePublicEventRsvpRequests(activeEventId, isCreator && isPublicBuilderContext);
+  const updatePublicRsvpRequest = useUpdatePublicEventRsvpRequest(activeEventId);
+  const publicInboxList = useConversations(isCreator && isPublicBuilderContext ? activeEventId : null);
   const publicInboxThread = useConversation(publicInboxConversationId, isCreator && isPublicBuilderContext && activeEventTab === "inbox" && !!publicInboxConversationId);
   const sendPublicInboxMessage = useSendConversationMessage(publicInboxConversationId);
   const updateConversationStatus = useUpdateConversationStatus(publicInboxConversationId);
-  const publicInboxConversations = (publicInboxList.data?.conversations ?? []).filter((c) => c.barbecueId === selectedBbqId);
-  const { data: invitedParticipants = [] } = useInvitedParticipants(isPrivate ? selectedBbqId : null);
+  const publicInboxConversations = (publicInboxList.data?.conversations ?? []).filter((c) => c.barbecueId === activeEventId);
+  const { data: invitedParticipants = [] } = useInvitedParticipants(isPrivate ? activeEventId : null);
   const { items: planActivityItems, unreadCount: planActivityUnreadCount, loading: planActivityLoading, highlightedId: highlightedActivityId, markAllAsRead } =
     usePlanActivity(selectedBbq?.id ?? null, !!selectedBbq?.id && isPrivateContext);
   const { data: memberships = [] } = useMemberships(username);
@@ -1497,13 +1502,13 @@ export default function Home({
   });
   const exploreSuggestionsQuery = useExploreEvents(isPrivateContext && privateSuggestionsEligible);
 
-  const deleteParticipant = useDeleteParticipant(selectedBbqId);
-  const updateParticipantName = useUpdateParticipantName(selectedBbqId);
-  const deleteExpense = useDeleteExpense(selectedBbqId);
+  const deleteParticipant = useDeleteParticipant(activeEventId);
+  const updateParticipantName = useUpdateParticipantName(activeEventId);
+  const deleteExpense = useDeleteExpense(activeEventId);
   const joinBbq = useJoinBarbecue();
-  const acceptParticipant = useAcceptParticipant(selectedBbqId);
-  const rejectParticipant = useRejectParticipant(selectedBbqId);
-  const inviteParticipant = useInviteParticipant(selectedBbqId);
+  const acceptParticipant = useAcceptParticipant(activeEventId);
+  const rejectParticipant = useRejectParticipant(activeEventId);
+  const inviteParticipant = useInviteParticipant(activeEventId);
   const acceptInvite = useAcceptInvite();
   const declineInvite = useDeclineInvite();
 
@@ -1859,8 +1864,47 @@ export default function Home({
         settlements: realtimeBalancesSnapshot.suggestedPaybacks,
       };
     }
-    return computeSplit(participants, splitExpenses, effectiveExpenseShares, shouldUseCustomSplit);
+    if (!selectedBbqId) {
+      return computeSplit(participants, splitExpenses, effectiveExpenseShares, shouldUseCustomSplit);
+    }
+    return measurePlanSwitchPerf(
+      selectedBbqId,
+      "balances",
+      () => computeSplit(participants, splitExpenses, effectiveExpenseShares, shouldUseCustomSplit),
+    );
   }, [effectiveExpenseShares, participants, realtimeBalancesSnapshot, selectedBbqId, shouldUseCustomSplit, splitExpenses]);
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    if (appRouteMode !== "event" || !selectedBbqId || !selectedBbq || !isPrivateContext) return;
+    if (isLoadingBbqs || selectedPlanQuery.isLoading || planCrewQuery.isLoading || expensesQuery.isLoading) return;
+    const rafId = window.requestAnimationFrame(() => {
+      markPlanSwitchPerf(selectedBbqId, "event view interactive", {
+        planName: selectedBbq.name,
+        participants: participants.length,
+        expenses: expenses.length,
+      });
+    });
+    return () => window.cancelAnimationFrame(rafId);
+  }, [
+    appRouteMode,
+    expenses.length,
+    expensesQuery.isLoading,
+    isLoadingBbqs,
+    isPrivateContext,
+    participants.length,
+    planCrewQuery.isLoading,
+    selectedBbq,
+    selectedBbqId,
+    selectedPlanQuery.isLoading,
+  ]);
+  useLayoutEffect(() => {
+    if (!import.meta.env.DEV) return;
+    if (appRouteMode !== "event" || !selectedBbqId || !selectedBbq || !isPrivateContext) return;
+    markPlanSwitchPerf(selectedBbqId, "event view first render commit", {
+      planName: selectedBbq.name,
+    });
+  }, [appRouteMode, isPrivateContext, selectedBbq, selectedBbqId]);
   const lastExpenseForRepeat = useMemo(() => {
     if (!expenses.length) return null;
     return [...expenses].sort((a: ExpenseWithParticipant, b: ExpenseWithParticipant) => {
@@ -3504,7 +3548,7 @@ export default function Home({
         )}
 
         {/* Main Content */}
-        {selectedBbqId && isLoadingBbqs ? (
+        {activeEventId && isLoadingBbqs ? (
           <div className="rounded-2xl border border-border/60 bg-card p-5 sm:p-6 space-y-5">
             <SkeletonCard className="h-44 rounded-2xl" />
             <div className="flex items-start gap-3">
@@ -3521,14 +3565,14 @@ export default function Home({
             </div>
             <SkeletonCard className="h-64 rounded-xl" />
           </div>
-        ) : selectedBbqId && barbecuesError ? (
+        ) : activeEventId && barbecuesError ? (
           <InlineQueryError
             message="Couldn’t load this plan. Try again."
             onRetry={() => {
               void refetchBarbecues();
             }}
           />
-        ) : selectedBbqId ? (() => {
+        ) : activeEventId ? (() => {
           if (appRouteMode === "event" && !selectedBbq) {
             return (
               <div className="mx-auto w-full max-w-[1400px] rounded-2xl border border-border/60 bg-background px-4 py-6 sm:px-6 lg:px-10">
@@ -3564,7 +3608,7 @@ export default function Home({
                 <div className="flex h-full min-h-0 overflow-visible gap-0 p-2 dark:bg-transparent">
                   <div
                     className={cn(
-                      "relative h-full min-w-0 flex-1 transition-[box-shadow,transform] duration-150 ease-out lg:mr-[-10px]",
+                      "relative h-full min-w-0 flex-1 lg:mr-[-10px]",
                       activeSurface === "chat" ? "z-20 -translate-y-px" : "z-10 translate-y-0",
                     )}
                     onMouseDown={(event) => {
@@ -3601,7 +3645,7 @@ export default function Home({
                   </div>
                   <ContextPanelHost
                     className={cn(
-                      "transition-[box-shadow,transform] duration-150 ease-out",
+                      "",
                       activeSurface === "panel" ? "z-20 -translate-y-px" : "z-10 translate-y-0",
                     )}
                     shellClassName={cn(

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { CalendarDays, Check, ChevronDown, Clock3, Loader2, MapPin, Sparkles, X } from "lucide-react";
+import { CalendarDays, Check, ChevronDown, Clock3, Loader2, LogOut, MapPin, Sparkles, Trash2, X } from "lucide-react";
 import {
   derivePlanTypeSelection,
   getEventTypeForPlanType,
@@ -22,6 +22,16 @@ import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { PanelHeader, PanelSection, PanelShell, formatPanelDate, formatPanelLocation, useActiveEventId } from "@/components/panels/panel-primitives";
 import { usePanel } from "@/state/panel";
@@ -151,8 +161,9 @@ export function PlanDetailsPanel() {
   const [subcategoryDraft, setSubcategoryDraft] = useState<PlanSubcategoryId | null>(null);
   const [datePickerOpen, setDatePickerOpen] = useState(false);
   const [timePickerOpen, setTimePickerOpen] = useState(false);
-  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
-  const [isConfirmingLeave, setIsConfirmingLeave] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
+  const [deleteConfirmName, setDeleteConfirmName] = useState("");
   const timePickerRef = useRef<HTMLDivElement | null>(null);
 
   const currentTypeSelection = useMemo(() => derivePlanTypeSelection({
@@ -246,7 +257,8 @@ export function PlanDetailsPanel() {
       queryClient.removeQueries({ queryKey: messagesQueryKey(deletedPlanId) });
       queryClient.removeQueries({ queryKey: expensesQueryKey(deletedPlanId) });
       queryClient.removeQueries({ queryKey: crewQueryKey(deletedPlanId) });
-      setIsConfirmingDelete(false);
+      setDeleteDialogOpen(false);
+      setDeleteConfirmName("");
       closePanel();
       setLocation("/app/private", { replace: true });
       toastSuccess("Plan deleted");
@@ -278,7 +290,7 @@ export function PlanDetailsPanel() {
       queryClient.removeQueries({ queryKey: messagesQueryKey(eventId) });
       queryClient.removeQueries({ queryKey: expensesQueryKey(eventId) });
       queryClient.removeQueries({ queryKey: crewQueryKey(eventId) });
-      setIsConfirmingLeave(false);
+      setLeaveDialogOpen(false);
       closePanel();
       setLocation("/app/private", { replace: true });
       toastSuccess("You left the plan");
@@ -331,6 +343,8 @@ export function PlanDetailsPanel() {
       toastError((error as Error).message || "Couldn’t save changes");
     }
   };
+
+  const typedDeleteNameMatches = plan?.name?.trim() ? deleteConfirmName.trim() === plan.name.trim() : false;
 
   return (
     <PanelShell>
@@ -594,118 +608,110 @@ export function PlanDetailsPanel() {
               </div>
             </PanelSection>
 
-            <PanelSection title="Membership" className="border-amber-200/50 bg-amber-50/40 dark:border-amber-500/20 dark:bg-amber-500/5">
-              {!isConfirmingLeave ? (
-                <div className="space-y-3 text-sm">
-                  <p className="text-muted-foreground">
-                    {isCreator
-                      ? (
-                        creatorLeaveWillDeletePlan
-                          ? "Leave this plan. Because you are the last member, it will be permanently deleted."
-                          : `Leave this plan and transfer ownership to ${creatorLeaveSuccessor?.name ?? "the next member"}.`
-                      )
-                      : "Leave this plan and remove it from your list."}
-                  </p>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setIsConfirmingLeave(true)}
-                    disabled={leaveBarbecue.isPending}
-                  >
-                    Leave plan
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="space-y-1">
-                    <p className="text-sm font-semibold text-foreground">
-                      Leave this plan?
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      {isCreator
-                        ? (
-                          creatorLeaveWillDeletePlan
-                            ? "You are the creator and the last member. Leaving will permanently delete this plan."
-                            : `You are the creator. Ownership will transfer to ${creatorLeaveSuccessor?.name ?? "the next member"} when you leave.`
-                        )
-                        : "You will lose access to the chat, expenses, balances, and activity history for this plan."}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => setIsConfirmingLeave(false)}
-                      disabled={leaveBarbecue.isPending}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="destructive"
-                      onClick={() => { void handleLeavePlan(); }}
-                      disabled={leaveBarbecue.isPending}
-                    >
-                      {leaveBarbecue.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
-                      Leave plan
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </PanelSection>
-
-            {isCreator ? (
-              <PanelSection title="Danger zone" className="border-destructive/30 bg-destructive/5">
-                {!isConfirmingDelete ? (
-                  <div className="space-y-3 text-sm">
-                    <p className="text-muted-foreground">
-                      Permanently remove this plan and all of its related data.
-                    </p>
-                    <Button
-                      type="button"
-                      variant="destructive"
-                      onClick={() => setIsConfirmingDelete(true)}
-                      disabled={deleteBarbecue.isPending}
-                    >
-                      Delete plan
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    <div className="space-y-1">
-                      <p className="text-sm font-semibold text-foreground">
-                        Are you sure you want to delete this plan?
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        This will remove the chat, expenses, balances, and activity history.
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => setIsConfirmingDelete(false)}
-                        disabled={deleteBarbecue.isPending}
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="destructive"
-                        onClick={() => { void handleDeletePlan(); }}
-                        disabled={deleteBarbecue.isPending}
-                      >
-                        {deleteBarbecue.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
-                        Delete plan
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </PanelSection>
-            ) : null}
+            <div className="flex flex-wrap items-center gap-2 border-t border-border/60 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-10 rounded-full px-4"
+                onClick={() => setLeaveDialogOpen(true)}
+                disabled={leaveBarbecue.isPending}
+              >
+                <LogOut className="mr-2 h-4 w-4" />
+                Leave plan
+              </Button>
+              {isCreator ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-10 rounded-full border-destructive/30 px-4 text-destructive hover:bg-destructive/5 hover:text-destructive"
+                  onClick={() => {
+                    setDeleteConfirmName("");
+                    setDeleteDialogOpen(true);
+                  }}
+                  disabled={deleteBarbecue.isPending}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete plan
+                </Button>
+              ) : null}
+            </div>
           </>
         )}
       </div>
+      <AlertDialog open={leaveDialogOpen} onOpenChange={setLeaveDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Leave this plan?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {isCreator
+                ? (
+                  creatorLeaveWillDeletePlan
+                    ? "You are the creator and the last member. Leaving will permanently delete this plan."
+                    : `You are the creator. Ownership will transfer to ${creatorLeaveSuccessor?.name ?? "the next member"} when you leave.`
+                )
+                : "You will lose access to the chat, expenses, balances, and activity history for this plan."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={leaveBarbecue.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={leaveBarbecue.isPending}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleLeavePlan();
+              }}
+            >
+              {leaveBarbecue.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+              Leave plan
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog
+        open={deleteDialogOpen}
+        onOpenChange={(open) => {
+          setDeleteDialogOpen(open);
+          if (!open) setDeleteConfirmName("");
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this plan?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove the chat, expenses, balances, and activity history. Type the plan name to confirm.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-1.5">
+            <Label htmlFor="delete-plan-confirm-name">Plan name</Label>
+            <Input
+              id="delete-plan-confirm-name"
+              value={deleteConfirmName}
+              onChange={(event) => setDeleteConfirmName(event.target.value)}
+              placeholder={plan?.name ?? "Plan name"}
+              autoComplete="off"
+              autoCapitalize="off"
+              autoCorrect="off"
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteBarbecue.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteBarbecue.isPending || !typedDeleteNameMatches}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleDeletePlan();
+              }}
+            >
+              {deleteBarbecue.isPending ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : null}
+              Delete plan
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </PanelShell>
   );
 }

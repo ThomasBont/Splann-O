@@ -65,6 +65,7 @@ import { EMPTY_COPY } from "@/lib/emotional-copy";
 import { usePrefetchPlan } from "@/hooks/use-prefetch-plan";
 import { usePanel } from "@/state/panel";
 import { resolveAssetUrl } from "@/lib/asset-url";
+import { startPlanSwitchPerf } from "@/lib/plan-switch-perf";
 
 type AppSection = "home" | "private" | "event";
 type DevDisableFlags = {
@@ -1068,6 +1069,12 @@ export default function AppRoute() {
     localStorage.setItem(LAST_PLAN_STORAGE_KEY, String(routeEventId));
   }, [section, routeEventId]);
 
+  useEffect(() => {
+    if (section !== "event" || !routeEventId || routeEventId <= 0) return;
+    startPlanSwitchPerf(routeEventId, "route");
+    prefetchPlan(routeEventId);
+  }, [prefetchPlan, routeEventId, section]);
+
   const mobileQuickSwitchEvents = useMemo(() => {
     const sorted = [...appEvents].filter((event) => isPrivateEvent(event)).sort((a, b) => getEventDateMs(b) - getEventDateMs(a));
     return sorted.slice(0, 8);
@@ -1374,7 +1381,6 @@ export default function AppRoute() {
               ? <div className="p-6 text-sm text-muted-foreground">Home effects disabled via kill switch.</div>
               : (
                 <Home
-                  key={`event-route-${routeEventId ?? "none"}`}
                   appRouteMode="event"
                   routeEventId={routeEventId}
                   debugDisableDiscoverModal={devDisable.discoverModal}

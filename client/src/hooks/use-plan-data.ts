@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Barbecue, ExpenseWithParticipant } from "@shared/schema";
 import { fetchPlan } from "@/hooks/use-bbq-data";
@@ -5,6 +6,7 @@ import { fetchPlanMessages, type PlanMessagesPage } from "@/hooks/use-event-chat
 import { fetchExpenses } from "@/hooks/use-expenses";
 import { type EventMemberView, fetchEventMembers, fetchParticipants } from "@/hooks/use-participants";
 import { PLAN_GC_TIME_MS, PLAN_STALE_TIME_MS } from "@/lib/query-stale";
+import { markPlanSwitchPerf } from "@/lib/plan-switch-perf";
 
 const PLAN_QUERY_OPTIONS = {
   staleTime: PLAN_STALE_TIME_MS,
@@ -77,7 +79,7 @@ export function usePlanMessages(planId: number | null) {
 }
 
 export function usePlanExpenses(planId: number | null) {
-  return useQuery<ExpenseWithParticipant[]>({
+  const query = useQuery<ExpenseWithParticipant[]>({
     queryKey: expensesQueryKey(planId),
     enabled: !!planId,
     queryFn: async () => {
@@ -86,10 +88,15 @@ export function usePlanExpenses(planId: number | null) {
     },
     ...PLAN_QUERY_OPTIONS,
   });
+  useEffect(() => {
+    if (!import.meta.env.DEV || !planId || query.status !== "success") return;
+    markPlanSwitchPerf(planId, "expenses ready", { count: query.data?.length ?? 0 });
+  }, [planId, query.data, query.status]);
+  return query;
 }
 
 export function usePlanCrew(planId: number | null) {
-  return useQuery<PlanCrew>({
+  const query = useQuery<PlanCrew>({
     queryKey: crewQueryKey(planId),
     enabled: !!planId,
     queryFn: async () => {
@@ -98,4 +105,12 @@ export function usePlanCrew(planId: number | null) {
     },
     ...PLAN_QUERY_OPTIONS,
   });
+  useEffect(() => {
+    if (!import.meta.env.DEV || !planId || query.status !== "success") return;
+    markPlanSwitchPerf(planId, "crew ready", {
+      participants: query.data?.participants.length ?? 0,
+      members: query.data?.members.length ?? 0,
+    });
+  }, [planId, query.data, query.status]);
+  return query;
 }

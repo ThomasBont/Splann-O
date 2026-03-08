@@ -825,15 +825,19 @@ export function ChatSidebar({
               <span className={cn("block truncate font-semibold tracking-tight", isMobile ? "text-lg" : "text-xl")}>Chat</span>
             </button>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="inline-flex items-center gap-1.5 rounded-full border border-black/5 bg-card px-2 py-1 text-[10px] text-muted-foreground dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-2))]">
+          <div className={cn("flex items-center", isMobile ? "gap-2.5" : "gap-2")}>
+            <div className={cn(
+              "inline-flex items-center gap-1.5 rounded-full border border-black/5 bg-card text-[10px] text-muted-foreground dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-2))]",
+              isMobile ? "min-h-11 px-3 py-1.5" : "px-2 py-1",
+            )}>
               <span className={`inline-block h-1.5 w-1.5 rounded-full ${liveLabel.cls}`} />
               {liveLabel.text}
             </div>
           </div>
         </div>
         <div className={cn(
-          "mt-3 flex w-full flex-wrap items-center gap-x-1 gap-y-1.5 text-muted-foreground",
+          "mt-3 flex w-full flex-wrap items-center text-muted-foreground",
+          isMobile ? "gap-x-1.5 gap-y-2" : "gap-x-1 gap-y-1.5",
           isMobile ? "text-[13px]" : "text-sm",
         )}>
           <button
@@ -841,7 +845,8 @@ export function ChatSidebar({
             aria-label="Open plan location details"
             onClick={openPlanDetails}
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-sm transition active:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+              "inline-flex items-center gap-1.5 rounded-md text-sm transition active:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+              isMobile ? "min-h-11 px-2.5 py-2" : "px-1.5 py-1",
               isPlanDetailsOpen
                 ? "text-foreground"
                 : "text-muted-foreground hover:text-foreground",
@@ -857,7 +862,8 @@ export function ChatSidebar({
               aria-label="Open crew drawer"
               onClick={openCrew}
               className={cn(
-                "inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-sm transition active:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                "inline-flex items-center gap-1.5 rounded-md text-sm transition active:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                isMobile ? "min-h-11 px-2.5 py-2" : "px-1.5 py-1",
                 isCrewOpen
                   ? "text-foreground"
                   : "text-muted-foreground hover:text-foreground",
@@ -873,7 +879,8 @@ export function ChatSidebar({
             aria-label="Open plan date details"
             onClick={openPlanDetails}
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-sm transition active:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+              "inline-flex items-center gap-1.5 rounded-md text-sm transition active:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+              isMobile ? "min-h-11 px-2.5 py-2" : "px-1.5 py-1",
               isPlanDetailsOpen
                 ? "text-foreground"
                 : "text-muted-foreground hover:text-foreground",
@@ -882,37 +889,23 @@ export function ChatSidebar({
             <Calendar className="h-3.5 w-3.5" />
             <span>{dateLabel}</span>
           </button>
-          <span className="text-muted-foreground/45">•</span>
-          <button
-            type="button"
-            aria-label="Open shared costs drawer"
-            onClick={openExpenses}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-sm transition active:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-              isExpensesOpen
-                ? "text-foreground"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            <CreditCard className="h-3.5 w-3.5" />
-            <span className={cn("font-medium", isExpensesOpen ? "text-foreground" : "")}>{sharedLabel}</span>
-          </button>
-          {isMobile ? (
+          {!isMobile ? (
             <>
               <span className="text-muted-foreground/45">•</span>
               <button
                 type="button"
-                aria-label="Open crew drawer"
-                onClick={openCrew}
+                aria-label="Open shared costs drawer"
+                onClick={openExpenses}
                 className={cn(
-                  "inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 transition active:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                  isCrewOpen
+                  "inline-flex items-center gap-1.5 rounded-md text-sm transition active:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                  "px-1.5 py-1",
+                  isExpensesOpen
                     ? "text-foreground"
                     : "text-muted-foreground hover:text-foreground",
                 )}
               >
-                <Users className="h-3.5 w-3.5" />
-                <span>{participantCount}</span>
+                <CreditCard className="h-3.5 w-3.5" />
+                <span className={cn("font-medium", isExpensesOpen ? "text-foreground" : "")}>{sharedLabel}</span>
               </button>
             </>
           ) : null}
@@ -940,7 +933,7 @@ export function ChatSidebar({
               type="button"
               variant="ghost"
               size="sm"
-              className="h-7 rounded-full px-3 text-xs text-muted-foreground"
+              className={cn("rounded-full px-3 text-xs text-muted-foreground", isMobile ? "h-9" : "h-7")}
               onClick={() => void handleLoadOlder()}
               disabled={historyLoadingOlder}
             >
@@ -1315,7 +1308,7 @@ export function ChatSidebar({
       <div className={cn(
         "shrink-0 border-t border-border/70 bg-background/90 backdrop-blur",
         isMobile
-          ? "px-3 py-2 pb-[max(env(safe-area-inset-bottom),0.75rem)]"
+          ? "px-3 py-2.5 pb-[max(env(safe-area-inset-bottom),0.75rem)] shadow-[0_-8px_24px_rgba(15,23,42,0.05)]"
           : "px-6 py-1",
       )}>
         {expenseSuggestion ? (
@@ -1331,12 +1324,12 @@ export function ChatSidebar({
                   paid by @{expenseSuggestion.paidBy}
                 </span>
               ) : null}
-              {expenseSuggestion.splitCount ? (
+              {!isMobile && expenseSuggestion.splitCount ? (
                 <span className="rounded-full border border-border/70 bg-muted/60 px-2 py-1 text-xs text-muted-foreground">
                   split {expenseSuggestion.splitCount}
                 </span>
               ) : null}
-              {expenseSuggestion.description ? (
+              {!isMobile && expenseSuggestion.description ? (
                 <span className="rounded-full border border-border/70 bg-muted/60 px-2 py-1 text-xs text-muted-foreground">
                   {expenseSuggestion.description}
                 </span>
@@ -1384,10 +1377,10 @@ export function ChatSidebar({
           >
             <Paperclip className="h-4 w-4" />
           </Button>
-          <div
+            <div
             className={cn(
               "flex flex-1 items-center rounded-2xl border border-border/70 bg-background",
-              isMobile ? "min-h-11 max-h-[144px] px-3.5 py-2" : "min-h-10 max-h-[132px] px-4 py-1.5",
+              isMobile ? "min-h-12 max-h-[144px] px-3.5 py-2.5 shadow-sm" : "min-h-10 max-h-[132px] px-4 py-1.5",
             )}
             onMouseDown={(e) => {
               if (isLocked) return;

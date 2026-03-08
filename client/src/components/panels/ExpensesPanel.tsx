@@ -126,7 +126,7 @@ export function ExpensesPanel() {
             <section className="rounded-2xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-3.5 shadow-none">
               <button
                 type="button"
-                className="flex w-full items-center justify-between gap-3 text-left"
+                className={cn("flex w-full items-center justify-between gap-3 text-left", isMobile && "min-h-11")}
                 onClick={() => setRecentExpanded((prev) => !prev)}
                 aria-expanded={recentExpanded}
                 aria-controls="recent-expenses-list"

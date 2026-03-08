@@ -3643,12 +3643,12 @@ export default function Home({
                       />
                     )}
                   </div>
-                  <nav className="sticky bottom-0 z-20 border-t border-border/60 bg-background/95 px-2 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-2 backdrop-blur-sm lg:hidden">
-                    <div className="grid grid-cols-3 gap-2">
+                  <nav className="sticky bottom-0 z-20 border-t border-border/60 bg-background/95 px-3 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-2.5 backdrop-blur-sm lg:hidden">
+                    <div className="grid grid-cols-3 gap-2.5">
                       <Button
                         type="button"
                         variant={mobilePrimaryTab === "chat" ? "default" : "outline"}
-                        className="h-11 rounded-full"
+                        className="h-12 rounded-full px-3"
                         onClick={() => closePanel()}
                       >
                         <MessageCircle className="mr-2 h-4 w-4" />
@@ -3657,7 +3657,7 @@ export default function Home({
                       <Button
                         type="button"
                         variant={mobilePrimaryTab === "expenses" ? "default" : "outline"}
-                        className="h-11 rounded-full"
+                        className="h-12 rounded-full px-3"
                         onClick={() => openPanel({ type: "expenses" })}
                       >
                         <Receipt className="mr-2 h-4 w-4" />
@@ -3666,7 +3666,7 @@ export default function Home({
                       <Button
                         type="button"
                         variant={mobilePrimaryTab === "overview" ? "default" : "outline"}
-                        className="h-11 rounded-full"
+                        className="h-12 rounded-full px-3"
                         onClick={() => openPanel({ type: "overview" })}
                       >
                         <Users className="mr-2 h-4 w-4" />

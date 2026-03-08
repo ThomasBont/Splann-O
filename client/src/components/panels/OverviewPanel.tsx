@@ -290,6 +290,8 @@ export function OverviewPanel() {
   const visibleContributors = contributionRows.slice(0, isMobile ? 3 : 5);
   const hiddenContributorCount = Math.max(contributionRows.length - visibleContributors.length, 0);
   const visibleActivityItems = activityItems.slice(0, isMobile ? 2 : 3);
+  const visibleBalanceRows = isMobile ? balanceRows.slice(0, 3) : balanceRows;
+  const showSettlementCard = !isMobile || !!latestSettlement || canSettle;
 
   const balanceRows = useMemo(() => {
     const significant = balances
@@ -514,7 +516,10 @@ export function OverviewPanel() {
           type="button"
           variant="ghost"
           size="icon"
-          className="h-9 w-9 shrink-0 rounded-md transition hover:bg-[hsl(var(--surface-2))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className={cn(
+            "shrink-0 rounded-md transition hover:bg-[hsl(var(--surface-2))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            isMobile ? "h-11 w-11" : "h-9 w-9",
+          )}
           onClick={closePanel}
           aria-label="Close panel"
         >
@@ -522,7 +527,7 @@ export function OverviewPanel() {
         </Button>
       </div>
 
-      <div className={cn("flex-1 space-y-4 overflow-y-auto px-5 py-5", isMobile && "space-y-3.5 px-4 pb-24 pt-4")}>
+      <div className={cn("flex-1 space-y-4 overflow-y-auto px-5 py-5", isMobile && "space-y-4 px-4 pb-24 pt-4")}>
         {!eventId ? (
           <div className="rounded-2xl border border-dashed border-border/70 bg-card/60 p-4 text-sm text-muted-foreground">
             Open a plan chat to see its overview.
@@ -596,7 +601,8 @@ export function OverviewPanel() {
                           variant="ghost"
                           size="icon"
                           className={cn(
-                            "h-9 w-9 shrink-0 rounded-full",
+                            "shrink-0 rounded-full",
+                            isMobile ? "h-11 w-11" : "h-9 w-9",
                             heroIconButtonClass,
                           )}
                           onClick={(event) => {
@@ -677,7 +683,7 @@ export function OverviewPanel() {
                 </div>
                 <div className={cn(
                   "inline-flex w-fit items-center rounded-full border px-4 py-2 text-sm font-medium shadow-sm transition-[transform,box-shadow,background-color,border-color] duration-150",
-                  isMobile && "min-h-11 px-4 py-2.5",
+                  isMobile && "min-h-12 w-full justify-center px-4.5 py-3 text-base",
                   personalStatus.action && "cursor-pointer hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 active:shadow-sm",
                   hasVisibleBanner && "backdrop-blur-sm",
                   personalStatus.tone === "positive" && "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-300",
@@ -713,15 +719,15 @@ export function OverviewPanel() {
               ) : null}
             </section>
 
-            <section className={cn("space-y-4", isMobile && "space-y-3.5")}>
+            <section className={cn("space-y-4", isMobile && "space-y-4")}>
             <section className="rounded-[18px] border border-primary/15 bg-primary/10 p-4 dark:border-primary/25 dark:bg-primary/12 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-              <div className={cn("flex items-center justify-between gap-3", isMobile && "items-start")}>
+              <div className={cn("flex items-center justify-between gap-3", isMobile && "flex-col items-start")}>
                 <div>
                   <p className="text-sm font-semibold tracking-tight text-foreground">Up next</p>
                   <p className={cn("mt-1 text-sm text-foreground/90", isMobile && "pr-2 leading-5")}>{upNext.title}</p>
                 </div>
                 {upNext.ctaLabel && upNext.onAction ? (
-                  <Button type="button" size="sm" onClick={upNext.onAction} className={cn(isMobile && "h-10 shrink-0 rounded-full px-4")}>
+                  <Button type="button" size="sm" onClick={upNext.onAction} className={cn(isMobile && "h-11 w-full rounded-full px-4.5")}>
                     {upNext.ctaLabel}
                   </Button>
                 ) : (
@@ -750,7 +756,7 @@ export function OverviewPanel() {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold tracking-tight text-foreground">Crew contribution</p>
-                  <p className="mt-1 text-xs text-muted-foreground">Who has been picking things up for the group</p>
+                  {!isMobile ? <p className="mt-1 text-xs text-muted-foreground">Who has been picking things up for the group</p> : null}
                 </div>
                 <Users className="h-4 w-4 text-muted-foreground" />
               </div>
@@ -829,12 +835,12 @@ export function OverviewPanel() {
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold tracking-tight text-foreground">Balances</p>
-                  <p className="mt-1 text-xs text-muted-foreground">Who should receive and who still owes</p>
+                  {!isMobile ? <p className="mt-1 text-xs text-muted-foreground">Who should receive and who still owes</p> : null}
                 </div>
                 <ArrowRight className="h-4 w-4 text-muted-foreground" />
               </div>
               <div className={cn("mt-4 space-y-3", isMobile && "mt-3.5")}>
-                {balanceRows.length > 0 ? balanceRows.map((entry) => {
+                {visibleBalanceRows.length > 0 ? visibleBalanceRows.map((entry) => {
                   const amount = Number(entry.balance) || 0;
                   const width = Math.max((Math.abs(amount) / maxAbsBalance) * 50, Math.abs(amount) > 0.01 ? 8 : 0);
                   const isMine = entry.id === myBalance?.id;
@@ -878,6 +884,7 @@ export function OverviewPanel() {
               </div>
             </section>
 
+            {showSettlementCard ? (
             <section
               role="button"
               tabIndex={0}
@@ -898,6 +905,7 @@ export function OverviewPanel() {
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <p className="text-sm font-semibold tracking-tight text-foreground">Settle up</p>
+                  {!isMobile ? (
                   <p className="mt-1 text-xs text-muted-foreground">
                     {settlementTransfers.length > 0
                       ? `${paidTransfers}/${settlementTransfers.length} payments marked paid`
@@ -907,6 +915,7 @@ export function OverviewPanel() {
                           ? "Balances are ready to turn into a settlement"
                           : "Settlement will appear when shared balances need it"}
                   </p>
+                  ) : null}
                 </div>
                 <span className={cn(
                   "rounded-full border px-2.5 py-1 text-[10px] font-semibold tracking-wide",
@@ -943,6 +952,7 @@ export function OverviewPanel() {
                 )}
               </div>
             </section>
+            ) : null}
 
             {!isMobile ? (
             <section

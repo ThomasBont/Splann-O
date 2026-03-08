@@ -29,7 +29,9 @@ export function buildShareMessage(input: ShareMessageInput): string {
 
 export function buildWhatsAppMessage(event: WhatsAppEventInput): string {
   const dateText = event.date
-    ? (event.date instanceof Date ? event.date.toLocaleString() : new Date(event.date).toLocaleString())
+    ? (event.date instanceof Date
+      ? event.date.toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false })
+      : new Date(event.date).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hour12: false }))
     : null;
   return buildShareMessage({
     title: event.title,

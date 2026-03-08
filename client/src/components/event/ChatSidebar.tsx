@@ -3,24 +3,29 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar, CreditCard, Loader2, MapPin, MessageCircle, MoreHorizontal, Paperclip, Reply, SendHorizontal, Smile, Users } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { BarChart3, Calendar, CreditCard, Loader2, MapPin, MessageCircle, MoreHorizontal, Reply, SendHorizontal, Smile, Users } from "lucide-react";
 import { InlineQueryError, SkeletonLine } from "@/components/ui/load-states";
 import { useEventChat } from "@/hooks/use-event-chat";
 import { useAppToast } from "@/hooks/use-app-toast";
 import { useEventMembers } from "@/hooks/use-participants";
 import { useDeleteExpense } from "@/hooks/use-expenses";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { getChatPatternStyle } from "@/lib/chat-pattern";
 import { markPlanSwitchPerf } from "@/lib/plan-switch-perf";
 import { circularActionButtonClass, cn } from "@/lib/utils";
 import { usePanel } from "@/state/panel";
 import type { SendMessageResult } from "@/hooks/use-event-chat";
 import { SYSTEM_USER_ID, SYSTEM_USER_NAME } from "@shared/lib/system-user";
 import { ExpenseCard, type ExpenseMessageMetadata } from "@/components/event/chat/ExpenseCard";
+import { PollMessage } from "@/components/event/chat/PollMessage";
 import { SettlementCard } from "@/components/event/chat/SettlementCard";
 
 type ChatSidebarProps = {
   eventId: number | null;
   eventName?: string | null;
+  eventType?: string | null;
   location?: string | null;
   dateTime?: Date | string | null;
   participantCount?: number;
@@ -128,6 +133,11 @@ type SettlementPaymentMetadata = {
   status: "paid";
 };
 
+type PollMetadata = {
+  type: "poll";
+  pollId: string;
+};
+
 function toSettlementMetadata(input: Record<string, unknown> | null | undefined): SettlementMetadata | null {
   if (!input || input.type !== "settlement") return null;
   const settlementId = String(input.settlementId ?? "").trim();
@@ -188,6 +198,16 @@ function toSettlementPaymentMetadata(input: Record<string, unknown> | null | und
     amount,
     currency,
     status,
+  };
+}
+
+function toPollMetadata(input: Record<string, unknown> | null | undefined): PollMetadata | null {
+  if (!input || input.type !== "poll") return null;
+  const pollId = String(input.pollId ?? "").trim();
+  if (!pollId) return null;
+  return {
+    type: "poll",
+    pollId,
   };
 }
 
@@ -289,6 +309,7 @@ function isGroupedWithNeighbor(
 export function ChatSidebar({
   eventId,
   eventName,
+  eventType = null,
   location = null,
   dateTime = null,
   participantCount = 0,
@@ -320,6 +341,10 @@ export function ChatSidebar({
   const [showNewPill, setShowNewPill] = useState(false);
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
   const [optimisticallyDeletedExpenseIds, setOptimisticallyDeletedExpenseIds] = useState<number[]>([]);
+  const [pollComposerOpen, setPollComposerOpen] = useState(false);
+  const [pollQuestion, setPollQuestion] = useState("");
+  const [pollOptionsDraft, setPollOptionsDraft] = useState("Yes\nNo");
+  const [creatingPoll, setCreatingPoll] = useState(false);
   const {
     messages,
     historyLoading,
@@ -337,6 +362,7 @@ export function ChatSidebar({
     toggleReaction,
     loadOlder,
     retry,
+    refreshHistory,
   } = useEventChat(eventId, enabled && !!eventId);
   const deleteExpense = useDeleteExpense(eventId);
   const membersQuery = useEventMembers(eventId);
@@ -620,10 +646,59 @@ export function ChatSidebar({
     }
   }, []);
 
+  const parsedPollOptions = useMemo(() => {
+    return pollOptionsDraft
+      .split("\n")
+      .map((option) => option.trim())
+      .filter(Boolean);
+  }, [pollOptionsDraft]);
+
+  const handleCreatePoll = useCallback(async () => {
+    const question = pollQuestion.trim();
+    const uniqueOptions = parsedPollOptions.filter((option, index, list) => (
+      list.findIndex((candidate) => candidate.toLowerCase() === option.toLowerCase()) === index
+    ));
+    if (!eventId) {
+      toastError("Plan not loaded yet.");
+      return;
+    }
+    if (!question) {
+      toastError("Add a poll question.");
+      return;
+    }
+    if (uniqueOptions.length < 2) {
+      toastError("Add at least 2 unique options.");
+      return;
+    }
+    setCreatingPoll(true);
+    try {
+      const res = await fetch(`/api/events/${eventId}/polls`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          question,
+          options: uniqueOptions,
+        }),
+      });
+      const body = await res.json().catch(() => ({} as { message?: string }));
+      if (!res.ok) throw new Error(body.message || "Failed to create poll");
+      setPollQuestion("");
+      setPollOptionsDraft("Yes\nNo");
+      setPollComposerOpen(false);
+      await refreshHistory();
+    } catch (error) {
+      toastError(error instanceof Error ? error.message : "Couldn’t create poll.");
+    } finally {
+      setCreatingPoll(false);
+    }
+  }, [eventId, parsedPollOptions, pollQuestion, refreshHistory, toastError]);
+
   const locationLabel = (location || "").trim() || "Nowhere yet";
   const peopleLabel = `${participantCount} ${participantCount === 1 ? "person" : "people"}`;
   const dateLabel = formatHeaderDate(dateTime);
   const sharedLabel = `${formatMoneyForSystem(sharedTotal, currency)} shared`;
+  const chatPatternStyle = useMemo(() => getChatPatternStyle(eventType), [eventType]);
   const hasEventId = Number.isFinite(Number(eventId)) && Number(eventId) > 0;
   const openPlanDetails = () => {
     if (isMobile) {
@@ -696,7 +771,7 @@ export function ChatSidebar({
     for (const message of messages) {
       const timestamp = new Date(message.createdAt).getTime();
       const safeTs = Number.isFinite(timestamp) ? timestamp : Date.now();
-      if (message.type === "system") {
+      if (message.type !== "user") {
         groups.push({
           id: `sys-${message.id}`,
           isSystem: true,
@@ -797,16 +872,15 @@ export function ChatSidebar({
 
   return (
     <aside
-      className={cn("pointer-events-auto relative flex h-full min-h-0 flex-col overflow-hidden bg-[hsl(var(--surface-1))]", className)}
+      className={cn("pointer-events-auto relative flex h-full min-h-0 flex-col overflow-hidden bg-neutral-50", className)}
       style={
         {
-          "--chat-bg":
-            "radial-gradient(1250px 760px at 10% 4%, hsl(var(--muted)/0.1), transparent 68%), radial-gradient(960px 560px at 86% 90%, hsl(var(--primary)/0.03), transparent 70%), hsl(var(--background))",
+          "--chat-pattern-bg": "linear-gradient(180deg, #ffffff 0%, #ffffff 100%)",
         } as CSSProperties
       }
     >
       <header className={cn(
-        "shrink-0 border-b border-black/5 bg-[hsl(var(--surface-1))] dark:border-[hsl(var(--border-subtle))]",
+        "shrink-0 border-b border-neutral-200 bg-neutral-50",
         isMobile ? "px-3 py-2" : "px-6 py-4",
       )}>
         <div className="flex items-start justify-between gap-4">
@@ -829,7 +903,7 @@ export function ChatSidebar({
           </div>
           <div className={cn("flex items-center", isMobile ? "gap-2.5" : "gap-2")}>
             <div className={cn(
-              "inline-flex items-center gap-1.5 rounded-full border border-black/5 bg-card text-[10px] text-muted-foreground dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-2))]",
+              "inline-flex items-center gap-1.5 rounded-full border border-neutral-200 bg-white text-[10px] text-muted-foreground",
               isMobile ? "min-h-8 px-2.5 py-1" : "px-2 py-1",
             )}>
               <span className={`inline-block h-1.5 w-1.5 rounded-full ${liveLabel.cls}`} />
@@ -935,8 +1009,11 @@ export function ChatSidebar({
 
       <div
         ref={listRef}
-        className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden bg-[var(--chat-bg)]"
-        style={{ WebkitOverflowScrolling: "touch" }}
+        className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden bg-white"
+        style={{
+          WebkitOverflowScrolling: "touch",
+          background: `${chatPatternStyle.backgroundImage} 0 0 / 184px 184px repeat, var(--chat-pattern-bg)`,
+        }}
       >
         <div
           className={cn(
@@ -991,10 +1068,10 @@ export function ChatSidebar({
 
               if (group.isSystem) {
                 const msg = firstMsg;
-                const systemName = msg.user?.name || SYSTEM_USER_NAME;
                 const expenseMeta = toExpenseMetadata(msg.metadata ?? null);
                 const settlementMeta = toSettlementMetadata(msg.metadata ?? null);
                 const settlementPaymentMeta = toSettlementPaymentMetadata(msg.metadata ?? null);
+                const pollMeta = toPollMetadata(msg.metadata ?? null);
                 const settlementCache = settlementPaymentMeta
                   ? queryClient.getQueryData<SettlementCacheResponse>([
                     "/api/events",
@@ -1018,6 +1095,9 @@ export function ChatSidebar({
                     paymentTransfer?.currency ?? settlementPaymentMeta.currency,
                   )
                   : null;
+                const isSystemMessage = msg.type === "system";
+                const senderName = msg.user?.name || (isSystemMessage ? SYSTEM_USER_NAME : "Unknown user");
+                const senderInitials = isSystemMessage ? "S" : getInitials(senderName);
                 return (
                   <div
                     key={group.id}
@@ -1028,9 +1108,9 @@ export function ChatSidebar({
                   >
                     <div className={cn(isMobile ? "mb-4" : "mb-5")}>
                       {showDateSeparator ? (
-                        <div className="my-2 flex justify-center">
+                        <div className="relative z-10 my-2 flex justify-center">
                           <span className={cn(
-                            "self-center rounded-full border border-border/70 bg-muted/60 text-muted-foreground",
+                            "self-center rounded-full border border-border/70 bg-[hsl(var(--surface-2))] text-muted-foreground shadow-sm",
                             isMobile ? "px-2.5 py-1 text-[11px]" : "px-3 py-1 text-xs",
                           )}>
                             {formatDateSeparator(msg.createdAt)}
@@ -1043,13 +1123,17 @@ export function ChatSidebar({
                             "grid place-items-center rounded-full border border-border/70 bg-muted font-semibold text-muted-foreground",
                             isMobile ? "h-6 w-6 text-[10px]" : "h-7 w-7 text-[11px]",
                           )}>
-                            S
+                            {senderInitials}
                           </span>
                         </div>
                         <div className={cn(isMobile ? "max-w-[90%]" : "max-w-[84%] sm:max-w-[78%]")}>
                           <div className={cn("mb-1 px-1 text-muted-foreground", isMobile ? "text-[10px]" : "text-[11px]")}>
-                            <span className="font-semibold text-foreground/90">{systemName}</span>
-                            <span className="ml-1 rounded-full border border-border/60 bg-card/60 px-1.5 py-0 text-[9px] uppercase tracking-wide">System</span>
+                            <span className="font-semibold text-foreground/90">{senderName}</span>
+                            {isSystemMessage ? (
+                              <span className="ml-1 rounded-full border border-border/60 bg-card px-1.5 py-0 text-[9px] uppercase tracking-wide">System</span>
+                            ) : (
+                              <span className="ml-1 rounded-full border border-border/60 bg-card px-1.5 py-0 text-[9px] uppercase tracking-wide">Poll</span>
+                            )}
                             {!isMobile ? <span className="px-1 text-muted-foreground/70">·</span> : null}
                             <span className="text-[10px] text-muted-foreground/70">{formatMessageTime(msg.createdAt)}</span>
                           </div>
@@ -1076,8 +1160,10 @@ export function ChatSidebar({
                               settlementId={settlementMeta.settlementId}
                               currency={settlementMeta.currency || currency}
                             />
+                          ) : pollMeta ? (
+                            <PollMessage pollId={pollMeta.pollId} />
                           ) : settlementPaymentMeta ? (
-                            <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/8 px-4 py-2.5 text-sm text-emerald-800 dark:text-emerald-300">
+                            <div className="rounded-2xl border border-emerald-500/25 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-300">
                               {fromName && toName && paymentAmount ? (
                                 <p className="whitespace-pre-wrap break-words font-medium">
                                   {fromName}
@@ -1102,7 +1188,7 @@ export function ChatSidebar({
                               </p>
                             </div>
                           ) : (
-                            <div className="mx-auto max-w-[560px] rounded-2xl border border-border/70 bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                            <div className="mx-auto max-w-[560px] rounded-2xl border border-border/70 bg-[hsl(var(--surface-2))] px-3 py-2 text-xs text-muted-foreground dark:bg-[hsl(var(--surface-2))]">
                               <p className="whitespace-pre-wrap break-words">{msg.text}</p>
                             </div>
                           )}
@@ -1327,7 +1413,7 @@ export function ChatSidebar({
       ) : null}
 
       <div className={cn(
-        "shrink-0 border-t border-border/70 bg-background/90 backdrop-blur",
+        "shrink-0 border-t border-neutral-200 bg-neutral-50",
         isMobile
           ? "px-2.5 py-1.5 pb-[max(env(safe-area-inset-bottom),0.5rem)] shadow-[0_-6px_18px_rgba(15,23,42,0.05)]"
           : "px-6 py-1",
@@ -1388,17 +1474,53 @@ export function ChatSidebar({
           ) : null}
         </div>
         <div className={cn("flex items-end gap-2", isMobile ? "pb-0.5" : "items-center")}>
-          <Button
-            type="button"
-            size="icon"
-            variant="outline"
-            className={cn(`shrink-0 ${circularActionButtonClass()}`, isMobile ? "h-10 w-10" : "h-10 w-10")}
-            aria-label="Attach file"
-            disabled
-          >
-            <Paperclip className="h-4 w-4" />
-          </Button>
-            <div
+          <Popover open={pollComposerOpen} onOpenChange={setPollComposerOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                size="icon"
+                variant="outline"
+                className={cn(`shrink-0 ${circularActionButtonClass()}`, isMobile ? "h-10 w-10" : "h-10 w-10")}
+                aria-label="Create poll"
+                disabled={isLocked || !eventId || creatingPoll}
+              >
+                {creatingPoll ? <Loader2 className="h-4 w-4 animate-spin" /> : <BarChart3 className="h-4 w-4" />}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="start" sideOffset={10} className="w-[320px] rounded-2xl p-4">
+              <div className="space-y-3">
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Create poll</p>
+                  <p className="mt-1 text-xs text-muted-foreground">Ask one question and add one option per line.</p>
+                </div>
+                <Input
+                  value={pollQuestion}
+                  onChange={(event) => setPollQuestion(event.target.value)}
+                  placeholder="Question"
+                  maxLength={240}
+                />
+                <Textarea
+                  value={pollOptionsDraft}
+                  onChange={(event) => setPollOptionsDraft(event.target.value)}
+                  placeholder={"Option 1\nOption 2"}
+                  rows={5}
+                  maxLength={1000}
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  {parsedPollOptions.length} option{parsedPollOptions.length === 1 ? "" : "s"}
+                </p>
+                <div className="flex justify-end gap-2">
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setPollComposerOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button type="button" size="sm" onClick={() => void handleCreatePoll()} disabled={creatingPoll}>
+                    {creatingPoll ? "Creating..." : "Post poll"}
+                  </Button>
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
+          <div
             className={cn(
               "flex flex-1 items-center rounded-2xl border border-border/70 bg-background",
               isMobile ? "min-h-10 max-h-[132px] px-3 py-1.5 shadow-sm" : "min-h-10 max-h-[132px] px-4 py-1.5",

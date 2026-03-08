@@ -7,7 +7,7 @@ import { useEventGuests } from "@/hooks/use-event-guests";
 import { usePlanCrew, usePlanExpenses } from "@/hooks/use-plan-data";
 import { resolveAssetUrl } from "@/lib/asset-url";
 import { cn } from "@/lib/utils";
-import { PanelHeader, PanelSection, PanelShell, useActiveEventId } from "@/components/panels/panel-primitives";
+import { PanelHeader, PanelSection, PanelShell, panelHeaderAddButtonClass, useActiveEventId } from "@/components/panels/panel-primitives";
 import { usePanel } from "@/state/panel";
 import { buildCrewContributionRows } from "@/components/panels/crew-contribution";
 
@@ -70,10 +70,10 @@ export function CrewPanel() {
           <Button
             type="button"
             size="sm"
-            className="h-9 rounded-full px-4"
+            className={panelHeaderAddButtonClass()}
             onClick={() => replacePanel({ type: "invite", source: "crew" })}
           >
-            Invite friends
+            Invite friends +
           </Button>
         )}
       />

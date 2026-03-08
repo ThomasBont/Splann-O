@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CopyPlus, Loader2, Users } from "lucide-react";
+import { Loader2, Users } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -13,8 +13,8 @@ import { useSearchUsers } from "@/hooks/use-friends";
 import { useAuth } from "@/hooks/use-auth";
 import type { EventInviteView } from "@/hooks/use-participants";
 import { PanelHeader, PanelSection, PanelShell, useActiveEventId } from "@/components/panels/panel-primitives";
-import { usePanel } from "@/state/panel";
 import { resolveAssetUrl } from "@/lib/asset-url";
+import { buildInviteUrl, generateInviteMessage } from "@/lib/invite-share";
 
 type UserSearchRow = {
   id: number;
@@ -23,26 +23,11 @@ type UserSearchRow = {
   avatarUrl?: string | null;
 };
 
-const DEFAULT_PUBLIC_APP_ORIGIN = "https://splanno.app";
-
-function resolvePublicAppOrigin() {
-  const configured = String(import.meta.env.VITE_PUBLIC_APP_ORIGIN ?? "").trim();
-  const runtimeOrigin = typeof window !== "undefined" ? window.location.origin : "";
-  const base = configured || runtimeOrigin || DEFAULT_PUBLIC_APP_ORIGIN;
-  return base.replace(/\/+$/, "");
-}
-
-function buildInviteUrl(token?: string | null) {
-  if (!token) return "";
-  return `${resolvePublicAppOrigin()}/join/${token}`;
-}
-
 export function InviteFlowPanel() {
   const eventId = useActiveEventId();
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const { toastError, toastSuccess } = useAppToast();
-  const { replacePanel } = usePanel();
   const planQuery = usePlan(eventId);
   const guests = useEventGuests(eventId);
   const ensureInviteToken = useEnsureInviteToken();
@@ -57,6 +42,15 @@ export function InviteFlowPanel() {
   const pendingInvites = guests.invitesPending;
   const userSearch = useSearchUsers(debouncedSearch);
   const inviteUrl = useMemo(() => buildInviteUrl(plan?.inviteToken), [plan?.inviteToken]);
+  const inviteMessage = useMemo(() => generateInviteMessage({
+    name: plan?.name,
+    locationName: plan?.locationName,
+    locationText: plan?.locationText,
+    city: plan?.city,
+    countryName: plan?.countryName,
+    eventType: plan?.eventType,
+    date: plan?.date,
+  }, inviteUrl), [inviteUrl, plan?.city, plan?.countryName, plan?.date, plan?.eventType, plan?.locationName, plan?.locationText, plan?.name]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(searchInput.trim()), 250);
@@ -282,6 +276,17 @@ export function InviteFlowPanel() {
                 url={inviteUrl}
                 onEnsureToken={ensureTokenAndBuildUrl}
                 label="Invite link"
+                shareTitle={plan?.name ?? "Join this plan on Splanno"}
+                shareMessage={inviteMessage}
+                getShareMessage={(url) => generateInviteMessage({
+                  name: plan?.name,
+                  locationName: plan?.locationName,
+                  locationText: plan?.locationText,
+                  city: plan?.city,
+                  countryName: plan?.countryName,
+                  eventType: plan?.eventType,
+                  date: plan?.date,
+                }, url)}
               />
             </PanelSection>
 
@@ -303,18 +308,6 @@ export function InviteFlowPanel() {
                 <p className="text-sm text-muted-foreground">No pending invites yet.</p>
               )}
             </PanelSection>
-
-            <div className="px-1">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => replacePanel({ type: "crew" })}
-              >
-                <CopyPlus className="h-4 w-4" />
-                View crew
-              </Button>
-            </div>
           </>
         )}
       </div>

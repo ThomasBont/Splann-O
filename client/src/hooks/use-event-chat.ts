@@ -11,7 +11,7 @@ export type ChatMessage = {
   id: string;
   eventId: string;
   clientMessageId?: string;
-  type: "user" | "system";
+  type: "user" | "system" | "poll";
   text: string;
   metadata?: Record<string, unknown> | null;
   createdAt: string;
@@ -41,7 +41,7 @@ type IncomingServerMessage = {
   id: string;
   eventId: string;
   clientMessageId?: string;
-  type?: "user" | "system";
+  type?: "user" | "system" | "poll";
   text?: string;
   content?: string;
   metadata?: unknown;
@@ -113,7 +113,7 @@ function normalizeIncomingMessage(raw: IncomingServerMessage): ChatMessage | nul
     id: raw.id,
     eventId: String(raw.eventId ?? ""),
     clientMessageId: typeof raw.clientMessageId === "string" ? raw.clientMessageId : undefined,
-    type: raw.type === "system" ? "system" : "user",
+    type: raw.type === "system" ? "system" : (raw.type === "poll" ? "poll" : "user"),
     text: content,
     metadata: (raw.metadata && typeof raw.metadata === "object") ? (raw.metadata as Record<string, unknown>) : null,
     createdAt,
@@ -626,6 +626,22 @@ export function useEventChat(eventId: number | null, enabled = true) {
     };
   }, [applyReactionUpdate, enabled, eventId, markFailed, mergeMessages, queryClient, reconcileServerMessage, retryTick]);
 
+  useEffect(() => {
+    if (!enabled || !eventId) return;
+    const onExternalMessage = (rawEvent: Event) => {
+      const event = rawEvent as CustomEvent<{ eventId?: number; message?: IncomingServerMessage }>;
+      const nextEventId = Number(event.detail?.eventId ?? 0);
+      if (!Number.isFinite(nextEventId) || nextEventId !== eventId) return;
+      const normalized = event.detail?.message ? normalizeIncomingMessage(event.detail.message) : null;
+      if (!normalized) return;
+      reconcileServerMessage(normalized, normalized.clientMessageId);
+    };
+    window.addEventListener("splanno:chat-message-created", onExternalMessage as EventListener);
+    return () => {
+      window.removeEventListener("splanno:chat-message-created", onExternalMessage as EventListener);
+    };
+  }, [enabled, eventId, reconcileServerMessage]);
+
   const sendMessageWithClientId = useCallback(async (
     text: string,
     clientMessageId: string,
@@ -825,6 +841,10 @@ export function useEventChat(eventId: number | null, enabled = true) {
     setRetryTick((n) => n + 1);
   }, []);
 
+  const refreshHistory = useCallback(async () => {
+    await fetchInitialHistory();
+  }, [fetchInitialHistory]);
+
   return useMemo(() => ({
     messages,
     historyLoading,
@@ -842,6 +862,7 @@ export function useEventChat(eventId: number | null, enabled = true) {
     toggleReaction,
     loadOlder,
     retry,
+    refreshHistory,
   }), [
     messages,
     historyLoading,
@@ -858,5 +879,6 @@ export function useEventChat(eventId: number | null, enabled = true) {
     toggleReaction,
     loadOlder,
     retry,
+    refreshHistory,
   ]);
 }

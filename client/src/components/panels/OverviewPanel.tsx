@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent, type MouseEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, Camera, CheckCircle2, Crown, Link2, Loader2, Upload, Users } from "lucide-react";
+import { ArrowRight, BarChart3, Camera, CheckCircle2, Crown, Link2, Loader2, Upload, Users } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,9 +18,11 @@ import { circularActionButtonClass, cn } from "@/lib/utils";
 import { usePanel } from "@/state/panel";
 import { PanelShell, useActiveEventId } from "@/components/panels/panel-primitives";
 import { buildCrewContributionRows } from "@/components/panels/crew-contribution";
-import { getUpNext } from "@/components/panels/up-next";
+import { getUpNext, getUpNextCandidates, getUpNextRotationIntervalMs } from "@/components/panels/up-next";
 import { useEventGuests } from "@/hooks/use-event-guests";
 import { usePlanActivity } from "@/hooks/use-plan-activity";
+import { useLatestRunningPoll } from "@/hooks/use-latest-running-poll";
+import { formatActivityPreview, formatActivityTime } from "@/components/panels/activity-format";
 
 type SettlementResponse = {
   settlement: {
@@ -60,6 +62,12 @@ function getInitials(name: string) {
   if (parts.length === 0) return "?";
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return `${parts[0][0] ?? ""}${parts[parts.length - 1][0] ?? ""}`.toUpperCase();
+}
+
+function countryCodeToFlagEmoji(countryCode: string | null | undefined) {
+  const code = String(countryCode ?? "").trim().toUpperCase();
+  if (!/^[A-Z]{2}$/.test(code)) return "";
+  return String.fromCodePoint(...Array.from(code).map((char) => 127397 + char.charCodeAt(0)));
 }
 
 function avatarTint(index: number) {
@@ -133,57 +141,6 @@ function detectBannerTone(image: HTMLImageElement): "light-content" | "dark-cont
   }
 }
 
-function formatActivityTime(value: string | null) {
-  if (!value) return "";
-  const date = new Date(value);
-  const time = date.getTime();
-  if (!Number.isFinite(time)) return "";
-  const diffMs = Date.now() - time;
-  const minutes = Math.floor(diffMs / 60_000);
-  if (minutes < 1) return "Just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days === 1) return "Yesterday";
-  if (days < 7) return `${days}d ago`;
-  return date.toLocaleDateString();
-}
-
-function formatActivityPreview(item: { type: string; actorName: string | null; message: string; meta: Record<string, unknown> | null }, currencyCode: string) {
-  const actor = (item.actorName || "Someone").trim().split(/\s+/)[0] || "Someone";
-  const meta = item.meta ?? {};
-  const amount = typeof meta.amount === "number" ? meta.amount : Number(meta.amount);
-  const currency = typeof meta.currency === "string" && meta.currency.trim() ? meta.currency : currencyCode;
-  const title = typeof meta.title === "string"
-    ? meta.title.trim()
-    : item.type.startsWith("EXPENSE_")
-      ? (() => {
-          const match = item.message.match(/expense:\s*(.+?)\s*\((?:[A-Z]{3}|€|\$|£)/i);
-          return match?.[1]?.trim() ?? "";
-        })()
-      : "";
-
-  if (item.type === "EXPENSE_ADDED" && title) {
-    return `${actor} added ${title}${Number.isFinite(amount) ? ` · ${formatCurrency(amount, currency)}` : ""}`;
-  }
-  if (item.type === "EXPENSE_DELETED" && title) {
-    return `${actor} removed ${title}${Number.isFinite(amount) ? ` · ${formatCurrency(amount, currency)}` : ""}`;
-  }
-  if (item.type === "MEMBER_JOINED") {
-    return `${actor} joined the plan`;
-  }
-  if (item.type === "PLAN_UPDATED") {
-    return `${actor} updated the plan`;
-  }
-
-  return item.message
-    .replace(/^(.+?) added an expense:\s*/i, "$1 added ")
-    .replace(/^(.+?) deleted an expense:\s*/i, "$1 removed ")
-    .replace(/\s*\(([^)]+)\)\s*$/, " · $1")
-    .trim();
-}
-
 export function OverviewPanel() {
   const eventId = useActiveEventId();
   const isMobile = useIsMobile();
@@ -229,6 +186,11 @@ export function OverviewPanel() {
   );
   const currency = typeof plan?.currency === "string" ? plan.currency : "EUR";
   const localCurrency = typeof plan?.localCurrency === "string" ? plan.localCurrency.trim().toUpperCase() : "";
+  const localCurrencyFlag = countryCodeToFlagEmoji(
+    typeof plan?.countryCode === "string"
+      ? plan.countryCode
+      : (plan?.locationMeta as { countryCode?: string | null } | null | undefined)?.countryCode,
+  );
   const showLocalCurrency = !!localCurrency && localCurrency !== currency;
   const totalShared = useMemo(
     () => expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0),
@@ -255,7 +217,9 @@ export function OverviewPanel() {
     : null;
   const activityQuery = usePlanActivity(eventId, !!eventId);
   const activityItems = activityQuery.latestItems;
+  const latestRunningPollQuery = useLatestRunningPoll(eventId, !!eventId);
   const isCreator = Number(plan?.creatorUserId) === Number(user?.id);
+  const [upNextRotationIndex, setUpNextRotationIndex] = useState(0);
 
   const hasAnyExpenses = expenses.length > 0;
   const hasOnlyCreator = participants.length <= 1;
@@ -290,6 +254,8 @@ export function OverviewPanel() {
   const visibleContributors = contributionRows.slice(0, isMobile ? 3 : 5);
   const hiddenContributorCount = Math.max(contributionRows.length - visibleContributors.length, 0);
   const visibleActivityItems = activityItems.slice(0, isMobile ? 2 : 3);
+  const latestRunningPoll = latestRunningPollQuery.latestRunningPoll?.data ?? null;
+  const latestRunningPollLeadingOption = latestRunningPoll?.options.find((option) => option.isLeading) ?? null;
 
   const balanceRows = useMemo(() => {
     const significant = balances
@@ -314,6 +280,7 @@ export function OverviewPanel() {
   const openSettlement = () => replacePanel({ type: "settlement" });
   const openCrew = () => replacePanel({ type: "crew" });
   const openInvite = () => replacePanel({ type: "invite", source: "overview" });
+  const openUpNext = () => replacePanel({ type: "next-action" });
   const openPlanDetails = () => replacePanel({ type: "plan-details" });
   const openRecentActivity = () => replacePanel({ type: "recent-activity" });
   const openMemberProfile = (username?: string | null, source: "overview" | "crew" = "overview") => {
@@ -346,7 +313,8 @@ export function OverviewPanel() {
         }
       }
     : undefined;
-  const upNextItem = getUpNext({
+  const upNextContext = {
+    participantCount: participants.length,
     expensesCount: expenses.length,
     pendingInvitesCount: pendingInvites.length,
     canSettle,
@@ -354,7 +322,18 @@ export function OverviewPanel() {
     unpaidTransfers,
     eventDate: plan?.date,
     isCreator,
-  });
+  };
+  const upNextCandidates = useMemo(() => getUpNextCandidates(upNextContext), [
+    upNextContext.canSettle,
+    upNextContext.eventDate,
+    upNextContext.expensesCount,
+    upNextContext.isCreator,
+    upNextContext.latestSettlementStatus,
+    upNextContext.participantCount,
+    upNextContext.pendingInvitesCount,
+    upNextContext.unpaidTransfers,
+  ]);
+  const upNextItem = getUpNext(upNextContext, upNextRotationIndex);
   const upNext = {
     ...upNextItem,
     onAction: upNextItem.action === "settlement"
@@ -371,6 +350,18 @@ export function OverviewPanel() {
             ? openPlanDetails
             : null,
   };
+
+  useEffect(() => {
+    setUpNextRotationIndex(0);
+  }, [upNextCandidates.length, eventId]);
+
+  useEffect(() => {
+    if (upNextCandidates.length <= 1) return;
+    const interval = window.setInterval(() => {
+      setUpNextRotationIndex((current) => (current + 1) % upNextCandidates.length);
+    }, getUpNextRotationIntervalMs());
+    return () => window.clearInterval(interval);
+  }, [upNextCandidates.length]);
 
   const settlementStatusLabel = latestSettlement?.status === "settled"
     ? "SETTLED"
@@ -510,8 +501,8 @@ export function OverviewPanel() {
 
   return (
     <PanelShell>
-      <div className={cn("flex items-center justify-between gap-4 border-b border-[hsl(var(--border-subtle))] px-5 py-4", isMobile && "px-3.5 py-2.5")}>
-        <p className="text-sm font-medium tracking-tight text-foreground">Overview</p>
+      <div className={cn("flex items-center justify-between gap-4 rounded-t-[inherit] border-b border-neutral-200 bg-neutral-50 px-6 py-4", isMobile && "px-3.5 py-2.5")}>
+        <p className={cn("font-semibold tracking-tight text-foreground", isMobile ? "text-lg" : "text-xl")}>Overview</p>
         <Button
           type="button"
           variant="ghost"
@@ -713,21 +704,43 @@ export function OverviewPanel() {
                     )}
                     style={!hasVisibleBanner ? heroSecondaryTextStyle : undefined}
                   >
-                    {formatCurrency(localSharedTotal, localCurrency)}
+                    {localCurrencyFlag ? `${localCurrencyFlag} ` : ""}{formatCurrency(localSharedTotal, localCurrency)}
                   </span>
                 </div>
               ) : null}
             </section>
 
             <section className={cn("space-y-4", isMobile && "space-y-3")}>
-            <section className={cn("rounded-[18px] border border-primary/15 bg-primary/10 p-4 dark:border-primary/25 dark:bg-primary/12 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]", isMobile && "p-3")}>
+            <section
+              role="button"
+              tabIndex={0}
+              onClick={openUpNext}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  openUpNext();
+                }
+              }}
+              className={cn(
+                "interactive-card rounded-[18px] border border-primary/15 bg-primary/10 p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-primary/25 dark:bg-primary/12 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]",
+                isMobile && "p-3",
+              )}
+            >
               <div className={cn("flex items-center justify-between gap-3", isMobile && "flex-col items-start")}>
                 <div>
                   <p className="text-sm font-semibold tracking-tight text-foreground">Up next</p>
                   <p className={cn("mt-1 text-sm text-foreground/90", isMobile && "pr-2 text-[13px] leading-4.5")}>{upNext.title}</p>
                 </div>
                 {upNext.ctaLabel && upNext.onAction ? (
-                  <Button type="button" size="sm" onClick={upNext.onAction} className={cn(isMobile && "h-10 w-full rounded-full px-4")}>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      upNext.onAction?.();
+                    }}
+                    className={cn(isMobile && "h-10 w-full rounded-full px-4")}
+                  >
                     {upNext.ctaLabel}
                   </Button>
                 ) : (
@@ -736,6 +749,71 @@ export function OverviewPanel() {
                   </span>
                 )}
               </div>
+              {latestRunningPoll ? (
+                <div className="mt-3 rounded-2xl border border-yellow-200/80 bg-white/70 p-3 backdrop-blur-sm dark:border-yellow-500/20 dark:bg-black/10">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-yellow-700 dark:text-yellow-300">
+                        <BarChart3 className="h-3.5 w-3.5" />
+                        Live vote
+                      </div>
+                      <p className="mt-1 truncate text-sm font-semibold text-foreground">
+                        {latestRunningPoll.poll.question}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-8 rounded-full px-3"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        replacePanel({ type: "polls" });
+                      }}
+                    >
+                      Open
+                    </Button>
+                  </div>
+                  <div className="mt-3 space-y-2">
+                    <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                      <span>
+                        {latestRunningPoll.totalEligibleVoters
+                          ? `${latestRunningPoll.totalVotes} / ${latestRunningPoll.totalEligibleVoters} people voted`
+                          : `${latestRunningPoll.totalVotes} vote${latestRunningPoll.totalVotes === 1 ? "" : "s"}`}
+                      </span>
+                      <span>
+                        {latestRunningPollLeadingOption
+                          ? `Leading: ${latestRunningPollLeadingOption.label}`
+                          : "No leader yet"}
+                      </span>
+                    </div>
+                    <div className="space-y-1.5">
+                      {latestRunningPoll.options.slice(0, 2).map((option) => {
+                        const width = latestRunningPoll.totalVotes > 0
+                          ? Math.max(8, Math.round((option.voteCount / latestRunningPoll.totalVotes) * 100))
+                          : 0;
+                        return (
+                          <div key={`overview-up-next-poll-${option.id}`} className="space-y-1">
+                            <div className="flex items-center justify-between gap-2 text-xs text-foreground">
+                              <span className="truncate">{option.label}</span>
+                              <span className="text-muted-foreground">{option.voteCount}</span>
+                            </div>
+                            <div className="h-2 overflow-hidden rounded-full bg-neutral-200/90 dark:bg-white/10">
+                              <div
+                                className={cn(
+                                  "h-full rounded-full transition-all",
+                                  option.isLeading ? "bg-yellow-400" : "bg-neutral-400/80 dark:bg-white/20",
+                                )}
+                                style={{ width: `${width}%` }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
             </section>
 
             <section
@@ -896,11 +974,11 @@ export function OverviewPanel() {
                 }
               }}
               className={cn(
-              "interactive-card rounded-[18px] border p-4 hover:border-border/80 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              "interactive-card rounded-[18px] border border-primary/15 bg-primary/10 p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-primary/25 dark:bg-primary/12 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]",
               isMobile && "p-3",
               latestSettlement?.status === "settled"
                 ? "border-emerald-200 bg-emerald-50/80 dark:border-emerald-500/25 dark:bg-emerald-500/10"
-                : "border-black/5 bg-background/96 dark:border-white/9 dark:bg-[hsl(var(--surface-1))]/96 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
+                : "",
             )}>
               <div className="flex items-start justify-between gap-4">
                 <div>

@@ -7,6 +7,8 @@ import ExpenseDetailPanel from "@/components/panels/ExpenseDetailPanel";
 import ExpensesPanel from "@/components/panels/ExpensesPanel";
 import AddExpensePanel from "@/components/panels/AddExpensePanel";
 import SettlementPanel from "@/components/panels/SettlementPanel";
+import PollsPanel from "@/components/panels/PollsPanel";
+import AddPollPanel from "@/components/panels/AddPollPanel";
 import CrewPanel from "@/components/panels/CrewPanel";
 import InviteFlowPanel from "@/components/panels/InviteFlowPanel";
 import PlanDetailsPanel from "@/components/panels/PlanDetailsPanel";
@@ -45,7 +47,13 @@ export function ContextPanelHost({
       content = <AddExpensePanel source={panel.source} />;
       break;
     case "settlement":
-      content = <SettlementPanel />;
+      content = <SettlementPanel settlementId={panel.settlementId} />;
+      break;
+    case "polls":
+      content = <PollsPanel />;
+      break;
+    case "add-poll":
+      content = <AddPollPanel source={panel.source} />;
       break;
     case "crew":
       content = <CrewPanel />;
@@ -73,8 +81,9 @@ export function ContextPanelHost({
     activeEventId ?? "no-event",
     panel.type,
     panel.type === "expense" ? panel.id : "",
+    panel.type === "settlement" ? (panel.settlementId ?? "") : "",
     panel.type === "member-profile" ? panel.username : "",
-    panel.type === "invite" || panel.type === "add-expense" ? (panel.source ?? "") : "",
+    panel.type === "invite" || panel.type === "add-expense" || panel.type === "add-poll" ? (panel.source ?? "") : "",
   ].join(":");
 
   return (
@@ -90,8 +99,8 @@ export function ContextPanelHost({
       <div
         className={cn(
           mobile
-            ? "h-full bg-[hsl(var(--surface-1))]"
-            : "h-full rounded-[24px] border border-black/5 bg-[hsl(var(--surface-2))]/96 shadow-[0_4px_12px_rgba(15,23,42,0.05)] backdrop-blur-md dark:border-white/7 dark:bg-[hsl(var(--surface-2))]/96 dark:shadow-[0_4px_12px_rgba(0,0,0,0.18)]",
+            ? "h-full bg-white"
+            : "h-full overflow-hidden rounded-[24px] border border-neutral-200 bg-white shadow-[0_4px_12px_rgba(15,23,42,0.05)]",
           shellClassName,
         )}
       >

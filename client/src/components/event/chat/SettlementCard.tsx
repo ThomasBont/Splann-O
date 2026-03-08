@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useAppToast } from "@/hooks/use-app-toast";
 import { cn } from "@/lib/utils";
+import { usePanel } from "@/state/panel";
 
 type SettlementCardProps = {
   eventId: number;
@@ -55,6 +56,7 @@ function formatMoney(amount: number, currency: string): string {
 export function SettlementCard({ eventId, settlementId, currency, className }: SettlementCardProps) {
   const { user } = useAuth();
   const { toastError } = useAppToast();
+  const { replacePanel } = usePanel();
   const queryClient = useQueryClient();
   const queryKey = useMemo(() => ["/api/events", eventId, "settlement", settlementId], [eventId, settlementId]);
 
@@ -140,6 +142,9 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
   }, [transfers]);
 
   const [expanded, setExpanded] = useState(false);
+  const openSettlementPanel = () => {
+    replacePanel({ type: "settlement", settlementId });
+  };
 
   const hasMoreThanPreview = orderedTransfers.length > 3;
   const visibleTransfers = expanded ? orderedTransfers : orderedTransfers.slice(0, 3);
@@ -153,7 +158,7 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
           "hover:bg-emerald-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/35",
           className,
         )}
-        onClick={() => setExpanded(true)}
+        onClick={openSettlementPanel}
       >
         <span className="text-sm font-medium text-emerald-800 dark:text-emerald-300">✅ All settled up</span>
         <span className="inline-flex items-center gap-1 text-xs text-emerald-700/85 dark:text-emerald-300/85">
@@ -165,7 +170,21 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
   }
 
   return (
-    <div className={cn("w-full rounded-2xl border border-border/65 bg-muted/35 px-3 py-2.5 dark:border-neutral-700/70 dark:bg-neutral-800/65", className)}>
+    <div
+      role="button"
+      tabIndex={0}
+      className={cn(
+        "w-full rounded-2xl border border-primary/15 bg-[hsl(44_56%_93%)] px-3 py-2.5 text-left dark:border-primary/25 dark:bg-primary/12 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]",
+        "transition hover:border-primary/30 hover:bg-[hsl(44_56%_91%)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+        className,
+      )}
+      onClick={openSettlementPanel}
+      onKeyDown={(event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        openSettlementPanel();
+      }}
+    >
       <div className="mb-2 flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground">
@@ -180,7 +199,10 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
           <button
             type="button"
             className="inline-flex items-center gap-1 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:text-emerald-300"
-            onClick={() => setExpanded((prev) => !prev)}
+            onClick={(event) => {
+              event.stopPropagation();
+              setExpanded((prev) => !prev);
+            }}
           >
             {expanded ? "Hide details" : "View details"}
             {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
@@ -201,7 +223,7 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
       {transfers.length === 0 ? (
         <p className="text-xs text-muted-foreground">No transfers needed.</p>
       ) : (
-        <div className="divide-y divide-border/45 rounded-lg border border-border/55 bg-background/50 dark:bg-neutral-900/30">
+        <div className="divide-y divide-border/45 rounded-lg border border-border/55 bg-background dark:bg-neutral-900">
           {visibleTransfers.map((transfer) => {
             const paid = !!transfer.paidAt;
             const canMarkPaid = !!user && (user.id === transfer.fromUserId || user.id === transfer.toUserId);
@@ -225,7 +247,10 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
                     size="sm"
                     variant="outline"
                     className="h-6 px-2 text-[11px]"
-                    onClick={() => markPaid.mutate(transfer.id)}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      markPaid.mutate(transfer.id);
+                    }}
                     disabled={markPaid.isPending || isSettled}
                   >
                     {isSettled ? "Done" : "Mark paid"}
@@ -244,7 +269,10 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
           <button
             type="button"
             className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground"
-            onClick={() => setExpanded((prev) => !prev)}
+            onClick={(event) => {
+              event.stopPropagation();
+              setExpanded((prev) => !prev);
+            }}
           >
             {expanded ? "Show less" : "View all"}
             {expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}

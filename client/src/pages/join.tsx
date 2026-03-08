@@ -26,6 +26,7 @@ export default function JoinPage() {
   const token = paramsInvite?.token ?? paramsJoin?.token;
   const { user, isLoading: isAuthLoading } = useAuth();
   const [joined, setJoined] = useState(false);
+  const [alreadyMember, setAlreadyMember] = useState(false);
   const [joinTriggered, setJoinTriggered] = useState(false);
   const queryClient = useQueryClient();
   const invitePath = paramsInvite?.token ? `/invite/${token}` : `/join/${token}`;
@@ -92,7 +93,7 @@ export default function JoinPage() {
             const body = await res.json().catch(() => ({}));
             throw new Error((body as { message?: string }).message || "Invite accept failed");
           }
-          const body = await res.json().catch(() => ({})) as { eventId?: number };
+          const body = await res.json().catch(() => ({})) as { eventId?: number; alreadyMember?: boolean };
           await Promise.all([
             queryClient.invalidateQueries({ queryKey: ["/api/memberships"] }),
             queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] }),
@@ -101,6 +102,11 @@ export default function JoinPage() {
               : Promise.resolve(),
             queryClient.refetchQueries({ queryKey: ["/api/barbecues"] }),
           ]);
+          if (body.alreadyMember) {
+            setAlreadyMember(true);
+            setJoinTriggered(false);
+            return;
+          }
           if (body.eventId) {
             setLocation(`/app/e/${body.eventId}`);
             return;
@@ -109,12 +115,14 @@ export default function JoinPage() {
         })
         .catch((err: unknown) => {
           setJoinTriggered(false);
-          if ((err as Error).message.includes("already")) setJoined(true);
+          if ((err as Error).message.includes("already")) {
+            setAlreadyMember(true);
+          }
         });
       return;
     }
     joinBbq.mutate(
-      { bbqId: data.bbqId, name: user.username, userId: user.username },
+      { bbqId: data.bbqId, name: user.username, userId: Number(user.id) },
       {
         onSuccess: () => setJoined(true),
         onError: (err: unknown) => {
@@ -124,7 +132,7 @@ export default function JoinPage() {
             return;
           }
           if ((err as Error).message === "already_joined" || (err as Error).message === "already_pending") {
-            setJoined(true);
+            setAlreadyMember(true);
           }
         },
       }
@@ -132,9 +140,9 @@ export default function JoinPage() {
   };
 
   useEffect(() => {
-    if (!user || !data || joined || joinTriggered || joinBbq.isPending) return;
+    if (!user || !data || joined || alreadyMember || joinTriggered || joinBbq.isPending) return;
     handleJoin();
-  }, [data, joinBbq.isPending, joinTriggered, joined, user]);
+  }, [alreadyMember, data, joinBbq.isPending, joinTriggered, joined, user]);
 
   if (!token) {
     return (
@@ -182,12 +190,25 @@ export default function JoinPage() {
         {!user ? (
           <div className="mt-6 space-y-3">
             <Button className="w-full" onClick={() => setLocation(loginHref)}>
-              Join plan
+              Log in or sign up to join
               <ArrowRight className="h-4 w-4" />
             </Button>
             <p className="text-center text-xs text-muted-foreground">
-              Create an account or log in, and we&apos;ll take you straight into the plan.
+              Create an account or log in once, then we&apos;ll take you straight into the plan.
             </p>
+          </div>
+        ) : alreadyMember ? (
+          <div className="mt-6 space-y-3">
+            <div className="rounded-2xl border border-border/60 bg-muted/35 px-4 py-3 text-center">
+              <p className="text-sm font-medium text-foreground">You are already in this plan.</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Open it directly and continue in the chat.
+              </p>
+            </div>
+            <Button className="w-full" onClick={() => data && setLocation(`/app/e/${data.bbqId}`)}>
+              Open plan
+              <ArrowRight className="h-4 w-4" />
+            </Button>
           </div>
         ) : joinBbq.isPending || joined || joinTriggered || isAuthLoading ? (
           <div className="mt-6 flex flex-col items-center gap-3 py-2">

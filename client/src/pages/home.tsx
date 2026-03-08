@@ -128,7 +128,9 @@ import {
   VIBE_THEME,
   type PrivateEventVibeId,
 } from "@/lib/event-types";
-import { buildWhatsAppMessage, buildWhatsAppShareUrl } from "@/lib/share-message";
+import { buildWhatsAppShareUrl } from "@/lib/share-message";
+import { buildInviteUrl, generateInviteMessage } from "@/lib/invite-share";
+import type { InviteAuthContext } from "@/lib/invite-context";
 import { copyText } from "@/lib/copy-text";
 import { buildIcs, downloadIcs, inferEventDateRange } from "@/lib/calendar-ics";
 import { buildMapsUrl, openMaps } from "@/lib/maps";
@@ -347,12 +349,14 @@ export function AuthDialog({
   isCheckingAuth = false,
   onSuccess,
   googleRedirectTo,
+  inviteContext,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   isCheckingAuth?: boolean;
   onSuccess?: () => void;
   googleRedirectTo?: string;
+  inviteContext?: InviteAuthContext | null;
 }) {
   const { t } = useLanguage();
   const { toast } = useToast();
@@ -408,6 +412,7 @@ export function AuthDialog({
   };
 
   const isLoading = login.isPending || register.isPending || forgotPassword.isPending;
+  const isInviteFlow = !!inviteContext;
   const handleGoogleContinue = () => {
     const redirectSuffix = googleRedirectTo ? `?redirectTo=${encodeURIComponent(googleRedirectTo)}` : "";
     window.location.href = `/api/auth/google${redirectSuffix}`;
@@ -439,6 +444,19 @@ export function AuthDialog({
         <SplannoLogo variant="full" size={56} className="pointer-events-none" />
       </div>
       <p className="text-sm text-muted-foreground text-center mb-4">{isCheckingAuth ? t.auth.welcomeBack : subtitles[tab]}</p>
+      {inviteContext ? (
+        <div className="mb-4 rounded-2xl border border-border/70 bg-muted/35 px-4 py-3 text-left">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+            Joining Via Invite
+          </p>
+          <p className="mt-2 text-sm font-semibold text-foreground">{inviteContext.name}</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {inviteContext.inviterName
+              ? `${inviteContext.inviterName} invited you to this ${inviteContext.typeLabel.toLowerCase()}.`
+              : `You will go straight into this ${inviteContext.typeLabel.toLowerCase()} after auth.`}
+          </p>
+        </div>
+      ) : null}
 
       {isCheckingAuth ? (
           <div className="flex flex-col items-center justify-center py-8 gap-3">
@@ -469,7 +487,7 @@ export function AuthDialog({
         {tab === "login" && (
           <div className="space-y-3">
             <Button type="button" variant="outline" className="w-full" onClick={handleGoogleContinue} data-testid="button-auth-google">
-              Continue with Google
+              {isInviteFlow ? "Continue with Google to join" : "Continue with Google"}
             </Button>
             <div className="flex items-center gap-2 py-1 text-xs text-muted-foreground">
               <div className="h-px flex-1 bg-border" />
@@ -515,7 +533,7 @@ export function AuthDialog({
             {error && <p className="text-sm text-destructive bg-destructive/10 rounded-lg px-3 py-2" data-testid="text-auth-error">{error}</p>}
             <Button onClick={handleLogin} disabled={isLoading || !username || !password}
               className="w-full bg-primary text-primary-foreground font-bold" data-testid="button-auth-submit">
-              {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : t.auth.login}
+              {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : (isInviteFlow ? "Log in to join plan" : t.auth.login)}
             </Button>
             <p className="text-center text-xs text-muted-foreground">
               {t.auth.dontHaveAccount}{" "}
@@ -530,7 +548,7 @@ export function AuthDialog({
         {tab === "register" && (
           <div className="space-y-3">
             <Button type="button" variant="outline" className="w-full" onClick={handleGoogleContinue} data-testid="button-auth-google-register">
-              Continue with Google
+              {isInviteFlow ? "Continue with Google to join" : "Continue with Google"}
             </Button>
             <div className="flex items-center gap-2 py-1 text-xs text-muted-foreground">
               <div className="h-px flex-1 bg-border" />
@@ -599,7 +617,7 @@ export function AuthDialog({
             {error && <p className="text-sm text-destructive bg-destructive/10 rounded-lg px-3 py-2" data-testid="text-auth-error">{error}</p>}
             <Button onClick={handleRegister} disabled={isLoading || !username || !email || !password || !confirm}
               className="w-full bg-primary text-primary-foreground font-bold" data-testid="button-auth-submit">
-              {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : t.auth.register}
+              {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : (isInviteFlow ? "Create account to join" : t.auth.register)}
             </Button>
             <p className="text-center text-xs text-muted-foreground">
               {t.auth.alreadyHaveAccount}{" "}
@@ -2092,8 +2110,8 @@ export default function Home({
   }, [expenses]);
 
   const handleJoin = (bbqId: number) => {
-    if (!username) return;
-    joinBbq.mutate({ bbqId, name: username, userId: username }, {
+    if (!username || !user?.id) return;
+    joinBbq.mutate({ bbqId, name: username, userId: Number(user.id) }, {
       onSuccess: () => toastInfo(`${t.user.joinBbq}. ${t.user.pending}...`),
       onError: (err: unknown) => {
         if (err instanceof UpgradeRequiredError) { showUpgrade(err.payload); return; }
@@ -2106,9 +2124,9 @@ export default function Home({
   };
 
   const handleDiscoverJoin = (bbq: Barbecue) => {
-    if (!username) return;
+    if (!username || !user?.id) return;
     joinBbq.mutate(
-      { bbqId: bbq.id, name: username, userId: username },
+      { bbqId: bbq.id, name: username, userId: Number(user.id) },
       {
         onSuccess: () => {
           toastInfo(`${t.user.joinBbq}. ${t.user.pending}...`);
@@ -3801,6 +3819,7 @@ export default function Home({
                         key={`mobile-chat-${selectedBbq.id}`}
                         eventId={selectedBbq.id}
                         eventName={selectedBbq.name}
+                        eventType={selectedBbq.eventType ?? null}
                         location={
                           selectedBbq.locationText
                           ?? selectedBbq.locationName
@@ -3878,6 +3897,7 @@ export default function Home({
                       key={`desktop-chat-${selectedBbq.id}`}
                       eventId={selectedBbq.id}
                       eventName={selectedBbq.name}
+                      eventType={selectedBbq.eventType ?? null}
                       location={
                         selectedBbq.locationText
                         ?? selectedBbq.locationName
@@ -3911,7 +3931,7 @@ export default function Home({
                     shellClassName={cn(
                       activeSurface === "panel"
                         ? "border-black/5 bg-[hsl(var(--surface-1))] shadow-[0_8px_20px_rgba(15,23,42,0.06)] dark:border-white/10 dark:bg-[hsl(var(--surface-1))] dark:shadow-[0_10px_24px_rgba(0,0,0,0.24)]"
-                        : "border-black/5 bg-[hsl(var(--surface-2))]/94 shadow-[0_4px_12px_rgba(15,23,42,0.05)] dark:border-white/8 dark:bg-[hsl(var(--surface-1))]/98 dark:shadow-[0_5px_14px_rgba(0,0,0,0.18)]",
+                        : "border-black/5 bg-[hsl(var(--surface-1))] shadow-[0_4px_12px_rgba(15,23,42,0.05)] dark:border-white/8 dark:bg-[hsl(var(--surface-1))] dark:shadow-[0_5px_14px_rgba(0,0,0,0.18)]",
                     )}
                     onMouseDown={(event) => {
                       if (isInteractiveSurfaceTarget(event.target)) return;
@@ -4058,7 +4078,7 @@ export default function Home({
                     const url = isPublicBuilderContext && selectedBbq.publicSlug
                       ? `${origin}/events/${selectedBbq.publicSlug}`
                       : selectedBbq.inviteToken
-                        ? `${origin}/join/${selectedBbq.inviteToken}`
+                        ? buildInviteUrl(selectedBbq.inviteToken)
                         : `${origin}/app/e/${selectedBbq.id}`;
                     const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
                     const ics = buildIcs({
@@ -4104,7 +4124,7 @@ export default function Home({
                     const url = isPublicBuilderContext && selectedBbq.publicSlug
                       ? `${typeof window !== "undefined" ? window.location.origin : ""}/events/${selectedBbq.publicSlug}`
                       : inviteToken
-                        ? `${typeof window !== "undefined" ? window.location.origin : ""}/join/${inviteToken}`
+                        ? buildInviteUrl(inviteToken)
                         : null;
                     if (!url) {
                       toastInfo("Link not ready yet. Open Event Settings to generate an invite link.");
@@ -4127,21 +4147,18 @@ export default function Home({
                       ? selectedBbq.inviteToken
                       : (canEditEvent ? (await ensureInviteToken.mutateAsync(selectedBbq.id))?.inviteToken : null);
                     const url = inviteToken
-                      ? `${typeof window !== "undefined" ? window.location.origin : ""}/join/${inviteToken}`
+                      ? buildInviteUrl(inviteToken)
                       : null;
                     if (!url) return;
-                    const rawTemplateData = (selectedBbq.templateData && typeof selectedBbq.templateData === "object")
-                      ? selectedBbq.templateData as Record<string, unknown>
-                      : null;
-                    const emoji = typeof rawTemplateData?.emoji === "string" ? rawTemplateData.emoji : undefined;
-                    const fallbackLocation = [selectedBbq.city, selectedBbq.countryName].filter(Boolean).join(", ");
-                    const message = buildWhatsAppMessage({
-                      title: selectedBbq.name,
-                      emoji,
-                      url,
-                      location: selectedBbq.locationName ?? (fallbackLocation || null),
+                    const message = generateInviteMessage({
+                      name: selectedBbq.name,
+                      locationName: selectedBbq.locationName,
+                      locationText: selectedBbq.locationText,
+                      city: selectedBbq.city,
+                      countryName: selectedBbq.countryName,
+                      eventType: selectedBbq.eventType,
                       date: selectedBbq.date ?? null,
-                    });
+                    }, url);
                     const shareUrl = buildWhatsAppShareUrl(message);
                     window.open(shareUrl, "_blank", "noopener,noreferrer");
                     toastInfo("Opening WhatsApp…");
@@ -4154,21 +4171,18 @@ export default function Home({
                       ? selectedBbq.inviteToken
                       : (canEditEvent ? (await ensureInviteToken.mutateAsync(selectedBbq.id))?.inviteToken : null);
                     const url = inviteToken
-                      ? `${typeof window !== "undefined" ? window.location.origin : ""}/join/${inviteToken}`
+                      ? buildInviteUrl(inviteToken)
                       : null;
                     if (!url) return;
-                    const rawTemplateData = (selectedBbq.templateData && typeof selectedBbq.templateData === "object")
-                      ? selectedBbq.templateData as Record<string, unknown>
-                      : null;
-                    const emoji = typeof rawTemplateData?.emoji === "string" ? rawTemplateData.emoji : undefined;
-                    const fallbackLocation = [selectedBbq.city, selectedBbq.countryName].filter(Boolean).join(", ");
-                    const message = buildWhatsAppMessage({
-                      title: selectedBbq.name,
-                      emoji,
-                      url,
-                      location: selectedBbq.locationName ?? (fallbackLocation || null),
+                    const message = generateInviteMessage({
+                      name: selectedBbq.name,
+                      locationName: selectedBbq.locationName,
+                      locationText: selectedBbq.locationText,
+                      city: selectedBbq.city,
+                      countryName: selectedBbq.countryName,
+                      eventType: selectedBbq.eventType,
                       date: selectedBbq.date ?? null,
-                    });
+                    }, url);
                     setWhatsAppStarterLink(url);
                     setWhatsAppStarterMessage(message);
                     setWhatsAppStarterOpen(true);
@@ -4283,7 +4297,7 @@ export default function Home({
                 onCopyInviteLink={
                   selectedBbq?.inviteToken
                     ? async () => {
-                        const url = `${typeof window !== "undefined" ? window.location.origin : ""}/join/${selectedBbq.inviteToken}`;
+                        const url = buildInviteUrl(selectedBbq.inviteToken);
                         const ok = await copyText(url);
                         if (ok) toastSuccess(t.bbq.copySuccess);
                         else toastInfo("Copy failed — select and copy manually.");
@@ -4292,7 +4306,7 @@ export default function Home({
                       ? async () => {
                           const ensured = await ensureInviteToken.mutateAsync(selectedBbq.id);
                           if (!ensured?.inviteToken) return;
-                          const url = `${typeof window !== "undefined" ? window.location.origin : ""}/join/${ensured.inviteToken}`;
+                          const url = buildInviteUrl(ensured.inviteToken);
                           const ok = await copyText(url);
                           if (ok) toastSuccess(t.bbq.copySuccess);
                           else toastInfo("Copy failed — select and copy manually.");
@@ -4814,7 +4828,7 @@ export default function Home({
                   <InviteLink
                     url={
                       selectedBbq?.inviteToken
-                        ? `${typeof window !== "undefined" ? window.location.origin : ""}/join/${selectedBbq.inviteToken}`
+                        ? buildInviteUrl(selectedBbq.inviteToken)
                         : ""
                     }
                     onEnsureToken={
@@ -4822,7 +4836,7 @@ export default function Home({
                         ? async () => {
                             const bbq = await ensureInviteToken.mutateAsync(selectedBbq.id);
                             return bbq?.inviteToken
-                              ? `${typeof window !== "undefined" ? window.location.origin : ""}/join/${bbq.inviteToken}`
+                              ? buildInviteUrl(bbq.inviteToken)
                               : null;
                           }
                         : undefined
@@ -5312,7 +5326,7 @@ export default function Home({
                     }
                   );
                   const shareLink = selectedBbq?.inviteToken
-                    ? `${typeof window !== "undefined" ? window.location.origin : ""}/join/${selectedBbq.inviteToken}`
+                    ? buildInviteUrl(selectedBbq.inviteToken)
                     : null;
                   return (
                     <div className="mb-2">
@@ -5361,7 +5375,7 @@ export default function Home({
                   }}
                   shareLink={
                     selectedBbq?.inviteToken
-                      ? `${typeof window !== "undefined" ? window.location.origin : ""}/join/${selectedBbq.inviteToken}`
+                      ? buildInviteUrl(selectedBbq.inviteToken)
                       : null
                   }
                   shareLabels={{
@@ -5430,6 +5444,7 @@ export default function Home({
                 <ChatSidebar
                   eventId={selectedBbq.id}
                   eventName={selectedBbq.name}
+                  eventType={selectedBbq.eventType ?? null}
                   location={
                     selectedBbq.locationText
                     ?? selectedBbq.locationName

@@ -27,6 +27,7 @@ import {
   Zap,
   LayoutGrid,
   MessageCircle,
+  BarChart3,
   Settings,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -404,60 +405,83 @@ function AppSidebar({
         <p className="text-xs text-muted-foreground px-1 py-1.5">{emptyMessage}</p>
       ) : (
         list.slice(0, limit).map((event) => (
-          <a
-            key={`sidebar-event-${event.id}`}
-            href={`/app/e/${event.id}`}
-            className={`pointer-events-auto relative z-10 block rounded-xl border bg-background/40 px-3 py-2 text-sm transition hover:bg-muted/50 ${
-              Number(selectedEventId) === Number(event.id)
-                ? "border-primary/30 bg-primary/10 pl-[10px] before:absolute before:inset-y-1 before:left-0 before:w-0.5 before:rounded-full before:bg-primary"
-                : "border-border/50 hover:border-border/70"
-            }`}
-            onMouseEnter={() => {
-              const planId = Number(event.id);
-              if (!Number.isFinite(planId)) return;
-              prefetchPlanOnHover(planId);
-            }}
-            onMouseLeave={() => {
-              const planId = Number(event.id);
-              if (!Number.isFinite(planId)) return;
-              cancelHoverPrefetch(planId);
-            }}
-            onFocus={() => {
-              const planId = Number(event.id);
-              if (!Number.isFinite(planId)) return;
-              prefetchPlan(planId);
-            }}
-            onTouchStart={() => {
-              const planId = Number(event.id);
-              if (!Number.isFinite(planId)) return;
-              prefetchPlan(planId);
-            }}
-          >
-            <div className="flex items-start gap-2">
-              <span className={`mt-[7px] h-2.5 w-2.5 shrink-0 rounded-full ${getSidebarEventDotClass(event)}`} />
-              <div className="min-w-0 flex-1">
-                <p className="truncate font-medium text-foreground">{event.name}</p>
-                <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                  {formatEventLocation(event)}
-                </p>
+          (() => {
+            const isSelected = Number(selectedEventId) === Number(event.id);
+            const content = (
+              <div className="flex items-start gap-2">
+                <span className={`mt-[7px] h-2.5 w-2.5 shrink-0 rounded-full ${getSidebarEventDotClass(event)}`} />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-medium text-foreground">{event.name}</p>
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                    {formatEventLocation(event)}
+                  </p>
+                </div>
+                {Number((event as { unreadCount?: number }).unreadCount ?? 0) > 0 ? (
+                  (() => {
+                    const unread = Number((event as { unreadCount?: number }).unreadCount ?? 0);
+                    const singleDigit = unread < 10;
+                    return (
+                      <span
+                        className={singleDigit
+                          ? "shrink-0 grid h-5 w-5 place-items-center rounded-full bg-primary text-xs font-semibold text-primary-foreground"
+                          : "shrink-0 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold text-primary-foreground"}
+                      >
+                        {unread}
+                      </span>
+                    );
+                  })()
+                ) : null}
               </div>
-              {Number((event as { unreadCount?: number }).unreadCount ?? 0) > 0 ? (
-                (() => {
-                  const unread = Number((event as { unreadCount?: number }).unreadCount ?? 0);
-                  const singleDigit = unread < 10;
-                  return (
-                    <span
-                      className={singleDigit
-                        ? "shrink-0 grid h-5 w-5 place-items-center rounded-full bg-primary text-xs font-semibold text-primary-foreground"
-                        : "shrink-0 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold text-primary-foreground"}
-                    >
-                      {unread}
-                    </span>
-                  );
-                })()
-              ) : null}
-            </div>
-          </a>
+            );
+
+            const baseClassName = `pointer-events-auto relative z-10 block rounded-xl border bg-background/40 px-3 py-2 text-sm transition ${
+              isSelected
+                ? "cursor-default border-primary/30 bg-primary/10 pl-[10px] before:absolute before:inset-y-1 before:left-0 before:w-0.5 before:rounded-full before:bg-primary"
+                : "border-border/50 hover:border-border/70 hover:bg-muted/50"
+            }`;
+
+            if (isSelected) {
+              return (
+                <div
+                  key={`sidebar-event-${event.id}`}
+                  aria-current="page"
+                  className={baseClassName}
+                >
+                  {content}
+                </div>
+              );
+            }
+
+            return (
+              <a
+                key={`sidebar-event-${event.id}`}
+                href={`/app/e/${event.id}`}
+                className={baseClassName}
+                onMouseEnter={() => {
+                  const planId = Number(event.id);
+                  if (!Number.isFinite(planId)) return;
+                  prefetchPlanOnHover(planId);
+                }}
+                onMouseLeave={() => {
+                  const planId = Number(event.id);
+                  if (!Number.isFinite(planId)) return;
+                  cancelHoverPrefetch(planId);
+                }}
+                onFocus={() => {
+                  const planId = Number(event.id);
+                  if (!Number.isFinite(planId)) return;
+                  prefetchPlan(planId);
+                }}
+                onTouchStart={() => {
+                  const planId = Number(event.id);
+                  if (!Number.isFinite(planId)) return;
+                  prefetchPlan(planId);
+                }}
+              >
+                {content}
+              </a>
+            );
+          })()
         ))
       )}
     </div>
@@ -607,10 +631,10 @@ function AppSidebar({
                 ) : null}
               </span>
             </button>
-            <div className="relative z-30 flex shrink-0 items-center gap-1.5">
+        <div className="relative z-30 flex shrink-0 items-center gap-1.5">
               <button
                 type="button"
-                className="relative inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className={`relative inline-flex h-9 w-9 items-center justify-center ${circularActionButtonClass()}`}
                 aria-label="Open notifications"
                 onClick={onOpenNotifications}
               >
@@ -623,7 +647,7 @@ function AppSidebar({
               </button>
               <button
                 type="button"
-                className="inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-events-auto"
+                className={`inline-flex h-9 w-9 items-center justify-center pointer-events-auto ${circularActionButtonClass()}`}
                 aria-label="Open settings"
                 onClick={onOpenSettings}
               >
@@ -640,30 +664,23 @@ function AppSidebar({
 function RightActionRail({
   section,
   selectedEventId,
-  totalPendingNotifications,
-  displayPendingCount,
-  onOpenNotifications,
-  onOpenAccount,
 }: {
   section: AppSection;
   selectedEventId?: number | null;
-  totalPendingNotifications: number;
-  displayPendingCount: string;
-  onOpenNotifications: () => void;
-  onOpenAccount: () => void;
 }) {
   const [, setLocation] = useLocation();
   const { panel, closePanel, openPanel } = usePanel();
   const isEvent = section === "event" && !!selectedEventId;
   const isOverviewOpen = isEvent && panel?.type === "overview";
+  const isPollsOpen = isEvent && panel?.type === "polls";
   const isCrewOpen = isEvent && panel?.type === "crew";
   const isExpensesOpen = isEvent && panel?.type === "expenses";
   const isNextActionOpen = isEvent && panel?.type === "next-action";
   const railButtonClass = (active: boolean) =>
     `${circularActionButtonClass(active)} inline-flex h-10 w-10 items-center justify-center ${isEvent ? "" : "pointer-events-none opacity-45"}`;
   return (
-    <aside className="pointer-events-none hidden h-full w-16 shrink-0 py-4 lg:flex lg:items-center lg:justify-center">
-      <div className="pointer-events-auto flex h-full max-h-[calc(100vh-10rem)] flex-col items-center gap-2 rounded-2xl border border-border/50 border-l bg-background/80 p-2 shadow-lg backdrop-blur-md">
+    <aside className="pointer-events-none hidden w-16 shrink-0 py-4 lg:flex lg:items-center lg:justify-center">
+      <div className="pointer-events-auto inline-flex flex-col items-center gap-2 rounded-2xl border border-border/50 border-l bg-background/80 p-2 shadow-lg backdrop-blur-md">
         <div className="flex flex-col items-center gap-2">
           <button
             type="button"
@@ -691,6 +708,19 @@ function RightActionRail({
             }}
           >
             <MessageCircle className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            title="Votes"
+            aria-label="Votes"
+            disabled={!isEvent}
+            className={railButtonClass(isPollsOpen)}
+            onClick={() => {
+              if (!isEvent) return;
+              openPanel({ type: "polls" });
+            }}
+          >
+            <BarChart3 className="h-4 w-4" />
           </button>
           <button
             type="button"
@@ -730,31 +760,6 @@ function RightActionRail({
             }}
           >
             <Zap className="h-4 w-4" />
-          </button>
-        </div>
-        <div className="mt-auto flex flex-col items-center gap-2">
-          <button
-            type="button"
-            title="Notifications"
-            aria-label="Notifications"
-            className={`${circularActionButtonClass()} relative inline-flex h-10 w-10 items-center justify-center`}
-            onClick={onOpenNotifications}
-          >
-            <Bell className="h-4 w-4" />
-            {totalPendingNotifications > 0 ? (
-              <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-destructive px-1 text-[9px] font-bold text-destructive-foreground">
-                {displayPendingCount}
-              </span>
-            ) : null}
-          </button>
-          <button
-            type="button"
-            title="Profile"
-            aria-label="Profile"
-            className={`${circularActionButtonClass()} inline-flex h-10 w-10 items-center justify-center`}
-            onClick={onOpenAccount}
-          >
-            <UserCircle className="h-4 w-4" />
           </button>
         </div>
       </div>
@@ -1226,7 +1231,7 @@ export default function AppRoute() {
   };
 
   const mainContent = (
-    <div className="h-screen bg-background lg:flex overflow-hidden">
+    <div className="h-screen bg-background lg:flex lg:bg-primary/10 overflow-hidden">
         <header className="md:hidden sticky top-0 z-30 h-12 border-b border-border/60 bg-background/95 backdrop-blur-sm">
           <div className="h-full px-2.5 flex items-center justify-between gap-2">
             <Button
@@ -1419,7 +1424,7 @@ export default function AppRoute() {
                   <div className="relative z-30 flex shrink-0 items-center gap-1.5">
                     <button
                       type="button"
-                      className="relative inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className={`relative inline-flex h-9 w-9 items-center justify-center ${circularActionButtonClass()}`}
                       aria-label="Open notifications"
                       onClick={() => {
                         setIsSidebarOpen(false);
@@ -1435,7 +1440,7 @@ export default function AppRoute() {
                     </button>
                     <button
                       type="button"
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-events-auto"
+                      className={`inline-flex h-9 w-9 items-center justify-center pointer-events-auto ${circularActionButtonClass()}`}
                       aria-label="Open settings"
                       onClick={() => {
                         setIsSidebarOpen(false);
@@ -1484,10 +1489,6 @@ export default function AppRoute() {
           <RightActionRail
             section={section}
             selectedEventId={routeEventId ?? null}
-            totalPendingNotifications={totalPendingNotifications}
-            displayPendingCount={displayPendingCount}
-            onOpenNotifications={() => setNotifOpen(true)}
-            onOpenAccount={handleOpenAccount}
           />
         ) : null}
         <NewPlanWizardDrawer />

@@ -16,7 +16,7 @@ export type EventChatMessage = {
   id: string;
   eventId: string;
   clientMessageId: string;
-  type: "user" | "system";
+  type: "user" | "system" | "poll";
   text: string;
   metadata?: Record<string, unknown> | null;
   createdAt: string;
@@ -36,7 +36,7 @@ export type EventChatPage = {
 
 const MAX_PAGE_SIZE = 200;
 
-function toMessage(
+export function serializeEventChatMessage(
   row: typeof eventChatMessages.$inferSelect,
   reactions: EventChatReaction[] = [],
 ): EventChatMessage {
@@ -45,7 +45,7 @@ function toMessage(
     id: row.id,
     eventId: String(row.eventId),
     clientMessageId: row.clientMessageId,
-    type: row.type === "system" ? "system" : "user",
+    type: row.type === "system" ? "system" : (row.type === "poll" ? "poll" : "user"),
     text: row.content,
     metadata: row.metadata ?? null,
     createdAt: createdAtIso,
@@ -137,7 +137,7 @@ export async function listEventChatMessages(
     bucket.push(row);
     reactionsByMessageId.set(row.messageId, bucket);
   }
-  const messages = pageRows.reverse().map((row) => toMessage(
+  const messages = pageRows.reverse().map((row) => serializeEventChatMessage(
     row,
     aggregateReactions(reactionsByMessageId.get(row.id) ?? [], options?.viewerUserId),
   ));
@@ -151,7 +151,8 @@ export async function listEventChatMessages(
 export async function appendEventChatMessage(
   eventId: number,
   input: {
-    type?: "user" | "system";
+    id?: string;
+    type?: "user" | "system" | "poll";
     text: string;
     metadata?: Record<string, unknown> | null;
     clientMessageId: string;
@@ -165,6 +166,7 @@ export async function appendEventChatMessage(
   const authorId = input.user?.id ? Number(input.user.id) : null;
   const systemMessage = input.type === "system";
   const [created] = await db.insert(eventChatMessages).values({
+    id: input.id,
     eventId,
     authorUserId: systemMessage ? null : (Number.isFinite(authorId) ? authorId : null),
     authorName: input.user?.name ?? (systemMessage ? SYSTEM_USER_NAME : null),
@@ -178,7 +180,7 @@ export async function appendEventChatMessage(
     target: [eventChatMessages.eventId, eventChatMessages.clientMessageId],
   }).returning();
 
-  if (created) return { message: toMessage(created, []), inserted: true };
+  if (created) return { message: serializeEventChatMessage(created, []), inserted: true };
 
   const [existing] = await db
     .select()
@@ -195,7 +197,7 @@ export async function appendEventChatMessage(
   }
   const viewerUserId = typeof authorId === "number" && Number.isFinite(authorId) ? authorId : undefined;
   const reactions = await listMessageReactions(existing.id, viewerUserId);
-  return { message: toMessage(existing, reactions), inserted: false };
+  return { message: serializeEventChatMessage(existing, reactions), inserted: false };
 }
 
 export async function listMessageReactions(messageId: string, viewerUserId?: number): Promise<EventChatReaction[]> {

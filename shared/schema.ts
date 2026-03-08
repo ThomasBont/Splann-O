@@ -331,6 +331,41 @@ export const eventSettlementTransfers = pgTable("event_settlement_transfers", {
   settlementIdx: index("event_settlement_transfers_settlement_idx").on(table.settlementId),
 }));
 
+export const polls = pgTable("polls", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  eventId: integer("event_id").references(() => barbecues.id, { onDelete: "cascade" }).notNull(),
+  messageId: uuid("message_id").references(() => eventChatMessages.id, { onDelete: "cascade" }).notNull(),
+  createdByUserId: integer("created_by_user_id").references(() => users.id, { onDelete: "set null" }).notNull(),
+  question: text("question").notNull(),
+  isClosed: boolean("is_closed").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  eventIdx: index("polls_event_idx").on(table.eventId, table.createdAt),
+  messageUnique: unique("polls_message_id_unique").on(table.messageId),
+}));
+
+export const pollOptions = pgTable("poll_options", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  pollId: uuid("poll_id").references(() => polls.id, { onDelete: "cascade" }).notNull(),
+  label: text("label").notNull(),
+  position: integer("position").notNull(),
+}, (table) => ({
+  pollPositionUnique: unique("poll_options_poll_position_unique").on(table.pollId, table.position),
+  pollIdx: index("poll_options_poll_idx").on(table.pollId, table.position),
+}));
+
+export const pollVotes = pgTable("poll_votes", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  pollId: uuid("poll_id").references(() => polls.id, { onDelete: "cascade" }).notNull(),
+  optionId: uuid("option_id").references(() => pollOptions.id, { onDelete: "cascade" }).notNull(),
+  userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  pollUserUnique: unique("poll_votes_poll_user_unique").on(table.pollId, table.userId),
+  pollIdx: index("poll_votes_poll_idx").on(table.pollId),
+  optionIdx: index("poll_votes_option_idx").on(table.optionId),
+}));
+
 export const insertNoteSchema = createInsertSchema(notes)
   .omit({ id: true, createdAt: true, updatedAt: true })
   .extend({
@@ -375,6 +410,9 @@ export type PlanActivity = typeof planActivity.$inferSelect;
 export type EventChatMessageRow = typeof eventChatMessages.$inferSelect;
 export type EventSettlement = typeof eventSettlements.$inferSelect;
 export type EventSettlementTransfer = typeof eventSettlementTransfers.$inferSelect;
+export type Poll = typeof polls.$inferSelect;
+export type PollOption = typeof pollOptions.$inferSelect;
+export type PollVote = typeof pollVotes.$inferSelect;
 
 export type ExpenseWithParticipant = Expense & {
   participantName: string;

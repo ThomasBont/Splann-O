@@ -162,7 +162,7 @@ export function ExpenseCard({
       role="button"
       tabIndex={0}
       className={cn(
-        "interactive-card relative w-full max-w-[95%] rounded-2xl border border-border/65 bg-muted/45 px-4 py-2.5 text-left hover:border-border hover:bg-muted/55 dark:border-neutral-700/75 dark:bg-neutral-800/78 dark:hover:bg-neutral-800/88",
+        "interactive-card relative w-full max-w-[95%] rounded-2xl border border-border/70 bg-muted px-4 py-2.5 text-left hover:border-border hover:bg-muted dark:border-neutral-700/75 dark:bg-neutral-800 dark:hover:bg-neutral-800",
         resolved.deleted && "opacity-80",
         className,
       )}
@@ -174,11 +174,11 @@ export function ExpenseCard({
         }
       }}
     >
-      <span className="absolute right-3 top-2.5 inline-flex h-fit items-center rounded-full border border-border/70 bg-background/75 px-2 py-0.5 text-[11px] font-medium text-muted-foreground shadow-sm dark:border-neutral-700/80 dark:bg-neutral-900/60 dark:text-neutral-300">
+      <span className="absolute right-3 top-2.5 inline-flex h-fit items-center rounded-full border border-border/70 bg-background px-2 py-0.5 text-[11px] font-medium text-muted-foreground shadow-sm dark:border-neutral-700/80 dark:bg-neutral-900 dark:text-neutral-300">
         {splitChipLabel}
       </span>
       <div className="grid w-full grid-cols-[24px,minmax(0,1fr)] items-start gap-x-3">
-        <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-border/60 bg-background/65 text-muted-foreground dark:border-neutral-700/80 dark:bg-neutral-900/45 dark:text-neutral-300">
+        <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-border/60 bg-background text-muted-foreground dark:border-neutral-700/80 dark:bg-neutral-900 dark:text-neutral-300">
           <ReceiptText className="h-4 w-4" />
         </span>
         <div className="min-w-0">
@@ -209,7 +209,7 @@ export function ExpenseCard({
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="h-7 w-7 rounded-full text-muted-foreground/85 hover:bg-background/70 hover:text-foreground dark:hover:bg-neutral-900/60 md:hidden"
+                className="h-7 w-7 rounded-full text-muted-foreground/85 hover:bg-background hover:text-foreground dark:hover:bg-neutral-900 md:hidden"
                 onClick={(event) => event.stopPropagation()}
                 aria-label="Expense actions"
               >

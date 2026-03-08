@@ -9,6 +9,7 @@ export type UpNextItem = {
 };
 
 export type UpNextContext = {
+  participantCount: number;
   expensesCount: number;
   pendingInvitesCount: number;
   canSettle: boolean;
@@ -19,6 +20,12 @@ export type UpNextContext = {
 };
 
 type UpNextRule = (context: UpNextContext) => UpNextItem | null;
+
+const ROTATING_UP_NEXT_INTERVAL_MS = 20_000;
+
+export function getUpNextRotationIntervalMs() {
+  return ROTATING_UP_NEXT_INTERVAL_MS;
+}
 
 function toDate(value: Date | string | null | undefined) {
   if (!value) return null;
@@ -79,7 +86,19 @@ const pendingInvitesRule: UpNextRule = (context) => {
   };
 };
 
+const firstInviteRule: UpNextRule = (context) => {
+  if (context.participantCount > 1) return null;
+  return {
+    type: "invite",
+    title: "Invite your first friend",
+    description: "Bring someone into the plan first so decisions and costs can actually move.",
+    ctaLabel: "Invite friends",
+    action: "invite",
+  };
+};
+
 const noExpensesRule: UpNextRule = (context) => {
+  if (context.participantCount <= 1) return null;
   if (context.expensesCount > 0) return null;
   return {
     type: "expense",
@@ -116,17 +135,22 @@ const allDoneRule: UpNextRule = () => ({
 
 const RULES: UpNextRule[] = [
   settlementRule,
+  firstInviteRule,
   pendingInvitesRule,
   noExpensesRule,
   upcomingEventRule,
   pollsPlaceholderRule,
-  allDoneRule,
 ];
 
-export function getUpNext(context: UpNextContext): UpNextItem {
-  for (const rule of RULES) {
-    const result = rule(context);
-    if (result) return result;
-  }
-  return allDoneRule(context)!;
+export function getUpNextCandidates(context: UpNextContext): UpNextItem[] {
+  const items = RULES
+    .map((rule) => rule(context))
+    .filter((item): item is UpNextItem => !!item);
+  return items.length > 0 ? items : [allDoneRule(context)!];
+}
+
+export function getUpNext(context: UpNextContext, rotationIndex = 0): UpNextItem {
+  const items = getUpNextCandidates(context);
+  const safeIndex = Number.isFinite(rotationIndex) ? Math.max(0, Math.trunc(rotationIndex)) : 0;
+  return items[safeIndex % items.length] ?? items[0];
 }

@@ -1,28 +1,15 @@
 import { Bell, CheckCheck, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usePlanActivity } from "@/hooks/use-plan-activity";
+import { usePlan } from "@/hooks/use-plan-data";
+import { formatActivityPreview, formatActivityTime } from "@/components/panels/activity-format";
 import { PanelHeader, PanelSection, PanelShell, useActiveEventId } from "@/components/panels/panel-primitives";
-
-function formatRelativeTimestamp(value: string | null) {
-  if (!value) return "";
-  const date = new Date(value);
-  const time = date.getTime();
-  if (!Number.isFinite(time)) return "";
-  const diffMs = Date.now() - time;
-  const minutes = Math.floor(diffMs / 60_000);
-  if (minutes < 1) return "Just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days === 1) return "Yesterday";
-  if (days < 7) return `${days}d ago`;
-  return date.toLocaleDateString();
-}
 
 export function RecentActivityPanel() {
   const eventId = useActiveEventId();
+  const planQuery = usePlan(eventId);
   const { items, loading, unreadCount, highlightedId, markAllAsRead } = usePlanActivity(eventId, !!eventId);
+  const currency = typeof planQuery.data?.currency === "string" ? planQuery.data.currency : "EUR";
 
   return (
     <PanelShell>
@@ -57,9 +44,9 @@ export function RecentActivityPanel() {
                   key={`recent-activity-${activity.id}`}
                   className={`rounded-xl border border-border/60 bg-background/70 px-3 py-2 ${highlightedId === activity.id ? "ring-1 ring-primary/50" : ""}`}
                 >
-                  <p className="text-sm text-foreground">{activity.message}</p>
+                  <p className="text-sm text-foreground">{formatActivityPreview(activity, currency)}</p>
                   <p className="mt-1 text-[11px] text-muted-foreground">
-                    {(activity.actorName || "Someone")}{activity.createdAt ? ` · ${formatRelativeTimestamp(activity.createdAt)}` : ""}
+                    {(activity.actorName || "Someone")}{activity.createdAt ? ` · ${formatActivityTime(activity.createdAt)}` : ""}
                   </p>
                 </li>
               ))}

@@ -20,6 +20,9 @@ export interface InviteLinkProps {
   shareLabel?: string;
   whatsappLabel?: string;
   whatsappFallbackCopied?: string;
+  shareTitle?: string;
+  shareMessage?: string;
+  getShareMessage?: (url: string) => string;
   className?: string;
 }
 
@@ -35,6 +38,9 @@ export function InviteLink({
   shareLabel = "Share",
   whatsappLabel = "WhatsApp",
   whatsappFallbackCopied = "Message copied. Paste it into WhatsApp.",
+  shareTitle = "Join this plan on Splanno",
+  shareMessage,
+  getShareMessage,
   className,
 }: InviteLinkProps) {
   const [displayUrl, setDisplayUrl] = useState(url);
@@ -45,6 +51,8 @@ export function InviteLink({
   useEffect(() => {
     setDisplayUrl(url);
   }, [url]);
+
+  const resolveShareMessage = (shareUrl: string) => getShareMessage?.(shareUrl) || shareMessage || buildShareMessage({ title: shareTitle, url: shareUrl });
 
   const handleEnsureToken = async () => {
     if (!onEnsureToken) return displayUrl;
@@ -103,12 +111,12 @@ export function InviteLink({
     if (!toShare) {
       const newUrl = await handleEnsureToken();
       if (!newUrl) return;
-      const message = buildShareMessage({ title: "Join my event on Splanno", url: newUrl });
+      const message = resolveShareMessage(newUrl);
       const result = await openWhatsAppOrCopy(message);
       toast({ title: result === "copied" ? whatsappFallbackCopied : "Opening WhatsApp…" });
       return;
     }
-    const message = buildShareMessage({ title: "Join my event on Splanno", url: toShare });
+    const message = resolveShareMessage(toShare);
     const result = await openWhatsAppOrCopy(message);
     toast({ title: result === "copied" ? whatsappFallbackCopied : "Opening WhatsApp…" });
   };
@@ -117,9 +125,9 @@ export function InviteLink({
     if (typeof navigator !== "undefined" && navigator.share) {
       try {
         await navigator.share({
-          title: "Join my event on Splanno",
+          title: shareTitle,
           url: shareUrl,
-          text: "Join my event on Splanno",
+          text: resolveShareMessage(shareUrl),
         });
         toast({ title: "Shared!" });
       } catch (err) {

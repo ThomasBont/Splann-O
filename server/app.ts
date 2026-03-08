@@ -12,6 +12,7 @@ import eventRoutes from "./routes/eventRoutes";
 import participantRoutes from "./routes/participantRoutes";
 import expenseRoutes from "./routes/expenseRoutes";
 import chatRoutes from "./routes/chatRoutes";
+import pollRoutes from "./routes/pollRoutes";
 import friendRoutes from "./routes/friendRoutes";
 import notificationRoutes from "./routes/notificationRoutes";
 import inboxRoutes from "./routes/inboxRoutes";
@@ -233,6 +234,7 @@ export function createApp() {
   app.use("/api", participantRoutes);
   app.use("/api", expenseRoutes);
   app.use("/api", chatRoutes);
+  app.use("/api", pollRoutes);
   app.use("/api", friendRoutes);
   app.use("/api", notificationRoutes);
   app.use("/api", inboxRoutes);

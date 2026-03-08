@@ -1,9 +1,11 @@
 import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { AuthDialog } from "@/pages/home";
 import { Link } from "wouter";
 import { ArrowLeft, Loader2 } from "lucide-react";
+import { fetchInvitePreviewByPath, parseInvitePath } from "@/lib/invite-context";
 
 /**
  * Dedicated full-page Login/Sign-up. Redirects to /app on success or when already logged in.
@@ -20,6 +22,14 @@ export default function LoginPage() {
   const [, setLocation] = useLocation();
   const { user, isLoading: isAuthLoading } = useAuth();
   const [dialogOpen, setDialogOpen] = useState(true);
+  const inviteRedirect = parseInvitePath(redirectTo);
+  const { data: inviteContext } = useQuery({
+    queryKey: ["/api/auth-invite-context", redirectTo],
+    queryFn: () => fetchInvitePreviewByPath(redirectTo),
+    enabled: !!inviteRedirect,
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
 
   useEffect(() => {
     if (!isAuthLoading && user) {
@@ -66,6 +76,7 @@ export default function LoginPage() {
           }}
           isCheckingAuth={false}
           googleRedirectTo={redirectTo}
+          inviteContext={inviteContext ?? null}
           onSuccess={() => setLocation(redirectTo)}
         />
       </div>

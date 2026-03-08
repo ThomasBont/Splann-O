@@ -98,7 +98,7 @@ export function useCreateParticipant(bbqId: number | null) {
 export function useJoinBarbecue() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ bbqId, name, userId }: { bbqId: number; name: string; userId: string }) => {
+    mutationFn: async ({ bbqId, name, userId }: { bbqId: number; name: string; userId: number }) => {
       const url = buildUrl(api.participants.join.path, { bbqId });
       const res = await fetch(url, {
         method: "POST",

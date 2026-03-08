@@ -57,6 +57,16 @@ router.post("/invites/:token/accept", requireAuth, asyncHandler(async (req, res)
   if (!event) notFound("Event not found");
 
   const memberExists = await isEventMemberUser(eventId, userId, username);
+  const existingMembership = (await participantRepo.getMemberships(userId)).find((membership) => membership.bbqId === eventId);
+  if (memberExists || existingMembership?.status === "accepted") {
+    res.json({
+      eventId,
+      eventName: event.name,
+      joined: true,
+      alreadyMember: true,
+    });
+    return;
+  }
   if (!memberExists) {
     await db.insert(eventMembers).values({
       eventId,

@@ -58,10 +58,12 @@ export function PanelHeader({
     ? { label: "Crew", panel: { type: "crew" } as const }
     : panel?.type === "add-expense" && panel.source === "expenses"
       ? { label: "Expenses", panel: { type: "expenses" } as const }
+    : panel?.type === "add-poll" && panel.source === "polls"
+      ? { label: "Votes", panel: { type: "polls" } as const }
     : { label: "Overview", panel: { type: "overview" } as const };
 
   return (
-    <div className={cn("border-b border-[hsl(var(--border-subtle))] px-5 py-5", isMobile && "px-4 py-3.5")}>
+    <div className={cn("rounded-t-[inherit] border-b border-neutral-200 bg-neutral-50 px-5 py-5", isMobile && "px-4 py-3.5")}>
       <div className={cn("flex items-center justify-between gap-4", isMobile && "gap-3")}>
         <div className="min-w-0">
           {showBackButton ? (
@@ -143,4 +145,8 @@ export function PanelShell({ children }: { children: ReactNode }) {
       {children}
     </div>
   );
+}
+
+export function panelHeaderAddButtonClass() {
+  return "h-10 rounded-full bg-primary px-4 text-primary-foreground hover:bg-primary/90";
 }

@@ -6,7 +6,7 @@ import { usePlan, usePlanCrew, usePlanExpenses } from "@/hooks/use-plan-data";
 import { computeSplit } from "@/lib/split/calc";
 import { cn } from "@/lib/utils";
 import { usePanel } from "@/state/panel";
-import { PanelHeader, PanelSection, PanelShell, useActiveEventId } from "@/components/panels/panel-primitives";
+import { PanelHeader, PanelSection, PanelShell, panelHeaderAddButtonClass, useActiveEventId } from "@/components/panels/panel-primitives";
 
 function formatCurrency(amount: number, currencyCode?: string | null) {
   const safeAmount = Number.isFinite(amount) ? amount : 0;
@@ -75,15 +75,14 @@ export function ExpensesPanel() {
             type="button"
             size="sm"
             className={cn(
-              "h-9 rounded-full bg-primary px-4 text-slate-900 hover:bg-primary/90",
+              panelHeaderAddButtonClass(),
               isMobile && "hidden",
             )}
             onClick={handleAddExpense}
             disabled={!eventId}
             title="Add expense"
           >
-            <Plus className="mr-1.5 h-4 w-4" />
-            Add expense
+            Add expense +
           </Button>
         )}
         meta={(

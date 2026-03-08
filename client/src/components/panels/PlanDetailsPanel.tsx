@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
-import { CalendarDays, Check, ChevronDown, Clock3, Loader2, LogOut, MapPin, Sparkles, Trash2, X } from "lucide-react";
+import { CalendarDays, Check, ChevronDown, Clock3, ExternalLink, Loader2, LogOut, MapPin, Sparkles, Trash2, X } from "lucide-react";
 import {
   derivePlanTypeSelection,
   getEventTypeForPlanType,
@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -35,6 +36,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { PanelHeader, PanelSection, PanelShell, formatPanelDate, formatPanelLocation, useActiveEventId } from "@/components/panels/panel-primitives";
 import { usePanel } from "@/state/panel";
+import { splannoOutlinePillClass } from "@/lib/utils";
 
 function toIsoDate(day: Date): string {
   const year = day.getFullYear();
@@ -124,6 +126,52 @@ function getPlanTypeLabel(plan: { templateData?: unknown; eventType?: string | n
   if (!selection.mainType) return "General";
   const main = getPlanMainTypeLabel(selection.mainType);
   return selection.subcategory ? `${main} · ${getPlanSubcategoryLabel(selection.subcategory)}` : main;
+}
+
+function buildGoogleMapsSearchUrl(location: string | null | undefined) {
+  const query = location?.trim();
+  if (!query) return null;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+}
+
+function LocationMapLink({
+  href,
+  children,
+  className,
+  compact = false,
+}: {
+  href: string | null;
+  children: string;
+  className?: string;
+  compact?: boolean;
+}) {
+  if (!href) {
+    return <span className={className}>{children}</span>;
+  }
+
+  return (
+    <TooltipProvider delayDuration={120}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <a
+            href={href}
+            target="_blank"
+            rel="noreferrer noopener"
+            title="Open in Google Maps"
+            className={`group inline-flex items-center gap-1 transition hover:text-foreground/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${className ?? ""}`}
+          >
+            <span className="truncate underline decoration-transparent underline-offset-2 transition group-hover:decoration-current">
+              {children}
+            </span>
+            <ExternalLink className={`shrink-0 text-muted-foreground opacity-0 transition group-hover:opacity-100 ${compact ? "h-3 w-3" : "h-3.5 w-3.5"}`} />
+          </a>
+        </TooltipTrigger>
+        <TooltipContent>
+          Open in Google Maps
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
 }
 
 const TIME_OPTIONS = Array.from({ length: 48 }, (_, index) => {
@@ -345,6 +393,8 @@ export function PlanDetailsPanel() {
   };
 
   const typedDeleteNameMatches = plan?.name?.trim() ? deleteConfirmName.trim() === plan.name.trim() : false;
+  const locationLabel = formatPanelLocation(plan);
+  const googleMapsUrl = buildGoogleMapsSearchUrl(locationLabel);
 
   return (
     <PanelShell>
@@ -353,12 +403,12 @@ export function PlanDetailsPanel() {
         title={plan?.name ?? "Plan"}
         actions={isCreator && plan ? (
           !isEditing ? (
-            <Button type="button" variant="outline" size="sm" className="h-8 rounded-full px-3" onClick={startEdit}>
+            <Button type="button" variant="outline" size="sm" className={`h-8 rounded-full px-3 ${splannoOutlinePillClass()}`} onClick={startEdit}>
               Edit plan
             </Button>
           ) : (
             <div className="flex items-center gap-2">
-              <Button type="button" variant="outline" size="sm" className="h-8 rounded-full px-3" onClick={cancelEdit} disabled={updateBarbecue.isPending}>
+              <Button type="button" variant="outline" size="sm" className={`h-8 rounded-full px-3 ${splannoOutlinePillClass()}`} onClick={cancelEdit} disabled={updateBarbecue.isPending}>
                 Cancel
               </Button>
               <Button type="button" size="sm" className="h-8 rounded-full px-3" onClick={() => { void saveEdit(); }} disabled={!canSave || updateBarbecue.isPending}>
@@ -376,7 +426,9 @@ export function PlanDetailsPanel() {
             </span>
             <span className="inline-flex items-center gap-2">
               <MapPin className="h-4 w-4" />
-              <span className="truncate">{formatPanelLocation(plan)}</span>
+              <LocationMapLink href={googleMapsUrl} className="min-w-0 truncate" compact>
+                {locationLabel}
+              </LocationMapLink>
             </span>
           </>
         )}
@@ -394,7 +446,9 @@ export function PlanDetailsPanel() {
                 <div className="space-y-2 text-sm">
                   <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/40 px-3 py-2">
                     <span className="text-muted-foreground">Location</span>
-                    <span className="font-medium text-foreground">{formatPanelLocation(plan)}</span>
+                    <LocationMapLink href={googleMapsUrl} className="font-medium text-foreground">
+                      {locationLabel}
+                    </LocationMapLink>
                   </div>
                   <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/40 px-3 py-2">
                     <span className="text-muted-foreground">Date</span>
@@ -613,7 +667,7 @@ export function PlanDetailsPanel() {
                 type="button"
                 variant="outline"
                 size="sm"
-                className="h-10 rounded-full px-4"
+                className={`h-10 rounded-full px-4 ${splannoOutlinePillClass()}`}
                 onClick={() => setLeaveDialogOpen(true)}
                 disabled={leaveBarbecue.isPending}
               >

@@ -5,7 +5,9 @@ export type PanelState =
   | { type: "expense"; id: string }
   | { type: "expenses" }
   | { type: "add-expense"; source?: "overview" | "expenses" }
-  | { type: "settlement" }
+  | { type: "settlement"; settlementId?: string }
+  | { type: "polls" }
+  | { type: "add-poll"; source?: "polls" | "overview" }
   | { type: "crew" }
   | { type: "invite"; source?: "overview" | "crew" }
   | { type: "member-profile"; username: string; source?: "overview" | "crew" }

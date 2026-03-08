@@ -47,7 +47,7 @@ function formatCurrency(amount: number, currencyCode?: string | null) {
   return `€${safeAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-export function SettlementPanel() {
+export function SettlementPanel({ settlementId }: { settlementId?: string }) {
   const eventId = useActiveEventId();
   const queryClient = useQueryClient();
   const { user } = useAuth();
@@ -69,13 +69,16 @@ export function SettlementPanel() {
   );
   const canSettle = useMemo(() => balances.some((balance) => Math.abs(balance.balance) > 0.01), [balances]);
   const isCreator = Number(plan?.creatorUserId) === Number(user?.id);
-  const settlementQueryKey = ["/api/events", eventId, "settlement", "latest"] as const;
+  const settlementQueryKey = ["/api/events", eventId, "settlement", settlementId || "latest"] as const;
 
   const latestSettlementQuery = useQuery<SettlementResponse>({
     queryKey: settlementQueryKey,
     queryFn: async () => {
       if (!eventId) return { settlement: null, transfers: [] };
-      const res = await fetch(`/api/events/${eventId}/settlement/latest`, { credentials: "include" });
+      const endpoint = settlementId
+        ? `/api/events/${eventId}/settlement/${encodeURIComponent(settlementId)}`
+        : `/api/events/${eventId}/settlement/latest`;
+      const res = await fetch(endpoint, { credentials: "include" });
       if (!res.ok) throw new Error("Failed to load settlement");
       return res.json() as Promise<SettlementResponse>;
     },

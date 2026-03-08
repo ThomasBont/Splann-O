@@ -806,7 +806,7 @@ export function ChatSidebar({
       }
     >
       <header className={cn(
-        "shrink-0 border-b border-black/5 bg-[hsl(var(--surface-1))] dark:border-white/6",
+        "shrink-0 border-b border-black/5 bg-[hsl(var(--surface-1))] dark:border-[hsl(var(--border-subtle))]",
         isMobile ? "px-4 py-3" : "px-6 py-4",
       )}>
         <div className="flex items-start justify-between gap-4">
@@ -826,7 +826,7 @@ export function ChatSidebar({
             </button>
           </div>
           <div className="flex items-center gap-2">
-            <div className="inline-flex items-center gap-1.5 rounded-full border border-black/5 bg-card px-2 py-1 text-[10px] text-muted-foreground dark:border-white/6">
+            <div className="inline-flex items-center gap-1.5 rounded-full border border-black/5 bg-card px-2 py-1 text-[10px] text-muted-foreground dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-2))]">
               <span className={`inline-block h-1.5 w-1.5 rounded-full ${liveLabel.cls}`} />
               {liveLabel.text}
             </div>
@@ -1153,7 +1153,7 @@ export function ChatSidebar({
                                 isMobile ? "px-3.5 py-2.5" : "px-4 py-2",
                                 mine
                                   ? "bg-primary text-slate-900"
-                                  : "border border-border/70 bg-background/95 text-foreground dark:bg-neutral-800/92 dark:border-neutral-700/80",
+                                  : "border border-border/70 bg-background/95 text-foreground dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-2))]/96",
                               )}
                             >
                               <div className="flex flex-col gap-1.5">

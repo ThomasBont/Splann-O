@@ -2662,10 +2662,10 @@ export default function Home({
       <Sheet open={isAccountDrawerOpen} onOpenChange={(next) => setIsAccountDrawerOpen(next)}>
         <SheetContent
           side="right"
-          className="h-full w-[420px] max-w-[92vw] border-l border-slate-200 bg-white p-0 shadow-2xl dark:border-neutral-800 dark:bg-[#121212]"
+          className="h-full w-[420px] max-w-[92vw] border-l border-slate-200 bg-white p-0 shadow-2xl dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-1))]"
         >
           <div className="flex h-full flex-col">
-            <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-5 py-4 backdrop-blur dark:border-neutral-800 dark:bg-[#121212]/95">
+            <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 px-5 py-4 backdrop-blur dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-1))]/95">
               <div className="flex items-start justify-between gap-3">
                 <SheetHeader className="space-y-1 text-left">
                   <SheetTitle className="text-lg font-semibold text-slate-900 dark:text-neutral-100">Account</SheetTitle>
@@ -2719,7 +2719,7 @@ export default function Home({
               {accountView === "profile" ? (
                 <div className="flex min-h-full flex-col gap-4">
                   {profileTargetLoading ? (
-                    <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+                    <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-2))]">
                       <div className="flex items-center gap-2 text-sm text-slate-500 dark:text-neutral-400">
                         <Loader2 className="h-4 w-4 animate-spin" />
                         Loading profile…
@@ -2835,11 +2835,11 @@ export default function Home({
                     Add friend
                   </Button>
                   {!isViewingOwnAccount ? (
-                    <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300">
+                    <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-2))] dark:text-[hsl(var(--text-secondary))]">
                       Friends feature coming soon for viewed profiles.
                     </div>
                   ) : friends.length === 0 ? (
-                    <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300">
+                    <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-2))] dark:text-[hsl(var(--text-secondary))]">
                       No friends yet.
                     </div>
                   ) : (
@@ -2848,7 +2848,7 @@ export default function Home({
                         <button
                           type="button"
                           key={`account-friend-${friend.friendshipId}`}
-                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-left transition hover:border-slate-300 hover:bg-slate-50 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary dark:border-neutral-800 dark:bg-neutral-900 dark:hover:bg-neutral-800"
+                          className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-left transition hover:border-slate-300 hover:bg-slate-50 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-2))] dark:hover:bg-[hsl(var(--surface-1))]"
                           onClick={() => {
                             setSelectedFriendId(friend.userId);
                             setAccountView("friendProfile");
@@ -2880,7 +2880,7 @@ export default function Home({
                     <ArrowLeft className="mr-1.5 h-4 w-4" />
                     Back to friends
                   </Button>
-                  <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900">
+                  <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-2))]">
                     <Label htmlFor="account-add-friend-search" className="text-sm font-medium">Search users</Label>
                     <Input
                       id="account-add-friend-search"
@@ -2949,15 +2949,15 @@ export default function Home({
                     Back to friends
                   </Button>
                   {!selectedFriend ? (
-                    <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300">
+                    <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-2))] dark:text-[hsl(var(--text-secondary))]">
                       Friend not found.
                     </div>
                   ) : selectedFriendProfileLoading ? (
-                    <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300">
+                    <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600 dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-2))] dark:text-[hsl(var(--text-secondary))]">
                       Loading profile…
                     </div>
                   ) : selectedFriendProfileError ? (
-                    <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+                    <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-2))]">
                       <p className="text-sm text-red-600 dark:text-red-400">Couldn’t load friend profile.</p>
                       <Button
                         type="button"
@@ -2972,7 +2972,7 @@ export default function Home({
                       </Button>
                     </div>
                   ) : (
-                    <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+                    <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-2))]">
                       <div className="flex items-center gap-3">
                         <span className="grid h-12 w-12 place-items-center overflow-hidden rounded-full bg-amber-100 text-sm font-semibold text-slate-700 dark:bg-amber-300/25 dark:text-amber-100">
                           {selectedFriendProfile?.user?.avatarUrl || selectedFriendProfile?.user?.profileImageUrl ? (
@@ -3012,7 +3012,7 @@ export default function Home({
                     <ArrowLeft className="mr-1.5 h-4 w-4" />
                     Back to profile
                   </Button>
-                  <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900">
+                  <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-2))]">
                     <Label htmlFor="account-bio" className="text-sm font-medium">Bio</Label>
                     <Textarea
                       id="account-bio"
@@ -3062,7 +3062,7 @@ export default function Home({
                     <ArrowLeft className="mr-1.5 h-4 w-4" />
                     Back to profile
                   </Button>
-                  <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900">
+                  <div className="rounded-xl border border-slate-200 bg-white p-3 dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-2))]">
                     <Label htmlFor="account-photo-upload" className="text-sm font-medium">{t.auth.uploadImage}</Label>
                     <input
                       ref={avatarFileInputRef}
@@ -3299,7 +3299,7 @@ export default function Home({
               )}
             </div>
 
-            <footer className="border-t border-slate-200 bg-white px-5 py-3 dark:border-neutral-800 dark:bg-[#121212]">
+            <footer className="border-t border-slate-200 bg-white px-5 py-3 dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-1))]">
               <Button
                 type="button"
                 variant="outline"

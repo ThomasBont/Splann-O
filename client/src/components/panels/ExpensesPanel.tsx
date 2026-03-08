@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, Plus, Receipt, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { usePlan, usePlanCrew, usePlanExpenses } from "@/hooks/use-plan-data";
 import { computeSplit } from "@/lib/split/calc";
 import { cn } from "@/lib/utils";
@@ -29,6 +30,7 @@ function formatCreated(value?: string | null) {
 
 export function ExpensesPanel() {
   const [recentExpanded, setRecentExpanded] = useState(false);
+  const isMobile = useIsMobile();
   const eventId = useActiveEventId();
   const { replacePanel } = usePanel();
   const planQuery = usePlan(eventId);
@@ -72,7 +74,10 @@ export function ExpensesPanel() {
           <Button
             type="button"
             size="sm"
-            className="h-9 rounded-full bg-primary px-4 text-slate-900 hover:bg-primary/90"
+            className={cn(
+              "h-9 rounded-full bg-primary px-4 text-slate-900 hover:bg-primary/90",
+              isMobile && "hidden",
+            )}
             onClick={handleAddExpense}
             disabled={!eventId}
             title="Add expense"
@@ -89,19 +94,35 @@ export function ExpensesPanel() {
             </span>
             <span className="inline-flex items-center gap-2">
               <Users className="h-4 w-4" />
-              {formatCurrency(totalShared, currency)} shared · {participants.length} people · {expenses.length} expense{expenses.length === 1 ? "" : "s"}
+              {isMobile
+                ? `${formatCurrency(totalShared, currency)} shared`
+                : `${formatCurrency(totalShared, currency)} shared · ${participants.length} people · ${expenses.length} expense${expenses.length === 1 ? "" : "s"}`}
             </span>
           </>
         )}
       />
 
-      <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
+      <div className={cn("flex-1 space-y-4 overflow-y-auto px-5 py-5", isMobile && "space-y-5 px-4 pb-24 pt-4")}>
         {!eventId ? (
           <div className="rounded-2xl border border-dashed border-border/70 bg-card/60 p-4 text-sm text-muted-foreground">
             Open a plan chat to inspect shared money.
           </div>
         ) : (
           <>
+            {isMobile ? (
+              <section className="sticky top-0 z-10 -mx-1 rounded-2xl border border-primary/20 bg-background/95 p-1 backdrop-blur supports-[backdrop-filter]:bg-background/88">
+                <Button
+                  type="button"
+                  className="h-12 w-full rounded-[18px] bg-primary text-base font-semibold text-slate-900 hover:bg-primary/90"
+                  onClick={handleAddExpense}
+                  disabled={!eventId}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add expense
+                </Button>
+              </section>
+            ) : null}
+
             <section className="rounded-2xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-3.5 shadow-none">
               <button
                 type="button"
@@ -120,15 +141,25 @@ export function ExpensesPanel() {
                       type="button"
                       key={`expenses-panel-${expense.id}`}
                       onClick={() => openExpenseDetail(expense.id)}
-                      className="interactive-card flex w-full items-center justify-between gap-3 rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))] px-3 py-2.5 text-left hover:border-border/80 hover:bg-[hsl(var(--surface-2))]/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className={cn(
+                        "interactive-card flex w-full items-center justify-between gap-3 rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))] text-left hover:border-border/80 hover:bg-[hsl(var(--surface-2))]/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        isMobile ? "px-3.5 py-3.5" : "px-3 py-2.5",
+                      )}
                     >
                       <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-foreground">{expense.item || "Expense"}</p>
-                        <p className="truncate text-xs text-muted-foreground">
-                          {expense.participantName || "Unknown"} · {expense.category || "Other"} · {formatCreated(expense.createdAt ? String(expense.createdAt) : null)}
+                        <p className={cn("truncate font-medium text-foreground", isMobile ? "text-[15px]" : "text-sm")}>
+                          {expense.item || "Expense"}
                         </p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          Paid by {expense.participantName || "Unknown"}
+                        </p>
+                        {!isMobile ? (
+                          <p className="truncate text-xs text-muted-foreground">
+                            {expense.category || "Other"} · {formatCreated(expense.createdAt ? String(expense.createdAt) : null)}
+                          </p>
+                        ) : null}
                       </div>
-                      <span className="shrink-0 text-sm font-semibold text-foreground">
+                      <span className={cn("shrink-0 font-semibold text-foreground", isMobile ? "text-[15px]" : "text-sm")}>
                         {formatCurrency(Number(expense.amount || 0), currency)}
                       </span>
                     </button>
@@ -159,7 +190,13 @@ export function ExpensesPanel() {
                   {significantBalances.slice(0, 4).map((entry) => {
                     const amount = Math.abs(Number(entry.balance) || 0);
                     return (
-                      <div key={`shared-money-balance-${entry.id}`} className="flex items-center justify-between gap-3 rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))] px-3 py-2.5">
+                      <div
+                        key={`shared-money-balance-${entry.id}`}
+                        className={cn(
+                          "flex items-center justify-between gap-3 rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]",
+                          isMobile ? "px-3.5 py-3" : "px-3 py-2.5",
+                        )}
+                      >
                         <div className="min-w-0">
                           <p className="truncate text-sm font-medium text-foreground">{entry.name}</p>
                           <p className="text-xs text-muted-foreground">{Number(entry.balance) > 0 ? "Should receive" : "Owes"}</p>

@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useAuth } from "@/hooks/use-auth";
 import { useAppToast } from "@/hooks/use-app-toast";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { convertCurrency } from "@/hooks/use-language";
 import { usePlan, usePlanCrew, usePlanExpenses } from "@/hooks/use-plan-data";
 import { useUpdateBarbecue, useUploadEventBanner } from "@/hooks/use-bbq-data";
@@ -185,6 +186,7 @@ function formatActivityPreview(item: { type: string; actorName: string | null; m
 
 export function OverviewPanel() {
   const eventId = useActiveEventId();
+  const isMobile = useIsMobile();
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const { toastError, toastSuccess } = useAppToast();
@@ -285,8 +287,9 @@ export function OverviewPanel() {
   }, [expenses, members, myParticipant?.id, participants]);
 
   const topPayerId = contributionRows[0]?.id ?? null;
-  const visibleContributors = contributionRows.slice(0, 5);
+  const visibleContributors = contributionRows.slice(0, isMobile ? 3 : 5);
   const hiddenContributorCount = Math.max(contributionRows.length - visibleContributors.length, 0);
+  const visibleActivityItems = activityItems.slice(0, isMobile ? 2 : 3);
 
   const balanceRows = useMemo(() => {
     const significant = balances
@@ -505,7 +508,7 @@ export function OverviewPanel() {
 
   return (
     <PanelShell>
-      <div className="flex items-center justify-between gap-4 border-b border-[hsl(var(--border-subtle))] px-5 py-4">
+      <div className={cn("flex items-center justify-between gap-4 border-b border-[hsl(var(--border-subtle))] px-5 py-4", isMobile && "px-4 py-3.5")}>
         <p className="text-sm font-medium tracking-tight text-foreground">Overview</p>
         <Button
           type="button"
@@ -519,7 +522,7 @@ export function OverviewPanel() {
         </Button>
       </div>
 
-      <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
+      <div className={cn("flex-1 space-y-4 overflow-y-auto px-5 py-5", isMobile && "space-y-3.5 px-4 pb-24 pt-4")}>
         {!eventId ? (
           <div className="rounded-2xl border border-dashed border-border/70 bg-card/60 p-4 text-sm text-muted-foreground">
             Open a plan chat to see its overview.
@@ -546,9 +549,10 @@ export function OverviewPanel() {
               }}
               className={cn(
                 "interactive-card relative overflow-hidden rounded-[20px] p-6 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                isMobile && "rounded-[18px] p-4",
                 hasVisibleBanner
-                  ? "border border-black/5 bg-primary/5 dark:border-white/10 dark:bg-[linear-gradient(180deg,rgba(250,204,21,0.12),rgba(255,255,255,0.03))] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]"
-                  : "border border-primary/15 bg-primary/10 shadow-[var(--shadow-sm)] dark:border-primary/25 dark:bg-primary/12 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]",
+                  ? "border border-black/5 bg-primary/5 dark:border-[hsl(var(--border-subtle))] dark:bg-[linear-gradient(180deg,hsl(var(--surface-2))/0.98,hsl(var(--surface-1))/0.98)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+                  : "border border-primary/15 bg-primary/10 shadow-[var(--shadow-sm)] dark:border-primary/20 dark:bg-[linear-gradient(180deg,rgba(214,168,73,0.18),rgba(33,28,22,0.92))] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]",
               )}
             >
               {hasVisibleBanner ? (
@@ -574,11 +578,11 @@ export function OverviewPanel() {
                   />
                 </>
               ) : null}
-              <div className="relative z-10 space-y-4">
+              <div className={cn("relative z-10 space-y-4", isMobile && "space-y-3")}>
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <h2
-                      className={cn("text-2xl font-semibold tracking-tight", !hasVisibleBanner && heroPrimaryTextClass)}
+                      className={cn(isMobile ? "text-xl font-semibold tracking-tight" : "text-2xl font-semibold tracking-tight", !hasVisibleBanner && heroPrimaryTextClass)}
                       style={heroPrimaryTextStyle}
                     >
                       {plan.name}
@@ -659,7 +663,7 @@ export function OverviewPanel() {
                 </div>
                 <div>
                   <p
-                    className={cn("text-4xl font-bold tracking-tight", !hasVisibleBanner && heroPrimaryTextClass)}
+                    className={cn(isMobile ? "text-[2rem] font-bold tracking-tight" : "text-4xl font-bold tracking-tight", !hasVisibleBanner && heroPrimaryTextClass)}
                     style={heroPrimaryTextStyle}
                   >
                     {formatCurrency(totalShared, currency)}
@@ -673,6 +677,7 @@ export function OverviewPanel() {
                 </div>
                 <div className={cn(
                   "inline-flex w-fit items-center rounded-full border px-4 py-2 text-sm font-medium shadow-sm transition-[transform,box-shadow,background-color,border-color] duration-150",
+                  isMobile && "min-h-11 px-4 py-2.5",
                   personalStatus.action && "cursor-pointer hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 active:shadow-sm",
                   hasVisibleBanner && "backdrop-blur-sm",
                   personalStatus.tone === "positive" && "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-300",
@@ -692,7 +697,7 @@ export function OverviewPanel() {
                 </div>
               </div>
               {showLocalCurrency ? (
-                <div className="pointer-events-none absolute bottom-5 right-5">
+                <div className={cn("pointer-events-none absolute bottom-5 right-5", isMobile && "bottom-4 right-4")}>
                   <span
                     className={cn(
                       "inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-medium shadow-sm",
@@ -708,7 +713,26 @@ export function OverviewPanel() {
               ) : null}
             </section>
 
-            <div
+            <section className={cn("space-y-4", isMobile && "space-y-3.5")}>
+            <section className="rounded-[18px] border border-primary/15 bg-primary/10 p-4 dark:border-primary/25 dark:bg-primary/12 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+              <div className={cn("flex items-center justify-between gap-3", isMobile && "items-start")}>
+                <div>
+                  <p className="text-sm font-semibold tracking-tight text-foreground">Up next</p>
+                  <p className={cn("mt-1 text-sm text-foreground/90", isMobile && "pr-2 leading-5")}>{upNext.title}</p>
+                </div>
+                {upNext.ctaLabel && upNext.onAction ? (
+                  <Button type="button" size="sm" onClick={upNext.onAction} className={cn(isMobile && "h-10 shrink-0 rounded-full px-4")}>
+                    {upNext.ctaLabel}
+                  </Button>
+                ) : (
+                  <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold tracking-wide text-emerald-700 dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-300">
+                    DONE
+                  </span>
+                )}
+              </div>
+            </section>
+
+            <section
               role="button"
               tabIndex={0}
               onClick={openCrew}
@@ -718,7 +742,10 @@ export function OverviewPanel() {
                   openCrew();
                 }
               }}
-              className="interactive-card w-full rounded-[18px] border border-black/5 bg-background/96 p-4 text-left hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-white/9 dark:bg-[hsl(var(--surface-1))]/96 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] dark:hover:bg-[hsl(var(--surface-1))]"
+              className={cn(
+                "interactive-card w-full rounded-[18px] border border-black/5 bg-background/96 p-4 text-left hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-white/9 dark:bg-[hsl(var(--surface-1))]/96 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] dark:hover:bg-[hsl(var(--surface-1))]",
+                isMobile && "p-3.5",
+              )}
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -727,9 +754,9 @@ export function OverviewPanel() {
                 </div>
                 <Users className="h-4 w-4 text-muted-foreground" />
               </div>
-              <div className="mt-5 flex items-start gap-3 overflow-x-auto pb-1 pt-1">
+              <div className={cn("mt-5 flex items-start gap-3 overflow-x-auto pb-1 pt-1", isMobile && "mt-4 gap-2.5")}>
                 {visibleContributors.map((person: { id: number; name: string; firstName: string; totalPaid: number; tint: string; avatarUrl?: string | null; displayName?: string; username?: string | null }) => (
-                  <div key={`overview-contributor-${person.id}`} className="min-w-[64px] text-center">
+                  <div key={`overview-contributor-${person.id}`} className={cn("min-w-[64px] text-center", isMobile && "min-w-[60px]")}>
                     <div className="relative mx-auto w-fit">
                       {person.username ? (
                         <button
@@ -742,7 +769,7 @@ export function OverviewPanel() {
                           aria-label={`Open ${person.displayName || person.name}'s profile`}
                         >
                           <Avatar className={cn(
-                            "h-12 w-12 border border-border/70 shadow-sm",
+                            isMobile ? "h-11 w-11 border border-border/70 shadow-sm" : "h-12 w-12 border border-border/70 shadow-sm",
                             person.id === topPayerId && "ring-2 ring-primary/70 ring-offset-2 ring-offset-background dark:ring-offset-[hsl(var(--surface-2))]",
                             "hover:ring-2 hover:ring-primary/35",
                           )}>
@@ -754,7 +781,7 @@ export function OverviewPanel() {
                         </button>
                       ) : (
                         <Avatar className={cn(
-                          "h-12 w-12 border border-border/70 shadow-sm",
+                          isMobile ? "h-11 w-11 border border-border/70 shadow-sm" : "h-12 w-12 border border-border/70 shadow-sm",
                           person.id === topPayerId && "ring-2 ring-primary/70 ring-offset-2 ring-offset-background dark:ring-offset-[hsl(var(--surface-2))]",
                         )}>
                           {person.avatarUrl ? <AvatarImage src={resolveAssetUrl(person.avatarUrl) ?? person.avatarUrl} alt={person.displayName || person.name} /> : null}
@@ -782,24 +809,6 @@ export function OverviewPanel() {
                   </div>
                 ) : null}
               </div>
-            </div>
-
-            <section className="rounded-[18px] border border-primary/15 bg-primary/10 p-4 dark:border-primary/25 dark:bg-primary/12 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold tracking-tight text-foreground">Up next</p>
-                  <p className="mt-1 text-sm text-foreground/90">{upNext.title}</p>
-                </div>
-                {upNext.ctaLabel && upNext.onAction ? (
-                  <Button type="button" size="sm" onClick={upNext.onAction}>
-                    {upNext.ctaLabel}
-                  </Button>
-                ) : (
-                  <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold tracking-wide text-emerald-700 dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-300">
-                    DONE
-                  </span>
-                )}
-              </div>
             </section>
 
             <section
@@ -812,7 +821,10 @@ export function OverviewPanel() {
                   openExpenses();
                 }
               }}
-              className="interactive-card rounded-[18px] border border-black/5 bg-background/96 p-4 hover:border-border/80 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-white/9 dark:bg-[hsl(var(--surface-1))]/96 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] dark:hover:bg-[hsl(var(--surface-1))]"
+              className={cn(
+                "interactive-card rounded-[18px] border border-black/5 bg-background/96 p-4 hover:border-border/80 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-white/9 dark:bg-[hsl(var(--surface-1))]/96 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] dark:hover:bg-[hsl(var(--surface-1))]",
+                isMobile && "p-3.5",
+              )}
             >
               <div className="flex items-center justify-between gap-3">
                 <div>
@@ -821,13 +833,13 @@ export function OverviewPanel() {
                 </div>
                 <ArrowRight className="h-4 w-4 text-muted-foreground" />
               </div>
-              <div className="mt-4 space-y-3">
+              <div className={cn("mt-4 space-y-3", isMobile && "mt-3.5")}>
                 {balanceRows.length > 0 ? balanceRows.map((entry) => {
                   const amount = Number(entry.balance) || 0;
                   const width = Math.max((Math.abs(amount) / maxAbsBalance) * 50, Math.abs(amount) > 0.01 ? 8 : 0);
                   const isMine = entry.id === myBalance?.id;
                   return (
-                    <div key={`overview-balance-${entry.id}`} className="grid grid-cols-[92px,1fr,72px] items-center gap-3">
+                    <div key={`overview-balance-${entry.id}`} className={cn("grid items-center gap-3", isMobile ? "grid-cols-[84px,1fr,84px]" : "grid-cols-[92px,1fr,72px]")}>
                       <span className={cn("truncate text-xs font-medium", isMine ? "text-foreground" : "text-muted-foreground")}>
                         {entry.name.trim().split(/\s+/)[0] || entry.name}
                       </span>
@@ -878,6 +890,7 @@ export function OverviewPanel() {
               }}
               className={cn(
               "interactive-card rounded-[18px] border p-4 hover:border-border/80 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              isMobile && "p-3.5",
               latestSettlement?.status === "settled"
                 ? "border-emerald-200 bg-emerald-50/80 dark:border-emerald-500/25 dark:bg-emerald-500/10"
                 : "border-black/5 bg-background/96 dark:border-white/9 dark:bg-[hsl(var(--surface-1))]/96 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
@@ -931,6 +944,7 @@ export function OverviewPanel() {
               </div>
             </section>
 
+            {!isMobile ? (
             <section
               role="button"
               tabIndex={0}
@@ -954,7 +968,7 @@ export function OverviewPanel() {
                 </span>
               </div>
               <ul className="mt-4 space-y-1.5">
-                {activityItems.slice(0, 3).length > 0 ? activityItems.slice(0, 3).map((item) => (
+                {visibleActivityItems.length > 0 ? visibleActivityItems.map((item) => (
                   <li key={item.id} className="flex items-start gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-background/40 dark:hover:bg-black/10">
                     <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[hsl(var(--surface-2))] text-sm dark:bg-[hsl(var(--surface-1))]/95">
                       {item.type.startsWith("EXPENSE_") ? "💸" : item.type === "MEMBER_JOINED" ? "👋" : "•"}
@@ -974,6 +988,8 @@ export function OverviewPanel() {
                   <li className="rounded-xl bg-background/40 px-2 py-3 text-sm text-muted-foreground">No activity yet.</li>
                 )}
               </ul>
+            </section>
+            ) : null}
             </section>
           </>
         ) : null}

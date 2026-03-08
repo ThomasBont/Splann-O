@@ -805,7 +805,10 @@ export function ChatSidebar({
         } as CSSProperties
       }
     >
-      <header className="shrink-0 border-b border-black/5 bg-[hsl(var(--surface-1))] px-6 py-4 dark:border-white/6">
+      <header className={cn(
+        "shrink-0 border-b border-black/5 bg-[hsl(var(--surface-1))] dark:border-white/6",
+        isMobile ? "px-4 py-3" : "px-6 py-4",
+      )}>
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
             <button
@@ -819,7 +822,7 @@ export function ChatSidebar({
                   : "text-foreground/95 hover:text-foreground",
               )}
             >
-              <span className="block truncate text-xl font-semibold tracking-tight">Chat</span>
+              <span className={cn("block truncate font-semibold tracking-tight", isMobile ? "text-lg" : "text-xl")}>Chat</span>
             </button>
           </div>
           <div className="flex items-center gap-2">
@@ -829,7 +832,10 @@ export function ChatSidebar({
             </div>
           </div>
         </div>
-        <div className="mt-3 flex w-full flex-wrap items-center gap-x-1 gap-y-1.5 text-sm text-muted-foreground">
+        <div className={cn(
+          "mt-3 flex w-full flex-wrap items-center gap-x-1 gap-y-1.5 text-muted-foreground",
+          isMobile ? "text-[13px]" : "text-sm",
+        )}>
           <button
             type="button"
             aria-label="Open plan location details"
@@ -844,21 +850,23 @@ export function ChatSidebar({
             <MapPin className="h-3.5 w-3.5" />
             <span className="truncate">{locationLabel}</span>
           </button>
-          <span className="text-muted-foreground/45">•</span>
-          <button
-            type="button"
-            aria-label="Open crew drawer"
-            onClick={openCrew}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-sm transition active:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-              isCrewOpen
-                ? "text-foreground"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            <Users className="h-3.5 w-3.5" />
-            <span>{peopleLabel}</span>
-          </button>
+          {!isMobile ? <span className="text-muted-foreground/45">•</span> : null}
+          {!isMobile ? (
+            <button
+              type="button"
+              aria-label="Open crew drawer"
+              onClick={openCrew}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-sm transition active:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                isCrewOpen
+                  ? "text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <Users className="h-3.5 w-3.5" />
+              <span>{peopleLabel}</span>
+            </button>
+          ) : null}
           <span className="text-muted-foreground/45">•</span>
           <button
             type="button"
@@ -889,22 +897,43 @@ export function ChatSidebar({
             <CreditCard className="h-3.5 w-3.5" />
             <span className={cn("font-medium", isExpensesOpen ? "text-foreground" : "")}>{sharedLabel}</span>
           </button>
+          {isMobile ? (
+            <>
+              <span className="text-muted-foreground/45">•</span>
+              <button
+                type="button"
+                aria-label="Open crew drawer"
+                onClick={openCrew}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 transition active:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                  isCrewOpen
+                    ? "text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <Users className="h-3.5 w-3.5" />
+                <span>{participantCount}</span>
+              </button>
+            </>
+          ) : null}
         </div>
       </header>
 
       <div
         ref={listRef}
         className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden bg-[var(--chat-bg)]"
+        style={{ WebkitOverflowScrolling: "touch" }}
       >
         <div
           className={cn(
-            "mx-auto flex min-h-full w-full py-4 sm:py-6",
+            "mx-auto flex min-h-full w-full",
+            isMobile ? "py-3" : "py-4 sm:py-6",
             isAnyPanelOpen
-              ? "max-w-3xl px-6 sm:px-8 lg:px-10"
-              : "max-w-[1040px] px-4 sm:px-8",
+              ? (isMobile ? "max-w-full px-3" : "max-w-3xl px-6 sm:px-8 lg:px-10")
+              : (isMobile ? "max-w-full px-3" : "max-w-[1040px] px-4 sm:px-8"),
           )}
         >
-        <div className="flex min-h-full w-full flex-col justify-end gap-2">
+        <div className={cn("flex min-h-full w-full flex-col justify-end", isMobile ? "gap-1.5" : "gap-2")}>
         {hasMoreHistory ? (
           <div className="flex justify-center pb-1">
             <Button
@@ -983,25 +1012,31 @@ export function ChatSidebar({
                     className="absolute left-0 top-0 w-full"
                     style={{ transform: `translateY(${virtualRow.start}px)` }}
                   >
-                    <div className="mb-5">
+                    <div className={cn(isMobile ? "mb-4" : "mb-5")}>
                       {showDateSeparator ? (
                         <div className="my-2 flex justify-center">
-                          <span className="self-center rounded-full border border-border/70 bg-muted/60 px-3 py-1 text-xs text-muted-foreground">
+                          <span className={cn(
+                            "self-center rounded-full border border-border/70 bg-muted/60 text-muted-foreground",
+                            isMobile ? "px-2.5 py-1 text-[11px]" : "px-3 py-1 text-xs",
+                          )}>
                             {formatDateSeparator(msg.createdAt)}
                           </span>
                         </div>
                       ) : null}
                       <div className="mt-2 flex justify-start">
-                        <div className="mr-2 flex w-10 flex-col items-center pt-0.5">
-                          <span className="grid h-7 w-7 place-items-center rounded-full border border-border/70 bg-muted text-[11px] font-semibold text-muted-foreground">
+                        <div className={cn("mr-2 flex flex-col items-center pt-0.5", isMobile ? "w-8" : "w-10")}>
+                          <span className={cn(
+                            "grid place-items-center rounded-full border border-border/70 bg-muted font-semibold text-muted-foreground",
+                            isMobile ? "h-6 w-6 text-[10px]" : "h-7 w-7 text-[11px]",
+                          )}>
                             S
                           </span>
                         </div>
-                        <div className="max-w-[84%] sm:max-w-[78%]">
-                          <div className="mb-1 px-1 text-[11px] text-muted-foreground">
+                        <div className={cn(isMobile ? "max-w-[90%]" : "max-w-[84%] sm:max-w-[78%]")}>
+                          <div className={cn("mb-1 px-1 text-muted-foreground", isMobile ? "text-[10px]" : "text-[11px]")}>
                             <span className="font-semibold text-foreground/90">{systemName}</span>
                             <span className="ml-1 rounded-full border border-border/60 bg-card/60 px-1.5 py-0 text-[9px] uppercase tracking-wide">System</span>
-                            <span className="px-1 text-muted-foreground/70">·</span>
+                            {!isMobile ? <span className="px-1 text-muted-foreground/70">·</span> : null}
                             <span className="text-[10px] text-muted-foreground/70">{formatMessageTime(msg.createdAt)}</span>
                           </div>
                           {expenseMeta ? (
@@ -1092,20 +1127,20 @@ export function ChatSidebar({
                         </span>
                       </div>
                     ) : null}
-                    <div className={cn("mt-4 flex items-start", mine ? "justify-end" : "justify-start gap-3")}>
+                    <div className={cn("flex items-start", isMobile ? "mt-2.5" : "mt-4", mine ? "justify-end" : "justify-start gap-2.5 sm:gap-3")}>
                       {!mine ? (
-                        <div className="w-8 shrink-0 pt-0.5">
+                        <div className={cn("shrink-0 pt-0.5", isMobile ? "w-7" : "w-8")}>
                           {senderAvatar ? (
-                            <img src={senderAvatar} alt="" className="h-7 w-7 rounded-full border border-border/70 object-cover" />
+                            <img src={senderAvatar} alt="" className={cn("rounded-full border border-border/70 object-cover", isMobile ? "h-6 w-6" : "h-7 w-7")} />
                           ) : (
-                            <span className="grid h-7 w-7 place-items-center rounded-full border border-border/70 bg-card text-[10px] font-semibold text-muted-foreground">
+                            <span className={cn("grid place-items-center rounded-full border border-border/70 bg-card font-semibold text-muted-foreground", isMobile ? "h-6 w-6 text-[9px]" : "h-7 w-7 text-[10px]")}>
                               {getInitials(senderName)}
                             </span>
                           )}
                         </div>
                       ) : null}
-                      <div className={cn("flex flex-col", mine ? "max-w-[88%] items-end sm:max-w-[80%]" : "max-w-[88%] items-start sm:max-w-[80%]")}>
-                        <div className={cn("mb-1 px-1 text-xs text-muted-foreground", mine ? "text-right" : "")}>
+                      <div className={cn("flex flex-col", mine ? (isMobile ? "max-w-[90%] items-end" : "max-w-[88%] items-end sm:max-w-[80%]") : (isMobile ? "max-w-[90%] items-start" : "max-w-[88%] items-start sm:max-w-[80%]"))}>
+                        <div className={cn("mb-1 px-1 text-muted-foreground", isMobile ? "text-[11px]" : "text-xs", mine ? "text-right" : "")}>
                           <span className="font-medium text-foreground">{mine ? "You" : senderName}</span>
                           <span className="px-1.5 text-muted-foreground/70">·</span>
                           <span>{formatMessageTime(firstMsg.createdAt)}</span>
@@ -1114,7 +1149,8 @@ export function ChatSidebar({
                           <div className={cn("flex items-center gap-2", mine ? "flex-row-reverse" : "flex-row")}>
                             <div
                               className={cn(
-                                "rounded-2xl px-4 py-2 text-sm leading-snug shadow-sm",
+                                "rounded-2xl text-sm leading-snug shadow-sm",
+                                isMobile ? "px-3.5 py-2.5" : "px-4 py-2",
                                 mine
                                   ? "bg-primary text-slate-900"
                                   : "border border-border/70 bg-background/95 text-foreground dark:bg-neutral-800/92 dark:border-neutral-700/80",
@@ -1126,7 +1162,7 @@ export function ChatSidebar({
                                     key={msg.id}
                                     className={cn(
                                       "whitespace-pre-wrap break-words leading-snug",
-                                      msgIndexInGroup > 0 ? "border-t border-border/40 pt-1" : "",
+                                      msgIndexInGroup > 0 ? (isMobile ? "border-t border-border/30 pt-1.5" : "border-t border-border/40 pt-1") : "",
                                     )}
                                   >
                                     <p>{msg.text}</p>
@@ -1267,15 +1303,23 @@ export function ChatSidebar({
             setUnseenCount(0);
             setShowNewPill(false);
           }}
-          className="absolute bottom-24 left-1/2 z-20 -translate-x-1/2 rounded-full border border-border/60 bg-background/90 px-4 py-2 text-sm text-foreground shadow-md backdrop-blur-md transition hover:bg-background"
+          className={cn(
+            "absolute left-1/2 z-20 -translate-x-1/2 rounded-full border border-border/60 bg-background/90 text-foreground shadow-md backdrop-blur-md transition hover:bg-background",
+            isMobile ? "bottom-28 px-3 py-1.5 text-[13px]" : "bottom-24 px-4 py-2 text-sm",
+          )}
         >
           {unseenCount > 1 ? `${unseenCount} new messages ↓` : "New messages ↓"}
         </button>
       ) : null}
 
-      <div className="shrink-0 border-t border-border/70 bg-background/90 px-6 py-1 backdrop-blur">
+      <div className={cn(
+        "shrink-0 border-t border-border/70 bg-background/90 backdrop-blur",
+        isMobile
+          ? "px-3 py-2 pb-[max(env(safe-area-inset-bottom),0.75rem)]"
+          : "px-6 py-1",
+      )}>
         {expenseSuggestion ? (
-          <div className="mb-2 flex items-center justify-between gap-2">
+          <div className={cn("mb-2 flex gap-2", isMobile ? "flex-col items-start" : "items-center justify-between")}>
             <div className="flex flex-wrap items-center gap-1.5">
               {expenseSuggestion.amount ? (
                 <span className="rounded-full border border-border/70 bg-muted/60 px-2 py-1 text-xs text-muted-foreground">
@@ -1302,7 +1346,7 @@ export function ChatSidebar({
               type="button"
               size="sm"
               variant="outline"
-              className="h-7 shrink-0"
+              className={cn("shrink-0", isMobile ? "h-8 rounded-full px-3" : "h-7")}
               onClick={openCreateExpenseFromSuggestion}
             >
               Create expense
@@ -1314,9 +1358,12 @@ export function ChatSidebar({
             Chat closed after event. History remains visible.
           </p>
         ) : null}
-        <div className="mb-1 min-h-5">
+        <div className={cn("min-h-5", isMobile ? "mb-2" : "mb-1")}>
           {visibleTypingUsers.length > 0 ? (
-            <div className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-muted/45 px-3 py-1.5 text-xs text-muted-foreground">
+            <div className={cn(
+              "inline-flex items-center gap-2 rounded-full border border-border/70 bg-muted/45 text-muted-foreground",
+              isMobile ? "px-2.5 py-1 text-[11px]" : "px-3 py-1.5 text-xs",
+            )}>
               <span>Aan het typen...</span>
               <span className="inline-flex items-center gap-1">
                 <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/70 [animation-delay:-0.2s]" />
@@ -1326,19 +1373,22 @@ export function ChatSidebar({
             </div>
           ) : null}
         </div>
-        <div className="flex items-center gap-2">
+        <div className={cn("flex items-end gap-2", isMobile ? "pb-0.5" : "items-center")}>
           <Button
             type="button"
             size="icon"
             variant="outline"
-            className={`h-10 w-10 shrink-0 ${circularActionButtonClass()}`}
+            className={cn(`shrink-0 ${circularActionButtonClass()}`, isMobile ? "h-11 w-11" : "h-10 w-10")}
             aria-label="Attach file"
             disabled
           >
             <Paperclip className="h-4 w-4" />
           </Button>
           <div
-            className="flex min-h-10 max-h-[132px] flex-1 items-center rounded-2xl border border-border/70 bg-background px-4 py-1.5"
+            className={cn(
+              "flex flex-1 items-center rounded-2xl border border-border/70 bg-background",
+              isMobile ? "min-h-11 max-h-[144px] px-3.5 py-2" : "min-h-10 max-h-[132px] px-4 py-1.5",
+            )}
             onMouseDown={(e) => {
               if (isLocked) return;
               e.preventDefault();
@@ -1352,7 +1402,10 @@ export function ChatSidebar({
               onChange={(e) => handleDraftChange(e.target.value)}
               onBlur={() => emitTypingStop()}
               placeholder="Message…"
-              className="pointer-events-auto min-h-[20px] max-h-[104px] w-full resize-none overflow-y-auto bg-transparent py-0.5 text-[16px] leading-normal text-foreground caret-primary outline-none placeholder:text-muted-foreground md:text-sm disabled:cursor-not-allowed disabled:text-muted-foreground/70"
+              className={cn(
+                "pointer-events-auto w-full resize-none overflow-y-auto bg-transparent text-[16px] leading-normal text-foreground caret-primary outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:text-muted-foreground/70",
+                isMobile ? "min-h-[24px] max-h-[112px] py-0" : "min-h-[20px] max-h-[104px] py-0.5 md:text-sm",
+              )}
               rows={1}
               disabled={isLocked}
               onKeyDown={(e) => {
@@ -1366,7 +1419,10 @@ export function ChatSidebar({
           <Button
             type="button"
             size="icon"
-            className="h-10 w-10 shrink-0 rounded-full bg-primary text-slate-900 hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground"
+            className={cn(
+              "shrink-0 rounded-full bg-primary text-slate-900 hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground",
+              isMobile ? "h-11 w-11" : "h-10 w-10",
+            )}
             onClick={() => void handleSubmit()}
             disabled={isLocked || sending || !draft.trim() || !eventId}
             aria-label="Send message"

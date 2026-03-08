@@ -17,10 +17,12 @@ export function ContextPanelHost({
   className,
   shellClassName,
   onMouseDown,
+  mobile = false,
 }: {
   className?: string;
   shellClassName?: string;
   onMouseDown?: MouseEventHandler<HTMLElement>;
+  mobile?: boolean;
 } = {}) {
   const { panel } = usePanel();
 
@@ -66,8 +68,23 @@ export function ContextPanelHost({
   }
 
   return (
-    <aside className={cn("relative z-10 hidden h-full w-[520px] flex-shrink-0 overflow-visible lg:block", className)} onMouseDown={onMouseDown}>
-      <div className={cn("h-full rounded-[24px] border border-black/5 bg-[hsl(var(--surface-2))]/96 shadow-[0_4px_12px_rgba(15,23,42,0.05)] backdrop-blur-md dark:border-white/7 dark:bg-[hsl(var(--surface-2))]/96 dark:shadow-[0_4px_12px_rgba(0,0,0,0.18)]", shellClassName)}>
+    <aside
+      className={cn(
+        mobile
+          ? "relative z-10 block h-full w-full min-w-0 overflow-hidden lg:hidden"
+          : "relative z-10 hidden h-full w-[520px] flex-shrink-0 overflow-visible lg:block",
+        className,
+      )}
+      onMouseDown={onMouseDown}
+    >
+      <div
+        className={cn(
+          mobile
+            ? "h-full rounded-[24px] border border-black/5 bg-[hsl(var(--surface-1))] shadow-[0_4px_12px_rgba(15,23,42,0.05)] dark:border-white/7 dark:bg-[hsl(var(--surface-1))] dark:shadow-[0_4px_12px_rgba(0,0,0,0.18)]"
+            : "h-full rounded-[24px] border border-black/5 bg-[hsl(var(--surface-2))]/96 shadow-[0_4px_12px_rgba(15,23,42,0.05)] backdrop-blur-md dark:border-white/7 dark:bg-[hsl(var(--surface-2))]/96 dark:shadow-[0_4px_12px_rgba(0,0,0,0.18)]",
+          shellClassName,
+        )}
+      >
         {content}
       </div>
     </aside>

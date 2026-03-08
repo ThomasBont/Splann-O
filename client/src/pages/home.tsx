@@ -12,6 +12,7 @@ import {
   useAcceptInvite, useDeclineInvite,
 } from "@/hooks/use-participants";
 import { useDeleteExpense, useExpenseShares, useRealtimePlanBalances, useSetExpenseShare } from "@/hooks/use-expenses";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { useBarbecues, useCreateBarbecue, useDeleteBarbecue, useUpdateBarbecue, useEnsureInviteToken, useSettleUp, useCheckoutPublicListing, useDeactivateListing, useExploreEvents, usePublicEventRsvpRequests, useUpdatePublicEventRsvpRequest, useConversations, useConversation, useSendConversationMessage, useUpdateConversationStatus, useUploadEventBanner, useDeleteEventBanner, useNotifications, useAcceptPlanInvite, useDeclinePlanInvite, useAcceptFriendRequestNotification, useDeclineFriendRequestNotification, useLeaveBarbecue, type BarbecueListItem, type ExploreEvent } from "@/hooks/use-bbq-data";
 import { useQueryClient } from "@tanstack/react-query";
 import { useFriends, useFriendRequests, useAllPendingRequests, useAcceptFriendRequest, useRemoveFriend, useSearchUsers, useSendFriendRequest } from "@/hooks/use-friends";
@@ -678,6 +679,7 @@ export default function Home({
   const { showUpgrade } = useUpgrade();
   const { openNewPlanWizard } = useNewPlanWizard();
   const { panel, openPanel, closePanel } = usePanel();
+  const isMobileViewport = useIsMobile();
   const shouldReduceMotion = useReducedMotion();
   const isManagedAppRoute = appRouteMode !== "legacy";
   const isEventChatRoute = isManagedAppRoute && appRouteMode === "event";
@@ -691,6 +693,11 @@ export default function Home({
   const activeEventId = isManagedAppRoute && appRouteMode === "event"
     ? (routeEventId ?? null)
     : selectedBbqId;
+  const mobilePrimaryTab: "chat" | "expenses" | "overview" = panel == null
+    ? "chat"
+    : (panel.type === "expenses" || panel.type === "expense" || panel.type === "add-expense" || panel.type === "settlement")
+      ? "expenses"
+      : "overview";
   const reactionScopeId = activeEventId != null ? `ev-${activeEventId}` : "ev-none";
   const { addReaction, getReactions, getReactionUsers, getUserReaction } = useExpenseReactions(reactionScopeId);
   const [isNewBbqOpen, setIsNewBbqOpen] = useState(false);
@@ -3603,6 +3610,73 @@ export default function Home({
           }
 
           if (useNewManagedEventLayout && appRouteMode === "event" && isPrivateContext && selectedBbq) {
+            if (isMobileViewport) {
+              return (
+                <div className="flex h-full min-h-0 flex-col overflow-hidden px-2 pt-2">
+                  <div className="min-h-0 flex-1 overflow-hidden pb-3">
+                    {mobilePrimaryTab === "chat" ? (
+                      <ChatSidebar
+                        eventId={selectedBbq.id}
+                        eventName={selectedBbq.name}
+                        location={
+                          selectedBbq.locationText
+                          ?? selectedBbq.locationName
+                          ?? ([selectedBbq.city, selectedBbq.countryName].filter(Boolean).join(", ") || null)
+                        }
+                        dateTime={selectedBbq.date ?? null}
+                        participantCount={participants.length}
+                        sharedTotal={Number(totalSpent)}
+                        currency={(selectedBbq.currency as string) || defaultCurrency}
+                        onSummaryClick={() => openPanel({ type: "overview" })}
+                        currentUser={{
+                          id: user?.id ?? null,
+                          username: user?.username ?? null,
+                          avatarUrl: user?.avatarUrl ?? null,
+                        }}
+                        enabled={!!user}
+                        className="h-full min-w-0 rounded-[24px] border border-black/5 bg-[hsl(var(--surface-1))] shadow-[0_4px_12px_rgba(15,23,42,0.05)] dark:border-white/8 dark:bg-[hsl(var(--surface-1))] dark:shadow-[0_4px_12px_rgba(0,0,0,0.18)]"
+                      />
+                    ) : (
+                      <ContextPanelHost
+                        mobile
+                        shellClassName="border-black/5 bg-[hsl(var(--surface-1))] shadow-[0_4px_12px_rgba(15,23,42,0.05)] dark:border-white/8 dark:bg-[hsl(var(--surface-1))] dark:shadow-[0_4px_12px_rgba(0,0,0,0.18)]"
+                      />
+                    )}
+                  </div>
+                  <nav className="sticky bottom-0 z-20 border-t border-border/60 bg-background/95 px-2 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-2 backdrop-blur-sm lg:hidden">
+                    <div className="grid grid-cols-3 gap-2">
+                      <Button
+                        type="button"
+                        variant={mobilePrimaryTab === "chat" ? "default" : "outline"}
+                        className="h-11 rounded-full"
+                        onClick={() => closePanel()}
+                      >
+                        <MessageCircle className="mr-2 h-4 w-4" />
+                        Chat
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={mobilePrimaryTab === "expenses" ? "default" : "outline"}
+                        className="h-11 rounded-full"
+                        onClick={() => openPanel({ type: "expenses" })}
+                      >
+                        <Receipt className="mr-2 h-4 w-4" />
+                        Expenses
+                      </Button>
+                      <Button
+                        type="button"
+                        variant={mobilePrimaryTab === "overview" ? "default" : "outline"}
+                        className="h-11 rounded-full"
+                        onClick={() => openPanel({ type: "overview" })}
+                      >
+                        <Users className="mr-2 h-4 w-4" />
+                        Overview
+                      </Button>
+                    </div>
+                  </nav>
+                </div>
+              );
+            }
             return (
               <div className="h-full w-full overflow-hidden px-1 py-1 sm:px-2 sm:py-2 lg:px-3">
                 <div className="flex h-full min-h-0 overflow-visible gap-0 p-2 dark:bg-transparent">

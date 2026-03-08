@@ -1222,7 +1222,7 @@ export default function AppRoute() {
   const mainContent = (
     <div className="h-screen bg-background lg:flex overflow-hidden">
         <header className="md:hidden sticky top-0 z-30 h-14 border-b border-border/60 bg-background/95 backdrop-blur-sm">
-          <div className="h-full px-3 flex items-center justify-between">
+          <div className="h-full px-3 flex items-center justify-between gap-2">
             <Button
               variant="ghost"
               size="icon"
@@ -1232,7 +1232,12 @@ export default function AppRoute() {
             >
               <Menu className="h-5 w-5" />
             </Button>
-            <p className="text-sm font-semibold truncate px-2">{mobileSectionLabel}</p>
+            <div className="min-w-0 flex-1 px-1">
+              <p className="truncate text-sm font-semibold tracking-tight">{mobileSectionLabel}</p>
+              {section === "event" ? (
+                <p className="truncate text-[11px] text-muted-foreground">Chat-first planning</p>
+              ) : null}
+            </div>
             <div className="flex items-center gap-1">
               <Button
                 type="button"
@@ -1249,16 +1254,6 @@ export default function AppRoute() {
                   </span>
                 )}
               </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-11 w-11"
-                aria-label="Open profile"
-                onClick={handleOpenAccount}
-              >
-                <UserCircle className="h-5 w-5" />
-              </Button>
             </div>
           </div>
         </header>
@@ -1271,8 +1266,8 @@ export default function AppRoute() {
               aria-label="Close navigation drawer"
               onClick={() => setIsSidebarOpen(false)}
             />
-            <aside className="absolute left-0 top-0 h-full w-[86vw] max-w-xs bg-background border-r border-border/60 shadow-xl flex flex-col">
-              <div className="h-14 px-4 border-b border-border/60 flex items-center justify-between">
+            <aside className="absolute left-0 top-0 h-full w-[88vw] max-w-sm bg-background shadow-xl flex flex-col">
+              <div className="px-5 pt-5 pb-4 flex items-start justify-between">
                 <Link href="/app/private">
                   <a className="flex items-start gap-2">
                     <SplannoLogo variant="icon" size={24} />
@@ -1282,14 +1277,13 @@ export default function AppRoute() {
                     </span>
                   </a>
                 </Link>
-                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setIsSidebarOpen(false)} aria-label="Close drawer">
+                <Button variant="ghost" size="icon" className="h-10 w-10 rounded-full" onClick={() => setIsSidebarOpen(false)} aria-label="Close drawer">
                   <X className="h-4 w-4" />
                 </Button>
               </div>
-              <nav className="shrink-0" />
-              <div className="border-y border-border/60 px-3 py-3 space-y-2 shrink-0">
+              <div className="px-4 pb-4 shrink-0">
                 <NewEventMenuButton
-                  className="w-full justify-start"
+                  className="h-12 w-full justify-start rounded-full"
                   align="start"
                   onCreate={() => {
                     setIsSidebarOpen(false);
@@ -1297,13 +1291,13 @@ export default function AppRoute() {
                   }}
                 />
               </div>
-              <div className="px-3 py-3 flex-1 min-h-0 overflow-y-auto">
-                <div className="space-y-1 pr-1">
-                  <div className="flex items-center justify-between px-1">
-                    <p className="text-[11px] font-medium text-muted-foreground">Recent plans</p>
+              <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
+                <div className="space-y-3 pr-1">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[11px] font-medium uppercase tracking-[0.2em] text-muted-foreground">Recent plans</p>
                     <button
                       type="button"
-                      className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                       aria-label={mobileRecentCollapsed ? "Expand recent plans" : "Collapse recent plans"}
                       aria-expanded={!mobileRecentCollapsed}
                       aria-controls="mobile-recent-events-list"
@@ -1313,11 +1307,11 @@ export default function AppRoute() {
                     </button>
                   </div>
                   {mobileRecentCollapsed ? (
-                    <p className="text-xs text-muted-foreground px-1 py-1.5">{mobileQuickSwitchEvents.length} hidden</p>
+                    <p className="text-xs text-muted-foreground py-1">{mobileQuickSwitchEvents.length} hidden</p>
                   ) : mobileQuickSwitchEvents.length === 0 ? (
-                    <p className="text-xs text-muted-foreground px-1 py-1.5">No plans found</p>
+                    <p className="text-xs text-muted-foreground py-1">No plans found</p>
                   ) : (
-                    <div id="mobile-recent-events-list" className="space-y-1">
+                    <div id="mobile-recent-events-list" className="space-y-2">
                       {mobileQuickSwitchEvents.map((event) => (
                         <Link key={`mobile-event-${event.id}`} href={`/app/e/${event.id}`}>
                           <a
@@ -1342,10 +1336,10 @@ export default function AppRoute() {
                               if (!Number.isFinite(planId)) return;
                               prefetchPlan(planId);
                             }}
-                            className="block rounded-md border border-transparent px-2 py-1.5 text-xs hover:border-border/60 hover:bg-muted/30"
+                            className="block rounded-2xl border border-border/60 bg-card px-3 py-3 transition hover:bg-muted/20"
                           >
-                            <p className="truncate font-medium">{event.name}</p>
-                            <p className="truncate text-[10px] text-muted-foreground">
+                            <p className="truncate text-sm font-medium">{event.name}</p>
+                            <p className="mt-1 truncate text-xs text-muted-foreground">
                               Private · {formatEventLocation(event)}
                             </p>
                           </a>
@@ -1353,6 +1347,34 @@ export default function AppRoute() {
                       ))}
                     </div>
                   )}
+                </div>
+              </div>
+              <div className="shrink-0 border-t border-border/60 px-4 py-4">
+                <div className="grid grid-cols-2 gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-11 rounded-full"
+                    onClick={() => {
+                      setIsSidebarOpen(false);
+                      handleOpenAccount();
+                    }}
+                  >
+                    <UserCircle className="mr-2 h-4 w-4" />
+                    Account
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="h-11 rounded-full"
+                    onClick={() => {
+                      setIsSidebarOpen(false);
+                      handleOpenAccountSettings();
+                    }}
+                  >
+                    <Settings className="mr-2 h-4 w-4" />
+                    Settings
+                  </Button>
                 </div>
               </div>
             </aside>

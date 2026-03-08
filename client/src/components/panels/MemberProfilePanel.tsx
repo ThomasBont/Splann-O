@@ -1,5 +1,11 @@
+import { useState } from "react";
+import { Loader2, UserPlus2 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
 import { PanelHeader, PanelSection, PanelShell, useActiveEventId } from "@/components/panels/panel-primitives";
+import { useAuth } from "@/hooks/use-auth";
+import { useAppToast } from "@/hooks/use-app-toast";
+import { type FriendRelationshipStatus, useFriendStatuses, useSendFriendRequestByUserId } from "@/hooks/use-friends";
 import { useUserProfile } from "@/hooks/use-user-profile";
 import { usePlanCrew } from "@/hooks/use-plan-data";
 import { resolveAssetUrl } from "@/lib/asset-url";
@@ -20,19 +26,59 @@ function formatJoined(value?: string | null) {
 }
 
 export function MemberProfilePanel({ username }: { username: string }) {
+  const { user } = useAuth();
+  const { toastError, toastInfo, toastSuccess } = useAppToast();
   const eventId = useActiveEventId();
   const crewQuery = usePlanCrew(eventId);
   const profileQuery = useUserProfile(username);
+  const sendFriendRequest = useSendFriendRequestByUserId();
+  const [statusOverride, setStatusOverride] = useState<FriendRelationshipStatus | null>(null);
   const member = (crewQuery.data?.members ?? []).find((entry) => entry.username === username) ?? null;
   const profile = profileQuery.data?.user ?? null;
   const profileName = profile?.displayName || member?.name || username;
   const avatarUrl = profile?.profileImageUrl || profile?.avatarUrl || member?.avatarUrl || null;
+  const targetUserId = profile?.id ?? member?.userId ?? null;
+  const friendStatusesQuery = useFriendStatuses(
+    targetUserId && targetUserId !== user?.id ? [targetUserId] : [],
+  );
+  const friendStatus = targetUserId && targetUserId !== user?.id
+    ? statusOverride ?? friendStatusesQuery.data?.[String(targetUserId)] ?? "not_friends"
+    : null;
+
+  const handleAddFriend = async () => {
+    if (!targetUserId || targetUserId === user?.id) return;
+    const previousStatus = friendStatus ?? "not_friends";
+    setStatusOverride("pending_outgoing");
+    try {
+      const response = await sendFriendRequest.mutateAsync(targetUserId);
+      const nextStatus = response.status ?? "pending_outgoing";
+      setStatusOverride(nextStatus);
+      if (nextStatus === "friends") toastInfo("Already friends");
+      else toastSuccess("Friend request sent");
+      void friendStatusesQuery.refetch();
+    } catch (error) {
+      setStatusOverride(previousStatus);
+      toastError((error as Error).message || "Couldn’t send friend request.");
+    }
+  };
 
   return (
     <PanelShell>
       <PanelHeader
         label="Profile"
         title={profileName}
+        actions={friendStatus === "not_friends" ? (
+          <Button
+            type="button"
+            size="sm"
+            className="min-h-9 rounded-full px-3.5"
+            onClick={() => void handleAddFriend()}
+            disabled={sendFriendRequest.isPending}
+          >
+            {sendFriendRequest.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserPlus2 className="h-3.5 w-3.5" />}
+            Add friend
+          </Button>
+        ) : null}
         meta={(
           <>
             <span className="truncate">@{profile?.username || username}</span>

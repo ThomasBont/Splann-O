@@ -23,7 +23,7 @@ function getLimitMessage(payload: UpgradeRequiredPayload | null): string {
     return `Free plan allows up to ${max} events. You have ${current}. Upgrade to Pro for unlimited events.`;
   }
   if (payload.feature === "more_participants") {
-    return `Free plan allows up to ${max} participants per event. This event has ${current}. Upgrade to Pro for unlimited participants.`;
+    return `Free plan allows up to ${max} people per plan. This plan has ${current}. Upgrade to add more than ${max} people.`;
   }
   return payload.message || "Upgrade to Pro to use this feature.";
 }

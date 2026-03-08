@@ -1,6 +1,7 @@
 import type { MouseEventHandler } from "react";
 import { cn } from "@/lib/utils";
 import { usePanel } from "@/state/panel";
+import { useActiveEventId } from "@/components/panels/panel-primitives";
 import OverviewPanel from "@/components/panels/OverviewPanel";
 import ExpenseDetailPanel from "@/components/panels/ExpenseDetailPanel";
 import ExpensesPanel from "@/components/panels/ExpensesPanel";
@@ -25,6 +26,7 @@ export function ContextPanelHost({
   mobile?: boolean;
 } = {}) {
   const { panel } = usePanel();
+  const activeEventId = useActiveEventId();
 
   if (!panel) return null;
 
@@ -67,6 +69,14 @@ export function ContextPanelHost({
       return null;
   }
 
+  const panelInstanceKey = [
+    activeEventId ?? "no-event",
+    panel.type,
+    panel.type === "expense" ? panel.id : "",
+    panel.type === "member-profile" ? panel.username : "",
+    panel.type === "invite" || panel.type === "add-expense" ? (panel.source ?? "") : "",
+  ].join(":");
+
   return (
     <aside
       className={cn(
@@ -80,12 +90,14 @@ export function ContextPanelHost({
       <div
         className={cn(
           mobile
-            ? "h-full rounded-[24px] border border-black/5 bg-[hsl(var(--surface-1))] shadow-[0_4px_12px_rgba(15,23,42,0.05)] dark:border-white/7 dark:bg-[hsl(var(--surface-1))] dark:shadow-[0_4px_12px_rgba(0,0,0,0.18)]"
+            ? "h-full bg-[hsl(var(--surface-1))]"
             : "h-full rounded-[24px] border border-black/5 bg-[hsl(var(--surface-2))]/96 shadow-[0_4px_12px_rgba(15,23,42,0.05)] backdrop-blur-md dark:border-white/7 dark:bg-[hsl(var(--surface-2))]/96 dark:shadow-[0_4px_12px_rgba(0,0,0,0.18)]",
           shellClassName,
         )}
       >
-        {content}
+        <div key={panelInstanceKey} className="h-full min-h-0">
+          {content}
+        </div>
       </div>
     </aside>
   );

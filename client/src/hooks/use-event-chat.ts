@@ -294,6 +294,23 @@ export function useEventChat(eventId: number | null, enabled = true) {
     return page;
   }, [enabled, eventId]);
 
+  useEffect(() => {
+    setMessages([]);
+    setNextCursor(null);
+    setHistoryError(null);
+    setHistoryLoading(!!eventId && enabled);
+    setHistoryLoadingOlder(false);
+    setTypingUsers([]);
+    setIsSubscribed(false);
+    setIsLocked(false);
+    setConnectionStatus(eventId && enabled ? "connecting" : "idle");
+    typingExpiryTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
+    typingExpiryTimersRef.current.clear();
+    pendingAckTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
+    pendingAckTimersRef.current.clear();
+    isLockedRef.current = false;
+  }, [enabled, eventId]);
+
   const fetchInitialHistory = useCallback(async () => {
     if (!eventId || !enabled) {
       setMessages([]);

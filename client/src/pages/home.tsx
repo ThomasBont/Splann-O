@@ -686,6 +686,7 @@ export default function Home({
   // Managed event route should render the new dashboard layout.
   const useNewManagedEventLayout = true;
   const desktopOverviewInitializedForEventRef = useRef<number | null>(null);
+  const lastManagedRouteEventIdRef = useRef<number | null>(null);
 
   const [area, setArea] = useState<"parties" | "trips">("parties");
   const [eventVisibilityTab, setEventVisibilityTab] = useState<"private" | "public">("private");
@@ -1409,6 +1410,41 @@ export default function Home({
     if (!isManagedAppRoute || appRouteMode !== "event" || !routeEventId) return;
     setSelectedBbqId(routeEventId);
   }, [isManagedAppRoute, appRouteMode, routeEventId]);
+
+  useEffect(() => {
+    if (!isManagedAppRoute || appRouteMode !== "event") {
+      lastManagedRouteEventIdRef.current = null;
+      return;
+    }
+
+    const previousEventId = lastManagedRouteEventIdRef.current;
+    const nextEventId = routeEventId ?? null;
+    lastManagedRouteEventIdRef.current = nextEventId;
+
+    if (!nextEventId || previousEventId == null || previousEventId === nextEventId) return;
+
+    closePanel();
+    setActiveSurface("chat");
+    setIsPlanDetailsOpen(false);
+    setIsPlanTypeOpen(false);
+    setIsActivityDrawerOpen(false);
+    setIsAddExpenseOpen(false);
+    setIsAddPersonOpen(false);
+    setRecommendedExpenseTemplate(null);
+    setEditingExpense(null);
+    setEditingParticipantId(null);
+    setPublicInboxConversationId(null);
+    setPublicInboxDraft("");
+    setAllEventsSelectorOpen(false);
+    setEditTripLocationOpen(false);
+    setEventSettingsOpen(false);
+    setDashboardHeroBannerFailed(false);
+    setDashboardHeroImageLoaded(false);
+    setDisplayedDashboardHeroBannerUrl(null);
+    setPrivateHeroBannerFailed(false);
+    setPublicOverviewBannerFailed(false);
+    desktopOverviewInitializedForEventRef.current = null;
+  }, [appRouteMode, closePanel, isManagedAppRoute, routeEventId]);
 
   useEffect(() => {
     setIsMobileChatOpen(false);
@@ -3612,10 +3648,11 @@ export default function Home({
           if (useNewManagedEventLayout && appRouteMode === "event" && isPrivateContext && selectedBbq) {
             if (isMobileViewport) {
               return (
-                <div className="flex h-full min-h-0 flex-col overflow-hidden px-2 pt-2">
-                  <div className="min-h-0 flex-1 overflow-hidden pb-3">
+                <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
+                  <div className="min-h-0 flex-1 overflow-hidden">
                     {mobilePrimaryTab === "chat" ? (
                       <ChatSidebar
+                        key={`mobile-chat-${selectedBbq.id}`}
                         eventId={selectedBbq.id}
                         eventName={selectedBbq.name}
                         location={
@@ -3634,44 +3671,43 @@ export default function Home({
                           avatarUrl: user?.avatarUrl ?? null,
                         }}
                         enabled={!!user}
-                        className="h-full min-w-0 rounded-[24px] border border-black/5 bg-[hsl(var(--surface-1))] shadow-[0_4px_12px_rgba(15,23,42,0.05)] dark:border-white/8 dark:bg-[hsl(var(--surface-1))] dark:shadow-[0_4px_12px_rgba(0,0,0,0.18)]"
+                        className="h-full min-w-0 bg-[hsl(var(--surface-1))]"
                       />
                     ) : (
                       <ContextPanelHost
+                        key={`mobile-panel-host-${selectedBbq.id}`}
                         mobile
-                        shellClassName="border-black/5 bg-[hsl(var(--surface-1))] shadow-[0_4px_12px_rgba(15,23,42,0.05)] dark:border-white/8 dark:bg-[hsl(var(--surface-1))] dark:shadow-[0_4px_12px_rgba(0,0,0,0.18)]"
+                        shellClassName="bg-[hsl(var(--surface-1))]"
                       />
                     )}
                   </div>
-                  <nav className="sticky bottom-0 z-20 border-t border-border/60 bg-background/95 px-3 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-2.5 backdrop-blur-sm lg:hidden">
-                    <div className="grid grid-cols-3 gap-2.5">
-                      <Button
-                        type="button"
-                        variant={mobilePrimaryTab === "chat" ? "default" : "outline"}
-                        className="h-12 rounded-full px-3"
-                        onClick={() => closePanel()}
-                      >
-                        <MessageCircle className="mr-2 h-4 w-4" />
-                        Chat
-                      </Button>
-                      <Button
-                        type="button"
-                        variant={mobilePrimaryTab === "expenses" ? "default" : "outline"}
-                        className="h-12 rounded-full px-3"
-                        onClick={() => openPanel({ type: "expenses" })}
-                      >
-                        <Receipt className="mr-2 h-4 w-4" />
-                        Expenses
-                      </Button>
-                      <Button
-                        type="button"
-                        variant={mobilePrimaryTab === "overview" ? "default" : "outline"}
-                        className="h-12 rounded-full px-3"
-                        onClick={() => openPanel({ type: "overview" })}
-                      >
-                        <Users className="mr-2 h-4 w-4" />
-                        Overview
-                      </Button>
+                  <nav className="sticky bottom-0 z-20 border-t border-border/60 bg-background/98 px-3 pb-[max(env(safe-area-inset-bottom),0.75rem)] pt-2 backdrop-blur-md lg:hidden">
+                    <div className="grid grid-cols-3 gap-1.5 rounded-[22px] border border-border/60 bg-[hsl(var(--surface-1))] p-1.5 shadow-[0_-6px_18px_rgba(15,23,42,0.04)] dark:shadow-[0_-8px_20px_rgba(0,0,0,0.14)]">
+                      {[
+                        { key: "chat", label: "Chat", icon: MessageCircle, onClick: () => closePanel() },
+                        { key: "expenses", label: "Expenses", icon: Receipt, onClick: () => openPanel({ type: "expenses" }) },
+                        { key: "overview", label: "Overview", icon: Users, onClick: () => openPanel({ type: "overview" }) },
+                      ].map((item) => {
+                        const Icon = item.icon;
+                        const active = mobilePrimaryTab === item.key;
+                        return (
+                          <button
+                            key={item.key}
+                            type="button"
+                            onClick={item.onClick}
+                            className={cn(
+                              "flex min-h-[52px] flex-col items-center justify-center gap-1 rounded-[18px] px-2 py-1.5 text-[11px] font-medium transition-colors",
+                              active
+                                ? "bg-primary text-primary-foreground shadow-[0_8px_18px_rgba(245,166,35,0.22)]"
+                                : "text-muted-foreground active:bg-muted/60",
+                            )}
+                            aria-current={active ? "page" : undefined}
+                          >
+                            <Icon className="h-[18px] w-[18px]" />
+                            <span>{item.label}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   </nav>
                 </div>
@@ -3691,6 +3727,7 @@ export default function Home({
                     }}
                   >
                     <ChatSidebar
+                      key={`desktop-chat-${selectedBbq.id}`}
                       eventId={selectedBbq.id}
                       eventName={selectedBbq.name}
                       location={
@@ -3718,6 +3755,7 @@ export default function Home({
                     />
                   </div>
                   <ContextPanelHost
+                    key={`panel-host-${selectedBbq.id}`}
                     className={cn(
                       "",
                       activeSurface === "panel" ? "z-20 -translate-y-px" : "z-10 translate-y-0",

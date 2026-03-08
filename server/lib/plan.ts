@@ -38,7 +38,7 @@ function envInt(name: string, fallback: number): number {
 }
 
 const FREE_MAX_EVENTS = envInt("FREE_MAX_EVENTS", 3);
-const FREE_MAX_PARTICIPANTS = envInt("FREE_MAX_PARTICIPANTS", 10);
+const FREE_MAX_PARTICIPANTS = envInt("FREE_MAX_PARTICIPANTS", 20);
 
 const PRO_MAX_EVENTS = 1_000_000;
 const PRO_MAX_PARTICIPANTS = 1_000_000;

@@ -23,7 +23,7 @@ export default function UpgradePage() {
               </li>
               <li className="flex gap-2">
                 <Check className="h-4 w-4 text-primary shrink-0 mt-0.5" />
-                10 participants per event
+                20 people per plan
               </li>
               <li className="flex gap-2">
                 <Check className="h-4 w-4 text-primary shrink-0 mt-0.5" />

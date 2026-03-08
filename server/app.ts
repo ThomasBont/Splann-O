@@ -23,6 +23,8 @@ import healthRoutes from "./routes/healthRoutes";
 import { bbqRepo } from "./repositories/bbqRepo";
 import { participantRepo } from "./repositories/participantRepo";
 import { userRepo } from "./repositories/userRepo";
+import { resolveBaseUrl } from "./config/env";
+import { loadJoinPreviewTemplate, renderJoinPreviewHtml } from "./lib/joinPreview";
 import { log } from "./lib/logger";
 import passport, { configurePassport } from "./lib/passport";
 
@@ -238,6 +240,35 @@ export function createApp() {
   app.use("/api", mediaRoutes);
   app.use("/api", publicEventRoutes);
   app.use("/api", healthRoutes);
+
+  app.get("/join/:token", async (req, res, next) => {
+    try {
+      const token = String(req.params.token ?? "").trim();
+      const invite = token ? await participantRepo.getBarbecueByToken(token) : null;
+      const creator = invite?.creatorUserId ? await userRepo.findById(invite.creatorUserId) : null;
+      const inviterName = creator?.displayName || creator?.username || "Someone";
+      const planName = invite?.name || "your plan";
+      const baseUrl = resolveBaseUrl(`${req.protocol}://${req.get("host") || ""}`);
+      const template = await loadJoinPreviewTemplate();
+      const html = renderJoinPreviewHtml(template, {
+        title: `${inviterName} invited you to ${planName}`,
+        description: "Join the plan on Splanno — split costs, stay friends.",
+        imageUrl: `${baseUrl}/branding/splanno-og-image.png`,
+        url: `${baseUrl}/join/${encodeURIComponent(token)}`,
+        siteName: "Splanno",
+      });
+
+      res
+        .status(200)
+        .set({
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "no-store",
+        })
+        .send(html);
+    } catch (error) {
+      next(error);
+    }
+  });
 
   if (!isProd) {
     app.use((req, res, next) => {

@@ -822,7 +822,9 @@ export function ChatSidebar({
                   : "text-foreground/95 hover:text-foreground",
               )}
             >
-              <span className={cn("block truncate font-semibold tracking-tight", isMobile ? "text-lg" : "text-xl")}>Chat</span>
+              <span className={cn("block truncate font-semibold tracking-tight", isMobile ? "text-lg" : "text-xl")}>
+                {isMobile ? eventName : "Chat"}
+              </span>
             </button>
           </div>
           <div className={cn("flex items-center", isMobile ? "gap-2.5" : "gap-2")}>
@@ -855,7 +857,7 @@ export function ChatSidebar({
             <MapPin className="h-3.5 w-3.5" />
             <span className="truncate">{locationLabel}</span>
           </button>
-          {!isMobile ? <span className="text-muted-foreground/45">•</span> : null}
+          {isMobile ? null : <span className="text-muted-foreground/45">•</span>}
           {!isMobile ? (
             <button
               type="button"
@@ -889,6 +891,25 @@ export function ChatSidebar({
             <Calendar className="h-3.5 w-3.5" />
             <span>{dateLabel}</span>
           </button>
+          {isMobile ? (
+            <>
+              <span className="text-muted-foreground/45">•</span>
+              <button
+                type="button"
+                aria-label="Open crew drawer"
+                onClick={openCrew}
+                className={cn(
+                  "inline-flex min-h-11 items-center gap-1.5 rounded-md px-2.5 py-2 text-sm transition active:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                  isCrewOpen
+                    ? "text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <Users className="h-3.5 w-3.5" />
+                <span>{peopleLabel}</span>
+              </button>
+            </>
+          ) : null}
           {!isMobile ? (
             <>
               <span className="text-muted-foreground/45">•</span>

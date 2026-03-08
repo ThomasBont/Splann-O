@@ -9,9 +9,9 @@ import {
   getEventBanner,
   getBannerPresetClass,
   getBannerPresetTone,
-  type EventBannerPresetId,
 } from "@/lib/event-banner";
 import { circularActionButtonClass } from "@/lib/utils";
+import type { EventBannerPresetId } from "@shared/lib/plan-hero-banner";
 
 type EventBannerProps = {
   event: Barbecue;

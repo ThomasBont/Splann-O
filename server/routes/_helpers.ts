@@ -13,6 +13,7 @@ import * as bbqService from "../services/bbqService";
 import { db } from "../db";
 import { log } from "../lib/logger";
 import { AppError, badRequest, forbidden, notFound, unauthorized } from "../lib/errors";
+import { resolveBaseUrl } from "../config/env";
 
 /** Strip /api prefix for routers mounted at /api. */
 export const p = (routePath: string) => (routePath.startsWith("/api") ? routePath.slice(4) : routePath);
@@ -129,9 +130,6 @@ export async function assertEventAccessOrThrow(req: Request, eventId: number) {
 }
 
 export function getPublicBaseUrl(req: Request) {
-  const envBase = (process.env.PUBLIC_BASE_URL ?? process.env.APP_URL ?? process.env.APP_BASE_URL ?? "").trim().replace(/\/$/, "");
-  if (envBase) return envBase;
-
   const forwardedProto = String(req.get("x-forwarded-proto") ?? "")
     .split(",")[0]
     .trim();
@@ -140,10 +138,10 @@ export function getPublicBaseUrl(req: Request) {
     .trim();
   if (forwardedHost) {
     const proto = forwardedProto || req.protocol || "https";
-    return `${proto}://${forwardedHost}`;
+    return resolveBaseUrl(`${proto}://${forwardedHost}`);
   }
 
-  return `${req.protocol}://${req.get("host")}`;
+  return resolveBaseUrl(`${req.protocol}://${req.get("host")}`);
 }
 
 export function toPublicUploadsUrl(req: Request, relativePath: string): string {

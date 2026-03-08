@@ -2,7 +2,7 @@ console.log("=== ENV DEBUG START ===");
 console.log("[env] NODE_ENV:", process.env.NODE_ENV);
 console.log("[env] RESEND_API_KEY present:", Boolean(process.env.RESEND_API_KEY));
 console.log("[env] EMAIL_FROM present:", Boolean(process.env.EMAIL_FROM));
-console.log("[env] APP_BASE_URL:", process.env.APP_BASE_URL || process.env.APP_URL);
+console.log("[env] BASE_URL:", process.env.BASE_URL || process.env.PUBLIC_BASE_URL || process.env.APP_BASE_URL || process.env.APP_URL);
 if (!process.env.RESEND_API_KEY) {
   console.warn("[env-warning] RESEND_API_KEY missing at runtime");
 }

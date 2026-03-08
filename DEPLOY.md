@@ -5,6 +5,18 @@
 - `.env` is **not committed** (in `.gitignore`). Render env vars are the source of truth in production.
 - Do not commit secrets. Use Render's **Environment** tab for `DATABASE_URL`, `SESSION_SECRET`, etc.
 
+### Custom domain env vars
+
+Set these in Render for the production domain:
+
+| Variable | Value |
+|----------|-------|
+| `BASE_URL` | `https://splanno.app` |
+| `VITE_PUBLIC_APP_ORIGIN` | `https://splanno.app` |
+
+Use `BASE_URL` for server-side URL generation such as OAuth callbacks, invite links, email links, and Stripe redirects.
+Use `VITE_PUBLIC_APP_ORIGIN` for client-side invite link generation.
+
 ### Security & CORS
 
 | Variable | Description |
@@ -72,6 +84,23 @@ Render sets `DATABASE_URL` from the env, so no extra config is needed.
 
 To run migrations manually: Render → Web Service → **Shell** → `npm run db:migrate`.
 
+### Custom domain
+
+DNS configuration for `splanno.app`:
+
+- In your domain registrar, add a CNAME record:
+  - Name: `@` (or `www`)
+  - Value: `your-render-service.onrender.com`
+- In Render dashboard: `Settings` → `Custom Domains` → add `splanno.app`
+- SSL certificate will be provisioned automatically by Render
+
+### Google OAuth
+
+In Google Cloud Console, keep both authorized callback URLs:
+
+- `https://splanno.app/api/auth/google/callback`
+- `https://ortega-asado-tracker.onrender.com/api/auth/google/callback`
+
 ### Verify after deploy
 
 1. Open `https://your-app.onrender.com/api/health`
@@ -103,3 +132,10 @@ psql "$DATABASE_URL" -c "ALTER TABLE users DROP COLUMN IF EXISTS plan; ALTER TAB
 ```
 
 After rollback, deploy code that does not reference `plan` (revert schema changes).
+
+## Verify after deploy
+
+- `https://splanno.app` loads correctly
+- `https://splanno.app/join/[token]` works for invite links
+- Google OAuth login works on `splanno.app`
+- Invite links generated in the app use `splanno.app` instead of the Render domain

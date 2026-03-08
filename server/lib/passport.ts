@@ -4,6 +4,7 @@ import { userRepo } from "../repositories/userRepo";
 import type { Profile as PassportProfile } from "passport";
 import { createRequire } from "module";
 import path from "path";
+import { resolveBaseUrl } from "../config/env";
 
 // CJS-safe and ESM-safe require factory (Render build outputs CJS).
 const require = createRequire(path.join(process.cwd(), "package.json"));
@@ -69,12 +70,14 @@ export function configurePassport(): void {
     return;
   }
 
+  const callbackURL = `${resolveBaseUrl()}/api/auth/google/callback`;
+
   passport.use(
     new GoogleStrategyCtor(
       {
         clientID,
         clientSecret,
-        callbackURL: "/api/auth/google/callback",
+        callbackURL,
       },
       async (
         _accessToken: string,

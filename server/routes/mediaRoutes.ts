@@ -25,6 +25,7 @@ import {
   toPublicUploadsUrl,
 } from "./_helpers";
 import * as bbqService from "../services/bbqService";
+import { resolveBaseUrl } from "../config/env";
 
 const router = Router();
 const EVENT_BANNER_UPLOAD_DIR = path.resolve(process.cwd(), "public/uploads/event-banners");
@@ -80,9 +81,8 @@ router.post("/events/:id/checkout-public-listing", requireAuth, asyncHandler(asy
   if (bbq.creatorUserId !== req.session!.userId) forbidden("Only the creator can activate listing");
   const body = z.object({ publicMode: publicModeSchema.optional() }).parse(req.body ?? {});
 
-  const appUrl = (process.env.APP_URL ?? "").replace(/\/$/, "");
+  const appUrl = resolveBaseUrl();
   const priceId = process.env.STRIPE_PRICE_PUBLIC_LISTING?.trim();
-  if (!appUrl) badRequest("APP_URL is not configured");
   if (!priceId) badRequest("STRIPE_PRICE_PUBLIC_LISTING is not configured");
   const checkoutPublicMode = body.publicMode ?? (bbq.publicMode as "marketing" | "joinable" | undefined) ?? "marketing";
 

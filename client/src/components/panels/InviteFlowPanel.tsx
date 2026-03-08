@@ -23,11 +23,12 @@ type UserSearchRow = {
   avatarUrl?: string | null;
 };
 
-const DEFAULT_PUBLIC_APP_ORIGIN = "https://ortega-asado-tracker.onrender.com";
+const DEFAULT_PUBLIC_APP_ORIGIN = "https://splanno.app";
 
 function resolvePublicAppOrigin() {
   const configured = String(import.meta.env.VITE_PUBLIC_APP_ORIGIN ?? "").trim();
-  const base = configured || DEFAULT_PUBLIC_APP_ORIGIN;
+  const runtimeOrigin = typeof window !== "undefined" ? window.location.origin : "";
+  const base = configured || runtimeOrigin || DEFAULT_PUBLIC_APP_ORIGIN;
   return base.replace(/\/+$/, "");
 }
 

@@ -3,14 +3,15 @@
  *
  * Environment variables:
  *   RESEND_API_KEY   — API key for Resend; if missing in development, emails are logged to console and treated as sent.
- *   APP_URL          — Base URL of the app (e.g. https://app.splanno.com); defaults to http://localhost:5001.
+ *   BASE_URL         — Base URL of the app (e.g. https://splanno.app); falls back to localhost in development.
  */
+import { resolveBaseUrl } from "./config/env";
 
 const APP_NAME = "Splanno";
 const FROM = "Splanno <noreply@resend.dev>";
 const BRAND_COLOR = "#111827";
 const ACCENT_COLOR = "#2563eb";
-const APP_URL = process.env.APP_URL ?? `http://localhost:${process.env.PORT || 5001}`;
+const APP_URL = resolveBaseUrl();
 const FETCH_TIMEOUT_MS = 10_000;
 
 console.log("[email-debug] provider initialized:", {

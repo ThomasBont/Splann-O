@@ -11,6 +11,7 @@ import { loginLimiter, passwordResetLimiter } from "../middleware/rate-limit";
 import { auditSecurity } from "../lib/audit";
 import { badRequest, forbidden, notFound } from "../lib/errors";
 import passport from "passport";
+import { resolveBaseUrl } from "../config/env";
 
 const router = Router();
 const currencyCodeSchema = z.string().regex(/^[A-Z]{3}$/, "Currency code must be 3 uppercase letters");
@@ -32,8 +33,7 @@ function getRequestOrigin(req: Request): string {
 }
 
 function getAppBase(req: Request): string {
-  const base = process.env.APP_URL ?? getRequestOrigin(req);
-  return base.replace(/\/$/, "");
+  return resolveBaseUrl(getRequestOrigin(req));
 }
 
 function sanitizeAppRedirect(value: unknown): string | null {

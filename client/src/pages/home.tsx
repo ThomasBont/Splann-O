@@ -138,7 +138,6 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { InlineQueryError, SkeletonAvatar, SkeletonCard, SkeletonLine } from "@/components/ui/load-states";
 import { EMPTY_COPY, UI_COPY } from "@/lib/emotional-copy";
 import { FEATURE_PUBLIC_PLANS } from "@/lib/features";
-import type { EventBannerPresetId } from "@/lib/event-banner";
 import {
   defaultPrivateSuggestionState,
   getNearbyPublicEvents,
@@ -152,6 +151,7 @@ import {
 } from "@/lib/private-event-suggestions";
 import { getListingBadgeLabel, isPublicEvent, shouldShowPendingPublish } from "@/lib/public-listing-ui";
 import { isPrivateEvent as isPrivateEventVisibility } from "@shared/event-visibility";
+import type { EventBannerPresetId } from "@shared/lib/plan-hero-banner";
 import {
   derivePlanTypeSelection,
   getEventTypeForPlanType,

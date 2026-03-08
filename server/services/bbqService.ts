@@ -683,9 +683,9 @@ export async function createBarbecue(
     : {};
   const presetId = normalizeEventBannerPresetId(currentBanner.presetId ?? rawTemplateData.privateBannerPreset)
     ?? inferPlanHeroBannerPreset({
-      eventType: input.eventType ?? null,
-      countryCode: normalizedCountryCode ?? null,
-      city: canonicalCity,
+      eventType: input.eventType ?? undefined,
+      countryCode: normalizedCountryCode ?? undefined,
+      city: canonicalCity ?? undefined,
       templateData: rawTemplateData,
     });
   const bannerMode = input.bannerImageUrl || input.bannerAssetId ? "uploaded" : "preset";

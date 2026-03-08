@@ -4,9 +4,9 @@ import type { EventHeaderProps } from "@/components/event/EventHeader";
 import { EventHeader } from "@/components/event/EventHeader";
 import type { PrivateTemplateDef } from "@/lib/private-event-templates";
 import { EventBanner } from "@/components/events/EventBanner";
-import type { EventBannerPresetId } from "@/lib/event-banner";
 import { VIBE_THEME, type PrivateEventVibeId } from "@/lib/event-types";
 import { useLanguage } from "@/hooks/use-language";
+import type { EventBannerPresetId } from "@shared/lib/plan-hero-banner";
 
 export function PrivateEventHero({
   event,

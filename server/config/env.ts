@@ -23,6 +23,30 @@ function getOptionalInt(name: string, fallback: number): number {
   return Math.floor(n);
 }
 
+function normalizeBaseUrl(value: string): string {
+  return value.trim().replace(/\/+$/, "");
+}
+
+export function resolveBaseUrl(fallback = ""): string {
+  const candidates = [
+    process.env.BASE_URL,
+    process.env.PUBLIC_BASE_URL,
+    process.env.APP_BASE_URL,
+    process.env.APP_URL,
+    process.env.FRONTEND_ORIGIN,
+    fallback,
+    `http://localhost:${process.env.PORT || 5001}`,
+  ];
+
+  for (const candidate of candidates) {
+    const raw = typeof candidate === "string" ? candidate.trim() : "";
+    if (!raw) continue;
+    return normalizeBaseUrl(raw);
+  }
+
+  return `http://localhost:${process.env.PORT || 5001}`;
+}
+
 /** Validate and export config. In production, DATABASE_URL and SESSION_SECRET are required. */
 export function loadConfig() {
   const isProd = process.env.NODE_ENV === "production";
@@ -39,6 +63,7 @@ export function loadConfig() {
     freeMaxEvents: getOptionalInt("FREE_MAX_EVENTS", 3),
     freeMaxParticipants: getOptionalInt("FREE_MAX_PARTICIPANTS", 10),
     frontendOrigin: getOptional("FRONTEND_ORIGIN", ""),
+    baseUrl: resolveBaseUrl(),
     adminUsernames: (process.env.ADMIN_USERNAMES ?? "")
       .split(",")
       .map((s) => s.trim().toLowerCase())

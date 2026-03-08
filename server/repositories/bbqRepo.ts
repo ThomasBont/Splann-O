@@ -99,6 +99,7 @@ export const bbqRepo = {
       locationText?: string | null;
       locationMeta?: unknown | null;
       currency?: string;
+      localCurrency?: string | null;
       currencySource?: "auto" | "manual";
       eventType?: string;
       eventVibe?: string;
@@ -135,6 +136,7 @@ export const bbqRepo = {
     if (updates.locationText !== undefined) set.locationText = updates.locationText;
     if (updates.locationMeta !== undefined) set.locationMeta = updates.locationMeta;
     if (updates.currency !== undefined) set.currency = updates.currency;
+    if (updates.localCurrency !== undefined) set.localCurrency = updates.localCurrency;
     if (updates.currencySource !== undefined) set.currencySource = updates.currencySource;
     if (updates.eventType !== undefined) set.eventType = updates.eventType;
     if (updates.eventVibe !== undefined) set.eventVibe = updates.eventVibe;

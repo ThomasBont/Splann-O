@@ -290,8 +290,6 @@ export function OverviewPanel() {
   const visibleContributors = contributionRows.slice(0, isMobile ? 3 : 5);
   const hiddenContributorCount = Math.max(contributionRows.length - visibleContributors.length, 0);
   const visibleActivityItems = activityItems.slice(0, isMobile ? 2 : 3);
-  const visibleBalanceRows = isMobile ? balanceRows.slice(0, 3) : balanceRows;
-  const showSettlementCard = !isMobile || !!latestSettlement || canSettle;
 
   const balanceRows = useMemo(() => {
     const significant = balances
@@ -304,6 +302,8 @@ export function OverviewPanel() {
     }
     return rows;
   }, [balances, myBalance]);
+  const visibleBalanceRows = isMobile ? balanceRows.slice(0, 3) : balanceRows;
+  const showSettlementCard = !isMobile || !!latestSettlement || canSettle;
 
   const maxAbsBalance = Math.max(
     1,

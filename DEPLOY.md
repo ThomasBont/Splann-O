@@ -84,6 +84,38 @@ Render sets `DATABASE_URL` from the env, so no extra config is needed.
 
 To run migrations manually: Render → Web Service → **Shell** → `npm run db:migrate`.
 
+### GitHub Actions deploy trigger
+
+This repo now includes a GitHub Actions workflow at `.github/workflows/render-deploy.yml`.
+
+On every push to `main`, it will:
+
+1. install dependencies
+2. run `npm run check`
+3. run `npm run build`
+4. trigger Render via a deploy hook
+
+To enable it:
+
+1. In Render, open your web service
+2. Go to `Settings` → `Deploy Hook`
+3. Create a new deploy hook
+4. Copy the hook URL
+5. In GitHub, open `Settings` → `Secrets and variables` → `Actions`
+6. Add a repository secret named `RENDER_DEPLOY_HOOK_URL`
+7. Paste the Render deploy hook URL as the value
+
+If this secret is missing, the workflow will fail explicitly instead of silently skipping deploys.
+
+### Recommended Render deploy settings
+
+- Service branch: `main`
+- Build Command: `npm run build`
+- Start Command: `npm start`
+- Release Command: `npm run db:migrate`
+
+This keeps the live service aligned with the same build output that is validated in CI.
+
 ### Custom domain
 
 DNS configuration for `splanno.app`:
@@ -105,7 +137,8 @@ In Google Cloud Console, keep both authorized callback URLs:
 
 1. Open `https://your-app.onrender.com/api/health`
 2. Expect: `ok: true`, `db.ok: true`, `schemaVersion` as a number
-3. If `ok: false` or 503: migrations may not have run; check Release Command and logs
+3. Check `commit` and `buildId` to confirm the live app matches the latest deploy
+4. If `ok: false` or 503: migrations may not have run; check Release Command and logs
 
 ---
 
@@ -136,6 +169,7 @@ After rollback, deploy code that does not reference `plan` (revert schema change
 ## Verify after deploy
 
 - `https://splanno.app` loads correctly
+- `https://splanno.app/api/health` reports the expected `commit` and `buildId`
 - `https://splanno.app/join/[token]` works for invite links
 - Google OAuth login works on `splanno.app`
 - Invite links generated in the app use `splanno.app` instead of the Render domain

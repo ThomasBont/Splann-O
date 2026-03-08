@@ -8,6 +8,7 @@ router.get("/health", async (_req, res) => {
   res.setHeader("Cache-Control", "private, max-age=30");
   const timestamp = new Date().toISOString();
   const commit = process.env.RENDER_GIT_COMMIT ?? process.env.VERCEL_GIT_COMMIT_SHA ?? null;
+  const buildId = process.env.BUILD_ID ?? process.env.VITE_BUILD_ID ?? commit ?? null;
   const parsed = process.env.DATABASE_URL ? parseDbUrl(process.env.DATABASE_URL) : null;
   const dbInfo = {
     host: parsed?.host ?? null,
@@ -24,6 +25,7 @@ router.get("/health", async (_req, res) => {
       db: { ok: true, ...dbInfo },
       schemaVersion,
       commit,
+      buildId,
       timestamp,
     });
   } catch {
@@ -32,6 +34,7 @@ router.get("/health", async (_req, res) => {
       db: { ok: false, ...dbInfo },
       schemaVersion: null,
       commit,
+      buildId,
       timestamp,
     });
   }

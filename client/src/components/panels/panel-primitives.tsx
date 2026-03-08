@@ -2,6 +2,7 @@ import { type ReactNode } from "react";
 import { useLocation } from "wouter";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 import { usePanel } from "@/state/panel";
 
@@ -49,6 +50,7 @@ export function PanelHeader({
   meta?: ReactNode;
   actions?: ReactNode;
 }) {
+  const isMobile = useIsMobile();
   const { panel, closePanel, replacePanel } = usePanel();
   const showBackButton = !!panel && panel.type !== "overview";
   const backTarget = (panel?.type === "member-profile" && panel.source === "crew")
@@ -59,14 +61,17 @@ export function PanelHeader({
     : { label: "Overview", panel: { type: "overview" } as const };
 
   return (
-    <div className="border-b border-[hsl(var(--border-subtle))] px-5 py-5">
-      <div className="flex items-center justify-between gap-4">
+    <div className={cn("border-b border-[hsl(var(--border-subtle))] px-5 py-5", isMobile && "px-4 py-3.5")}>
+      <div className={cn("flex items-center justify-between gap-4", isMobile && "gap-3")}>
         <div className="min-w-0">
           {showBackButton ? (
             <button
               type="button"
               onClick={() => replacePanel(backTarget.panel)}
-              className="inline-flex items-center text-sm text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              className={cn(
+                "inline-flex items-center text-sm text-muted-foreground transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                isMobile && "text-[13px]",
+              )}
             >
               ← {backTarget.label}
             </button>
@@ -78,7 +83,10 @@ export function PanelHeader({
             type="button"
             variant="ghost"
             size="icon"
-            className="h-9 w-9 shrink-0 rounded-md transition hover:bg-[hsl(var(--surface-2))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className={cn(
+              "h-9 w-9 shrink-0 rounded-md transition hover:bg-[hsl(var(--surface-2))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              isMobile && "h-8 w-8 rounded-full",
+            )}
             onClick={closePanel}
             aria-label="Close panel"
           >
@@ -86,13 +94,13 @@ export function PanelHeader({
           </Button>
         </div>
       </div>
-      <div className={cn("min-w-0", showBackButton ? "mt-3" : "mt-0")}>
+      <div className={cn("min-w-0", showBackButton ? (isMobile ? "mt-2" : "mt-3") : "mt-0")}>
         {label ? (
-          <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-muted-foreground">{label}</p>
+          <p className={cn("text-[11px] font-medium uppercase tracking-[0.22em] text-muted-foreground", isMobile && "text-[10px] tracking-[0.18em]")}>{label}</p>
         ) : null}
-        <h2 className={cn("truncate text-xl font-semibold tracking-tight text-foreground", label ? "mt-1" : "mt-0")}>{title}</h2>
+        <h2 className={cn("truncate text-xl font-semibold tracking-tight text-foreground", isMobile ? "text-lg" : "text-xl", label ? "mt-1" : "mt-0")}>{title}</h2>
         {meta ? (
-          <div className="mt-3 flex flex-col gap-1.5 text-sm text-muted-foreground">
+          <div className={cn("mt-3 flex flex-col gap-1.5 text-sm text-muted-foreground", isMobile && "mt-2 gap-1 text-[13px]")}>
             {meta}
           </div>
         ) : null}
@@ -115,9 +123,9 @@ export function PanelSection({
   return (
     <section className={cn(
       "rounded-2xl border border-[hsl(var(--border-subtle))]",
-      variant === "default" && "bg-[hsl(var(--surface-1))] p-4 shadow-[var(--shadow-sm)]",
-      variant === "quiet" && "bg-[hsl(var(--surface-2))] p-4 shadow-none",
-      variant === "dashboard" && "rounded-3xl bg-[linear-gradient(145deg,hsl(var(--surface-1)),hsl(var(--surface-2)))] p-5 shadow-[var(--shadow-md)]",
+      variant === "default" && "bg-[hsl(var(--surface-1))] p-4 shadow-[var(--shadow-sm)] md:p-4",
+      variant === "quiet" && "bg-[hsl(var(--surface-2))] p-4 shadow-none md:p-4",
+      variant === "dashboard" && "rounded-3xl bg-[linear-gradient(145deg,hsl(var(--surface-1)),hsl(var(--surface-2)))] p-5 shadow-[var(--shadow-md)] md:p-5",
       variant === "list" && "bg-[hsl(var(--surface-1))] p-3.5 shadow-none",
       variant === "ledger" && "bg-[hsl(var(--surface-1))] p-3.5 shadow-none",
       variant === "workflow" && "bg-[linear-gradient(180deg,hsl(var(--surface-1)),hsl(var(--surface-2)))] p-4 shadow-[var(--shadow-sm)]",

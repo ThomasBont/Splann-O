@@ -102,7 +102,7 @@ export function ExpensesPanel() {
         )}
       />
 
-      <div className={cn("flex-1 space-y-4 overflow-y-auto px-5 py-5", isMobile && "space-y-5 px-4 pb-24 pt-4")}>
+      <div className={cn("flex-1 space-y-4 overflow-y-auto px-5 py-5", isMobile && "space-y-3 px-3.5 pb-20 pt-3")}>
         {!eventId ? (
           <div className="rounded-2xl border border-dashed border-border/70 bg-card/60 p-4 text-sm text-muted-foreground">
             Open a plan chat to inspect shared money.
@@ -110,10 +110,10 @@ export function ExpensesPanel() {
         ) : (
           <>
             {isMobile ? (
-              <section className="sticky top-0 z-10 -mx-1 rounded-2xl border border-primary/20 bg-background/95 p-1 backdrop-blur supports-[backdrop-filter]:bg-background/88">
+              <section className="sticky top-0 z-10 -mx-0.5 rounded-2xl border border-primary/20 bg-background/95 p-1 backdrop-blur supports-[backdrop-filter]:bg-background/88">
                 <Button
                   type="button"
-                  className="h-12 w-full rounded-[18px] bg-primary text-base font-semibold text-slate-900 hover:bg-primary/90"
+                  className="h-10.5 w-full rounded-[16px] bg-primary text-sm font-semibold text-slate-900 hover:bg-primary/90"
                   onClick={handleAddExpense}
                   disabled={!eventId}
                 >
@@ -123,10 +123,10 @@ export function ExpensesPanel() {
               </section>
             ) : null}
 
-            <section className="rounded-2xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-3.5 shadow-none">
+            <section className={cn("rounded-2xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-3.5 shadow-none", isMobile && "rounded-[18px] p-3")}>
               <button
                 type="button"
-                className={cn("flex w-full items-center justify-between gap-3 text-left", isMobile && "min-h-11")}
+                className={cn("flex w-full items-center justify-between gap-3 text-left", isMobile && "min-h-9")}
                 onClick={() => setRecentExpanded((prev) => !prev)}
                 aria-expanded={recentExpanded}
                 aria-controls="recent-expenses-list"
@@ -135,7 +135,7 @@ export function ExpensesPanel() {
                 <ChevronDown className={cn("h-4 w-4 text-muted-foreground transition-transform", recentExpanded && "rotate-180")} />
               </button>
               {visibleRecentExpenses.length > 0 ? (
-                <div id="recent-expenses-list" className="mt-3 space-y-2">
+                <div id="recent-expenses-list" className={cn("mt-3 space-y-2", isMobile && "mt-2.5 space-y-1.5")}>
                   {visibleRecentExpenses.map((expense) => (
                     <button
                       type="button"
@@ -143,23 +143,28 @@ export function ExpensesPanel() {
                       onClick={() => openExpenseDetail(expense.id)}
                       className={cn(
                         "interactive-card flex w-full items-center justify-between gap-3 rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))] text-left hover:border-border/80 hover:bg-[hsl(var(--surface-2))]/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                        isMobile ? "px-3.5 py-3.5" : "px-3 py-2.5",
+                        isMobile ? "px-3 py-2.5" : "px-3 py-2.5",
                       )}
                     >
                       <div className="min-w-0">
-                        <p className={cn("truncate font-medium text-foreground", isMobile ? "text-[15px]" : "text-sm")}>
+                        <p className={cn("truncate font-medium text-foreground", isMobile ? "text-sm" : "text-sm")}>
                           {expense.item || "Expense"}
                         </p>
                         <p className="truncate text-xs text-muted-foreground">
                           Paid by {expense.participantName || "Unknown"}
                         </p>
+                        {isMobile ? (
+                          <p className="truncate text-[11px] text-muted-foreground">
+                            {expense.category || "Other"} · {formatCreated(expense.createdAt ? String(expense.createdAt) : null)}
+                          </p>
+                        ) : null}
                         {!isMobile ? (
                           <p className="truncate text-xs text-muted-foreground">
                             {expense.category || "Other"} · {formatCreated(expense.createdAt ? String(expense.createdAt) : null)}
                           </p>
                         ) : null}
                       </div>
-                      <span className={cn("shrink-0 font-semibold text-foreground", isMobile ? "text-[15px]" : "text-sm")}>
+                      <span className={cn("shrink-0 font-semibold text-foreground", isMobile ? "text-sm" : "text-sm")}>
                         {formatCurrency(Number(expense.amount || 0), currency)}
                       </span>
                     </button>
@@ -192,10 +197,7 @@ export function ExpensesPanel() {
                     return (
                       <div
                         key={`shared-money-balance-${entry.id}`}
-                        className={cn(
-                          "flex items-center justify-between gap-3 rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]",
-                          isMobile ? "px-3.5 py-3" : "px-3 py-2.5",
-                        )}
+                    className={cn("flex items-center justify-between gap-3 rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]", isMobile ? "px-3 py-2.5" : "px-3 py-2.5")}
                       >
                         <div className="min-w-0">
                           <p className="truncate text-sm font-medium text-foreground">{entry.name}</p>

@@ -47,6 +47,7 @@ import { useNewPlanWizard } from "@/contexts/new-plan-wizard";
 import NewPlanWizardDrawer from "@/components/event/NewPlanWizardDrawer";
 import { SplannoLogo } from "@/components/splanno-logo";
 import { FEATURE_PUBLIC_PLANS } from "@/lib/features";
+import { getEventTheme } from "@/theme/useEventTheme";
 import {
   defaultPinGroups,
   defaultSidebarLayout,
@@ -124,6 +125,11 @@ function formatEventLocation(event: Barbecue) {
   if (event.city) return event.city;
   if (event.countryName) return event.countryName;
   return "Location TBA";
+}
+
+function getSidebarEventDotClass(event: Pick<Barbecue, "area" | "eventType">) {
+  const category = event.area === "trips" ? "trip" : "party";
+  return getEventTheme(category, event.eventType ?? null).accent.bg;
 }
 
 function toEventId(value: unknown): number | null {
@@ -428,7 +434,7 @@ function AppSidebar({
             }}
           >
             <div className="flex items-start gap-2">
-              <span className="mt-[7px] h-2.5 w-2.5 shrink-0 rounded-full bg-muted-foreground/45" />
+              <span className={`mt-[7px] h-2.5 w-2.5 shrink-0 rounded-full ${getSidebarEventDotClass(event)}`} />
               <div className="min-w-0 flex-1">
                 <p className="truncate font-medium text-foreground">{event.name}</p>
                 <p className="mt-0.5 truncate text-xs text-muted-foreground">
@@ -1221,12 +1227,12 @@ export default function AppRoute() {
 
   const mainContent = (
     <div className="h-screen bg-background lg:flex overflow-hidden">
-        <header className="md:hidden sticky top-0 z-30 h-14 border-b border-border/60 bg-background/95 backdrop-blur-sm">
-          <div className="h-full px-3 flex items-center justify-between gap-2">
+        <header className="md:hidden sticky top-0 z-30 h-12 border-b border-border/60 bg-background/95 backdrop-blur-sm">
+          <div className="h-full px-2.5 flex items-center justify-between gap-2">
             <Button
               variant="ghost"
               size="icon"
-              className="h-11 w-11"
+              className="h-9 w-9"
               onClick={() => setIsSidebarOpen(true)}
               aria-label="Open navigation"
             >
@@ -1235,7 +1241,7 @@ export default function AppRoute() {
             <div className="min-w-0 flex-1 px-1">
               <p className="truncate text-sm font-semibold tracking-tight">{mobileSectionLabel}</p>
               {section === "event" ? (
-                <p className="truncate text-[11px] text-muted-foreground">Chat-first planning</p>
+                <p className="truncate text-[10px] leading-tight text-muted-foreground">Chat-first planning</p>
               ) : null}
             </div>
             <div className="flex items-center gap-1">
@@ -1243,7 +1249,7 @@ export default function AppRoute() {
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="relative h-11 w-11"
+                className="relative h-9 w-9"
                 aria-label="Open notifications"
                 onClick={() => setNotifOpen(true)}
               >
@@ -1336,12 +1342,36 @@ export default function AppRoute() {
                               if (!Number.isFinite(planId)) return;
                               prefetchPlan(planId);
                             }}
-                            className="block rounded-2xl border border-border/60 bg-card px-3 py-3 transition hover:bg-muted/20"
+                            className={`relative block rounded-2xl border bg-card px-3 py-3 transition hover:bg-muted/20 ${
+                              Number(routeEventId) === Number(event.id)
+                                ? "border-primary/30 bg-primary/10 pl-[14px] before:absolute before:inset-y-2 before:left-0 before:w-0.5 before:rounded-full before:bg-primary"
+                                : "border-border/60"
+                            }`}
                           >
-                            <p className="truncate text-sm font-medium">{event.name}</p>
-                            <p className="mt-1 truncate text-xs text-muted-foreground">
-                              Private · {formatEventLocation(event)}
-                            </p>
+                            <div className="flex items-start gap-2">
+                              <span className={`mt-[7px] h-2.5 w-2.5 shrink-0 rounded-full ${getSidebarEventDotClass(event)}`} />
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-medium">{event.name}</p>
+                                <p className="mt-1 truncate text-xs text-muted-foreground">
+                                  {formatEventLocation(event)}
+                                </p>
+                              </div>
+                              {Number((event as { unreadCount?: number }).unreadCount ?? 0) > 0 ? (
+                                (() => {
+                                  const unread = Number((event as { unreadCount?: number }).unreadCount ?? 0);
+                                  const singleDigit = unread < 10;
+                                  return (
+                                    <span
+                                      className={singleDigit
+                                        ? "shrink-0 grid h-5 w-5 place-items-center rounded-full bg-primary text-xs font-semibold text-primary-foreground"
+                                        : "shrink-0 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold text-primary-foreground"}
+                                    >
+                                      {unread}
+                                    </span>
+                                  );
+                                })()
+                              ) : null}
+                            </div>
                           </a>
                         </Link>
                       ))}
@@ -1350,31 +1380,71 @@ export default function AppRoute() {
                 </div>
               </div>
               <div className="shrink-0 border-t border-border/60 px-4 py-4">
-                <div className="grid grid-cols-2 gap-2">
-                  <Button
+                <div className="flex items-center justify-between gap-2">
+                  <button
                     type="button"
-                    variant="outline"
-                    className="h-11 rounded-full"
                     onClick={() => {
                       setIsSidebarOpen(false);
                       handleOpenAccount();
                     }}
+                    className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1.5 py-1 transition hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
-                    <UserCircle className="mr-2 h-4 w-4" />
-                    Account
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    className="h-11 rounded-full"
-                    onClick={() => {
-                      setIsSidebarOpen(false);
-                      handleOpenAccountSettings();
-                    }}
-                  >
-                    <Settings className="mr-2 h-4 w-4" />
-                    Settings
-                  </Button>
+                    <Avatar className="h-9 w-9 border border-border/60">
+                      {(user as { profileImageUrl?: string | null; avatarUrl?: string | null } | null)?.profileImageUrl
+                        || (user as { profileImageUrl?: string | null; avatarUrl?: string | null } | null)?.avatarUrl ? (
+                        <AvatarImage
+                          src={
+                            resolveAssetUrl(
+                              ((user as { profileImageUrl?: string | null; avatarUrl?: string | null } | null)?.profileImageUrl)
+                              || ((user as { profileImageUrl?: string | null; avatarUrl?: string | null } | null)?.avatarUrl)
+                              || null,
+                            ) ?? undefined
+                          }
+                          alt={user?.username || "Profile"}
+                        />
+                      ) : null}
+                      <AvatarFallback className="text-xs font-semibold">
+                        {String(user?.username || user?.email || "U").slice(0, 2).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <span className="min-w-0 text-left">
+                      <span className="block truncate text-sm font-medium text-foreground">
+                        {user?.username || user?.email || "Profile"}
+                      </span>
+                      {(user as { isOnline?: boolean } | null)?.isOnline ? (
+                        <span className="block text-xs text-muted-foreground">Online</span>
+                      ) : null}
+                    </span>
+                  </button>
+                  <div className="relative z-30 flex shrink-0 items-center gap-1.5">
+                    <button
+                      type="button"
+                      className="relative inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      aria-label="Open notifications"
+                      onClick={() => {
+                        setIsSidebarOpen(false);
+                        setNotifOpen(true);
+                      }}
+                    >
+                      <Bell className="h-[18px] w-[18px]" />
+                      {totalPendingNotifications > 0 ? (
+                        <span className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-destructive px-1 text-[9px] font-bold text-destructive-foreground">
+                          {displayPendingCount}
+                        </span>
+                      ) : null}
+                    </button>
+                    <button
+                      type="button"
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-events-auto"
+                      aria-label="Open settings"
+                      onClick={() => {
+                        setIsSidebarOpen(false);
+                        handleOpenAccountSettings();
+                      }}
+                    >
+                      <Settings className="h-[18px] w-[18px]" />
+                    </button>
+                  </div>
                 </div>
               </div>
             </aside>

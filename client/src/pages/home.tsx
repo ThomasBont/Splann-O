@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from "react";
+import { lazy, Suspense, useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, type TouchEvent as ReactTouchEvent } from "react";
 import { Link, useLocation } from "wouter";
 import { normalizeCountryCode } from "@shared/lib/country-code";
 import { useLanguage, getCurrency, type CurrencyCode, convertCurrency } from "@/hooks/use-language";
@@ -76,7 +76,7 @@ import {
   ArrowLeft,
   UserCheck, UserX, LogOut, Crown, Clock, UserCircle, ChevronDown, ChevronRight, Users,
   Lock, Globe, UserPlus, X, Eye, EyeOff, Compass,
-  Bell, UserPlus2, Search, Heart, MessageCircle, Star, Plane, PartyPopper, Settings,
+  Bell, UserPlus2, Search, Heart, MessageCircle, Star, Plane, PartyPopper, Settings, LayoutGrid,
   type LucideIcon,
 } from "lucide-react";
 import { useEventHeaderPreferences } from "@/hooks/use-event-header-preferences";
@@ -694,11 +694,15 @@ export default function Home({
   const activeEventId = isManagedAppRoute && appRouteMode === "event"
     ? (routeEventId ?? null)
     : selectedBbqId;
-  const mobilePrimaryTab: "chat" | "expenses" | "overview" = panel == null
+  const mobilePrimaryTab: "chat" | "expenses" | "crew" | "overview" = panel == null
     ? "chat"
     : (panel.type === "expenses" || panel.type === "expense" || panel.type === "add-expense" || panel.type === "settlement")
       ? "expenses"
-      : "overview";
+      : (panel.type === "crew"
+        || (panel.type === "member-profile" && panel.source === "crew")
+        || (panel.type === "invite" && panel.source === "crew"))
+        ? "crew"
+        : "overview";
   const reactionScopeId = activeEventId != null ? `ev-${activeEventId}` : "ev-none";
   const { addReaction, getReactions, getReactionUsers, getUserReaction } = useExpenseReactions(reactionScopeId);
   const [isNewBbqOpen, setIsNewBbqOpen] = useState(false);
@@ -735,14 +739,143 @@ export default function Home({
   const [newPublicListOnExplore, setNewPublicListOnExplore] = useState(false);
   const [privatePlanSort, setPrivatePlanSort] = useState<PrivatePlanSort>("recent");
   const [activeSurface, setActiveSurface] = useState<ActiveSurface>("chat");
+  const [mobileSwipeOffset, setMobileSwipeOffset] = useState(0);
+  const [mobileSwipeAnimating, setMobileSwipeAnimating] = useState(false);
   const lastActivityReadEventRef = useRef<number | null>(null);
   const activityReadDebounceRef = useRef<number | null>(null);
+  const mobileSwipeRef = useRef<{
+    startX: number;
+    startY: number;
+    currentX: number;
+    currentY: number;
+    active: boolean;
+    interactive: boolean;
+  } | null>(null);
+  const mobileSwipeIntroDirectionRef = useRef<"left" | "right" | null>(null);
   const isInteractiveSurfaceTarget = useCallback((target: EventTarget | null) => {
     if (!(target instanceof HTMLElement)) return false;
     return !!target.closest(
       'button,a,input,textarea,select,label,summary,[role="button"],[role="link"],[data-no-surface-focus]',
     );
   }, []);
+  const mobileSwipeMainView: "chat" | "expenses" | "overview" | null = panel == null
+    ? "chat"
+    : panel.type === "expenses"
+      ? "expenses"
+      : panel.type === "overview"
+        ? "overview"
+        : null;
+  const isMobileOverlayPanelOpen = panel != null && mobileSwipeMainView == null;
+
+  const openMobileMainView = useCallback((view: "chat" | "expenses" | "overview") => {
+    if (view === "chat") {
+      closePanel();
+      return;
+    }
+    if (view === "expenses") {
+      openPanel({ type: "expenses" });
+      return;
+    }
+    openPanel({ type: "overview" });
+  }, [closePanel, openPanel]);
+
+  useLayoutEffect(() => {
+    if (!isMobileViewport) return;
+    const direction = mobileSwipeIntroDirectionRef.current;
+    if (!direction) return;
+    const initialOffset = direction === "left" ? 28 : -28;
+    setMobileSwipeAnimating(false);
+    setMobileSwipeOffset(initialOffset);
+    const rafId = window.requestAnimationFrame(() => {
+      setMobileSwipeAnimating(true);
+      setMobileSwipeOffset(0);
+      mobileSwipeIntroDirectionRef.current = null;
+    });
+    return () => window.cancelAnimationFrame(rafId);
+  }, [isMobileViewport, mobileSwipeMainView, panel?.type, activeEventId]);
+
+  const handleMobileContentTouchStart = useCallback((event: ReactTouchEvent<HTMLDivElement>) => {
+    if (!isMobileViewport) return;
+    mobileSwipeRef.current = {
+      startX: event.touches[0]?.clientX ?? 0,
+      startY: event.touches[0]?.clientY ?? 0,
+      currentX: event.touches[0]?.clientX ?? 0,
+      currentY: event.touches[0]?.clientY ?? 0,
+      active: true,
+      interactive: isInteractiveSurfaceTarget(event.target),
+    };
+    setMobileSwipeAnimating(false);
+  }, [isInteractiveSurfaceTarget, isMobileViewport]);
+
+  const handleMobileContentTouchMove = useCallback((event: ReactTouchEvent<HTMLDivElement>) => {
+    if (!isMobileViewport || !mobileSwipeRef.current?.active || mobileSwipeRef.current.interactive) return;
+    const currentX = event.touches[0]?.clientX ?? mobileSwipeRef.current.startX;
+    const currentY = event.touches[0]?.clientY ?? mobileSwipeRef.current.startY;
+    mobileSwipeRef.current.currentX = currentX;
+    mobileSwipeRef.current.currentY = currentY;
+    const deltaX = currentX - mobileSwipeRef.current.startX;
+    const deltaY = currentY - mobileSwipeRef.current.startY;
+    if (Math.abs(deltaY) > 30 && Math.abs(deltaY) > Math.abs(deltaX)) {
+      mobileSwipeRef.current.active = false;
+      setMobileSwipeOffset(0);
+      return;
+    }
+    if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaY) < 30) {
+      setMobileSwipeOffset(Math.max(-72, Math.min(72, deltaX)));
+    }
+  }, [isMobileViewport]);
+
+  const handleMobileContentTouchEnd = useCallback(() => {
+    const swipe = mobileSwipeRef.current;
+    mobileSwipeRef.current = null;
+    if (!isMobileViewport || !swipe?.active || swipe.interactive) {
+      setMobileSwipeOffset(0);
+      return;
+    }
+
+    const deltaX = swipe.currentX - swipe.startX;
+    const deltaY = swipe.currentY - swipe.startY;
+    const isHorizontalSwipe = Math.abs(deltaX) > 50 && Math.abs(deltaY) < 30;
+
+    if (!isHorizontalSwipe) {
+      setMobileSwipeAnimating(true);
+      setMobileSwipeOffset(0);
+      return;
+    }
+
+    if (isMobileOverlayPanelOpen) {
+      if (deltaX > 50) {
+        mobileSwipeIntroDirectionRef.current = "right";
+        closePanel();
+      } else {
+        setMobileSwipeAnimating(true);
+        setMobileSwipeOffset(0);
+      }
+      return;
+    }
+
+    if (!mobileSwipeMainView) {
+      setMobileSwipeAnimating(true);
+      setMobileSwipeOffset(0);
+      return;
+    }
+
+    const order: Array<"chat" | "expenses" | "overview"> = ["chat", "expenses", "overview"];
+    const currentIndex = order.indexOf(mobileSwipeMainView);
+    if (deltaX < -50 && currentIndex < order.length - 1) {
+      mobileSwipeIntroDirectionRef.current = "left";
+      openMobileMainView(order[currentIndex + 1]!);
+      return;
+    }
+    if (deltaX > 50 && currentIndex > 0) {
+      mobileSwipeIntroDirectionRef.current = "right";
+      openMobileMainView(order[currentIndex - 1]!);
+      return;
+    }
+
+    setMobileSwipeAnimating(true);
+    setMobileSwipeOffset(0);
+  }, [closePanel, isMobileOverlayPanelOpen, isMobileViewport, mobileSwipeMainView, mobileSwipeOffset, openMobileMainView]);
 
   useEffect(() => {
     if (appRouteMode === "private" || !FEATURE_PUBLIC_PLANS) setEventVisibilityTab("private");
@@ -3649,7 +3782,20 @@ export default function Home({
             if (isMobileViewport) {
               return (
                 <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
-                  <div className="min-h-0 flex-1 overflow-hidden">
+                  <div
+                    className="min-h-0 flex-1 overflow-hidden"
+                    onTouchStart={handleMobileContentTouchStart}
+                    onTouchMove={handleMobileContentTouchMove}
+                    onTouchEnd={handleMobileContentTouchEnd}
+                    onTouchCancel={handleMobileContentTouchEnd}
+                  >
+                    <div
+                      className="h-full min-h-0 will-change-transform"
+                      style={{
+                        transform: `translateX(${mobileSwipeOffset}px)`,
+                        transition: mobileSwipeAnimating ? "transform 200ms ease" : undefined,
+                      }}
+                    >
                     {mobilePrimaryTab === "chat" ? (
                       <ChatSidebar
                         key={`mobile-chat-${selectedBbq.id}`}
@@ -3680,13 +3826,15 @@ export default function Home({
                         shellClassName="bg-[hsl(var(--surface-1))]"
                       />
                     )}
+                    </div>
                   </div>
-                  <nav className="sticky bottom-0 z-20 border-t border-border/60 bg-background/98 px-3 pb-[max(env(safe-area-inset-bottom),0.75rem)] pt-2 backdrop-blur-md lg:hidden">
-                    <div className="grid grid-cols-3 gap-1.5 rounded-[22px] border border-border/60 bg-[hsl(var(--surface-1))] p-1.5 shadow-[0_-6px_18px_rgba(15,23,42,0.04)] dark:shadow-[0_-8px_20px_rgba(0,0,0,0.14)]">
+                  <nav className="sticky bottom-0 z-20 border-t border-border/60 bg-background/98 px-2.5 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-1.5 backdrop-blur-md lg:hidden">
+                    <div className="grid grid-cols-4 gap-1 rounded-[20px] border border-border/60 bg-[hsl(var(--surface-1))] p-1 shadow-[0_-6px_18px_rgba(15,23,42,0.04)] dark:shadow-[0_-8px_20px_rgba(0,0,0,0.14)]">
                       {[
                         { key: "chat", label: "Chat", icon: MessageCircle, onClick: () => closePanel() },
                         { key: "expenses", label: "Expenses", icon: Receipt, onClick: () => openPanel({ type: "expenses" }) },
-                        { key: "overview", label: "Overview", icon: Users, onClick: () => openPanel({ type: "overview" }) },
+                        { key: "crew", label: "Crew", icon: Users, onClick: () => openPanel({ type: "crew" }) },
+                        { key: "overview", label: "Overview", icon: LayoutGrid, onClick: () => openPanel({ type: "overview" }) },
                       ].map((item) => {
                         const Icon = item.icon;
                         const active = mobilePrimaryTab === item.key;
@@ -3696,14 +3844,14 @@ export default function Home({
                             type="button"
                             onClick={item.onClick}
                             className={cn(
-                              "flex min-h-[52px] flex-col items-center justify-center gap-1 rounded-[18px] px-2 py-1.5 text-[11px] font-medium transition-colors",
+                              "flex min-h-[44px] flex-col items-center justify-center gap-0.5 rounded-[16px] px-2 py-1 text-[10px] font-medium transition-colors",
                               active
-                                ? "bg-primary text-primary-foreground shadow-[0_8px_18px_rgba(245,166,35,0.22)]"
+                                ? "scale-[1.02] bg-primary text-slate-900 shadow-[0_8px_18px_rgba(245,166,35,0.22)]"
                                 : "text-muted-foreground active:bg-muted/60",
                             )}
                             aria-current={active ? "page" : undefined}
                           >
-                            <Icon className="h-[18px] w-[18px]" />
+                            <Icon className="h-4 w-4" />
                             <span>{item.label}</span>
                           </button>
                         );

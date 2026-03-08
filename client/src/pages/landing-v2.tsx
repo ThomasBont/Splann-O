@@ -77,26 +77,26 @@ export default function LandingV2() {
   return (
     <div className="min-h-screen bg-background text-foreground">
       <header className="border-b border-border/70 bg-background/95">
-        <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto flex h-14 w-full max-w-6xl flex-nowrap items-center justify-between px-4 sm:h-16 sm:px-6 lg:px-8">
           <Link href="/">
-            <a className="flex items-center gap-3">
-              <SplannoLogo variant="icon" size={36} />
-              <span className="text-base font-semibold tracking-tight">Splanno</span>
+            <a className="min-w-0 flex items-center gap-2.5">
+              <SplannoLogo variant="icon" size={32} />
+              <span className="truncate text-base font-semibold tracking-tight">Splanno</span>
             </a>
           </Link>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-nowrap items-center gap-2">
             {!isAuthenticated ? (
               <>
                 <button
                   type="button"
                   onClick={() => setPreference(theme === "dark" ? "light" : "dark")}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+                  className="hidden h-8 w-8 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground lg:inline-flex"
                   title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
                   aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
                 >
                   {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
                 </button>
-                <div className="flex rounded-lg border border-border overflow-hidden">
+                <div className="hidden overflow-hidden rounded-lg border border-border lg:flex">
                   {SELECTABLE_LANGUAGES.map((lang) => (
                     <button
                       key={`landing-language-${lang.code}`}
@@ -112,10 +112,10 @@ export default function LandingV2() {
                     </button>
                   ))}
                 </div>
-                <Button variant="ghost" size="sm" onClick={() => openAuth("login")}>
+                <Button variant="ghost" size="sm" className="h-9 px-2.5 text-sm sm:px-3" onClick={() => openAuth("login")}>
                   Log in
                 </Button>
-                <Button size="sm" onClick={() => openAuth("signup")}>
+                <Button size="sm" className="h-9 rounded-full px-3 sm:px-4" onClick={() => openAuth("signup")}>
                   Sign up
                 </Button>
               </>
@@ -128,20 +128,20 @@ export default function LandingV2() {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-6xl px-4 py-12 sm:px-6 sm:py-16 lg:px-8 lg:py-20">
-        <section className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
-          <div className="space-y-5">
-            <h1 className="text-4xl font-semibold tracking-tight sm:text-5xl">Your plan buddy for friend groups.</h1>
+      <main className="mx-auto w-full max-w-6xl px-4 py-10 sm:px-6 sm:py-16 lg:px-8 lg:py-20">
+        <section className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr] lg:items-center lg:gap-8">
+          <div className="space-y-4 sm:space-y-5">
+            <h1 className="text-3xl font-semibold tracking-tight sm:text-5xl">Your plan buddy for friend groups.</h1>
             <p className="max-w-2xl text-base text-muted-foreground sm:text-lg">
               Create a plan, invite your crew, track shared costs, and keep everything in one place.
             </p>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <Button size="lg" className="rounded-xl px-5" onClick={handleCreatePlan}>
+              <Button size="lg" className="w-full rounded-xl px-5 sm:w-auto" onClick={handleCreatePlan}>
                 Create a plan
                 <ArrowRight className="h-4 w-4" />
               </Button>
-              <a href="#how-it-works">
-                <Button variant="secondary" size="lg" className="rounded-xl">
+              <a href="#how-it-works" className="w-full sm:w-auto">
+                <Button variant="secondary" size="lg" className="w-full rounded-xl">
                   See how it works
                 </Button>
               </a>
@@ -152,16 +152,16 @@ export default function LandingV2() {
             <CardHeader className="pb-3">
               <CardTitle className="text-base">Product preview</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="rounded-xl border border-border/70 p-3">
+            <CardContent className="space-y-3 p-4 sm:p-6">
+              <div className="w-full rounded-xl border border-border/70 p-3.5">
                 <p className="text-sm font-medium">Weekend in Lisbon</p>
                 <p className="text-xs text-muted-foreground">6 people · Shared chat active</p>
               </div>
-              <div className="rounded-xl border border-border/70 p-3">
+              <div className="w-full rounded-xl border border-border/70 p-3.5">
                 <p className="text-sm font-medium">Total spent</p>
                 <p className="text-xs text-muted-foreground">€248.30 · 7 expenses logged</p>
               </div>
-              <div className="rounded-xl border border-border/70 p-3">
+              <div className="w-full rounded-xl border border-border/70 p-3.5">
                 <p className="text-sm font-medium">Next action</p>
                 <p className="text-xs text-muted-foreground">Assign grocery list to the crew</p>
               </div>

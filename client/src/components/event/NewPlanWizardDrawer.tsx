@@ -37,7 +37,7 @@ type PartySubcategory =
   | "drinks_night"
   | "brunch";
 type Subcategory = TripSubcategory | PartySubcategory;
-type WizardStep = "BASICS" | "TYPE";
+type WizardStep = "TYPE" | "BASICS";
 
 type SubcategoryDef = {
   id: Subcategory;
@@ -135,7 +135,7 @@ export default function NewPlanWizardDrawer() {
   const { isNewPlanWizardOpen, newPlanWizardStep, openNewPlanWizard, closeNewPlanWizard } = useNewPlanWizard();
   const planNameInputRef = useRef<HTMLInputElement | null>(null);
 
-  const [step, setStep] = useState<WizardStep>("BASICS");
+  const [step, setStep] = useState<WizardStep>("TYPE");
   const [name, setName] = useState("");
   const [locationQuery, setLocationQuery] = useState("");
   const [selectedLocation, setSelectedLocation] = useState<LocationOption | null>(null);
@@ -150,7 +150,6 @@ export default function NewPlanWizardDrawer() {
   const timePickerRef = useRef<HTMLDivElement | null>(null);
   const [planType, setPlanType] = useState<PlanType | null>(null);
   const [subcategory, setSubcategory] = useState<Subcategory | null>(null);
-  const [touchedLocation, setTouchedLocation] = useState(false);
   const [planCurrency, setPlanCurrency] = useState("EUR");
   const [localCurrency, setLocalCurrency] = useState<string>("");
 
@@ -160,7 +159,7 @@ export default function NewPlanWizardDrawer() {
   }, [isNewPlanWizardOpen, newPlanWizardStep]);
 
   const reset = () => {
-    setStep("BASICS");
+    setStep("TYPE");
     setName("");
     setLocationQuery("");
     setSelectedLocation(null);
@@ -174,7 +173,6 @@ export default function NewPlanWizardDrawer() {
     setTimePickerOpen(false);
     setPlanType(null);
     setSubcategory(null);
-    setTouchedLocation(false);
     setPlanCurrency("EUR");
     setLocalCurrency("");
   };
@@ -202,9 +200,10 @@ export default function NewPlanWizardDrawer() {
     [planType],
   );
   const selectedSubcategory = subcategories.find((item) => item.id === subcategory) ?? null;
-  const canGoNext = name.trim().length > 0 && !!selectedLocation;
-  const basicsValid = name.trim().length > 0 && !!selectedLocation && date.trim().length > 0 && /^[A-Z]{3}$/.test(planCurrency);
-  const typeStepValid = !!planType && !!subcategory;
+  const hasLocationSelectionPending = locationQuery.trim().length > 0 && !selectedLocation;
+  const canGoNext = !!planType && !!subcategory;
+  const canCreate = name.trim().length > 0 && !!selectedLocation && date.trim().length > 0;
+  const basicsValid = canCreate && /^[A-Z]{3}$/.test(planCurrency);
 
   useEffect(() => {
     if (!isNewPlanWizardOpen || step !== "BASICS") return;
@@ -355,18 +354,14 @@ export default function NewPlanWizardDrawer() {
   }, [timePickerOpen]);
 
   const goNext = () => {
-    if (step === "BASICS") {
-      if (!basicsValid) {
-        setTouchedLocation(true);
-        return;
-      }
-      setStep("TYPE");
+    if (step === "TYPE") {
+      setStep("BASICS");
     }
   };
 
   const goBack = () => {
-    if (step === "TYPE") {
-      setStep("BASICS");
+    if (step === "BASICS") {
+      setStep("TYPE");
       return;
     }
     closeNewPlanWizard();
@@ -440,7 +435,6 @@ export default function NewPlanWizardDrawer() {
     setLocationQuery(option.locationName);
     setLocationSearchOpen(false);
     setLocationSearchError(null);
-    setTouchedLocation(false);
     if (!option.placeId) return;
     try {
       const enriched = await enrichLocationByPlaceId(option.placeId);
@@ -480,12 +474,85 @@ export default function NewPlanWizardDrawer() {
           <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
             <div className="space-y-4">
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <span className={`px-2 py-0.5 rounded-full border ${step === "BASICS" ? "border-primary/40 text-primary bg-primary/5" : "border-border"}`}>The plan</span>
                 <span className={`px-2 py-0.5 rounded-full border ${step === "TYPE" ? "border-primary/40 text-primary bg-primary/5" : "border-border"}`}>Plan type</span>
+                <span className={`px-2 py-0.5 rounded-full border ${step === "BASICS" ? "border-primary/40 text-primary bg-primary/5" : "border-border"}`}>The plan</span>
               </div>
+
+              {step === "TYPE" && (
+                <div className="space-y-4">
+                  <div>
+                    <h4 className="text-sm font-semibold">Plan type</h4>
+                    <p className="text-xs text-muted-foreground mt-1">Pick the main category, then add up to 3 vibe tags for the chat background.</p>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {PLAN_TYPES.map((option) => {
+                      const Icon = option.icon;
+                      const active = planType === option.id;
+                      return (
+                        <button
+                          key={option.id}
+                          type="button"
+                          onClick={() => {
+                            setPlanType(option.id);
+                            setSubcategory(null);
+                          }}
+                          className={`rounded-2xl border p-4 text-left transition-all duration-200 ${
+                            active ? "interactive-card border-primary/70 bg-primary/10 shadow-md shadow-primary/15" : "interactive-card border-border/70 hover:bg-muted/20"
+                          }`}
+                        >
+                          <p className="text-sm font-semibold flex items-center gap-2">
+                            <Icon className="h-4 w-4" />
+                            {option.label}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">{option.description}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {planType ? (
+                    <div className="space-y-3">
+                      <div>
+                        <h4 className="text-sm font-semibold">{planType === "trip" ? "Trip type" : "Party type"}</h4>
+                        <p className="text-xs text-muted-foreground mt-1">Choose a subcategory.</p>
+                      </div>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        {subcategories.map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => setSubcategory(item.id)}
+                            className={`rounded-2xl border p-4 text-left transition-all duration-200 ${
+                              subcategory === item.id ? "interactive-card border-primary/70 bg-primary/10 shadow-md shadow-primary/15" : "interactive-card border-border/70 hover:bg-muted/20"
+                            }`}
+                          >
+                            <p className="text-sm font-semibold flex items-center gap-1.5">
+                              <span aria-hidden className="text-lg">{item.emoji}</span>
+                              {item.label}
+                            </p>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">Select a plan type to see subcategories.</p>
+                  )}
+                </div>
+              )}
 
               {step === "BASICS" && (
                 <div className="space-y-4">
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <h4 className="text-sm font-semibold">The plan</h4>
+                      {selectedSubcategory ? (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-primary/20 bg-primary/5 px-2 py-0.5 text-xs font-medium text-primary">
+                          <span aria-hidden>{selectedSubcategory.emoji}</span>
+                          {selectedSubcategory.label}
+                        </span>
+                      ) : null}
+                    </div>
+                    <p className="text-xs text-muted-foreground">Name it, pin the location, and set the date.</p>
+                  </div>
                   <div className="space-y-2">
                     <Label className="text-muted-foreground text-xs uppercase tracking-wide">Plan name</Label>
                     <Input
@@ -512,14 +579,12 @@ export default function NewPlanWizardDrawer() {
                             setSelectedLocation(null);
                           }
                           if (nextValue.trim().length >= 2) setLocationSearchOpen(true);
-                          setTouchedLocation(true);
                         }}
                         onKeyDown={(event) => {
                           if (event.key === "Escape") setLocationSearchOpen(false);
                         }}
                         onBlur={() => {
                           window.setTimeout(() => setLocationSearchOpen(false), 120);
-                          setTouchedLocation(true);
                         }}
                       />
                       {locationSearchOpen ? (
@@ -555,9 +620,34 @@ export default function NewPlanWizardDrawer() {
                         </div>
                       ) : null}
                     </div>
-                    {touchedLocation && !selectedLocation ? (
-                      <p className="text-xs text-destructive">Please choose a location from the list.</p>
+                    {hasLocationSelectionPending ? (
+                      <p className="text-xs text-amber-700">Select a location from the list to continue</p>
                     ) : null}
+                  </div>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label className="text-muted-foreground text-xs uppercase tracking-wide">Plan currency</Label>
+                      <CurrencyPicker
+                        value={planCurrency}
+                        onChange={(code) => setPlanCurrency(code)}
+                        className="z-[130]"
+                        triggerClassName="w-full justify-between"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-muted-foreground text-xs uppercase tracking-wide">Local currency (optional)</Label>
+                      <CurrencyPicker
+                        value={localCurrency}
+                        onChange={(code) => setLocalCurrency(code === planCurrency ? "" : code)}
+                        className="z-[130]"
+                        triggerClassName="w-full justify-between"
+                        allowEmpty
+                        emptyLabel="None"
+                        placeholder="Optional"
+                        suggestedCode={selectedLocation ? currencyForCountry(selectedLocation.countryCode ?? "") ?? null : null}
+                        suggestedNote="Based on location"
+                      />
+                    </div>
                   </div>
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
@@ -670,92 +760,6 @@ export default function NewPlanWizardDrawer() {
                       </div>
                     </div>
                   </div>
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label className="text-muted-foreground text-xs uppercase tracking-wide">Plan currency</Label>
-                      <CurrencyPicker
-                        value={planCurrency}
-                        onChange={(code) => setPlanCurrency(code)}
-                        className="z-[130]"
-                        triggerClassName="w-full justify-between"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="text-muted-foreground text-xs uppercase tracking-wide">Local currency (optional)</Label>
-                      <CurrencyPicker
-                        value={localCurrency}
-                        onChange={(code) => setLocalCurrency(code === planCurrency ? "" : code)}
-                        className="z-[130]"
-                        triggerClassName="w-full justify-between"
-                        allowEmpty
-                        emptyLabel="None"
-                        placeholder="Optional"
-                        suggestedCode={selectedLocation ? currencyForCountry(selectedLocation.countryCode ?? "") ?? null : null}
-                        suggestedNote="Based on location"
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {step === "TYPE" && (
-                <div className="space-y-4">
-                  <div>
-                    <h4 className="text-sm font-semibold">Plan type</h4>
-                    <p className="text-xs text-muted-foreground mt-1">Pick what you’re planning and choose a subcategory.</p>
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    {PLAN_TYPES.map((option) => {
-                      const Icon = option.icon;
-                      const active = planType === option.id;
-                      return (
-                        <button
-                          key={option.id}
-                          type="button"
-                          onClick={() => {
-                            setPlanType(option.id);
-                            setSubcategory(null);
-                          }}
-                          className={`rounded-2xl border p-4 text-left transition-all duration-200 ${
-                            active ? "interactive-card border-primary/70 bg-primary/10 shadow-md shadow-primary/15" : "interactive-card border-border/70 hover:bg-muted/20"
-                          }`}
-                        >
-                          <p className="text-sm font-semibold flex items-center gap-2">
-                            <Icon className="h-4 w-4" />
-                            {option.label}
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-1">{option.description}</p>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {planType ? (
-                    <div className="space-y-3">
-                      <div>
-                        <h4 className="text-sm font-semibold">{planType === "trip" ? "Trip type" : "Party type"}</h4>
-                        <p className="text-xs text-muted-foreground mt-1">Choose a subcategory.</p>
-                      </div>
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        {subcategories.map((item) => (
-                          <button
-                            key={item.id}
-                            type="button"
-                            onClick={() => setSubcategory(item.id)}
-                            className={`rounded-2xl border p-4 text-left transition-all duration-200 ${
-                              subcategory === item.id ? "interactive-card border-primary/70 bg-primary/10 shadow-md shadow-primary/15" : "interactive-card border-border/70 hover:bg-muted/20"
-                            }`}
-                          >
-                            <p className="text-sm font-semibold flex items-center gap-1.5">
-                              <span aria-hidden className="text-lg">{item.emoji}</span>
-                              {item.label}
-                            </p>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">Select a plan type to see subcategories.</p>
-                  )}
                 </div>
               )}
             </div>
@@ -764,9 +768,9 @@ export default function NewPlanWizardDrawer() {
           <footer className="shrink-0 border-t border-border/60 bg-background/95 px-6 py-4 backdrop-blur">
             <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3 w-full">
               <Button variant="ghost" onClick={goBack} className="w-full sm:w-auto order-2 sm:order-1">
-                {step === "BASICS" ? "Cancel" : "Back"}
+                {step === "TYPE" ? "Cancel" : "Back"}
               </Button>
-              {step === "BASICS" ? (
+              {step === "TYPE" ? (
                 <Button
                   onClick={goNext}
                   disabled={!canGoNext}
@@ -777,7 +781,7 @@ export default function NewPlanWizardDrawer() {
               ) : (
                 <Button
                   onClick={handleCreate}
-                  disabled={!basicsValid || !typeStepValid || createBbq.isPending}
+                  disabled={!basicsValid || createBbq.isPending}
                   className="w-full sm:w-auto min-w-[188px] bg-primary text-primary-foreground font-semibold order-1 sm:order-2"
                 >
                   {createBbq.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1.5" /> : null}

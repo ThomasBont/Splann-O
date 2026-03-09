@@ -1,5 +1,19 @@
 import type { PlanActivityItem } from "@/hooks/use-plan-activity";
 
+export function getActivityIcon(itemType: PlanActivityItem["type"]) {
+  if (itemType.startsWith("EXPENSE_")) return "💸";
+  if (itemType === "MEMBER_JOINED") return "👋";
+  if (itemType === "PLAN_UPDATED") return "🛠️";
+  if (itemType === "NOTE_ADDED") return "📝";
+  if (itemType === "POLL_CREATED") return "🗳️";
+  if (itemType === "POLL_VOTED") return "✅";
+  if (itemType === "POLL_CLOSED") return "🏁";
+  if (itemType === "SETTLEMENT_STARTED") return "💳";
+  if (itemType === "SETTLEMENT_PAYMENT_PAID") return "💶";
+  if (itemType === "SETTLEMENT_COMPLETED") return "🎉";
+  return "•";
+}
+
 function formatCurrency(amount: number, currencyCode?: string | null) {
   const safeAmount = Number.isFinite(amount) ? amount : 0;
   const code = String(currencyCode ?? "").trim().toUpperCase();
@@ -58,6 +72,12 @@ export function formatActivityPreview(
   }
   if (item.type === "PLAN_UPDATED") {
     return `${actor} updated the plan`;
+  }
+  if (item.type === "NOTE_ADDED") {
+    const title = typeof meta.title === "string" && meta.title.trim() ? meta.title.trim() : "";
+    return title
+      ? `${actor} added a note · ${title}`
+      : `${actor} added a note`;
   }
   if (item.type === "POLL_CREATED") {
     const question = typeof meta.question === "string" && meta.question.trim() ? meta.question.trim() : item.message.replace(/^.+?:\s*/, "");

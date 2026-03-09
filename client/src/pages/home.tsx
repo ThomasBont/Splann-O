@@ -3685,7 +3685,7 @@ export default function Home({
               {user && (
                 <Button
                   size="sm"
-                  onClick={() => { setNewEventArea(area); setNewEventType(area === "trips" ? "city_trip" : "barbecue"); openNewPlanWizard("BASICS"); }}
+                  onClick={() => { setNewEventArea(area); setNewEventType(area === "trips" ? "city_trip" : "barbecue"); openNewPlanWizard("TYPE"); }}
                   className="font-semibold"
                   data-testid="button-new-bbq"
                 >
@@ -3820,6 +3820,7 @@ export default function Home({
                         eventId={selectedBbq.id}
                         eventName={selectedBbq.name}
                         eventType={selectedBbq.eventType ?? null}
+                        templateData={selectedBbq.templateData}
                         location={
                           selectedBbq.locationText
                           ?? selectedBbq.locationName
@@ -3898,6 +3899,7 @@ export default function Home({
                       eventId={selectedBbq.id}
                       eventName={selectedBbq.name}
                       eventType={selectedBbq.eventType ?? null}
+                      templateData={selectedBbq.templateData}
                       location={
                         selectedBbq.locationText
                         ?? selectedBbq.locationName
@@ -5445,6 +5447,7 @@ export default function Home({
                   eventId={selectedBbq.id}
                   eventName={selectedBbq.name}
                   eventType={selectedBbq.eventType ?? null}
+                  templateData={selectedBbq.templateData}
                   location={
                     selectedBbq.locationText
                     ?? selectedBbq.locationName
@@ -5525,7 +5528,7 @@ export default function Home({
                   <Button
                     type="button"
                     className="mt-6 rounded-full px-5 shadow-sm"
-                    onClick={() => { setNewEventArea(area); setNewEventType(area === "trips" ? "city_trip" : "barbecue"); openNewPlanWizard("BASICS"); }}
+                    onClick={() => { setNewEventArea(area); setNewEventType(area === "trips" ? "city_trip" : "barbecue"); openNewPlanWizard("TYPE"); }}
                   >
                     <Plus className="mr-1.5 h-4 w-4" />
                     New Plan +

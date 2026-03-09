@@ -157,6 +157,7 @@ chatWss.on("connection", (ws, req) => {
       text?: string;
       content?: string;
       clientMessageId?: string;
+      metadata?: Record<string, unknown> | null;
       eventId?: number;
       user?: { id?: string | number; name?: string };
     } | null = null;
@@ -301,6 +302,7 @@ chatWss.on("connection", (ws, req) => {
             type: "user",
             text,
             clientMessageId,
+            metadata: parsed.metadata ?? null,
             user: { id: String(meta.userId), name: meta.username },
           });
         } catch (error) {

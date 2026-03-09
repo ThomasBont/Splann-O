@@ -12,6 +12,7 @@ export type PlanActivityType =
   | "POLL_CREATED"
   | "POLL_VOTED"
   | "POLL_CLOSED"
+  | "NOTE_ADDED"
   | "MEMBER_JOINED"
   | "MEMBER_LEFT"
   | "INVITE_CREATED"
@@ -59,7 +60,7 @@ export async function logPlanActivity(input: LogPlanActivityInput) {
 
   // Keep chat feed aligned with persisted activity stream for member joins only.
   // Expense activity is posted as rich system chat cards directly from expense routes.
-  const mirroredTypes = new Set<PlanActivityType>(["MEMBER_JOINED"]);
+  const mirroredTypes = new Set<PlanActivityType>(["MEMBER_JOINED", "NOTE_ADDED"]);
   if (mirroredTypes.has(input.type)) {
     try {
       await postSystemChatMessage(input.eventId, input.message);

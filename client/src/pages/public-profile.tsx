@@ -6,12 +6,17 @@ import {
   ArrowLeft,
   CalendarDays,
   Globe,
+  Loader2,
   MapPin,
   Share2,
   Sparkles,
+  UserMinus,
+  UserPlus2,
   Users,
 } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
 import { usePublicProfile } from "@/hooks/use-bbq-data";
+import { type FriendRelationshipStatus, useFriendStatuses, useFriends, useRemoveFriend, useSendFriendRequestByUserId } from "@/hooks/use-friends";
 import { useToast } from "@/hooks/use-toast";
 import { copyText } from "@/lib/copy-text";
 import { Button } from "@/components/ui/button";
@@ -79,9 +84,14 @@ function EventCardSkeleton() {
 export default function PublicProfilePage() {
   const [, params] = useRoute("/u/:username");
   const username = params?.username ?? null;
+  const { user } = useAuth();
   const { data, isLoading, error } = usePublicProfile(username);
+  const { data: friends = [] } = useFriends();
+  const removeFriend = useRemoveFriend();
+  const sendFriendRequest = useSendFriendRequestByUserId();
   const { toast } = useToast();
   const [headerCompact, setHeaderCompact] = useState(false);
+  const [statusOverride, setStatusOverride] = useState<FriendRelationshipStatus | null>(null);
 
   useEffect(() => {
     const onScroll = () => setHeaderCompact(window.scrollY > 72);
@@ -93,6 +103,16 @@ export default function PublicProfilePage() {
   const profile = data?.profile;
   const events = data?.events ?? [];
   const ratioLabel = data?.stats.ratioLabel;
+  const targetUserId = profile?.id ?? null;
+  const friendStatusesQuery = useFriendStatuses(
+    targetUserId && targetUserId !== user?.id ? [targetUserId] : [],
+  );
+  const friendStatus = targetUserId && targetUserId !== user?.id
+    ? statusOverride ?? friendStatusesQuery.data?.[String(targetUserId)] ?? "not_friends"
+    : null;
+  const existingFriendshipId = targetUserId
+    ? friends.find((friend) => friend.userId === Number(targetUserId))?.friendshipId ?? null
+    : null;
 
   const shareUrl = useMemo(
     () => (username && typeof window !== "undefined" ? `${window.location.origin}/u/${encodeURIComponent(username)}` : ""),
@@ -112,6 +132,36 @@ export default function PublicProfilePage() {
       else toast({ variant: "error", message: "Copy failed — select and copy manually." });
     } catch {
       toast({ variant: "error", message: "Couldn’t share profile link" });
+    }
+  };
+
+  const handleAddFriend = async () => {
+    if (!targetUserId || targetUserId === user?.id) return;
+    const previousStatus = friendStatus ?? "not_friends";
+    setStatusOverride("pending_outgoing");
+    try {
+      const response = await sendFriendRequest.mutateAsync(targetUserId);
+      const nextStatus = response.status ?? "pending_outgoing";
+      setStatusOverride(nextStatus);
+      toast({ variant: nextStatus === "friends" ? "default" : "success", message: nextStatus === "friends" ? "Already friends" : "Friend request sent" });
+      void friendStatusesQuery.refetch();
+    } catch (error) {
+      setStatusOverride(previousStatus);
+      toast({ variant: "error", message: error instanceof Error ? error.message : "Couldn’t send friend request." });
+    }
+  };
+
+  const handleRemoveFriend = async () => {
+    if (!existingFriendshipId) return;
+    const previousStatus = friendStatus ?? "friends";
+    setStatusOverride("not_friends");
+    try {
+      await removeFriend.mutateAsync(existingFriendshipId);
+      toast({ variant: "success", message: "Friend removed" });
+      void friendStatusesQuery.refetch();
+    } catch (error) {
+      setStatusOverride(previousStatus);
+      toast({ variant: "error", message: error instanceof Error ? error.message : "Couldn’t remove friend." });
     }
   };
 
@@ -228,10 +278,31 @@ export default function PublicProfilePage() {
                     </div>
                   </div>
                 </div>
-                <Button variant="outline" className="rounded-xl self-start" onClick={handleShare}>
-                  <Share2 className="h-4 w-4" />
-                  Share profile
-                </Button>
+                <div className="flex flex-wrap items-center gap-2 self-start">
+                  {friendStatus === "not_friends" ? (
+                    <Button className="rounded-xl" onClick={() => void handleAddFriend()} disabled={sendFriendRequest.isPending}>
+                      {sendFriendRequest.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus2 className="h-4 w-4" />}
+                      Add friend
+                    </Button>
+                  ) : friendStatus === "friends" ? (
+                    <Button variant="outline" className="rounded-xl" onClick={() => void handleRemoveFriend()} disabled={removeFriend.isPending || !existingFriendshipId}>
+                      {removeFriend.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserMinus className="h-4 w-4" />}
+                      Unfriend
+                    </Button>
+                  ) : friendStatus === "pending_outgoing" ? (
+                    <Badge variant="outline" className="rounded-full border-amber-500/30 bg-amber-500/10 px-3 py-2 text-amber-700 dark:text-amber-300">
+                      Request sent
+                    </Badge>
+                  ) : friendStatus === "pending_incoming" ? (
+                    <Badge variant="outline" className="rounded-full border-amber-500/30 bg-amber-500/10 px-3 py-2 text-amber-700 dark:text-amber-300">
+                      Request pending
+                    </Badge>
+                  ) : null}
+                  <Button variant="outline" className="rounded-xl self-start" onClick={handleShare}>
+                    <Share2 className="h-4 w-4" />
+                    Share profile
+                  </Button>
+                </div>
               </div>
             </section>
 

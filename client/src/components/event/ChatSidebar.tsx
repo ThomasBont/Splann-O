@@ -1,17 +1,19 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { BarChart3, Calendar, CreditCard, Loader2, MapPin, MessageCircle, MoreHorizontal, Reply, SendHorizontal, Smile, Users } from "lucide-react";
+import { Calendar, Copy, CreditCard, FileText, ImageIcon, Loader2, MapPin, MessageCircle, MoreHorizontal, Paperclip, Pencil, Reply, SendHorizontal, Smile, Trash2, Users, X } from "lucide-react";
 import { InlineQueryError, SkeletonLine } from "@/components/ui/load-states";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useEventChat } from "@/hooks/use-event-chat";
 import { useAppToast } from "@/hooks/use-app-toast";
 import { useEventMembers } from "@/hooks/use-participants";
 import { useDeleteExpense } from "@/hooks/use-expenses";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { resolveAssetUrl } from "@/lib/asset-url";
 import { getChatPatternStyle } from "@/lib/chat-pattern";
 import { markPlanSwitchPerf } from "@/lib/plan-switch-perf";
 import { circularActionButtonClass, cn } from "@/lib/utils";
@@ -26,6 +28,7 @@ type ChatSidebarProps = {
   eventId: number | null;
   eventName?: string | null;
   eventType?: string | null;
+  templateData?: unknown;
   location?: string | null;
   dateTime?: Date | string | null;
   participantCount?: number;
@@ -138,6 +141,40 @@ type PollMetadata = {
   pollId: string;
 };
 
+type ReplyToMetadata = {
+  id: string;
+  senderName: string;
+  text: string;
+};
+
+type EditingMessageState = {
+  id: string;
+  originalText: string;
+};
+
+type PendingAttachment = {
+  kind: "image" | "file";
+  file: File;
+  previewUrl?: string | null;
+};
+
+type UploadedAttachment = {
+  kind: "image" | "file";
+  fileName: string;
+  mimeType: string;
+  size: number;
+  url: string;
+};
+
+type ViewerImage = {
+  src: string;
+  alt: string;
+};
+
+const MAX_IMAGE_ATTACHMENT_SIZE_BYTES = 5 * 1024 * 1024;
+const MAX_FILE_ATTACHMENT_SIZE_BYTES = 5 * 1024 * 1024;
+const FILE_ATTACHMENT_ACCEPT = ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.csv,.json,.rtf,.md";
+
 function toSettlementMetadata(input: Record<string, unknown> | null | undefined): SettlementMetadata | null {
   if (!input || input.type !== "settlement") return null;
   const settlementId = String(input.settlementId ?? "").trim();
@@ -209,6 +246,43 @@ function toPollMetadata(input: Record<string, unknown> | null | undefined): Poll
     type: "poll",
     pollId,
   };
+}
+
+function toReplyToMetadata(input: Record<string, unknown> | null | undefined): ReplyToMetadata | null {
+  if (!input || typeof input !== "object") return null;
+  const replyTo = input.replyTo;
+  if (!replyTo || typeof replyTo !== "object") return null;
+  const id = String((replyTo as Record<string, unknown>).id ?? "").trim();
+  const senderName = String((replyTo as Record<string, unknown>).senderName ?? "").trim();
+  const text = String((replyTo as Record<string, unknown>).text ?? "").trim();
+  if (!id || !senderName || !text) return null;
+  return { id, senderName, text };
+}
+
+function toAttachmentMetadata(input: Record<string, unknown> | null | undefined): UploadedAttachment | null {
+  if (!input || input.type !== "attachment") return null;
+  const attachment = input.attachment;
+  if (!attachment || typeof attachment !== "object") return null;
+  const raw = attachment as Record<string, unknown>;
+  const kind = raw.kind === "image" ? "image" : raw.kind === "file" ? "file" : null;
+  const fileName = String(raw.fileName ?? "").trim();
+  const mimeType = String(raw.mimeType ?? "").trim();
+  const url = String(raw.url ?? "").trim();
+  const size = Number(raw.size);
+  if (!kind || !fileName || !mimeType || !url || !Number.isFinite(size)) return null;
+  return {
+    kind,
+    fileName,
+    mimeType,
+    size,
+    url,
+  };
+}
+
+function formatAttachmentSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 KB";
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
 function formatMoneyForSystem(amount: number, currencyCode: string): string {
@@ -310,6 +384,7 @@ export function ChatSidebar({
   eventId,
   eventName,
   eventType = null,
+  templateData,
   location = null,
   dateTime = null,
   participantCount = 0,
@@ -325,10 +400,17 @@ export function ChatSidebar({
   const isMobile = useIsMobile();
   const queryClient = useQueryClient();
   const [draft, setDraft] = useState("");
+  const [replyingTo, setReplyingTo] = useState<ReplyToMetadata | null>(null);
+  const [editingMessage, setEditingMessage] = useState<EditingMessageState | null>(null);
+  const [pendingAttachment, setPendingAttachment] = useState<PendingAttachment | null>(null);
+  const [isAttachmentMenuOpen, setIsAttachmentMenuOpen] = useState(false);
+  const [viewerImage, setViewerImage] = useState<ViewerImage | null>(null);
   const [sending, setSending] = useState(false);
   const devInstanceIdRef = useRef<number>(0);
   const listRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const typingEmitTimerRef = useRef<number | null>(null);
   const typingStopTimerRef = useRef<number | null>(null);
   const [isNearBottom, setIsNearBottom] = useState(true);
@@ -341,10 +423,6 @@ export function ChatSidebar({
   const [showNewPill, setShowNewPill] = useState(false);
   const [reactionPickerMessageId, setReactionPickerMessageId] = useState<string | null>(null);
   const [optimisticallyDeletedExpenseIds, setOptimisticallyDeletedExpenseIds] = useState<number[]>([]);
-  const [pollComposerOpen, setPollComposerOpen] = useState(false);
-  const [pollQuestion, setPollQuestion] = useState("");
-  const [pollOptionsDraft, setPollOptionsDraft] = useState("Yes\nNo");
-  const [creatingPoll, setCreatingPoll] = useState(false);
   const {
     messages,
     historyLoading,
@@ -360,9 +438,10 @@ export function ChatSidebar({
     retrySend,
     sendTyping,
     toggleReaction,
+    editMessage,
+    deleteMessage,
     loadOlder,
     retry,
-    refreshHistory,
   } = useEventChat(eventId, enabled && !!eventId);
   const deleteExpense = useDeleteExpense(eventId);
   const membersQuery = useEventMembers(eventId);
@@ -471,6 +550,14 @@ export function ChatSidebar({
     };
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (pendingAttachment?.previewUrl) {
+        URL.revokeObjectURL(pendingAttachment.previewUrl);
+      }
+    };
+  }, [pendingAttachment]);
+
   const emitTypingStart = useCallback(() => {
     if (!eventId || isLocked) return;
     sendTyping({
@@ -531,12 +618,22 @@ export function ChatSidebar({
 
   const handleSubmit = async () => {
     const text = draft.trim();
+    const hasPendingAttachment = !!pendingAttachment;
     if (import.meta.env.DEV) {
-      console.log("[chat-send]", { textLen: text.length, isLocked, eventId, transport: "ws", wsState: wsReadyState, isSubscribed, sending });
+      console.log("[chat-send]", {
+        textLen: text.length,
+        hasPendingAttachment,
+        isLocked,
+        eventId,
+        transport: "ws",
+        wsState: wsReadyState,
+        isSubscribed,
+        sending,
+      });
     }
     if (sending) return;
 
-    if (!text) {
+    if (!text && !hasPendingAttachment) {
       if (import.meta.env.DEV) console.log("[chat-send] blocked: empty");
       return;
     }
@@ -550,15 +647,99 @@ export function ChatSidebar({
       toastError("Plan not loaded yet.");
       return;
     }
-
+    if (editingMessage) {
+      try {
+        await editMessage(editingMessage.id, text);
+      } catch (error) {
+        toastError(error instanceof Error ? error.message : "Couldn’t edit message.");
+        return;
+      }
+      emitTypingStop();
+      setDraft("");
+      setEditingMessage(null);
+      return;
+    }
     setSending(true);
+    const replyMetadata = replyingTo
+      ? {
+          replyTo: {
+            id: replyingTo.id,
+            senderName: replyingTo.senderName,
+            text: replyingTo.text,
+          },
+        }
+      : undefined;
+    let attachmentMetadata: UploadedAttachment | undefined;
+    if (pendingAttachment) {
+      try {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            if (typeof reader.result === "string" && reader.result) {
+              resolve(reader.result);
+              return;
+            }
+            reject(new Error("Couldn’t read attachment"));
+          };
+          reader.onerror = () => reject(new Error("Couldn’t read attachment"));
+          reader.readAsDataURL(pendingAttachment.file);
+        });
+
+        const upload = async (url: string) => {
+          const res = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+              kind: pendingAttachment.kind,
+              fileName: pendingAttachment.file.name,
+              dataUrl,
+            }),
+          });
+          const payload = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            const message = (payload as { message?: string }).message || "Attachment upload failed";
+            const error = new Error(message) as Error & { status?: number };
+            error.status = res.status;
+            throw error;
+          }
+          return payload as UploadedAttachment;
+        };
+
+        let uploaded: UploadedAttachment;
+        try {
+          uploaded = await upload(`/api/plans/${eventId}/chat/attachments`);
+        } catch (error) {
+          const status = typeof (error as { status?: unknown }).status === "number"
+            ? (error as { status?: number }).status
+            : null;
+          if (status !== 404) throw error;
+          uploaded = await upload(`/api/events/${eventId}/chat/attachments`);
+        }
+        attachmentMetadata = uploaded;
+      } catch (error) {
+        setSending(false);
+        toastError(error instanceof Error ? error.message : "Attachment upload failed.");
+        return;
+      }
+    }
+
+    const outgoingMetadata = {
+      ...(attachmentMetadata ? { type: "attachment" as const, attachment: attachmentMetadata } : {}),
+      ...(replyMetadata ?? {}),
+    };
+    const outgoingText = text || attachmentMetadata?.fileName || "";
+    if (!outgoingText) {
+      setSending(false);
+      return;
+    }
     let result: SendMessageResult;
     try {
-      result = await sendMessage(text, {
+      result = await sendMessage(outgoingText, {
         id: currentUser?.id ?? null,
         name: currentUser?.username ?? "You",
         avatarUrl: currentUser?.avatarUrl ?? null,
-      });
+      }, Object.keys(outgoingMetadata).length > 0 ? outgoingMetadata : undefined);
     } catch (error) {
       setSending(false);
       const message = error instanceof Error ? error.message : "Unknown error";
@@ -581,6 +762,8 @@ export function ChatSidebar({
     }
     emitTypingStop();
     setDraft("");
+    setReplyingTo(null);
+    clearPendingAttachment();
   };
 
   const debugFocusBlock = useCallback(() => {
@@ -646,59 +829,11 @@ export function ChatSidebar({
     }
   }, []);
 
-  const parsedPollOptions = useMemo(() => {
-    return pollOptionsDraft
-      .split("\n")
-      .map((option) => option.trim())
-      .filter(Boolean);
-  }, [pollOptionsDraft]);
-
-  const handleCreatePoll = useCallback(async () => {
-    const question = pollQuestion.trim();
-    const uniqueOptions = parsedPollOptions.filter((option, index, list) => (
-      list.findIndex((candidate) => candidate.toLowerCase() === option.toLowerCase()) === index
-    ));
-    if (!eventId) {
-      toastError("Plan not loaded yet.");
-      return;
-    }
-    if (!question) {
-      toastError("Add a poll question.");
-      return;
-    }
-    if (uniqueOptions.length < 2) {
-      toastError("Add at least 2 unique options.");
-      return;
-    }
-    setCreatingPoll(true);
-    try {
-      const res = await fetch(`/api/events/${eventId}/polls`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          question,
-          options: uniqueOptions,
-        }),
-      });
-      const body = await res.json().catch(() => ({} as { message?: string }));
-      if (!res.ok) throw new Error(body.message || "Failed to create poll");
-      setPollQuestion("");
-      setPollOptionsDraft("Yes\nNo");
-      setPollComposerOpen(false);
-      await refreshHistory();
-    } catch (error) {
-      toastError(error instanceof Error ? error.message : "Couldn’t create poll.");
-    } finally {
-      setCreatingPoll(false);
-    }
-  }, [eventId, parsedPollOptions, pollQuestion, refreshHistory, toastError]);
-
   const locationLabel = (location || "").trim() || "Nowhere yet";
   const peopleLabel = `${participantCount} ${participantCount === 1 ? "person" : "people"}`;
   const dateLabel = formatHeaderDate(dateTime);
   const sharedLabel = `${formatMoneyForSystem(sharedTotal, currency)} shared`;
-  const chatPatternStyle = useMemo(() => getChatPatternStyle(eventType), [eventType]);
+  const chatPatternStyle = useMemo(() => getChatPatternStyle({ eventType, templateData }), [eventType, templateData]);
   const hasEventId = Number.isFinite(Number(eventId)) && Number(eventId) > 0;
   const openPlanDetails = () => {
     if (isMobile) {
@@ -723,6 +858,64 @@ export function ChatSidebar({
     }
     openPanel({ type: "expenses" });
   };
+  const clearPendingAttachment = useCallback(() => {
+    setPendingAttachment((current) => {
+      if (current?.previewUrl) {
+        URL.revokeObjectURL(current.previewUrl);
+      }
+      return null;
+    });
+    if (imageInputRef.current) imageInputRef.current.value = "";
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }, []);
+
+  const selectAttachmentKind = useCallback((kind: "image" | "file") => {
+    if (!hasEventId) return;
+    setIsAttachmentMenuOpen(false);
+    if (kind === "image") {
+      imageInputRef.current?.click();
+      return;
+    }
+    fileInputRef.current?.click();
+  }, [hasEventId]);
+
+  const handleAttachmentSelection = useCallback((kind: "image" | "file", fileList: FileList | null) => {
+    const file = fileList?.[0];
+    if (!file) return;
+
+    const maxSize = kind === "image" ? MAX_IMAGE_ATTACHMENT_SIZE_BYTES : MAX_FILE_ATTACHMENT_SIZE_BYTES;
+    if (file.size > maxSize) {
+      toastError(kind === "image" ? "Image must be 10MB or smaller." : "File must be 20MB or smaller.");
+      return;
+    }
+
+    if (kind === "image" && !file.type.startsWith("image/")) {
+      toastError("Choose an image file.");
+      return;
+    }
+
+    setPendingAttachment((current) => {
+      if (current?.previewUrl) {
+        URL.revokeObjectURL(current.previewUrl);
+      }
+      return {
+        kind,
+        file,
+        previewUrl: kind === "image" ? URL.createObjectURL(file) : null,
+      };
+    });
+  }, [toastError]);
+
+  const handleImageInputChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    handleAttachmentSelection("image", event.target.files);
+    event.target.value = "";
+  }, [handleAttachmentSelection]);
+
+  const handleFileInputChange = useCallback((event: ChangeEvent<HTMLInputElement>) => {
+    handleAttachmentSelection("file", event.target.files);
+    event.target.value = "";
+  }, [handleAttachmentSelection]);
+
   const openCreateExpenseFromSuggestion = () => {
     if (!hasEventId || !expenseSuggestion) return;
     window.dispatchEvent(new CustomEvent("splanno:open-expenses", {
@@ -742,6 +935,39 @@ export function ChatSidebar({
   const isCrewOpen = panel?.type === "crew";
   const isPlanDetailsOpen = panel?.type === "plan-details";
   const isAnyPanelOpen = panel !== null;
+  const pendingAttachmentSizeLabel = pendingAttachment ? formatAttachmentSize(pendingAttachment.file.size) : "";
+  const isImageViewerOpen = !!viewerImage;
+  const startEditingMessage = useCallback((message: { id: string; text: string }) => {
+    setEditingMessage({ id: message.id, originalText: message.text });
+    setReplyingTo(null);
+    clearPendingAttachment();
+    setDraft(message.text);
+    window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.setSelectionRange(message.text.length, message.text.length);
+    });
+  }, [clearPendingAttachment]);
+  const cancelEditingMessage = useCallback(() => {
+    setEditingMessage(null);
+    setDraft("");
+  }, []);
+  const handleCopyMessage = useCallback(async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      toastInfo("Message copied.");
+    } catch {
+      toastError("Couldn’t copy message.");
+    }
+  }, [toastError, toastInfo]);
+  const handleDeleteMessage = useCallback(async (messageId: string) => {
+    if (!window.confirm("Delete this message?")) return;
+    try {
+      await deleteMessage(messageId);
+      if (editingMessage?.id === messageId) cancelEditingMessage();
+    } catch (error) {
+      toastError(error instanceof Error ? error.message : "Couldn’t delete message.");
+    }
+  }, [cancelEditingMessage, deleteMessage, editingMessage?.id, toastError]);
   const openExpenseDetail = useCallback((expenseId: number) => {
     if (isMobile) {
       openExpenseEditor(expenseId);
@@ -871,6 +1097,7 @@ export function ChatSidebar({
   }, [eventId, historyLoading, messageGroups.length, messages.length, virtualRows.length]);
 
   return (
+    <>
     <aside
       className={cn("pointer-events-auto relative flex h-full min-h-0 flex-col overflow-hidden bg-neutral-50", className)}
       style={
@@ -1129,11 +1356,9 @@ export function ChatSidebar({
                         <div className={cn(isMobile ? "max-w-[90%]" : "max-w-[84%] sm:max-w-[78%]")}>
                           <div className={cn("mb-1 px-1 text-muted-foreground", isMobile ? "text-[10px]" : "text-[11px]")}>
                             <span className="font-semibold text-foreground/90">{senderName}</span>
-                            {isSystemMessage ? (
-                              <span className="ml-1 rounded-full border border-border/60 bg-card px-1.5 py-0 text-[9px] uppercase tracking-wide">System</span>
-                            ) : (
+                            {!isSystemMessage ? (
                               <span className="ml-1 rounded-full border border-border/60 bg-card px-1.5 py-0 text-[9px] uppercase tracking-wide">Poll</span>
-                            )}
+                            ) : null}
                             {!isMobile ? <span className="px-1 text-muted-foreground/70">·</span> : null}
                             <span className="text-[10px] text-muted-foreground/70">{formatMessageTime(msg.createdAt)}</span>
                           </div>
@@ -1202,7 +1427,7 @@ export function ChatSidebar({
               const senderId = String(firstMsg.user?.id ?? "");
               const senderFromMember = senderId ? membersById.get(senderId) : undefined;
               const senderName = firstMsg.user?.name || senderFromMember?.name || "Unknown user";
-              const senderAvatar = firstMsg.user?.avatarUrl ?? senderFromMember?.avatarUrl ?? null;
+      const senderAvatar = resolveAssetUrl(firstMsg.user?.avatarUrl ?? senderFromMember?.avatarUrl ?? null);
               const mine = senderId !== SYSTEM_USER_ID
                 && (senderId === String(currentUser?.id ?? "") || firstMsg.user?.name === currentUser?.username);
               const latestMessage = group.messages[group.messages.length - 1];
@@ -1210,6 +1435,15 @@ export function ChatSidebar({
                 group.messages.flatMap((message) => message.reactions ?? []),
               );
               const hasGroupReactions = groupReactionSummary.length > 0;
+              const latestMessageAttachment = toAttachmentMetadata(latestMessage.metadata ?? null);
+              const canEditLatestMessage = mine && latestMessage.type === "user" && !latestMessageAttachment;
+              const canDeleteLatestMessage = mine && latestMessage.type === "user";
+              const groupHasOnlyImageAttachments = group.messages.every((message) => {
+                const attachment = toAttachmentMetadata(message.metadata ?? null);
+                const replyTo = toReplyToMetadata(message.metadata ?? null);
+                const hasVisibleText = !attachment || message.text.trim() !== attachment.fileName;
+                return attachment?.kind === "image" && !replyTo && !hasVisibleText;
+              });
 
               return (
                 <div
@@ -1250,22 +1484,96 @@ export function ChatSidebar({
                             <div
                               className={cn(
                                 "rounded-2xl text-sm leading-snug shadow-sm",
-                                isMobile ? "px-3 py-2" : "px-4 py-2",
-                                mine
+                                groupHasOnlyImageAttachments
+                                  ? "bg-transparent p-0 shadow-none"
+                                  : isMobile
+                                  ? "px-3 py-2"
+                                  : "px-4 py-2",
+                                groupHasOnlyImageAttachments
+                                  ? "border-0 text-foreground"
+                                  : mine
                                   ? "bg-primary text-slate-900"
                                   : "border border-border/70 bg-background/95 text-foreground dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-2))]/96",
                               )}
                             >
                               <div className="flex flex-col gap-1.5">
-                                {group.messages.map((msg, msgIndexInGroup) => (
-                                  <div
-                                    key={msg.id}
-                                    className={cn(
-                                      "whitespace-pre-wrap break-words leading-snug",
-                                      msgIndexInGroup > 0 ? (isMobile ? "border-t border-border/30 pt-1.5" : "border-t border-border/40 pt-1") : "",
-                                    )}
-                                  >
-                                    <p>{msg.text}</p>
+                                {group.messages.map((msg, msgIndexInGroup) => {
+                                  const replyTo = toReplyToMetadata(msg.metadata ?? null);
+                                  const attachment = toAttachmentMetadata(msg.metadata ?? null);
+                                  const attachmentUrl = resolveAssetUrl(attachment?.url ?? null);
+                                  const showMessageText = !attachment || msg.text.trim() !== attachment.fileName;
+                                  return (
+                                    <div
+                                      key={msg.id}
+                                      className={cn(
+                                        "whitespace-pre-wrap break-words leading-snug",
+                                        msgIndexInGroup > 0 ? (isMobile ? "border-t border-border/30 pt-1.5" : "border-t border-border/40 pt-1") : "",
+                                      )}
+                                    >
+                                      {replyTo ? (
+                                        <div className="mb-1.5 flex gap-1.5 rounded-md bg-black/5 px-2 py-1.5 dark:bg-white/10">
+                                          <div className="w-0.5 shrink-0 rounded-full bg-primary/70" />
+                                          <div className="min-w-0">
+                                            <p className="text-[10px] font-semibold text-primary/80">
+                                              {replyTo.senderName}
+                                            </p>
+                                            <p className="truncate text-[11px] text-muted-foreground">
+                                              {replyTo.text}
+                                            </p>
+                                          </div>
+                                        </div>
+                                      ) : null}
+                                      {attachment ? (
+                                        <div
+                                          className={cn(
+                                            "mb-1.5 overflow-hidden text-foreground",
+                                            attachment.kind === "image"
+                                              ? "rounded-[18px] bg-transparent"
+                                              : "rounded-xl border border-border/60 bg-background/70",
+                                          )}
+                                        >
+                                          {attachment.kind === "image" && attachmentUrl ? (
+                                            <button
+                                              type="button"
+                                              onClick={() => setViewerImage({ src: attachmentUrl, alt: attachment.fileName })}
+                                              className="group/image relative block max-w-[140px] cursor-zoom-in overflow-hidden rounded-[18px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:max-w-[180px]"
+                                              aria-label={`Open image ${attachment.fileName}`}
+                                            >
+                                              <img
+                                                src={attachmentUrl}
+                                                alt={attachment.fileName}
+                                                className="max-h-[180px] h-auto w-auto max-w-full object-cover transition duration-200 group-hover/image:scale-[1.01] group-hover/image:opacity-95"
+                                              />
+                                              <div className="pointer-events-none absolute inset-0 bg-black/0 transition-colors duration-200 group-hover/image:bg-black/5 dark:group-hover/image:bg-black/10" />
+                                            </button>
+                                          ) : (
+                                            <a
+                                              href={attachmentUrl ?? undefined}
+                                              target="_blank"
+                                              rel="noreferrer"
+                                              className="flex items-center gap-3 px-3 py-2 transition-colors hover:bg-muted/50"
+                                            >
+                                              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-muted/50 text-muted-foreground">
+                                                <FileText className="h-4 w-4" />
+                                              </div>
+                                              <div className="min-w-0">
+                                                <p className="truncate text-xs font-medium text-foreground">
+                                                  {attachment.fileName}
+                                                </p>
+                                                <p className="text-[11px] text-muted-foreground">
+                                                  {formatAttachmentSize(attachment.size)}
+                                                </p>
+                                              </div>
+                                            </a>
+                                          )}
+                                        </div>
+                                      ) : null}
+                                      {showMessageText ? <p>{msg.text}</p> : null}
+                                      {msg.editedAt && msg.status !== "sending" && msg.status !== "failed" ? (
+                                        <p className={cn("mt-1 text-[10px]", mine ? "text-slate-800/70" : "text-muted-foreground")}>
+                                          edited
+                                        </p>
+                                      ) : null}
                                     {msg.status === "sending" ? (
                                       <div className={cn("mt-1 text-[10px]", mine ? "text-slate-800/70" : "text-muted-foreground")}>
                                         sending…
@@ -1289,8 +1597,9 @@ export function ChatSidebar({
                                         </button>
                                       </div>
                                     ) : null}
-                                  </div>
-                                ))}
+                                    </div>
+                                  );
+                                })}
                               </div>
                             </div>
                             <div
@@ -1338,22 +1647,51 @@ export function ChatSidebar({
                                 aria-label="Reply to message"
                                 className={`${circularActionButtonClass()} inline-flex h-7 w-7 items-center justify-center`}
                                 onClick={() => {
-                                  const replyTarget = mine ? "You" : senderName;
-                                  const prefix = `@${replyTarget} `;
-                                  setDraft((prev) => (prev.trim() ? `${prefix}${prev}` : prefix));
-                                  inputRef.current?.focus();
+                                  setEditingMessage(null);
+                                  setReplyingTo({
+                                    id: latestMessage.id,
+                                    senderName: mine ? "You" : senderName,
+                                    text: latestMessage.text.trim().slice(0, 60),
+                                  });
+                                  window.requestAnimationFrame(() => {
+                                    inputRef.current?.focus();
+                                  });
                                 }}
                               >
                                 <Reply className="h-3.5 w-3.5" />
                               </button>
-                              <button
-                                type="button"
-                                aria-label="More message actions"
-                                className={`${circularActionButtonClass()} inline-flex h-7 w-7 items-center justify-center`}
-                                onClick={() => toastInfo("More actions coming soon.")}
-                              >
-                                <MoreHorizontal className="h-3.5 w-3.5" />
-                              </button>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <button
+                                    type="button"
+                                    aria-label="More message actions"
+                                    className={`${circularActionButtonClass()} inline-flex h-7 w-7 items-center justify-center`}
+                                  >
+                                    <MoreHorizontal className="h-3.5 w-3.5" />
+                                  </button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align={mine ? "end" : "start"} className="w-40">
+                                  <DropdownMenuItem onClick={() => { void handleCopyMessage(latestMessage.text); }}>
+                                    <Copy className="h-4 w-4" />
+                                    Copy text
+                                  </DropdownMenuItem>
+                                  {canEditLatestMessage ? (
+                                    <DropdownMenuItem onClick={() => startEditingMessage({ id: latestMessage.id, text: latestMessage.text })}>
+                                      <Pencil className="h-4 w-4" />
+                                      Edit
+                                    </DropdownMenuItem>
+                                  ) : null}
+                                  {canDeleteLatestMessage ? (
+                                    <DropdownMenuItem
+                                      onClick={() => { void handleDeleteMessage(latestMessage.id); }}
+                                      className="text-destructive focus:text-destructive"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                      Delete
+                                    </DropdownMenuItem>
+                                  ) : null}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
                             </div>
                           </div>
                           {hasGroupReactions ? (
@@ -1474,83 +1812,185 @@ export function ChatSidebar({
           ) : null}
         </div>
         <div className={cn("flex items-end gap-2", isMobile ? "pb-0.5" : "items-center")}>
-          <Popover open={pollComposerOpen} onOpenChange={setPollComposerOpen}>
-            <PopoverTrigger asChild>
-              <Button
-                type="button"
-                size="icon"
-                variant="outline"
-                className={cn(`shrink-0 ${circularActionButtonClass()}`, isMobile ? "h-10 w-10" : "h-10 w-10")}
-                aria-label="Create poll"
-                disabled={isLocked || !eventId || creatingPoll}
-              >
-                {creatingPoll ? <Loader2 className="h-4 w-4 animate-spin" /> : <BarChart3 className="h-4 w-4" />}
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="start" sideOffset={10} className="w-[320px] rounded-2xl p-4">
-              <div className="space-y-3">
-                <div>
-                  <p className="text-sm font-semibold text-foreground">Create poll</p>
-                  <p className="mt-1 text-xs text-muted-foreground">Ask one question and add one option per line.</p>
-                </div>
-                <Input
-                  value={pollQuestion}
-                  onChange={(event) => setPollQuestion(event.target.value)}
-                  placeholder="Question"
-                  maxLength={240}
-                />
-                <Textarea
-                  value={pollOptionsDraft}
-                  onChange={(event) => setPollOptionsDraft(event.target.value)}
-                  placeholder={"Option 1\nOption 2"}
-                  rows={5}
-                  maxLength={1000}
-                />
-                <p className="text-[11px] text-muted-foreground">
-                  {parsedPollOptions.length} option{parsedPollOptions.length === 1 ? "" : "s"}
-                </p>
-                <div className="flex justify-end gap-2">
-                  <Button type="button" variant="ghost" size="sm" onClick={() => setPollComposerOpen(false)}>
-                    Cancel
-                  </Button>
-                  <Button type="button" size="sm" onClick={() => void handleCreatePoll()} disabled={creatingPoll}>
-                    {creatingPoll ? "Creating..." : "Post poll"}
-                  </Button>
-                </div>
-              </div>
-            </PopoverContent>
-          </Popover>
           <div
             className={cn(
-              "flex flex-1 items-center rounded-2xl border border-border/70 bg-background",
-              isMobile ? "min-h-10 max-h-[132px] px-3 py-1.5 shadow-sm" : "min-h-10 max-h-[132px] px-4 py-1.5",
+              "flex flex-1 flex-col rounded-2xl border border-border/70 bg-background",
+              isMobile ? "min-h-10 shadow-sm" : "min-h-10",
             )}
-            onMouseDown={(e) => {
-              if (isLocked) return;
-              e.preventDefault();
-              inputRef.current?.focus();
-              debugFocusBlock();
-            }}
           >
-            <textarea
-              ref={inputRef}
-              value={draft}
-              onChange={(e) => handleDraftChange(e.target.value)}
-              onBlur={() => emitTypingStop()}
-              placeholder="Message…"
+            {replyingTo ? (
+              <div className="flex items-center gap-2 rounded-t-[15px] border-x border-t border-border/60 bg-muted/40 px-3 py-2">
+                <div className="w-0.5 self-stretch rounded-full bg-primary" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] font-medium text-primary">
+                    Replying to {replyingTo.senderName}
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {replyingTo.text}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setReplyingTo(null)}
+                  className="shrink-0 rounded-full p-1 hover:bg-muted"
+                  aria-label="Cancel reply"
+                >
+                  <X className="h-3.5 w-3.5 text-muted-foreground" />
+                </button>
+              </div>
+            ) : null}
+            {editingMessage ? (
+              <div className="flex items-center gap-2 border-x border-t border-border/60 bg-muted/35 px-3 py-2">
+                <div className="w-0.5 self-stretch rounded-full bg-primary" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] font-medium text-primary">
+                    Editing message
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {editingMessage.originalText}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={cancelEditingMessage}
+                  className="shrink-0 rounded-full p-1 hover:bg-muted"
+                  aria-label="Cancel edit"
+                >
+                  <X className="h-3.5 w-3.5 text-muted-foreground" />
+                </button>
+              </div>
+            ) : null}
+            {pendingAttachment ? (
+              <div className="flex items-center gap-2 border-x border-t border-border/60 bg-muted/30 px-3 py-2">
+                <div className="w-0.5 self-stretch rounded-full bg-primary" />
+                {pendingAttachment.kind === "image" && pendingAttachment.previewUrl ? (
+                  <img
+                    src={pendingAttachment.previewUrl}
+                    alt=""
+                    className="h-10 w-10 shrink-0 rounded-md border border-border/70 object-cover"
+                  />
+                ) : (
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border/70 bg-background text-muted-foreground">
+                    <FileText className="h-4 w-4" />
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-medium text-foreground">
+                    {pendingAttachment.file.name}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {pendingAttachment.kind === "image" ? "Image" : "File"} · {pendingAttachmentSizeLabel}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={clearPendingAttachment}
+                  className="shrink-0 rounded-full p-1 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0"
+                  aria-label="Remove attachment"
+                >
+                  <X className="h-3.5 w-3.5 text-muted-foreground" />
+                </button>
+              </div>
+            ) : null}
+            <div
               className={cn(
-                "pointer-events-auto w-full resize-none overflow-y-auto bg-transparent text-[16px] leading-normal text-foreground caret-primary outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:text-muted-foreground/70",
-                isMobile ? "min-h-[22px] max-h-[104px] py-0 leading-[1.35]" : "min-h-[20px] max-h-[104px] py-0.5 md:text-sm",
+                "flex items-center gap-2",
+                isMobile ? "max-h-[132px] px-3 py-1.5" : "max-h-[132px] px-4 py-1.5",
               )}
-              rows={1}
-              disabled={isLocked}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  void handleSubmit();
-                }
+              onMouseDown={(e) => {
+                if (isLocked) return;
+                e.preventDefault();
+                inputRef.current?.focus();
+                debugFocusBlock();
               }}
-            />
+            >
+              <TooltipProvider delayDuration={120}>
+                <Tooltip>
+                  <Popover open={isAttachmentMenuOpen} onOpenChange={setIsAttachmentMenuOpen}>
+                    <PopoverTrigger asChild>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className={cn(
+                            "shrink-0 rounded-full text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground active:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0",
+                            isMobile ? "h-8 w-8" : "h-8 w-8",
+                          )}
+                          aria-label="Add attachment"
+                          disabled={!hasEventId}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                          }}
+                        >
+                          <Paperclip className="h-4 w-4" />
+                        </Button>
+                      </TooltipTrigger>
+                    </PopoverTrigger>
+                    <PopoverContent
+                      align="start"
+                      side="top"
+                      sideOffset={8}
+                      className="w-44 rounded-2xl border-border/70 p-1"
+                      onOpenAutoFocus={(event) => event.preventDefault()}
+                    >
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
+                        onClick={() => selectAttachmentKind("image")}
+                      >
+                        <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                        <span>Upload image</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
+                        onClick={() => selectAttachmentKind("file")}
+                      >
+                        <FileText className="h-4 w-4 text-muted-foreground" />
+                        <span>Upload file</span>
+                      </button>
+                    </PopoverContent>
+                  </Popover>
+                  <TooltipContent>Add attachment</TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                tabIndex={-1}
+                onChange={handleImageInputChange}
+              />
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept={FILE_ATTACHMENT_ACCEPT}
+                className="hidden"
+                tabIndex={-1}
+                onChange={handleFileInputChange}
+              />
+              <textarea
+                ref={inputRef}
+                value={draft}
+                onChange={(e) => handleDraftChange(e.target.value)}
+                onBlur={() => emitTypingStop()}
+                placeholder="Message…"
+                className={cn(
+                  "pointer-events-auto w-full resize-none overflow-y-auto bg-transparent text-[16px] leading-normal text-foreground caret-primary outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:text-muted-foreground/70",
+                  isMobile ? "min-h-[22px] max-h-[104px] py-0 leading-[1.35]" : "min-h-[20px] max-h-[104px] py-0.5 md:text-sm",
+                )}
+                rows={1}
+                disabled={isLocked}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    void handleSubmit();
+                  }
+                }}
+              />
+            </div>
           </div>
           <Button
             type="button"
@@ -1560,7 +2000,7 @@ export function ChatSidebar({
               isMobile ? "h-10 w-10" : "h-10 w-10",
             )}
             onClick={() => void handleSubmit()}
-            disabled={isLocked || sending || !draft.trim() || !eventId}
+            disabled={isLocked || sending || (!draft.trim() && !pendingAttachment) || !eventId}
             aria-label="Send message"
           >
             {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <SendHorizontal className="h-4 w-4" />}
@@ -1568,5 +2008,31 @@ export function ChatSidebar({
         </div>
       </div>
     </aside>
+    <Dialog open={isImageViewerOpen} onOpenChange={(open) => { if (!open) setViewerImage(null); }}>
+      <DialogContent className="w-auto max-w-[92vw] border-0 bg-transparent p-0 shadow-none [&>button]:hidden">
+        <DialogTitle className="sr-only">
+          Chat image viewer
+        </DialogTitle>
+        <DialogDescription className="sr-only">
+          Enlarged view of the selected chat image.
+        </DialogDescription>
+        {viewerImage ? (
+          <div className="relative flex items-center justify-center">
+            <DialogClose
+              className="absolute right-3 top-3 z-10 inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/55 text-white shadow-lg transition hover:bg-black/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+              aria-label="Close image viewer"
+            >
+              <X className="h-5 w-5" />
+            </DialogClose>
+            <img
+              src={viewerImage.src}
+              alt={viewerImage.alt}
+              className="max-h-[88vh] w-auto max-w-[92vw] rounded-2xl object-contain shadow-[0_18px_60px_rgba(0,0,0,0.38)]"
+            />
+          </div>
+        ) : null}
+      </DialogContent>
+    </Dialog>
+    </>
   );
 }

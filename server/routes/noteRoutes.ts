@@ -7,6 +7,7 @@ import { expenseRepo } from "../repositories/expenseRepo";
 import { participantRepo } from "../repositories/participantRepo";
 import { db } from "../db";
 import { forbidden, notFound } from "../lib/errors";
+import { logPlanActivity } from "../lib/planActivity";
 import { asyncHandler, getBarbecueOr404, p } from "./_helpers";
 
 const router = Router();
@@ -32,6 +33,22 @@ router.post(p(api.notes.create.path), asyncHandler(async (req, res) => {
     title: input.title ?? null,
     body: input.body,
     pinned: input.pinned ?? false,
+  });
+  const noteTitle = typeof created.title === "string" && created.title.trim()
+    ? created.title.trim()
+    : "a note";
+  const actorName = created.authorName || req.session?.username || "Someone";
+  await logPlanActivity({
+    eventId,
+    type: "NOTE_ADDED",
+    actorUserId: req.session?.userId ?? null,
+    actorName,
+    message: `${actorName} added a note · ${noteTitle}`,
+    meta: {
+      noteId: created.id,
+      title: created.title ?? null,
+      pinned: created.pinned === true,
+    },
   });
   res.status(201).json(created);
 }));

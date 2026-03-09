@@ -13,19 +13,19 @@ const NewPlanWizardContext = createContext<NewPlanWizardContextValue | null>(nul
 
 export function NewPlanWizardProvider({ children }: { children: ReactNode }) {
   const [isOpen, setIsOpen] = useState(false);
-  const [step, setStep] = useState<NewPlanWizardStep>("BASICS");
+  const [step, setStep] = useState<NewPlanWizardStep>("TYPE");
 
   const value = useMemo<NewPlanWizardContextValue>(
     () => ({
       isNewPlanWizardOpen: isOpen,
       newPlanWizardStep: step,
-      openNewPlanWizard: (initialStep = "BASICS") => {
+      openNewPlanWizard: (initialStep = "TYPE") => {
         setStep(initialStep);
         setIsOpen(true);
       },
       closeNewPlanWizard: () => {
         setIsOpen(false);
-        setStep("BASICS");
+        setStep("TYPE");
       },
     }),
     [isOpen, step],
@@ -41,4 +41,3 @@ export function useNewPlanWizard() {
   }
   return context;
 }
-

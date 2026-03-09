@@ -9,6 +9,8 @@ type MobileChatSheetProps = {
   onOpenChange: (open: boolean) => void;
   eventId: number | null;
   eventName?: string | null;
+  eventType?: string | null;
+  templateData?: unknown;
   location?: string | null;
   dateTime?: Date | string | null;
   participantCount?: number;
@@ -24,6 +26,8 @@ export function MobileChatSheet({
   onOpenChange,
   eventId,
   eventName,
+  eventType = null,
+  templateData,
   location = null,
   dateTime = null,
   participantCount = 0,
@@ -66,6 +70,8 @@ export function MobileChatSheet({
           <ChatSidebar
             eventId={eventId}
             eventName={eventName}
+            eventType={eventType}
+            templateData={templateData}
             location={location}
             dateTime={dateTime}
             participantCount={participantCount}

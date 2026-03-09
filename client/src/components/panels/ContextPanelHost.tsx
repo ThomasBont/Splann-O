@@ -5,6 +5,7 @@ import { useActiveEventId } from "@/components/panels/panel-primitives";
 import OverviewPanel from "@/components/panels/OverviewPanel";
 import ExpenseDetailPanel from "@/components/panels/ExpenseDetailPanel";
 import ExpensesPanel from "@/components/panels/ExpensesPanel";
+import NotesPanel from "@/components/panels/NotesPanel";
 import AddExpensePanel from "@/components/panels/AddExpensePanel";
 import SettlementPanel from "@/components/panels/SettlementPanel";
 import PollsPanel from "@/components/panels/PollsPanel";
@@ -42,6 +43,9 @@ export function ContextPanelHost({
       break;
     case "expenses":
       content = <ExpensesPanel />;
+      break;
+    case "notes":
+      content = <NotesPanel />;
       break;
     case "add-expense":
       content = <AddExpensePanel source={panel.source} />;

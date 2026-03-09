@@ -1,11 +1,11 @@
-import { useState } from "react";
-import { Loader2, UserPlus2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Loader2, UserMinus, UserPlus2 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { PanelHeader, PanelSection, PanelShell, useActiveEventId } from "@/components/panels/panel-primitives";
 import { useAuth } from "@/hooks/use-auth";
 import { useAppToast } from "@/hooks/use-app-toast";
-import { type FriendRelationshipStatus, useFriendStatuses, useSendFriendRequestByUserId } from "@/hooks/use-friends";
+import { type FriendRelationshipStatus, useFriendStatuses, useFriends, useRemoveFriend, useSendFriendRequestByUserId } from "@/hooks/use-friends";
 import { useUserProfile } from "@/hooks/use-user-profile";
 import { usePlanCrew } from "@/hooks/use-plan-data";
 import { resolveAssetUrl } from "@/lib/asset-url";
@@ -31,7 +31,9 @@ export function MemberProfilePanel({ username }: { username: string }) {
   const eventId = useActiveEventId();
   const crewQuery = usePlanCrew(eventId);
   const profileQuery = useUserProfile(username);
+  const friendsQuery = useFriends();
   const sendFriendRequest = useSendFriendRequestByUserId();
+  const removeFriend = useRemoveFriend();
   const [statusOverride, setStatusOverride] = useState<FriendRelationshipStatus | null>(null);
   const member = (crewQuery.data?.members ?? []).find((entry) => entry.username === username) ?? null;
   const profile = profileQuery.data?.user ?? null;
@@ -44,6 +46,10 @@ export function MemberProfilePanel({ username }: { username: string }) {
   const friendStatus = targetUserId && targetUserId !== user?.id
     ? statusOverride ?? friendStatusesQuery.data?.[String(targetUserId)] ?? "not_friends"
     : null;
+  const existingFriendshipId = useMemo(
+    () => targetUserId ? (friendsQuery.data ?? []).find((friend) => friend.userId === Number(targetUserId))?.friendshipId ?? null : null,
+    [friendsQuery.data, targetUserId],
+  );
 
   const handleAddFriend = async () => {
     if (!targetUserId || targetUserId === user?.id) return;
@@ -59,6 +65,20 @@ export function MemberProfilePanel({ username }: { username: string }) {
     } catch (error) {
       setStatusOverride(previousStatus);
       toastError((error as Error).message || "Couldn’t send friend request.");
+    }
+  };
+
+  const handleRemoveFriend = async () => {
+    if (!existingFriendshipId || !targetUserId || targetUserId === user?.id) return;
+    const previousStatus = friendStatus ?? "friends";
+    setStatusOverride("not_friends");
+    try {
+      await removeFriend.mutateAsync(existingFriendshipId);
+      toastSuccess("Friend removed");
+      void friendStatusesQuery.refetch();
+    } catch (error) {
+      setStatusOverride(previousStatus);
+      toastError((error as Error).message || "Couldn’t remove friend.");
     }
   };
 
@@ -78,11 +98,38 @@ export function MemberProfilePanel({ username }: { username: string }) {
             {sendFriendRequest.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserPlus2 className="h-3.5 w-3.5" />}
             Add friend
           </Button>
+        ) : friendStatus === "friends" ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="min-h-9 rounded-full px-3.5"
+            onClick={() => void handleRemoveFriend()}
+            disabled={removeFriend.isPending || !existingFriendshipId}
+          >
+            {removeFriend.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserMinus className="h-3.5 w-3.5" />}
+            Unfriend
+          </Button>
         ) : null}
         meta={(
           <>
-            <span className="truncate">@{profile?.username || username}</span>
-            {member ? <span>{member.role === "owner" ? "Owner" : "Member"} · {formatJoined(member.joinedAt)}</span> : null}
+            <div className="flex items-center gap-3">
+              <Avatar className="h-14 w-14 shrink-0">
+                {avatarUrl ? <AvatarImage src={resolveAssetUrl(avatarUrl) ?? avatarUrl} alt={profileName} /> : null}
+                <AvatarFallback className="bg-primary/10 text-sm font-semibold text-primary">
+                  {initials(profileName)}
+                </AvatarFallback>
+              </Avatar>
+              <div className="min-w-0">
+                <span className="block truncate">@{profile?.username || username}</span>
+                {member ? <span className="block">{member.role === "owner" ? "Owner" : "Member"} · {formatJoined(member.joinedAt)}</span> : null}
+                {friendStatus === "pending_outgoing" ? (
+                  <span className="mt-1 block text-xs font-medium text-amber-700 dark:text-amber-300">Friend request sent</span>
+                ) : friendStatus === "pending_incoming" ? (
+                  <span className="mt-1 block text-xs font-medium text-amber-700 dark:text-amber-300">Friend request pending</span>
+                ) : null}
+              </div>
+            </div>
           </>
         )}
       />
@@ -98,26 +145,6 @@ export function MemberProfilePanel({ username }: { username: string }) {
           </div>
         ) : (
           <>
-            <PanelSection title="Member" variant="list">
-              <div className="flex items-center gap-4">
-                <Avatar className="h-16 w-16">
-                  {avatarUrl ? <AvatarImage src={resolveAssetUrl(avatarUrl) ?? avatarUrl} alt={profileName} /> : null}
-                  <AvatarFallback className="bg-primary/10 text-base font-semibold text-primary">
-                    {initials(profileName)}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="min-w-0">
-                  <p className="truncate text-base font-semibold text-foreground">{profileName}</p>
-                  <p className="truncate text-sm text-muted-foreground">@{profile.username}</p>
-                  {member ? (
-                    <p className="mt-1 text-xs text-muted-foreground/80">
-                      {member.role === "owner" ? "Owner" : "Member"} · {formatJoined(member.joinedAt)}
-                    </p>
-                  ) : null}
-                </div>
-              </div>
-            </PanelSection>
-
             <PanelSection title="About" variant="list">
               <p className="text-sm leading-6 text-foreground/90">
                 {profile.bio?.trim() ? profile.bio : "No bio yet."}

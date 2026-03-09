@@ -16,6 +16,7 @@ export type ChatMessage = {
   metadata?: Record<string, unknown> | null;
   createdAt: string;
   serverCreatedAt?: string;
+  editedAt?: string | null;
   status?: "sending" | "sent" | "failed";
   optimistic?: boolean;
   user?: { id: string; name: string; avatarUrl?: string | null };
@@ -37,6 +38,8 @@ export type SendMessageResult = {
   isSubscribed: boolean;
 };
 
+type OutgoingMessageMetadata = Record<string, unknown> | null | undefined;
+
 type IncomingServerMessage = {
   id: string;
   eventId: string;
@@ -47,6 +50,7 @@ type IncomingServerMessage = {
   metadata?: unknown;
   createdAt: string;
   serverCreatedAt?: string;
+  editedAt?: string | null;
   reactions?: Array<{ emoji?: string; count?: number; me?: boolean }>;
   user?: { id?: string | number | null; name?: string | null; avatarUrl?: string | null };
 };
@@ -95,6 +99,36 @@ export async function fetchPlanMessages(planId: number, before?: string | null):
   };
 }
 
+async function fetchChatMutationWithFallback(
+  planId: number,
+  messageId: string,
+  init: RequestInit,
+) {
+  const rawMessageId = messageId.trim();
+  const normalizedMessageId = rawMessageId.startsWith("optimistic:")
+    ? rawMessageId.slice("optimistic:".length)
+    : rawMessageId;
+  const candidateIds = Array.from(new Set([rawMessageId, normalizedMessageId].filter(Boolean)));
+  const tryRequest = async (url: string) => {
+    const res = await fetch(url, {
+      credentials: "include",
+      ...init,
+    });
+    const body = await res.json().catch(() => ({}));
+    return { res, body };
+  };
+
+  let result: { res: Response; body: unknown } | null = null;
+  for (const id of candidateIds) {
+    const encodedMessageId = encodeURIComponent(id);
+    result = await tryRequest(`/api/plans/${planId}/chat/messages/${encodedMessageId}`);
+    if (result.res.ok || result.res.status !== 404) return result;
+    result = await tryRequest(`/api/events/${planId}/chat/messages/${encodedMessageId}`);
+    if (result.res.ok || result.res.status !== 404) return result;
+  }
+  return result ?? tryRequest(`/api/plans/${planId}/chat/messages/${encodeURIComponent(rawMessageId)}`);
+}
+
 function createClientMessageId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
   // Keep server-side UUID validation happy even on non-secure contexts (e.g. LAN http).
@@ -118,6 +152,7 @@ function normalizeIncomingMessage(raw: IncomingServerMessage): ChatMessage | nul
     metadata: (raw.metadata && typeof raw.metadata === "object") ? (raw.metadata as Record<string, unknown>) : null,
     createdAt,
     serverCreatedAt: raw.serverCreatedAt ?? createdAt,
+    editedAt: typeof raw.editedAt === "string" ? raw.editedAt : null,
     status: "sent",
     optimistic: false,
     reactions: Array.isArray(raw.reactions)
@@ -275,6 +310,16 @@ export function useEventChat(eventId: number | null, enabled = true) {
     )));
   }, []);
 
+  const applyMessageUpdate = useCallback((message: ChatMessage) => {
+    setMessages((prev) => dedupeAndSort(prev.map((current) => (
+      current.id === message.id ? { ...current, ...message, status: "sent", optimistic: false } : current
+    ))));
+  }, []);
+
+  const applyMessageDelete = useCallback((messageId: string) => {
+    setMessages((prev) => prev.filter((message) => message.id !== messageId));
+  }, []);
+
   const fetchHistoryPage = useCallback(async (before?: string | null) => {
     if (!eventId || !enabled) return { messages: [] as ChatMessage[], nextCursor: null as string | null, locked: false };
     if (import.meta.env.DEV) {
@@ -365,14 +410,14 @@ export function useEventChat(eventId: number | null, enabled = true) {
     }
   }, [enabled, eventId, fetchHistoryPage, historyLoadingOlder, mergeMessages, nextCursor]);
 
-  const sendViaHttp = useCallback(async (clientMessageId: string, text: string) => {
+  const sendViaHttp = useCallback(async (clientMessageId: string, text: string, metadata?: OutgoingMessageMetadata) => {
     if (!eventId) throw new Error("No event id");
     const endpoint = `/api/plans/${eventId}/chat/messages`;
     const res = await fetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({ content: text, clientMessageId }),
+      body: JSON.stringify({ content: text, clientMessageId, metadata: metadata ?? null }),
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -552,6 +597,16 @@ export function useEventChat(eventId: number | null, enabled = true) {
         applyReactionUpdate(payload.messageId, reactions);
         return;
       }
+      if (payload?.type === "chat:update") {
+        const incoming = normalizeIncomingMessage(payload.message as IncomingServerMessage);
+        if (!incoming) return;
+        applyMessageUpdate(incoming);
+        return;
+      }
+      if (payload?.type === "chat:delete" && typeof payload.messageId === "string") {
+        applyMessageDelete(payload.messageId);
+        return;
+      }
       if (payload?.type === "plan:balancesUpdated") {
         const planId = Number(payload.planId);
         if (!Number.isFinite(planId) || planId !== eventId) return;
@@ -624,7 +679,7 @@ export function useEventChat(eventId: number | null, enabled = true) {
         wsRef.current = null;
       }
     };
-  }, [applyReactionUpdate, enabled, eventId, markFailed, mergeMessages, queryClient, reconcileServerMessage, retryTick]);
+  }, [applyMessageDelete, applyMessageUpdate, applyReactionUpdate, enabled, eventId, markFailed, mergeMessages, queryClient, reconcileServerMessage, retryTick]);
 
   useEffect(() => {
     if (!enabled || !eventId) return;
@@ -646,6 +701,7 @@ export function useEventChat(eventId: number | null, enabled = true) {
     text: string,
     clientMessageId: string,
     actor?: { id?: string | number | null; name?: string | null; avatarUrl?: string | null },
+    metadata?: OutgoingMessageMetadata,
   ): Promise<SendMessageResult> => {
     const trimmed = text.trim();
     const ws = wsRef.current;
@@ -667,6 +723,7 @@ export function useEventChat(eventId: number | null, enabled = true) {
       eventId: String(eventId),
       type: "user",
       text: trimmed,
+      metadata: metadata ?? null,
       createdAt: new Date().toISOString(),
       serverCreatedAt: new Date().toISOString(),
       status: "sending",
@@ -682,7 +739,7 @@ export function useEventChat(eventId: number | null, enabled = true) {
     const sendViaSocket = ws && ws.readyState === WebSocket.OPEN && isSubscribed;
     if (sendViaSocket) {
       try {
-        const frame = { type: "chat:send", eventId, content: trimmed, clientMessageId };
+        const frame = { type: "chat:send", eventId, content: trimmed, clientMessageId, metadata: metadata ?? null };
         if (import.meta.env.DEV) {
           console.log("[chat-ws:out]", {
             eventId,
@@ -711,7 +768,7 @@ export function useEventChat(eventId: number | null, enabled = true) {
     }
 
     try {
-      await sendViaHttp(clientMessageId, trimmed);
+      await sendViaHttp(clientMessageId, trimmed, metadata);
       return { ok: true, wsReadyState, isSubscribed };
     } catch (error) {
       if (import.meta.env.DEV) {
@@ -726,8 +783,12 @@ export function useEventChat(eventId: number | null, enabled = true) {
     }
   }, [eventId, isLocked, isSubscribed, markFailed, mergeMessages, sendViaHttp]);
 
-  const sendMessage = useCallback(async (text: string, actor?: { id?: string | number | null; name?: string | null; avatarUrl?: string | null }): Promise<SendMessageResult> => {
-    return sendMessageWithClientId(text, createClientMessageId(), actor);
+  const sendMessage = useCallback(async (
+    text: string,
+    actor?: { id?: string | number | null; name?: string | null; avatarUrl?: string | null },
+    metadata?: OutgoingMessageMetadata,
+  ): Promise<SendMessageResult> => {
+    return sendMessageWithClientId(text, createClientMessageId(), actor, metadata);
   }, [sendMessageWithClientId]);
 
   const retrySend = useCallback(async (clientMessageId: string, actor?: { id?: string | number | null; name?: string | null; avatarUrl?: string | null }) => {
@@ -736,7 +797,7 @@ export function useEventChat(eventId: number | null, enabled = true) {
     setMessages((prev) => prev.map((msg) => (
       msg.clientMessageId === clientMessageId ? { ...msg, status: "sending", optimistic: true } : msg
     )));
-    const result = await sendMessageWithClientId(snapshot.text, clientMessageId, actor);
+    const result = await sendMessageWithClientId(snapshot.text, clientMessageId, actor, snapshot.metadata);
     if (!result.ok) markFailed(clientMessageId);
   }, [markFailed, messages, sendMessageWithClientId]);
 
@@ -845,6 +906,30 @@ export function useEventChat(eventId: number | null, enabled = true) {
     await fetchInitialHistory();
   }, [fetchInitialHistory]);
 
+  const editMessage = useCallback(async (messageId: string, content: string) => {
+    if (!eventId) throw new Error("Plan not loaded yet.");
+    const trimmed = content.trim();
+    if (!trimmed) throw new Error("Message cannot be empty.");
+    const { res, body } = await fetchChatMutationWithFallback(eventId, messageId, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: trimmed }),
+    });
+    if (!res.ok) throw new Error((body as { message?: string }).message || "Couldn’t edit message.");
+    const incoming = normalizeIncomingMessage((body as { message?: IncomingServerMessage }).message as IncomingServerMessage);
+    if (!incoming) throw new Error("Invalid message response");
+    applyMessageUpdate(incoming);
+  }, [applyMessageUpdate, eventId]);
+
+  const deleteMessage = useCallback(async (messageId: string) => {
+    if (!eventId) throw new Error("Plan not loaded yet.");
+    const { res, body } = await fetchChatMutationWithFallback(eventId, messageId, {
+      method: "DELETE",
+    });
+    if (!res.ok) throw new Error((body as { message?: string }).message || "Couldn’t delete message.");
+    applyMessageDelete(messageId);
+  }, [applyMessageDelete, eventId]);
+
   return useMemo(() => ({
     messages,
     historyLoading,
@@ -860,6 +945,8 @@ export function useEventChat(eventId: number | null, enabled = true) {
     retrySend,
     sendTyping,
     toggleReaction,
+    editMessage,
+    deleteMessage,
     loadOlder,
     retry,
     refreshHistory,
@@ -877,6 +964,8 @@ export function useEventChat(eventId: number | null, enabled = true) {
     retrySend,
     sendTyping,
     toggleReaction,
+    editMessage,
+    deleteMessage,
     loadOlder,
     retry,
     refreshHistory,

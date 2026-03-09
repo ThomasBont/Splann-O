@@ -24,9 +24,9 @@ import {
   Trash2,
   Users,
   Receipt,
+  StickyNote,
   Zap,
   LayoutGrid,
-  MessageCircle,
   BarChart3,
   Settings,
 } from "lucide-react";
@@ -46,7 +46,7 @@ import { circularActionButtonClass } from "@/lib/utils";
 import { EventHeaderPreferencesProvider } from "@/hooks/use-event-header-preferences";
 import { useNewPlanWizard } from "@/contexts/new-plan-wizard";
 import NewPlanWizardDrawer from "@/components/event/NewPlanWizardDrawer";
-import { SplannoLogo } from "@/components/splanno-logo";
+import { SplannOLogo } from "@/components/branding/SplannOLogo";
 import { FEATURE_PUBLIC_PLANS } from "@/lib/features";
 import { getEventTheme } from "@/theme/useEventTheme";
 import {
@@ -490,14 +490,10 @@ function AppSidebar({
   return (
     <aside className="group/sidebar hidden lg:flex w-64 lg:shrink-0 border-r border-border/60 bg-card/40 backdrop-blur-sm">
       <div className="h-screen w-full flex flex-col">
-        <div className="px-4 py-4 border-b border-border/60 shrink-0">
+        <div className="shrink-0 border-b border-border/60 px-4 py-5">
           <Link href="/app/private">
-            <a className="flex items-start gap-2.5">
-              <SplannoLogo variant="icon" size={28} />
-              <span className="min-w-0">
-                <span className="block text-sm font-semibold tracking-tight text-foreground">Splanno</span>
-                <span className="block text-[11px] leading-tight text-muted-foreground">Split costs, stay friends</span>
-              </span>
+            <a className="flex h-14 w-full items-center overflow-hidden">
+              <SplannOLogo className="h-12 w-auto max-w-full" />
             </a>
           </Link>
         </div>
@@ -675,6 +671,7 @@ function RightActionRail({
   const isPollsOpen = isEvent && panel?.type === "polls";
   const isCrewOpen = isEvent && panel?.type === "crew";
   const isExpensesOpen = isEvent && panel?.type === "expenses";
+  const isNotesOpen = isEvent && panel?.type === "notes";
   const isNextActionOpen = isEvent && panel?.type === "next-action";
   const railButtonClass = (active: boolean) =>
     `${circularActionButtonClass(active)} inline-flex h-10 w-10 items-center justify-center ${isEvent ? "" : "pointer-events-none opacity-45"}`;
@@ -694,33 +691,6 @@ function RightActionRail({
             }}
           >
             <LayoutGrid className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            title="Chat"
-            aria-label="Chat"
-            disabled={!isEvent}
-            className={railButtonClass(isEvent && !panel)}
-            onClick={() => {
-              if (!isEvent) return;
-              closePanel();
-              setLocation(`/app/e/${selectedEventId}`);
-            }}
-          >
-            <MessageCircle className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            title="Votes"
-            aria-label="Votes"
-            disabled={!isEvent}
-            className={railButtonClass(isPollsOpen)}
-            onClick={() => {
-              if (!isEvent) return;
-              openPanel({ type: "polls" });
-            }}
-          >
-            <BarChart3 className="h-4 w-4" />
           </button>
           <button
             type="button"
@@ -747,6 +717,32 @@ function RightActionRail({
             }}
           >
             <Receipt className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            title="Votes"
+            aria-label="Votes"
+            disabled={!isEvent}
+            className={railButtonClass(isPollsOpen)}
+            onClick={() => {
+              if (!isEvent) return;
+              openPanel({ type: "polls" });
+            }}
+          >
+            <BarChart3 className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            title="Notes"
+            aria-label="Notes"
+            disabled={!isEvent}
+            className={railButtonClass(isNotesOpen)}
+            onClick={() => {
+              if (!isEvent) return;
+              openPanel({ type: "notes" });
+            }}
+          >
+            <StickyNote className="h-4 w-4" />
           </button>
           <button
             type="button"
@@ -991,7 +987,7 @@ export default function AppRoute() {
     if (typeof window === "undefined") return;
     const url = new URL(window.location.href);
     if (url.searchParams.get("new") !== "private") return;
-    openNewPlanWizard("BASICS");
+    openNewPlanWizard("TYPE");
     url.searchParams.delete("new");
     window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
   }, [location, openNewPlanWizard]);
@@ -1191,7 +1187,7 @@ export default function AppRoute() {
 
   const anyKillActive = devDisable.headerPrefs || devDisable.discoverModal || devDisable.homeEffects;
   const handleOpenNewPlan = () => {
-    openNewPlanWizard("BASICS");
+    openNewPlanWizard("TYPE");
   };
   const handleOpenAccount = () => {
     if (section === "home") {
@@ -1278,14 +1274,10 @@ export default function AppRoute() {
               onClick={() => setIsSidebarOpen(false)}
             />
             <aside className="absolute left-0 top-0 h-full w-[88vw] max-w-sm bg-background shadow-xl flex flex-col">
-              <div className="px-5 pt-5 pb-4 flex items-start justify-between">
+              <div className="flex items-center justify-between px-5 pb-4 pt-5">
                 <Link href="/app/private">
-                  <a className="flex items-start gap-2">
-                    <SplannoLogo variant="icon" size={24} />
-                    <span className="min-w-0">
-                      <span className="block text-sm font-semibold tracking-tight text-foreground">Splanno</span>
-                      <span className="block text-[10px] leading-tight text-muted-foreground">Split costs, stay friends</span>
-                    </span>
+                  <a className="flex min-h-10 flex-1 items-center overflow-hidden pr-3">
+                    <SplannOLogo className="h-10 w-auto max-w-full" />
                   </a>
                 </Link>
                 <Button variant="ghost" size="icon" className="h-10 w-10 rounded-full" onClick={() => setIsSidebarOpen(false)} aria-label="Close drawer">

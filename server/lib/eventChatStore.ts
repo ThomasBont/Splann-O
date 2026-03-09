@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "../db";
 import { eventChatMessageReactions, eventChatMessages } from "@shared/schema";
 import { SYSTEM_USER_ID, SYSTEM_USER_NAME } from "@shared/lib/system-user";
@@ -251,4 +251,75 @@ export async function toggleEventChatReaction(input: {
   });
 
   return listMessageReactions(input.messageId, input.userId);
+}
+
+export async function editEventChatMessage(input: {
+  eventId: number;
+  messageId: string;
+  userId: number;
+  text: string;
+}): Promise<EventChatMessage> {
+  const nextText = input.text.trim();
+  if (!nextText) throw new Error("Message cannot be empty");
+  const rawMessageId = input.messageId.trim();
+  const normalizedMessageId = rawMessageId.startsWith("optimistic:")
+    ? rawMessageId.slice("optimistic:".length)
+    : rawMessageId;
+
+  const [updated] = await db
+    .update(eventChatMessages)
+    .set({
+      content: nextText,
+      editedAt: new Date(),
+    })
+    .where(and(
+      or(
+        eq(eventChatMessages.id, rawMessageId),
+        eq(eventChatMessages.id, normalizedMessageId),
+        eq(eventChatMessages.clientMessageId, rawMessageId),
+        eq(eventChatMessages.clientMessageId, normalizedMessageId),
+      ),
+      eq(eventChatMessages.eventId, input.eventId),
+      eq(eventChatMessages.authorUserId, input.userId),
+      eq(eventChatMessages.type, "user"),
+      isNull(eventChatMessages.hiddenAt),
+    ))
+    .returning();
+
+  if (!updated) throw new Error("Message not found");
+  const reactions = await listMessageReactions(updated.id, input.userId);
+  return serializeEventChatMessage(updated, reactions);
+}
+
+export async function deleteEventChatMessage(input: {
+  eventId: number;
+  messageId: string;
+  userId: number;
+}): Promise<{ messageId: string }> {
+  const rawMessageId = input.messageId.trim();
+  const normalizedMessageId = rawMessageId.startsWith("optimistic:")
+    ? rawMessageId.slice("optimistic:".length)
+    : rawMessageId;
+  const [updated] = await db
+    .update(eventChatMessages)
+    .set({
+      hiddenAt: new Date(),
+      deletedAt: new Date(),
+    })
+    .where(and(
+      or(
+        eq(eventChatMessages.id, rawMessageId),
+        eq(eventChatMessages.id, normalizedMessageId),
+        eq(eventChatMessages.clientMessageId, rawMessageId),
+        eq(eventChatMessages.clientMessageId, normalizedMessageId),
+      ),
+      eq(eventChatMessages.eventId, input.eventId),
+      eq(eventChatMessages.authorUserId, input.userId),
+      eq(eventChatMessages.type, "user"),
+      isNull(eventChatMessages.hiddenAt),
+    ))
+    .returning({ id: eventChatMessages.id });
+
+  if (!updated) throw new Error("Message not found");
+  return { messageId: updated.id };
 }

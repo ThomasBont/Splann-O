@@ -229,11 +229,11 @@ export function createApp() {
   });
 
   app.use("/api", authRoutes);
+  app.use("/api", chatRoutes);
   app.use("/api/events", eventsRoutes);
   app.use("/api", eventRoutes);
   app.use("/api", participantRoutes);
   app.use("/api", expenseRoutes);
-  app.use("/api", chatRoutes);
   app.use("/api", pollRoutes);
   app.use("/api", friendRoutes);
   app.use("/api", notificationRoutes);

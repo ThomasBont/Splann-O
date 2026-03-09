@@ -22,7 +22,7 @@ import { getUpNext, getUpNextCandidates, getUpNextRotationIntervalMs } from "@/c
 import { useEventGuests } from "@/hooks/use-event-guests";
 import { usePlanActivity } from "@/hooks/use-plan-activity";
 import { useLatestRunningPoll } from "@/hooks/use-latest-running-poll";
-import { formatActivityPreview, formatActivityTime } from "@/components/panels/activity-format";
+import { formatActivityPreview, formatActivityTime, getActivityIcon } from "@/components/panels/activity-format";
 
 type SettlementResponse = {
   settlement: {
@@ -751,7 +751,7 @@ export function OverviewPanel() {
               </div>
               {latestRunningPoll ? (
                 <div className="mt-3 rounded-2xl border border-yellow-200/80 bg-white/70 p-3 backdrop-blur-sm dark:border-yellow-500/20 dark:bg-black/10">
-                  <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
                     <div className="min-w-0">
                       <div className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-yellow-700 dark:text-yellow-300">
                         <BarChart3 className="h-3.5 w-3.5" />
@@ -761,18 +761,6 @@ export function OverviewPanel() {
                         {latestRunningPoll.poll.question}
                       </p>
                     </div>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="h-8 rounded-full px-3"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        replacePanel({ type: "polls" });
-                      }}
-                    >
-                      Open
-                    </Button>
                   </div>
                   <div className="mt-3 space-y-2">
                     <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
@@ -1059,7 +1047,7 @@ export function OverviewPanel() {
                 {visibleActivityItems.length > 0 ? visibleActivityItems.map((item) => (
                   <li key={item.id} className="flex items-start gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-background/40 dark:hover:bg-black/10">
                     <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[hsl(var(--surface-2))] text-sm dark:bg-[hsl(var(--surface-1))]/95">
-                      {item.type.startsWith("EXPENSE_") ? "💸" : item.type === "MEMBER_JOINED" ? "👋" : "•"}
+                      {getActivityIcon(item.type)}
                     </span>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-start justify-between gap-3">

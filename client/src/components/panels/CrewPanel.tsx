@@ -1,9 +1,11 @@
-import { useMemo } from "react";
-import { Users } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Loader2, Users, UserPlus2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useAuth } from "@/hooks/use-auth";
+import { useAppToast } from "@/hooks/use-app-toast";
 import { useEventGuests } from "@/hooks/use-event-guests";
+import { type FriendRelationshipStatus, useFriendStatuses, useSendFriendRequestByUserId } from "@/hooks/use-friends";
 import { usePlanCrew, usePlanExpenses } from "@/hooks/use-plan-data";
 import { resolveAssetUrl } from "@/lib/asset-url";
 import { cn } from "@/lib/utils";
@@ -30,13 +32,17 @@ function formatJoined(value?: string | null) {
 export function CrewPanel() {
   const eventId = useActiveEventId();
   const { user } = useAuth();
+  const { toastError, toastInfo, toastSuccess } = useAppToast();
   const { replacePanel } = usePanel();
+  const addFriendByUserId = useSendFriendRequestByUserId();
   const guests = useEventGuests(eventId);
   const { members, invitesPending, loading, error } = guests;
   const crewQuery = usePlanCrew(eventId);
   const expensesQuery = usePlanExpenses(eventId);
   const participants = crewQuery.data?.participants ?? [];
   const expenses = expensesQuery.data ?? [];
+  const [addingFriendUserId, setAddingFriendUserId] = useState<number | null>(null);
+  const [statusOverrides, setStatusOverrides] = useState<Record<string, FriendRelationshipStatus>>({});
 
   const orderedMembers = useMemo(() => {
     if (members.length === 0) return members;
@@ -59,6 +65,40 @@ export function CrewPanel() {
     const targetUsername = username?.trim();
     if (!targetUsername) return;
     replacePanel({ type: "member-profile", username: targetUsername, source: "crew" });
+  };
+
+  const friendStatusUserIds = useMemo(
+    () => orderedMembers
+      .map((member) => Number(member.userId))
+      .filter((memberUserId) => Number.isInteger(memberUserId) && memberUserId > 0 && memberUserId !== Number(user?.id)),
+    [orderedMembers, user?.id],
+  );
+  const friendStatusesQuery = useFriendStatuses(friendStatusUserIds);
+
+  const getFriendStatus = (memberUserId?: number | null): FriendRelationshipStatus | null => {
+    if (!memberUserId || memberUserId === user?.id) return null;
+    const key = String(memberUserId);
+    return statusOverrides[key] ?? friendStatusesQuery.data?.[key] ?? "not_friends";
+  };
+
+  const handleAddFriend = async (memberUserId: number) => {
+    const key = String(memberUserId);
+    const previous = statusOverrides[key] ?? friendStatusesQuery.data?.[key] ?? "not_friends";
+    setAddingFriendUserId(memberUserId);
+    setStatusOverrides((prev) => ({ ...prev, [key]: "pending_outgoing" }));
+    try {
+      const response = await addFriendByUserId.mutateAsync(memberUserId);
+      const nextStatus = response.status ?? "pending_outgoing";
+      setStatusOverrides((prev) => ({ ...prev, [key]: nextStatus }));
+      if (nextStatus === "friends") toastInfo("Already friends");
+      else toastSuccess("Friend request sent");
+      void friendStatusesQuery.refetch();
+    } catch (error) {
+      setStatusOverrides((prev) => ({ ...prev, [key]: previous }));
+      toastError((error as Error).message || "Couldn’t send friend request.");
+    } finally {
+      setAddingFriendUserId(null);
+    }
   };
 
   return (
@@ -93,32 +133,56 @@ export function CrewPanel() {
               <div className="divide-y divide-[hsl(var(--border-subtle))]">
                 {orderedMembers.length > 0 ? orderedMembers.map((member) => (
                   member.username ? (
-                    <button
-                      key={`crew-member-${member.id}`}
-                      type="button"
-                      onClick={() => openMemberProfile(member.username)}
-                      className="flex w-full items-start gap-3 rounded-xl px-1 py-3 text-left transition first:pt-0 last:pb-0 hover:bg-[hsl(var(--surface-2))]/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                    >
-                      <Avatar className="h-10 w-10">
-                        {member.avatarUrl ? <AvatarImage src={resolveAssetUrl(member.avatarUrl) ?? member.avatarUrl} alt={member.name} /> : null}
-                        <AvatarFallback className="bg-primary/10 text-sm font-semibold text-primary">
-                          {initials(member.name)}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-foreground">{member.name}</p>
-                        <p className="truncate text-xs text-muted-foreground">@{member.username}</p>
-                        <p className="mt-1 text-xs text-muted-foreground/70">{member.role === "owner" ? "Owner" : "Member"}</p>
-                      </div>
-                      <div className="shrink-0 pt-0.5 text-right">
-                        <span className="block text-[11px] text-muted-foreground/75">
-                          {formatJoined(member.joinedAt)}
-                        </span>
-                        <span className="mt-1 block text-[11px] text-muted-foreground/60">
-                          View profile
-                        </span>
-                      </div>
-                    </button>
+                    <div key={`crew-member-${member.id}`} className="flex items-start gap-3 px-1 py-3 first:pt-0 last:pb-0">
+                      <button
+                        type="button"
+                        onClick={() => openMemberProfile(member.username)}
+                        className="flex min-w-0 flex-1 items-start gap-3 rounded-xl text-left transition hover:bg-[hsl(var(--surface-2))]/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                      >
+                        <Avatar className="h-10 w-10">
+                          {member.avatarUrl ? <AvatarImage src={resolveAssetUrl(member.avatarUrl) ?? member.avatarUrl} alt={member.name} /> : null}
+                          <AvatarFallback className="bg-primary/10 text-sm font-semibold text-primary">
+                            {initials(member.name)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-foreground">{member.name}</p>
+                          <p className="truncate text-xs text-muted-foreground">@{member.username}</p>
+                          <p className="mt-1 text-xs text-muted-foreground/70">{member.role === "owner" ? "Owner" : "Member"}</p>
+                        </div>
+                        <div className="shrink-0 pt-0.5 text-right">
+                          <span className="block text-[11px] text-muted-foreground/75">
+                            {formatJoined(member.joinedAt)}
+                          </span>
+                          <span className="mt-1 block text-[11px] text-muted-foreground/60">
+                            View profile
+                          </span>
+                        </div>
+                      </button>
+                      {member.userId && Number(member.userId) !== Number(user?.id) ? (
+                        getFriendStatus(Number(member.userId)) === "not_friends" ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="mt-0.5 h-8 shrink-0 rounded-full px-3"
+                            onClick={() => void handleAddFriend(Number(member.userId))}
+                            disabled={addingFriendUserId === Number(member.userId) || addFriendByUserId.isPending}
+                          >
+                            {addingFriendUserId === Number(member.userId) ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserPlus2 className="h-3.5 w-3.5" />}
+                            Add
+                          </Button>
+                        ) : getFriendStatus(Number(member.userId)) === "friends" ? (
+                          <span className="mt-0.5 inline-flex h-8 shrink-0 items-center rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 text-xs text-emerald-700 dark:text-emerald-300">
+                            Friend
+                          </span>
+                        ) : (
+                          <span className="mt-0.5 inline-flex h-8 shrink-0 items-center rounded-full border border-amber-500/30 bg-amber-500/10 px-3 text-xs text-amber-700 dark:text-amber-300">
+                            Pending
+                          </span>
+                        )
+                      ) : null}
+                    </div>
                   ) : (
                     <div key={`crew-member-${member.id}`} className="flex items-start gap-3 px-1 py-3 first:pt-0 last:pb-0">
                       <Avatar className="h-10 w-10">

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BarChart3, Loader2, Lock } from "lucide-react";
+import { BarChart3, ChevronDown, Loader2, Lock } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -11,6 +11,9 @@ import { cn } from "@/lib/utils";
 type PollMessageProps = {
   pollId: string;
   className?: string;
+  collapsible?: boolean;
+  collapsed?: boolean;
+  onCollapsedChange?: ((collapsed: boolean) => void) | undefined;
 };
 
 export type PollResponse = {
@@ -72,7 +75,13 @@ function initials(name: string) {
   return `${parts[0][0] ?? ""}${parts[parts.length - 1][0] ?? ""}`.toUpperCase();
 }
 
-export function PollMessage({ pollId, className }: PollMessageProps) {
+export function PollMessage({
+  pollId,
+  className,
+  collapsible = false,
+  collapsed = false,
+  onCollapsedChange,
+}: PollMessageProps) {
   const queryClient = useQueryClient();
   const { toastError, toastSuccess } = useAppToast();
   const queryKey = useMemo(() => ["/api/polls", pollId], [pollId]);
@@ -189,32 +198,74 @@ export function PollMessage({ pollId, className }: PollMessageProps) {
   const poll = normalizePollResponse(pollQuery.data);
   const disabled = poll.poll.isClosed || voteMutation.isPending;
   const totalVotes = poll.totalVotes;
+  const leadingOption = poll.options.find((option) => option.isLeading) ?? null;
+  const winningOption = poll.options.find((option) => option.isWinner) ?? null;
+  const effectiveCollapsed = collapsible && collapsed;
+  const summaryText = poll.poll.isClosed
+    ? winningOption
+      ? `${totalVotes} vote${totalVotes === 1 ? "" : "s"} · Winner: ${winningOption.label}`
+      : `${totalVotes} vote${totalVotes === 1 ? "" : "s"} · Final results`
+    : leadingOption
+    ? `${totalVotes} vote${totalVotes === 1 ? "" : "s"} · Leading: ${leadingOption.label}`
+    : `${totalVotes} vote${totalVotes === 1 ? "" : "s"} · No leader yet`;
+  const handleToggleCollapsed = () => {
+    if (!collapsible) return;
+    onCollapsedChange?.(!effectiveCollapsed);
+  };
 
   return (
-    <div className={cn("rounded-xl border border-neutral-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-neutral-950", className)}>
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="inline-flex items-center gap-2 text-sm font-medium text-foreground">
-            <BarChart3 className="h-4 w-4 text-muted-foreground" />
-            <p className="truncate text-sm font-medium text-foreground sm:text-[15px]">{poll.poll.question}</p>
+    <div className={cn("rounded-xl border border-neutral-200 bg-white shadow-sm transition dark:border-white/10 dark:bg-neutral-950", className)}>
+      <div className="flex items-start justify-between gap-3 p-4">
+        <button
+          type="button"
+          onClick={handleToggleCollapsed}
+          className={cn(
+            "min-w-0 flex-1 rounded-lg text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+            collapsible && "hover:bg-neutral-50/80 dark:hover:bg-white/5",
+          )}
+          aria-expanded={!effectiveCollapsed}
+        >
+          <div className={cn("flex items-start gap-2", collapsible && "pr-2")}>
+            <BarChart3 className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium text-foreground sm:text-[15px]">{poll.poll.question}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {effectiveCollapsed
+                  ? summaryText
+                  : poll.poll.isClosed
+                  ? "Final results"
+                  : "Tap to vote"}
+              </p>
+              {!effectiveCollapsed && poll.totalEligibleVoters ? (
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  {totalVotes} / {poll.totalEligibleVoters} people voted
+                </p>
+              ) : null}
+            </div>
           </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {poll.poll.isClosed ? "Final results" : "Tap to vote"}
-          </p>
-          {poll.totalEligibleVoters ? (
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              {totalVotes} / {poll.totalEligibleVoters} people voted
-            </p>
-          ) : null}
-        </div>
+        </button>
         <div className="flex shrink-0 items-start gap-2">
           {poll.poll.isClosed ? (
             <span className="inline-flex items-center gap-1 rounded-full border border-neutral-300 bg-neutral-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-700 dark:border-white/10 dark:bg-white/5 dark:text-neutral-200">
               <Lock className="h-3 w-3" />
               Closed
             </span>
+          ) : (
+            <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
+              Live
+            </span>
+          )}
+          {collapsible ? (
+            <button
+              type="button"
+              onClick={handleToggleCollapsed}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:hover:bg-white/5"
+              aria-label={effectiveCollapsed ? "Expand poll" : "Collapse poll"}
+            >
+              <ChevronDown className={cn("h-4 w-4 transition-transform", effectiveCollapsed ? "rotate-0" : "rotate-180")} />
+            </button>
           ) : null}
-          {poll.permissions.canClose && !poll.poll.isClosed ? (
+          {poll.permissions.canClose && !poll.poll.isClosed && !effectiveCollapsed ? (
             <Popover open={confirmCloseOpen} onOpenChange={setConfirmCloseOpen}>
               <PopoverTrigger asChild>
                 <Button
@@ -265,83 +316,87 @@ export function PollMessage({ pollId, className }: PollMessageProps) {
         </div>
       </div>
 
-      <div className="mt-3 space-y-2">
-        {poll.options.map((option) => {
-          const selected = poll.myVoteOptionId === option.id;
-          const percent = totalVotes > 0 ? Math.round((option.voteCount / totalVotes) * 100) : 0;
-          const voteLabel = `${option.voteCount} vote${option.voteCount === 1 ? "" : "s"}`;
-          const isLeading = option.isLeading;
-          const isWinner = option.isWinner;
-          return (
-            <button
-              key={option.id}
-              type="button"
-              className={cn(
-                "flex w-full flex-col gap-1 rounded-lg border px-3 py-2 text-left transition",
-                isWinner
-                  ? "border-yellow-400 bg-yellow-50 dark:border-yellow-500/50 dark:bg-yellow-500/10"
-                  : isLeading
-                  ? "border-yellow-300 bg-yellow-50/60 dark:border-yellow-500/40 dark:bg-yellow-500/10"
-                  : selected
-                  ? "border-yellow-400 bg-yellow-50 dark:border-yellow-500/50 dark:bg-yellow-500/10"
-                  : "border-neutral-200 hover:bg-neutral-50 dark:border-white/10 dark:hover:bg-white/5",
-                disabled && "cursor-default",
-              )}
-              onClick={() => {
-                if (disabled || !poll.permissions.canVote) return;
-                voteMutation.mutate(option.id);
-              }}
-              disabled={disabled || !poll.permissions.canVote}
-              >
-              <div className="flex w-full items-center justify-between gap-3">
-                <div className="flex min-w-0 items-center gap-2 pr-3">
-                  <span className={cn("min-w-0 text-sm text-foreground", (isWinner || isLeading) && "font-semibold")}>
-                  {isWinner ? `✓ ${option.label}` : option.label}
-                  </span>
-                  {isWinner ? (
-                    <span className="shrink-0 rounded-full border border-yellow-300 bg-yellow-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-yellow-800">
-                      Winner
-                    </span>
-                  ) : isLeading ? (
-                    <span className="shrink-0 rounded-full border border-yellow-200 bg-yellow-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-yellow-700">
-                      Leading
-                    </span>
-                  ) : null}
-                </div>
-                <span className="shrink-0 text-xs font-semibold text-muted-foreground">{voteLabel}</span>
-              </div>
-              <div className="h-2 w-full overflow-hidden rounded-full bg-neutral-200 dark:bg-white/10">
-                <div
+      {!effectiveCollapsed ? (
+        <div className="overflow-hidden px-4 pb-4">
+          <div className="space-y-2 border-t border-neutral-200 pt-3 transition-all dark:border-white/10">
+            {poll.options.map((option) => {
+              const selected = poll.myVoteOptionId === option.id;
+              const percent = totalVotes > 0 ? Math.round((option.voteCount / totalVotes) * 100) : 0;
+              const voteLabel = `${option.voteCount} vote${option.voteCount === 1 ? "" : "s"}`;
+              const isLeading = option.isLeading;
+              const isWinner = option.isWinner;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
                   className={cn(
-                    "h-full rounded-full transition-all",
-                    (selected || isLeading || isWinner) ? "bg-yellow-400" : "bg-neutral-300 dark:bg-white/20",
+                    "flex w-full flex-col gap-1 rounded-lg border px-3 py-2 text-left transition",
+                    isWinner
+                      ? "border-yellow-400 bg-yellow-50 dark:border-yellow-500/50 dark:bg-yellow-500/10"
+                      : isLeading
+                      ? "border-yellow-300 bg-yellow-50/60 dark:border-yellow-500/40 dark:bg-yellow-500/10"
+                      : selected
+                      ? "border-yellow-400 bg-yellow-50 dark:border-yellow-500/50 dark:bg-yellow-500/10"
+                      : "border-neutral-200 hover:bg-neutral-50 dark:border-white/10 dark:hover:bg-white/5",
+                    disabled && "cursor-default",
                   )}
-                  style={{ width: `${Math.max(0, Math.min(100, percent))}%` }}
-                />
-              </div>
-              {option.voters.length > 0 ? (
-                <div className="mt-1 flex items-center gap-2">
-                  <div className="flex -space-x-2">
-                    {option.voters.slice(0, 3).map((voter) => (
-                      <Avatar key={`${option.id}-voter-${voter.id}`} className="h-5 w-5 border border-white dark:border-neutral-950">
-                        {voter.avatarUrl ? (
-                          <AvatarImage src={resolveAssetUrl(voter.avatarUrl) ?? voter.avatarUrl} alt={voter.name} />
-                        ) : null}
-                        <AvatarFallback className="text-[9px] font-semibold">
-                          {initials(voter.name)}
-                        </AvatarFallback>
-                      </Avatar>
-                    ))}
+                  onClick={() => {
+                    if (disabled || !poll.permissions.canVote) return;
+                    voteMutation.mutate(option.id);
+                  }}
+                  disabled={disabled || !poll.permissions.canVote}
+                >
+                  <div className="flex w-full items-center justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-2 pr-3">
+                      <span className={cn("min-w-0 text-sm text-foreground", (isWinner || isLeading) && "font-semibold")}>
+                        {isWinner ? `✓ ${option.label}` : option.label}
+                      </span>
+                      {isWinner ? (
+                        <span className="shrink-0 rounded-full border border-yellow-300 bg-yellow-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-yellow-800">
+                          Winner
+                        </span>
+                      ) : isLeading ? (
+                        <span className="shrink-0 rounded-full border border-yellow-200 bg-yellow-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-yellow-700">
+                          Leading
+                        </span>
+                      ) : null}
+                    </div>
+                    <span className="shrink-0 text-xs font-semibold text-muted-foreground">{voteLabel}</span>
                   </div>
-                  {option.voters.length > 3 ? (
-                    <span className="text-[11px] font-medium text-muted-foreground">+{option.voters.length - 3}</span>
+                  <div className="h-2 w-full overflow-hidden rounded-full bg-neutral-200 dark:bg-white/10">
+                    <div
+                      className={cn(
+                        "h-full rounded-full transition-all",
+                        (selected || isLeading || isWinner) ? "bg-yellow-400" : "bg-neutral-300 dark:bg-white/20",
+                      )}
+                      style={{ width: `${Math.max(0, Math.min(100, percent))}%` }}
+                    />
+                  </div>
+                  {option.voters.length > 0 ? (
+                    <div className="mt-1 flex items-center gap-2">
+                      <div className="flex -space-x-2">
+                        {option.voters.slice(0, 3).map((voter) => (
+                          <Avatar key={`${option.id}-voter-${voter.id}`} className="h-5 w-5 border border-white dark:border-neutral-950">
+                            {voter.avatarUrl ? (
+                              <AvatarImage src={resolveAssetUrl(voter.avatarUrl) ?? voter.avatarUrl} alt={voter.name} />
+                            ) : null}
+                            <AvatarFallback className="text-[9px] font-semibold">
+                              {initials(voter.name)}
+                            </AvatarFallback>
+                          </Avatar>
+                        ))}
+                      </div>
+                      {option.voters.length > 3 ? (
+                        <span className="text-[11px] font-medium text-muted-foreground">+{option.voters.length - 3}</span>
+                      ) : null}
+                    </div>
                   ) : null}
-                </div>
-              ) : null}
-            </button>
-          );
-        })}
-      </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

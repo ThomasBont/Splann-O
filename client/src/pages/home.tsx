@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback, type TouchEvent as ReactTouchEvent } from "react";
 import { Link, useLocation } from "wouter";
 import { normalizeCountryCode } from "@shared/lib/country-code";
-import { useLanguage, getCurrency, type CurrencyCode, convertCurrency } from "@/hooks/use-language";
+import { useLanguage, getCurrency, type CurrencyCode, convertCurrency, type Language } from "@/hooks/use-language";
 import { useAuth } from "@/hooks/use-auth";
 import { useUserProfile } from "@/hooks/use-user-profile";
 import {
@@ -193,11 +193,126 @@ function firstNameFromName(name: string) {
   return name.trim().split(/\s+/)[0] || name;
 }
 
-function getGreetingForCurrentTime() {
+const HOME_DASHBOARD_COPY: Record<Language, {
+  greetingMorning: string;
+  greetingAfternoon: string;
+  greetingEvening: string;
+  greetingFallbackName: string;
+  activePlans: (count: number) => string;
+  sortRecent: string;
+  sortDate: string;
+  noPlansTitle: string;
+  noPlansSubtitle: string;
+  dateTba: string;
+  locationTba: string;
+  newSuffix: string;
+  personSingular: string;
+  personPlural: string;
+  sharedSuffix: string;
+  allSettled: string;
+  youAreOwed: (amount: string) => string;
+  youOwe: (amount: string) => string;
+  selectPlanPrompt: string;
+}> = {
+  en: {
+    greetingMorning: "Good morning",
+    greetingAfternoon: "Good afternoon",
+    greetingEvening: "Good evening",
+    greetingFallbackName: "there",
+    activePlans: (count) => `You have ${count} active ${count === 1 ? "plan" : "plans"}`,
+    sortRecent: "Recent activity",
+    sortDate: "Date",
+    noPlansTitle: "No plans yet",
+    noPlansSubtitle: "Create your first plan and invite your friends",
+    dateTba: "Date TBA",
+    locationTba: "Location TBA",
+    newSuffix: "new",
+    personSingular: "person",
+    personPlural: "people",
+    sharedSuffix: "shared",
+    allSettled: "All settled",
+    youAreOwed: (amount) => `You are owed ${amount}`,
+    youOwe: (amount) => `You owe ${amount}`,
+    selectPlanPrompt: "Select or create a plan to get started.",
+  },
+  es: {
+    greetingMorning: "Buenos días",
+    greetingAfternoon: "Buenas tardes",
+    greetingEvening: "Buenas noches",
+    greetingFallbackName: "amigo",
+    activePlans: (count) => `Tienes ${count} ${count === 1 ? "plan activo" : "planes activos"}`,
+    sortRecent: "Actividad reciente",
+    sortDate: "Fecha",
+    noPlansTitle: "Todavía no hay planes",
+    noPlansSubtitle: "Crea tu primer plan e invita a tus amigos",
+    dateTba: "Fecha pendiente",
+    locationTba: "Ubicación pendiente",
+    newSuffix: "nuevo",
+    personSingular: "persona",
+    personPlural: "personas",
+    sharedSuffix: "compartido",
+    allSettled: "Todo saldado",
+    youAreOwed: (amount) => `Te deben ${amount}`,
+    youOwe: (amount) => `Debes ${amount}`,
+    selectPlanPrompt: "Selecciona o crea un plan para empezar.",
+  },
+  it: {
+    greetingMorning: "Buongiorno",
+    greetingAfternoon: "Buon pomeriggio",
+    greetingEvening: "Buonasera",
+    greetingFallbackName: "amico",
+    activePlans: (count) => `Hai ${count} ${count === 1 ? "piano attivo" : "piani attivi"}`,
+    sortRecent: "Attività recente",
+    sortDate: "Data",
+    noPlansTitle: "Nessun piano ancora",
+    noPlansSubtitle: "Crea il tuo primo piano e invita i tuoi amici",
+    dateTba: "Data da definire",
+    locationTba: "Luogo da definire",
+    newSuffix: "nuovo",
+    personSingular: "persona",
+    personPlural: "persone",
+    sharedSuffix: "condiviso",
+    allSettled: "Tutto saldato",
+    youAreOwed: (amount) => `Ti spettano ${amount}`,
+    youOwe: (amount) => `Devi ${amount}`,
+    selectPlanPrompt: "Seleziona o crea un piano per iniziare.",
+  },
+  nl: {
+    greetingMorning: "Goedemorgen",
+    greetingAfternoon: "Goedemiddag",
+    greetingEvening: "Goedenavond",
+    greetingFallbackName: "daar",
+    activePlans: (count) => `Je hebt ${count} actieve ${count === 1 ? "plan" : "plannen"}`,
+    sortRecent: "Recente activiteit",
+    sortDate: "Datum",
+    noPlansTitle: "Nog geen plannen",
+    noPlansSubtitle: "Maak je eerste plan en nodig je vrienden uit",
+    dateTba: "Datum volgt",
+    locationTba: "Locatie volgt",
+    newSuffix: "nieuw",
+    personSingular: "persoon",
+    personPlural: "personen",
+    sharedSuffix: "gedeeld",
+    allSettled: "Alles verrekend",
+    youAreOwed: (amount) => `Je krijgt ${amount}`,
+    youOwe: (amount) => `Je moet ${amount} betalen`,
+    selectPlanPrompt: "Selecteer of maak een plan om te beginnen.",
+  },
+};
+
+const HOME_DATE_LOCALE: Record<Language, string> = {
+  en: "en-GB",
+  es: "es-ES",
+  it: "it-IT",
+  nl: "nl-NL",
+};
+
+function getGreetingForCurrentTime(language: Language) {
+  const copy = HOME_DASHBOARD_COPY[language];
   const hour = new Date().getHours();
-  if (hour < 12) return "Good morning";
-  if (hour < 18) return "Good afternoon";
-  return "Good evening";
+  if (hour < 12) return copy.greetingMorning;
+  if (hour < 18) return copy.greetingAfternoon;
+  return copy.greetingEvening;
 }
 
 function getPrivatePlanGradient(event: Pick<Barbecue, "eventType" | "name">) {
@@ -687,7 +802,8 @@ export default function Home({
   routeEventId = null,
   debugDisableDiscoverModal = false,
 }: HomeProps) {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
+  const homeCopy = HOME_DASHBOARD_COPY[language];
   const { prefs: eventHeaderPrefs } = useEventHeaderPreferences();
   const { user, isLoading: isAuthLoading, logout, updateProfile, deleteAccount } = useAuth();
   const [, setLocation] = useLocation();
@@ -5475,18 +5591,18 @@ export default function Home({
             <div className="mb-6">
               <div>
                 <h2 className="text-3xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
-                  {getGreetingForCurrentTime()}, {firstNameFromName(user?.displayName || user?.username || "there")} 👋
+                  {getGreetingForCurrentTime(language)}, {firstNameFromName(user?.displayName || user?.username || homeCopy.greetingFallbackName)} 👋
                 </h2>
                 <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-                  You have {sortedPrivatePlansForOverview.length} active {sortedPrivatePlansForOverview.length === 1 ? "plan" : "plans"}
+                  {homeCopy.activePlans(sortedPrivatePlansForOverview.length)}
                 </p>
               </div>
             </div>
 
             <div className="mb-6 flex flex-wrap gap-2">
               {[
-                { id: "recent" as const, label: "Recent activity" },
-                { id: "date" as const, label: "Date" },
+                { id: "recent" as const, label: homeCopy.sortRecent },
+                { id: "date" as const, label: homeCopy.sortDate },
               ].map((option) => (
                 <button
                   key={`private-plan-sort-${option.id}`}
@@ -5523,8 +5639,8 @@ export default function Home({
               <div className="flex min-h-[420px] items-center justify-center rounded-[32px] border border-border/60 bg-card px-6 py-12 text-center shadow-sm">
                 <div className="max-w-sm">
                   <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-primary/10 text-4xl">🗺️</div>
-                  <p className="mt-6 text-2xl font-semibold text-slate-900 dark:text-slate-100">No plans yet</p>
-                  <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">Create your first plan and invite your friends</p>
+                  <p className="mt-6 text-2xl font-semibold text-slate-900 dark:text-slate-100">{homeCopy.noPlansTitle}</p>
+                  <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{homeCopy.noPlansSubtitle}</p>
                   <Button
                     type="button"
                     className="mt-6 rounded-full px-5 shadow-sm"
@@ -5541,12 +5657,12 @@ export default function Home({
                   const planId = Number(plan.id);
                   if (!Number.isFinite(planId)) return null;
                   const dateLabel = plan.date
-                    ? new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" }).format(new Date(plan.date))
-                    : "Date TBA";
+                    ? new Intl.DateTimeFormat(HOME_DATE_LOCALE[language], { day: "numeric", month: "short", year: "numeric" }).format(new Date(plan.date))
+                    : homeCopy.dateTba;
                   const locationLabel = plan.locationText
                     || plan.locationName
                     || [plan.city, plan.countryName].filter(Boolean).join(", ")
-                    || "Location TBA";
+                    || homeCopy.locationTba;
                   const participantCountLabel = Number.isFinite(plan.participantCount) ? Number(plan.participantCount) : 0;
                   const sharedTotal = Number(plan.expenseTotal ?? 0);
                   const unreadCount = Number(plan.unreadCount ?? 0);
@@ -5560,16 +5676,16 @@ export default function Home({
                     ? null
                     : balance > 0.009
                       ? {
-                        label: `You are owed ${formatPlanSharedTotal(balance, (plan.currency as string) || defaultCurrency)}`,
+                        label: homeCopy.youAreOwed(formatPlanSharedTotal(balance, (plan.currency as string) || defaultCurrency)),
                         className: "border-emerald-200/80 bg-emerald-100 text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-200",
                       }
                       : balance < -0.009
                         ? {
-                          label: `You owe ${formatPlanSharedTotal(Math.abs(balance), (plan.currency as string) || defaultCurrency)}`,
+                          label: homeCopy.youOwe(formatPlanSharedTotal(Math.abs(balance), (plan.currency as string) || defaultCurrency)),
                           className: "border-orange-200/80 bg-orange-100 text-orange-800 dark:border-orange-500/30 dark:bg-orange-500/15 dark:text-orange-200",
                         }
                         : {
-                          label: "All settled",
+                          label: homeCopy.allSettled,
                           className: "border-slate-200/80 bg-slate-100 text-slate-700 dark:border-white/10 dark:bg-white/10 dark:text-slate-200",
                         };
                   return (
@@ -5598,7 +5714,7 @@ export default function Home({
                         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/18 to-transparent" />
                         {unreadCount > 0 ? (
                           <span className="absolute right-4 top-4 inline-flex items-center rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground shadow-sm">
-                            {unreadCount > 9 ? "9+" : unreadCount} new
+                            {unreadCount > 9 ? "9+" : unreadCount} {homeCopy.newSuffix}
                           </span>
                         ) : null}
                         <div className="absolute inset-x-0 bottom-0 px-4 py-3">
@@ -5629,14 +5745,14 @@ export default function Home({
                               ) : null}
                             </div>
                             <span className="truncate text-foreground">
-                              {participantCountLabel} {participantCountLabel === 1 ? "person" : "people"}
+                              {participantCountLabel} {participantCountLabel === 1 ? homeCopy.personSingular : homeCopy.personPlural}
                             </span>
                           </div>
                           <span className="text-border/80">·</span>
                           <span className="text-muted-foreground">{formatLastActivity(lastActivityAt)}</span>
                           <span className="text-border/80">·</span>
                           <span className="font-medium text-foreground">
-                            {formatPlanSharedTotal(sharedTotal, (plan.currency as string) || defaultCurrency)} shared
+                            {formatPlanSharedTotal(sharedTotal, (plan.currency as string) || defaultCurrency)} {homeCopy.sharedSuffix}
                           </span>
                           {personalStatus ? (
                             <>
@@ -5657,7 +5773,7 @@ export default function Home({
         ) : (
           <div className="text-center py-16 text-muted-foreground">
             <Receipt className="w-12 h-12 mx-auto mb-4 opacity-20" />
-            <p className="text-lg font-medium">Select or create a plan to get started.</p>
+            <p className="text-lg font-medium">{homeCopy.selectPlanPrompt}</p>
           </div>
         )}
         </>

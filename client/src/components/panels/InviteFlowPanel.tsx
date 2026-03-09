@@ -11,6 +11,7 @@ import { usePlan } from "@/hooks/use-plan-data";
 import { useEventGuests } from "@/hooks/use-event-guests";
 import { useSearchUsers } from "@/hooks/use-friends";
 import { useAuth } from "@/hooks/use-auth";
+import { useLanguage, type Language } from "@/hooks/use-language";
 import type { EventInviteView } from "@/hooks/use-participants";
 import { PanelHeader, PanelSection, PanelShell, useActiveEventId } from "@/components/panels/panel-primitives";
 import { resolveAssetUrl } from "@/lib/asset-url";
@@ -23,11 +24,145 @@ type UserSearchRow = {
   avatarUrl?: string | null;
 };
 
+const INVITE_PANEL_COPY: Record<Language, {
+  prepareInviteLinkFailed: string;
+  inviteSent: (name: string) => string;
+  inviteFailed: string;
+  searchPrompt: string;
+  searching: string;
+  loadUsersFailed: string;
+  noUsersFound: string;
+  invite: string;
+  label: string;
+  title: string;
+  pendingInvitesMeta: (count: number) => string;
+  openPlanPrompt: string;
+  loadingInviteFlow: string;
+  addUserTitle: string;
+  addUserBody: string;
+  searchPlaceholder: string;
+  shareLinkTitle: string;
+  shareLinkBody: string;
+  inviteLinkLabel: string;
+  shareTitleFallback: string;
+  pendingInvitesTitle: string;
+  pendingInviteFallback: string;
+  waitingForResponse: string;
+  noPendingInvites: string;
+}> = {
+  en: {
+    prepareInviteLinkFailed: "Could not prepare invite link.",
+    inviteSent: (name) => `Invited ${name}`,
+    inviteFailed: "Could not send invite.",
+    searchPrompt: "Search for a friend already on Splann-O",
+    searching: "Searching...",
+    loadUsersFailed: "Couldn't load users",
+    noUsersFound: "No users found",
+    invite: "Invite",
+    label: "Invite",
+    title: "Invite Friends",
+    pendingInvitesMeta: (count) => `${count} pending invites`,
+    openPlanPrompt: "Open a plan chat to invite your friends.",
+    loadingInviteFlow: "Loading invite flow...",
+    addUserTitle: "Add Splann-O user",
+    addUserBody: "Search by name or username and invite them directly.",
+    searchPlaceholder: "Search by name or username...",
+    shareLinkTitle: "Share invite link",
+    shareLinkBody: "Send one link and friends will join this plan directly.",
+    inviteLinkLabel: "Invite link",
+    shareTitleFallback: "Join this plan on Splann-O",
+    pendingInvitesTitle: "Pending invites",
+    pendingInviteFallback: "Pending invite",
+    waitingForResponse: "Waiting for response",
+    noPendingInvites: "No pending invites yet.",
+  },
+  es: {
+    prepareInviteLinkFailed: "No se pudo preparar el enlace de invitación.",
+    inviteSent: (name) => `Invitaste a ${name}`,
+    inviteFailed: "No se pudo enviar la invitación.",
+    searchPrompt: "Busca a un amigo que ya esté en Splann-O",
+    searching: "Buscando...",
+    loadUsersFailed: "No se pudieron cargar los usuarios",
+    noUsersFound: "No se encontraron usuarios",
+    invite: "Invitar",
+    label: "Invitar",
+    title: "Invitar amigos",
+    pendingInvitesMeta: (count) => `${count} invitaciones pendientes`,
+    openPlanPrompt: "Abrí un plan para invitar a tus amigos.",
+    loadingInviteFlow: "Cargando invitaciones...",
+    addUserTitle: "Agregar usuario de Splann-O",
+    addUserBody: "Buscá por nombre o usuario e invitá directamente.",
+    searchPlaceholder: "Buscar por nombre o usuario...",
+    shareLinkTitle: "Compartir enlace de invitación",
+    shareLinkBody: "Enviá un solo enlace y tus amigos se unirán directo al plan.",
+    inviteLinkLabel: "Enlace de invitación",
+    shareTitleFallback: "Únete a este plan en Splann-O",
+    pendingInvitesTitle: "Invitaciones pendientes",
+    pendingInviteFallback: "Invitación pendiente",
+    waitingForResponse: "Esperando respuesta",
+    noPendingInvites: "Todavía no hay invitaciones pendientes.",
+  },
+  it: {
+    prepareInviteLinkFailed: "Impossibile preparare il link di invito.",
+    inviteSent: (name) => `Invito inviato a ${name}`,
+    inviteFailed: "Impossibile inviare l'invito.",
+    searchPrompt: "Cerca un amico già su Splann-O",
+    searching: "Ricerca in corso...",
+    loadUsersFailed: "Impossibile caricare gli utenti",
+    noUsersFound: "Nessun utente trovato",
+    invite: "Invita",
+    label: "Invita",
+    title: "Invita amici",
+    pendingInvitesMeta: (count) => `${count} inviti in attesa`,
+    openPlanPrompt: "Apri un piano per invitare i tuoi amici.",
+    loadingInviteFlow: "Caricamento inviti...",
+    addUserTitle: "Aggiungi utente Splann-O",
+    addUserBody: "Cerca per nome o username e invitalo direttamente.",
+    searchPlaceholder: "Cerca per nome o username...",
+    shareLinkTitle: "Condividi link di invito",
+    shareLinkBody: "Invia un solo link e gli amici entreranno direttamente nel piano.",
+    inviteLinkLabel: "Link di invito",
+    shareTitleFallback: "Unisciti a questo piano su Splann-O",
+    pendingInvitesTitle: "Inviti in attesa",
+    pendingInviteFallback: "Invito in attesa",
+    waitingForResponse: "In attesa di risposta",
+    noPendingInvites: "Nessun invito in attesa.",
+  },
+  nl: {
+    prepareInviteLinkFailed: "Uitnodigingslink kon niet worden voorbereid.",
+    inviteSent: (name) => `${name} is uitgenodigd`,
+    inviteFailed: "Uitnodiging kon niet worden verstuurd.",
+    searchPrompt: "Zoek een vriend die al op Splann-O zit",
+    searching: "Zoeken...",
+    loadUsersFailed: "Gebruikers konden niet worden geladen",
+    noUsersFound: "Geen gebruikers gevonden",
+    invite: "Uitnodigen",
+    label: "Uitnodigen",
+    title: "Vrienden uitnodigen",
+    pendingInvitesMeta: (count) => `${count} openstaande uitnodigingen`,
+    openPlanPrompt: "Open een plan om je vrienden uit te nodigen.",
+    loadingInviteFlow: "Uitnodigingen laden...",
+    addUserTitle: "Splann-O gebruiker toevoegen",
+    addUserBody: "Zoek op naam of gebruikersnaam en nodig direct uit.",
+    searchPlaceholder: "Zoek op naam of gebruikersnaam...",
+    shareLinkTitle: "Uitnodigingslink delen",
+    shareLinkBody: "Stuur één link en vrienden doen direct mee aan dit plan.",
+    inviteLinkLabel: "Uitnodigingslink",
+    shareTitleFallback: "Doe mee aan dit plan op Splann-O",
+    pendingInvitesTitle: "Openstaande uitnodigingen",
+    pendingInviteFallback: "Openstaande uitnodiging",
+    waitingForResponse: "Wachten op reactie",
+    noPendingInvites: "Nog geen openstaande uitnodigingen.",
+  },
+};
+
 export function InviteFlowPanel() {
   const eventId = useActiveEventId();
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const { language } = useLanguage();
   const { toastError, toastSuccess } = useAppToast();
+  const copy = INVITE_PANEL_COPY[language];
   const planQuery = usePlan(eventId);
   const guests = useEventGuests(eventId);
   const ensureInviteToken = useEnsureInviteToken();
@@ -85,7 +220,7 @@ export function InviteFlowPanel() {
       const next = await ensureInviteToken.mutateAsync(eventId);
       return buildInviteUrl(next.inviteToken);
     } catch (error) {
-      toastError(error instanceof Error ? error.message : "Could not prepare invite link.");
+      toastError(error instanceof Error ? error.message : copy.prepareInviteLinkFailed);
       return null;
     }
   };
@@ -139,7 +274,7 @@ export function InviteFlowPanel() {
 
     try {
       await guests.createInvite({ userId });
-      toastSuccess(`Invited ${target.displayName || target.username}`);
+      toastSuccess(copy.inviteSent(target.displayName || target.username));
       setSearchInput("");
       setDebouncedSearch("");
       setIsDropdownOpen(false);
@@ -147,7 +282,7 @@ export function InviteFlowPanel() {
     } catch (error) {
       localInvitedSetRef.current.delete(userId);
       queryClient.setQueryData<EventInviteView[]>(queryKey, previous);
-      toastError(error instanceof Error ? error.message : "Could not send invite.");
+      toastError(error instanceof Error ? error.message : copy.inviteFailed);
     } finally {
       setInvitingUserId(null);
     }
@@ -155,21 +290,21 @@ export function InviteFlowPanel() {
 
   const renderSearchContent = () => {
     if (debouncedSearch.length < 2) {
-      return <p className="px-1 py-2 text-xs text-muted-foreground">Search for a friend already on Splanno</p>;
+      return <p className="px-1 py-2 text-xs text-muted-foreground">{copy.searchPrompt}</p>;
     }
     if (userSearch.isLoading) {
       return (
         <div className="flex items-center gap-2 px-2 py-2 text-xs text-muted-foreground">
           <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          Searching...
+          {copy.searching}
         </div>
       );
     }
     if (userSearch.isError) {
-      return <p className="px-1 py-2 text-xs text-destructive">Couldn’t load users</p>;
+      return <p className="px-1 py-2 text-xs text-destructive">{copy.loadUsersFailed}</p>;
     }
     if (filteredResults.length === 0) {
-      return <p className="px-1 py-2 text-xs text-muted-foreground">No users found</p>;
+      return <p className="px-1 py-2 text-xs text-muted-foreground">{copy.noUsersFound}</p>;
     }
 
     return filteredResults.slice(0, 8).map((result, index) => {
@@ -201,7 +336,7 @@ export function InviteFlowPanel() {
             disabled={isInviting}
             onClick={() => void inviteUserDirectly(result)}
           >
-            {isInviting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Invite"}
+            {isInviting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : copy.invite}
           </Button>
         </div>
       );
@@ -211,25 +346,25 @@ export function InviteFlowPanel() {
   return (
     <PanelShell>
       <PanelHeader
-        label="Invite"
-        title="Invite Friends"
-        meta={<span className="inline-flex items-center gap-2"><Users className="h-4 w-4" />{pendingInvites.length} pending invites</span>}
+        label={copy.label}
+        title={copy.title}
+        meta={<span className="inline-flex items-center gap-2"><Users className="h-4 w-4" />{copy.pendingInvitesMeta(pendingInvites.length)}</span>}
       />
       <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
         {!eventId ? (
           <div className="rounded-2xl border border-dashed border-border/70 bg-card/60 p-4 text-sm text-muted-foreground">
-            Open a plan chat to invite your friends.
+            {copy.openPlanPrompt}
           </div>
         ) : planQuery.isLoading ? (
           <div className="flex items-center gap-2 rounded-2xl border border-border/60 bg-card/80 p-4 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            Loading invite flow...
+            {copy.loadingInviteFlow}
           </div>
         ) : (
           <>
-            <PanelSection title="Add Splanno user" variant="default">
+            <PanelSection title={copy.addUserTitle} variant="default">
               <p className="mb-3 text-sm text-muted-foreground">
-                Search by name or username and invite them directly.
+                {copy.addUserBody}
               </p>
               <div ref={dropdownRef} className="relative">
                 <Input
@@ -239,7 +374,7 @@ export function InviteFlowPanel() {
                     setIsDropdownOpen(true);
                   }}
                   onFocus={() => setIsDropdownOpen(true)}
-                  placeholder="Search by name or username..."
+                  placeholder={copy.searchPlaceholder}
                   className="border-border bg-background"
                   onKeyDown={(event) => {
                     if (!isDropdownOpen) return;
@@ -268,15 +403,15 @@ export function InviteFlowPanel() {
               </div>
             </PanelSection>
 
-            <PanelSection title="Share invite link" variant="default">
+            <PanelSection title={copy.shareLinkTitle} variant="default">
               <p className="mb-3 text-sm text-muted-foreground">
-                Send one link and friends will join this plan directly.
+                {copy.shareLinkBody}
               </p>
               <InviteLink
                 url={inviteUrl}
                 onEnsureToken={ensureTokenAndBuildUrl}
-                label="Invite link"
-                shareTitle={plan?.name ?? "Join this plan on Splanno"}
+                label={copy.inviteLinkLabel}
+                shareTitle={plan?.name ?? copy.shareTitleFallback}
                 shareMessage={inviteMessage}
                 getShareMessage={(url) => generateInviteMessage({
                   name: plan?.name,
@@ -290,22 +425,22 @@ export function InviteFlowPanel() {
               />
             </PanelSection>
 
-            <PanelSection title="Pending invites" variant="list">
+            <PanelSection title={copy.pendingInvitesTitle} variant="list">
               {pendingInvites.length > 0 ? (
                 <div className="divide-y divide-[hsl(var(--border-subtle))]">
                   {pendingInvites.map((invite) => (
                     <div key={`invite-row-${invite.id}`} className="px-1 py-3 first:pt-0 last:pb-0">
                       <p className="truncate text-sm font-medium text-foreground">
-                        {invite.invitee?.name ?? invite.email ?? "Pending invite"}
+                        {invite.invitee?.name ?? invite.email ?? copy.pendingInviteFallback}
                       </p>
                       <p className="truncate text-xs text-muted-foreground">
-                        {invite.invitee?.username ? `@${invite.invitee.username}` : "Waiting for response"}
+                        {invite.invitee?.username ? `@${invite.invitee.username}` : copy.waitingForResponse}
                       </p>
                     </div>
                   ))}
                 </div>
               ) : (
-                <p className="text-sm text-muted-foreground">No pending invites yet.</p>
+                <p className="text-sm text-muted-foreground">{copy.noPendingInvites}</p>
               )}
             </PanelSection>
           </>

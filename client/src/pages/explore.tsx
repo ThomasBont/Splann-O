@@ -5,6 +5,7 @@ import { Link } from "wouter";
 import { Search, MapPin, CalendarDays, Compass, ArrowUpRight, Users } from "lucide-react";
 import { useReducedMotion } from "framer-motion";
 import { useExploreEvents, type ExploreEvent } from "@/hooks/use-bbq-data";
+import { useLanguage, type Language } from "@/hooks/use-language";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,15 +17,132 @@ import { EMPTY_COPY } from "@/lib/emotional-copy";
 
 type ExploreSort = "soonest" | "newest" | "most-people";
 
+const EXPLORE_COPY: Record<Language, {
+  dateTba: string;
+  locationTba: string;
+  joinable: string;
+  marketing: string;
+  listed: string;
+  peopleCountSoon: string;
+  until: string;
+  viewEvent: string;
+  title: string;
+  subtitle: string;
+  backToApp: string;
+  searchPlaceholder: string;
+  sortBy: string;
+  soonest: string;
+  newest: string;
+  mostPeople: string;
+  mostPeopleSoon: string;
+  loadFailed: string;
+  upcoming: string;
+  allResults: string;
+  eventsCount: (count: number) => string;
+}> = {
+  en: {
+    dateTba: "Date TBA",
+    locationTba: "Location TBA",
+    joinable: "Joinable",
+    marketing: "Marketing",
+    listed: "Listed",
+    peopleCountSoon: "People count coming soon",
+    until: "Until",
+    viewEvent: "View event",
+    title: "Explore",
+    subtitle: "Discover public events on Splann-O.",
+    backToApp: "Back to app",
+    searchPlaceholder: "Search by title, city, country, organizer",
+    sortBy: "Sort by",
+    soonest: "Soonest",
+    newest: "Newest",
+    mostPeople: "Most people",
+    mostPeopleSoon: "Most people (soon)",
+    loadFailed: "Couldn't load explore events. Try again.",
+    upcoming: "Upcoming",
+    allResults: "All results",
+    eventsCount: (count) => `${count} event${count === 1 ? "" : "s"}`,
+  },
+  es: {
+    dateTba: "Fecha pendiente",
+    locationTba: "Ubicación pendiente",
+    joinable: "Unible",
+    marketing: "Promocional",
+    listed: "Publicado",
+    peopleCountSoon: "Cantidad de personas próximamente",
+    until: "Hasta",
+    viewEvent: "Ver evento",
+    title: "Explorar",
+    subtitle: "Descubre eventos públicos en Splann-O.",
+    backToApp: "Volver a la app",
+    searchPlaceholder: "Buscar por título, ciudad, país u organizador",
+    sortBy: "Ordenar por",
+    soonest: "Más próximo",
+    newest: "Más nuevo",
+    mostPeople: "Más personas",
+    mostPeopleSoon: "Más personas (pronto)",
+    loadFailed: "No se pudieron cargar los eventos públicos. Inténtalo de nuevo.",
+    upcoming: "Próximos",
+    allResults: "Todos los resultados",
+    eventsCount: (count) => `${count} evento${count === 1 ? "" : "s"}`,
+  },
+  it: {
+    dateTba: "Data da definire",
+    locationTba: "Luogo da definire",
+    joinable: "Accessibile",
+    marketing: "Vetrina",
+    listed: "Pubblicato",
+    peopleCountSoon: "Conteggio persone in arrivo",
+    until: "Fino al",
+    viewEvent: "Apri evento",
+    title: "Esplora",
+    subtitle: "Scopri eventi pubblici su Splann-O.",
+    backToApp: "Torna all'app",
+    searchPlaceholder: "Cerca per titolo, città, paese o organizzatore",
+    sortBy: "Ordina per",
+    soonest: "Più vicino",
+    newest: "Più recente",
+    mostPeople: "Più persone",
+    mostPeopleSoon: "Più persone (presto)",
+    loadFailed: "Impossibile caricare gli eventi pubblici. Riprova.",
+    upcoming: "In arrivo",
+    allResults: "Tutti i risultati",
+    eventsCount: (count) => `${count} event${count === 1 ? "o" : "i"}`,
+  },
+  nl: {
+    dateTba: "Datum volgt",
+    locationTba: "Locatie volgt",
+    joinable: "Open om mee te doen",
+    marketing: "Promotie",
+    listed: "Geplaatst",
+    peopleCountSoon: "Aantal mensen komt binnenkort",
+    until: "Tot",
+    viewEvent: "Bekijk event",
+    title: "Ontdekken",
+    subtitle: "Ontdek openbare events op Splann-O.",
+    backToApp: "Terug naar app",
+    searchPlaceholder: "Zoek op titel, stad, land of organisator",
+    sortBy: "Sorteren op",
+    soonest: "Snelst",
+    newest: "Nieuwste",
+    mostPeople: "Meeste mensen",
+    mostPeopleSoon: "Meeste mensen (binnenkort)",
+    loadFailed: "Openbare events konden niet worden geladen. Probeer opnieuw.",
+    upcoming: "Binnenkort",
+    allResults: "Alle resultaten",
+    eventsCount: (count) => `${count} event${count === 1 ? "" : "s"}`,
+  },
+};
+
 function eventTime(e: ExploreEvent): number {
   if (!e.date) return Number.MAX_SAFE_INTEGER;
   const t = new Date(e.date).getTime();
   return Number.isFinite(t) ? t : Number.MAX_SAFE_INTEGER;
 }
 
-function formatEventDate(date: string | null): string {
-  if (!date) return "Date TBA";
-  return new Date(date).toLocaleDateString(undefined, {
+function formatEventDate(date: string | null, fallback: string, locale: string): string {
+  if (!date) return fallback;
+  return new Date(date).toLocaleDateString(locale, {
     weekday: "short",
     month: "short",
     day: "numeric",
@@ -32,9 +150,9 @@ function formatEventDate(date: string | null): string {
   });
 }
 
-function ExploreCard({ event, reducedMotion }: { event: ExploreEvent; reducedMotion: boolean }) {
+function ExploreCard({ event, reducedMotion, copy, locale }: { event: ExploreEvent; reducedMotion: boolean; copy: (typeof EXPLORE_COPY)["en"]; locale: string }) {
   const theme = getEventTheme(event.themeCategory);
-  const locationText = [event.city, event.countryName].filter(Boolean).join(", ") || "Location TBA";
+  const locationText = [event.city, event.countryName].filter(Boolean).join(", ") || copy.locationTba;
   const listingActive =
     event.publicListingStatus === "active" &&
     !!event.publicListingExpiresAt &&
@@ -52,10 +170,11 @@ function ExploreCard({ event, reducedMotion }: { event: ExploreEvent; reducedMot
           <EventCategoryBadge category={event.themeCategory} compact />
           <span className="inline-flex items-center rounded-full border border-sky-500/20 bg-sky-500/10 px-2 py-0.5 text-[11px] font-medium text-sky-700 dark:text-sky-300">
             {event.publicMode === "joinable" ? "Joinable" : "Marketing"}
+            {event.publicMode === "joinable" ? copy.joinable : copy.marketing}
           </span>
           {listingActive && (
             <span className="inline-flex items-center rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:text-emerald-300">
-              Listed
+              {copy.listed}
             </span>
           )}
         </div>
@@ -72,7 +191,7 @@ function ExploreCard({ event, reducedMotion }: { event: ExploreEvent; reducedMot
           </p>
           <p className="flex items-center gap-2">
             <CalendarDays className="h-4 w-4 shrink-0" />
-            <span>{formatEventDate(event.date)}</span>
+            <span>{formatEventDate(event.date, copy.dateTba, locale)}</span>
           </p>
         </div>
 
@@ -83,18 +202,18 @@ function ExploreCard({ event, reducedMotion }: { event: ExploreEvent; reducedMot
         <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
           <div className="flex items-center gap-1.5">
             <Users className="h-3.5 w-3.5" />
-            <span>People count coming soon</span>
+            <span>{copy.peopleCountSoon}</span>
           </div>
           {event.publicListingExpiresAt && (
             <span className="hidden sm:inline">
-              Until {new Date(event.publicListingExpiresAt).toLocaleDateString()}
+              {copy.until} {new Date(event.publicListingExpiresAt).toLocaleDateString(locale)}
             </span>
           )}
         </div>
 
         <Link href={`/events/${event.publicSlug}`}>
           <Button variant="outline" className="w-full justify-between border-border/70">
-            <span>View event</span>
+            <span>{copy.viewEvent}</span>
             <ArrowUpRight className="h-4 w-4" />
           </Button>
         </Link>
@@ -125,7 +244,10 @@ function ExploreCardSkeleton() {
 }
 
 export default function ExplorePage() {
+  const { language } = useLanguage();
   const { data: events = [], isLoading, error, refetch } = useExploreEvents();
+  const copy = EXPLORE_COPY[language];
+  const locale = language === "es" ? "es-ES" : language === "it" ? "it-IT" : language === "nl" ? "nl-NL" : "en-GB";
   const reducedMotion = useReducedMotion();
   const [search, setSearch] = React.useState("");
   const [sortBy, setSortBy] = React.useState<ExploreSort>("soonest");
@@ -169,11 +291,11 @@ export default function ExplorePage() {
       <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Explore</h1>
-            <p className="text-sm text-muted-foreground">Discover public events on Splanno.</p>
+            <h1 className="text-2xl font-semibold tracking-tight">{copy.title}</h1>
+            <p className="text-sm text-muted-foreground">{copy.subtitle}</p>
           </div>
           <Link href="/app">
-            <Button variant="outline">Back to app</Button>
+            <Button variant="outline">{copy.backToApp}</Button>
           </Link>
         </div>
 
@@ -184,23 +306,23 @@ export default function ExplorePage() {
               <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search by title, city, country, organizer"
+                placeholder={copy.searchPlaceholder}
                 className="pl-9"
               />
             </div>
             <div className="flex items-center gap-2 sm:w-[220px]">
-              <span className="text-xs text-muted-foreground whitespace-nowrap">Sort by</span>
+              <span className="text-xs text-muted-foreground whitespace-nowrap">{copy.sortBy}</span>
               <Select value={sortBy} onValueChange={(v) => setSortBy(v as ExploreSort)}>
                 <SelectTrigger className="h-9">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="soonest">Soonest</SelectItem>
-                  <SelectItem value="newest">Newest</SelectItem>
+                  <SelectItem value="soonest">{copy.soonest}</SelectItem>
+                  <SelectItem value="newest">{copy.newest}</SelectItem>
                   {hasPeopleCounts ? (
-                    <SelectItem value="most-people">Most people</SelectItem>
+                    <SelectItem value="most-people">{copy.mostPeople}</SelectItem>
                   ) : (
-                    <SelectItem value="most-people" disabled>Most people (soon)</SelectItem>
+                    <SelectItem value="most-people" disabled>{copy.mostPeopleSoon}</SelectItem>
                   )}
                 </SelectContent>
               </Select>
@@ -218,7 +340,7 @@ export default function ExplorePage() {
 
         {error && !isLoading && (
           <InlineQueryError
-            message="Couldn’t load explore events. Try again."
+            message={copy.loadFailed}
             onRetry={() => {
               void refetch();
             }}
@@ -232,12 +354,12 @@ export default function ExplorePage() {
                 <div className="flex items-center gap-2">
                   <Compass className="h-4 w-4 text-muted-foreground" />
                   <h2 id="upcoming-events" className="text-sm font-semibold tracking-wide text-foreground">
-                    Upcoming
+                    {copy.upcoming}
                   </h2>
                 </div>
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                   {upcoming.map((event) => (
-                    <ExploreCard key={`upcoming-${event.id}`} event={event} reducedMotion={!!reducedMotion} />
+                    <ExploreCard key={`upcoming-${event.id}`} event={event} reducedMotion={!!reducedMotion} copy={copy} locale={locale} />
                   ))}
                 </div>
               </section>
@@ -246,9 +368,9 @@ export default function ExplorePage() {
             <section className="space-y-3" aria-labelledby="all-results">
               <div className="flex items-center justify-between gap-2">
                 <h2 id="all-results" className="text-sm font-semibold tracking-wide text-foreground">
-                  All results
+                  {copy.allResults}
                 </h2>
-                <p className="text-xs text-muted-foreground">{filtered.length} event{filtered.length === 1 ? "" : "s"}</p>
+                <p className="text-xs text-muted-foreground">{copy.eventsCount(filtered.length)}</p>
               </div>
 
               {filtered.length === 0 ? (
@@ -256,13 +378,13 @@ export default function ExplorePage() {
                   <p className="text-sm font-medium">{EMPTY_COPY.exploreNoResultsTitle}</p>
                   <p className="mt-1 text-sm text-muted-foreground">{EMPTY_COPY.exploreNoResultsBody}</p>
                   <Link href="/app">
-                    <Button variant="outline" className="mt-4">Back to app</Button>
+                    <Button variant="outline" className="mt-4">{copy.backToApp}</Button>
                   </Link>
                 </div>
               ) : (
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                   {filtered.map((event) => (
-                    <ExploreCard key={event.id} event={event} reducedMotion={!!reducedMotion} />
+                    <ExploreCard key={event.id} event={event} reducedMotion={!!reducedMotion} copy={copy} locale={locale} />
                   ))}
                 </div>
               )}

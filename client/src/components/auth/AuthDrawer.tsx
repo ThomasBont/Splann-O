@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { CheckCircle2, Eye, EyeOff, Loader2 } from "lucide-react";
-import { useLanguage } from "@/hooks/use-language";
+import { useLanguage, type Language } from "@/hooks/use-language";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { SplannOLogo } from "@/components/branding/SplannOLogo";
@@ -18,6 +18,38 @@ type AuthDrawerProps = {
   onOpenChange: (open: boolean) => void;
   onModeChange: (mode: AuthMode) => void;
   onSuccess?: () => void;
+};
+
+const AUTH_DRAWER_COPY: Record<Language, {
+  continueWithGoogle: string;
+  dividerOr: string;
+  emailPlaceholder: string;
+  passwordPlaceholder: string;
+}> = {
+  en: {
+    continueWithGoogle: "Continue with Google",
+    dividerOr: "or",
+    emailPlaceholder: "you@example.com",
+    passwordPlaceholder: "••••••",
+  },
+  es: {
+    continueWithGoogle: "Continuar con Google",
+    dividerOr: "o",
+    emailPlaceholder: "tu@ejemplo.com",
+    passwordPlaceholder: "••••••",
+  },
+  it: {
+    continueWithGoogle: "Continua con Google",
+    dividerOr: "oppure",
+    emailPlaceholder: "tu@esempio.com",
+    passwordPlaceholder: "••••••",
+  },
+  nl: {
+    continueWithGoogle: "Doorgaan met Google",
+    dividerOr: "of",
+    emailPlaceholder: "jij@voorbeeld.com",
+    passwordPlaceholder: "••••••",
+  },
 };
 
 function GoogleIcon() {
@@ -38,9 +70,10 @@ export function AuthDrawer({
   onModeChange,
   onSuccess,
 }: AuthDrawerProps) {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const { toast } = useToast();
   const { login, register, forgotPassword } = useAuth();
+  const copy = AUTH_DRAWER_COPY[language];
 
   const [tab, setTab] = useState<AuthTab>(mode === "signup" ? "register" : "login");
   const [username, setUsername] = useState("");
@@ -175,11 +208,11 @@ export function AuthDrawer({
               <div className="space-y-3">
                 <Button type="button" variant="outline" className="w-full gap-2" onClick={handleGoogleContinue}>
                   <GoogleIcon />
-                  Continue with Google
+                  {copy.continueWithGoogle}
                 </Button>
                 <div className="flex items-center gap-2 py-1 text-xs text-muted-foreground">
                   <div className="h-px flex-1 bg-border" />
-                  <span>or</span>
+                  <span>{copy.dividerOr}</span>
                   <div className="h-px flex-1 bg-border" />
                 </div>
                 <div className="space-y-1.5">
@@ -197,7 +230,7 @@ export function AuthDrawer({
                   <div className="relative">
                     <Input
                       type={showPw ? "text" : "password"}
-                      placeholder="••••••"
+                      placeholder={copy.passwordPlaceholder}
                       value={password}
                       onChange={(event) => setPassword(event.target.value)}
                       onKeyDown={(event) => event.key === "Enter" && void handleLogin()}
@@ -243,11 +276,11 @@ export function AuthDrawer({
               <div className="space-y-3">
                 <Button type="button" variant="outline" className="w-full gap-2" onClick={handleGoogleContinue}>
                   <GoogleIcon />
-                  Continue with Google
+                  {copy.continueWithGoogle}
                 </Button>
                 <div className="flex items-center gap-2 py-1 text-xs text-muted-foreground">
                   <div className="h-px flex-1 bg-border" />
-                  <span>or</span>
+                  <span>{copy.dividerOr}</span>
                   <div className="h-px flex-1 bg-border" />
                 </div>
                 <div className="space-y-1.5">
@@ -272,7 +305,7 @@ export function AuthDrawer({
                   <Label className="text-xs">{t.auth.email}</Label>
                   <Input
                     type="email"
-                    placeholder="you@example.com"
+                    placeholder={copy.emailPlaceholder}
                     value={email}
                     onChange={(event) => setEmail(event.target.value)}
                   />
@@ -282,7 +315,7 @@ export function AuthDrawer({
                   <div className="relative">
                     <Input
                       type={showPw ? "text" : "password"}
-                      placeholder="••••••"
+                      placeholder={copy.passwordPlaceholder}
                       value={password}
                       onChange={(event) => setPassword(event.target.value)}
                       className="pr-9"
@@ -301,7 +334,7 @@ export function AuthDrawer({
                   <Label className="text-xs">{t.auth.confirmPassword}</Label>
                   <Input
                     type={showPw ? "text" : "password"}
-                    placeholder="••••••"
+                    placeholder={copy.passwordPlaceholder}
                     value={confirm}
                     onChange={(event) => setConfirm(event.target.value)}
                     onKeyDown={(event) => event.key === "Enter" && void handleRegister()}
@@ -330,7 +363,7 @@ export function AuthDrawer({
                   <Label className="text-xs">{t.auth.email}</Label>
                   <Input
                     type="email"
-                    placeholder="you@example.com"
+                    placeholder={copy.emailPlaceholder}
                     value={email}
                     onChange={(event) => setEmail(event.target.value)}
                     onKeyDown={(event) => event.key === "Enter" && void handleForgot()}

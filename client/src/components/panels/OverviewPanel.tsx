@@ -401,12 +401,12 @@ export function OverviewPanel() {
   const heroPrimaryTextClass = hasHeroBanner
     ? activeBannerTone === "light-content"
       ? "text-white [text-shadow:0_1px_10px_rgba(0,0,0,0.18)]"
-      : "text-slate-950"
+      : "text-slate-950 dark:text-white"
     : "text-foreground";
   const heroSecondaryTextClass = hasHeroBanner
     ? activeBannerTone === "light-content"
       ? "text-white/84"
-      : "text-slate-900/72"
+      : "text-slate-900/72 dark:text-white/78"
     : "text-muted-foreground";
   const heroIconButtonClass = hasHeroBanner
     ? activeBannerTone === "light-content"
@@ -415,13 +415,25 @@ export function OverviewPanel() {
     : "";
   const heroPrimaryTextStyle = hasHeroBanner
     ? {
-        color: activeBannerTone === "light-content" ? "rgba(255, 255, 255, 0.98)" : "rgba(2, 6, 23, 0.96)",
-        textShadow: activeBannerTone === "light-content" ? "0 1px 10px rgba(0,0,0,0.18)" : undefined,
+        color: activeBannerTone === "light-content"
+          ? "rgba(255, 255, 255, 0.98)"
+          : (typeof document !== "undefined" && document.documentElement.classList.contains("dark"))
+            ? "rgba(255, 255, 255, 0.98)"
+            : "rgba(2, 6, 23, 0.96)",
+        textShadow: activeBannerTone === "light-content"
+          ? "0 1px 10px rgba(0,0,0,0.18)"
+          : (typeof document !== "undefined" && document.documentElement.classList.contains("dark"))
+            ? "0 1px 10px rgba(0,0,0,0.22)"
+            : undefined,
       }
     : undefined;
   const heroSecondaryTextStyle = hasHeroBanner
     ? {
-        color: activeBannerTone === "light-content" ? "rgba(255, 255, 255, 0.84)" : "rgba(15, 23, 42, 0.72)",
+        color: activeBannerTone === "light-content"
+          ? "rgba(255, 255, 255, 0.84)"
+          : (typeof document !== "undefined" && document.documentElement.classList.contains("dark"))
+            ? "rgba(255, 255, 255, 0.78)"
+            : "rgba(15, 23, 42, 0.72)",
       }
     : undefined;
 

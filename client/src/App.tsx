@@ -14,7 +14,6 @@ import Basic from "@/pages/basic";
 import AppRoute from "@/pages/app-route";
 import ResetPassword from "@/pages/reset-password";
 import JoinPage from "@/pages/join";
-import LoginPage from "@/pages/login";
 import UpgradePage from "@/pages/upgrade";
 import CheckEmailPage from "@/pages/check-email";
 import VerifiedPage from "@/pages/verified";
@@ -76,8 +75,8 @@ function Router() {
       <Route path="/join/:token" component={JoinPage} />
       <Route path="/invite/:token" component={JoinPage} />
       <Route path="/basic" component={Basic} />
-      <Route path="/login" component={LoginPage} />
-      <Route path="/signup" component={LoginPage} />
+      <Route path="/login" component={AuthAwareLanding} />
+      <Route path="/signup" component={AuthAwareLanding} />
       <Route path="/app/e/:eventId" component={AppRoute} />
       <Route path="/app/home" component={AppRoute} />
       <Route path="/app/private" component={AppRoute} />

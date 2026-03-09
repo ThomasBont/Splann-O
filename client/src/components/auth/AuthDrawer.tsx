@@ -3,7 +3,7 @@ import { CheckCircle2, Eye, EyeOff, Loader2 } from "lucide-react";
 import { useLanguage } from "@/hooks/use-language";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
-import { SplannoLogo } from "@/components/splanno-logo";
+import { SplannOLogo } from "@/components/branding/SplannOLogo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -149,7 +149,7 @@ export function AuthDrawer({
 
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
             <div className="mb-4 flex items-center justify-center">
-              <SplannoLogo variant="full" size={54} className="pointer-events-none" />
+              <SplannOLogo className="pointer-events-none h-10 w-auto max-w-full" />
             </div>
 
             {(tab === "login" || tab === "register") ? (

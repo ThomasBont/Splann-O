@@ -103,8 +103,8 @@ export function ContextPanelHost({
       <div
         className={cn(
           mobile
-            ? "h-full bg-white"
-            : "h-full overflow-hidden rounded-[24px] border border-neutral-200 bg-white shadow-[0_4px_12px_rgba(15,23,42,0.05)]",
+            ? "h-full bg-[hsl(var(--surface-0))]"
+            : "h-full overflow-hidden rounded-[24px] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] shadow-[var(--shadow-md)]",
           shellClassName,
         )}
       >

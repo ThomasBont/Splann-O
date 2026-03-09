@@ -113,7 +113,7 @@ export function CrewPanel() {
             className={panelHeaderAddButtonClass()}
             onClick={() => replacePanel({ type: "invite", source: "crew" })}
           >
-            Invite friends +
+            Invite Friends +
           </Button>
         )}
       />

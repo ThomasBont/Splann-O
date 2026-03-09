@@ -212,7 +212,7 @@ export function InviteFlowPanel() {
     <PanelShell>
       <PanelHeader
         label="Invite"
-        title="Invite friends"
+        title="Invite Friends"
         meta={<span className="inline-flex items-center gap-2"><Users className="h-4 w-4" />{pendingInvites.length} pending invites</span>}
       />
       <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5">

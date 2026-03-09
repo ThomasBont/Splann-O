@@ -39,7 +39,7 @@ export function renderJoinPreviewHtml(
   const description = escapeHtml(input.description);
   const imageUrl = escapeHtml(input.imageUrl);
   const url = escapeHtml(input.url);
-  const siteName = escapeHtml(input.siteName ?? "Splanno");
+  const siteName = escapeHtml(input.siteName ?? "Splann-O");
 
   let html = template;
   html = html.replace(/<title>.*?<\/title>/i, `<title>${title}</title>`);

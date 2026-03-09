@@ -1,7 +1,7 @@
 import { Link, useLocation } from "wouter";
 import { useEffect } from "react";
 import { ArrowRight, CheckCircle2, MessageCircle, Moon, ReceiptText, Sun, UserPlus2, Zap } from "lucide-react";
-import { SplannoLogo } from "@/components/splanno-logo";
+import { SplannOLogo } from "@/components/branding/SplannOLogo";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/use-auth";
@@ -80,8 +80,7 @@ export default function LandingV2() {
         <div className="mx-auto flex h-14 w-full max-w-6xl flex-nowrap items-center justify-between px-4 sm:h-16 sm:px-6 lg:px-8">
           <Link href="/">
             <a className="min-w-0 flex items-center gap-2.5">
-              <SplannoLogo variant="icon" size={32} />
-              <span className="truncate text-base font-semibold tracking-tight">Splanno</span>
+              <SplannOLogo className="h-9 w-auto max-w-full sm:h-10" />
             </a>
           </Link>
           <div className="flex flex-nowrap items-center gap-2">
@@ -153,6 +152,9 @@ export default function LandingV2() {
               <CardTitle className="text-base">Product preview</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3 p-4 sm:p-6">
+              <div className="flex items-center rounded-xl border border-border/70 px-3.5 py-3">
+                <SplannOLogo className="h-7 w-auto max-w-full sm:h-8" />
+              </div>
               <div className="w-full rounded-xl border border-border/70 p-3.5">
                 <p className="text-sm font-medium">Weekend in Lisbon</p>
                 <p className="text-xs text-muted-foreground">6 people · Shared chat active</p>

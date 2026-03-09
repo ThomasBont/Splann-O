@@ -1,7 +1,7 @@
 "use client";
 
 import { Link } from "wouter";
-import { SplannoLogo } from "@/components/splanno-logo";
+import { SplannOLogo } from "@/components/branding/SplannOLogo";
 
 export interface FooterLink {
   label: string;
@@ -21,7 +21,7 @@ export function LandingFooter({ tagline, product, features, about }: LandingFoot
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="grid grid-cols-2 md:grid-cols-5 gap-8">
           <div className="col-span-2 md:col-span-1">
-            <SplannoLogo variant="full" size={36} />
+            <SplannOLogo className="h-9 w-auto max-w-full" />
             <p className="mt-2 text-sm text-muted-foreground max-w-[200px]">{tagline}</p>
           </div>
           <div>
@@ -63,7 +63,7 @@ export function LandingFooter({ tagline, product, features, about }: LandingFoot
         </div>
         <div className="mt-12 pt-8 border-t border-border">
           <p className="text-xs text-muted-foreground text-center">
-            © {new Date().getFullYear()} Splanno. Split costs, stay friends.
+            © {new Date().getFullYear()} Splann-O. Split costs, stay friends.
           </p>
         </div>
       </div>

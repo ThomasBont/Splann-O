@@ -178,7 +178,7 @@ export function PollMessage({
 
   if (pollQuery.isLoading) {
     return (
-      <div className={cn("rounded-xl border border-neutral-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-neutral-950", className)}>
+      <div className={cn("rounded-xl border border-neutral-200 bg-white p-4 shadow-sm dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-1))]", className)}>
         <div className="inline-flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" />
           Loading poll...
@@ -189,7 +189,7 @@ export function PollMessage({
 
   if (pollQuery.isError || !pollQuery.data) {
     return (
-      <div className={cn("rounded-xl border border-neutral-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-neutral-950", className)}>
+      <div className={cn("rounded-xl border border-neutral-200 bg-white p-4 shadow-sm dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-1))]", className)}>
         <p className="text-sm text-muted-foreground">Couldn’t load poll.</p>
       </div>
     );
@@ -214,14 +214,14 @@ export function PollMessage({
   };
 
   return (
-    <div className={cn("rounded-xl border border-neutral-200 bg-white shadow-sm transition dark:border-white/10 dark:bg-neutral-950", className)}>
+    <div className={cn("rounded-xl border border-neutral-200 bg-white shadow-sm transition dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-1))]", className)}>
       <div className="flex items-start justify-between gap-3 p-4">
         <button
           type="button"
           onClick={handleToggleCollapsed}
           className={cn(
             "min-w-0 flex-1 rounded-lg text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-            collapsible && "hover:bg-neutral-50/80 dark:hover:bg-white/5",
+            collapsible && "hover:bg-neutral-50/80 dark:hover:bg-[hsl(var(--surface-2))]",
           )}
           aria-expanded={!effectiveCollapsed}
         >
@@ -246,7 +246,7 @@ export function PollMessage({
         </button>
         <div className="flex shrink-0 items-start gap-2">
           {poll.poll.isClosed ? (
-            <span className="inline-flex items-center gap-1 rounded-full border border-neutral-300 bg-neutral-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-700 dark:border-white/10 dark:bg-white/5 dark:text-neutral-200">
+            <span className="inline-flex items-center gap-1 rounded-full border border-neutral-300 bg-neutral-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-neutral-700 dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-2))] dark:text-neutral-200">
               <Lock className="h-3 w-3" />
               Closed
             </span>
@@ -259,7 +259,7 @@ export function PollMessage({
             <button
               type="button"
               onClick={handleToggleCollapsed}
-              className="inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:hover:bg-white/5"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition hover:bg-neutral-100 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 dark:hover:bg-[hsl(var(--surface-2))]"
               aria-label={effectiveCollapsed ? "Expand poll" : "Collapse poll"}
             >
               <ChevronDown className={cn("h-4 w-4 transition-transform", effectiveCollapsed ? "rotate-0" : "rotate-180")} />
@@ -272,7 +272,7 @@ export function PollMessage({
                   type="button"
                   size="sm"
                   variant="ghost"
-                  className="h-auto rounded-md px-2 py-1 text-xs text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700"
+                  className="h-auto rounded-md px-2 py-1 text-xs text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-300 dark:hover:bg-[hsl(var(--surface-2))] dark:hover:text-neutral-100"
                   onClick={(event) => event.stopPropagation()}
                   disabled={closeMutation.isPending}
                 >
@@ -318,7 +318,7 @@ export function PollMessage({
 
       {!effectiveCollapsed ? (
         <div className="overflow-hidden px-4 pb-4">
-          <div className="space-y-2 border-t border-neutral-200 pt-3 transition-all dark:border-white/10">
+          <div className="space-y-2 border-t border-neutral-200 pt-3 transition-all dark:border-[hsl(var(--border-subtle))]">
             {poll.options.map((option) => {
               const selected = poll.myVoteOptionId === option.id;
               const percent = totalVotes > 0 ? Math.round((option.voteCount / totalVotes) * 100) : 0;
@@ -337,7 +337,7 @@ export function PollMessage({
                       ? "border-yellow-300 bg-yellow-50/60 dark:border-yellow-500/40 dark:bg-yellow-500/10"
                       : selected
                       ? "border-yellow-400 bg-yellow-50 dark:border-yellow-500/50 dark:bg-yellow-500/10"
-                      : "border-neutral-200 hover:bg-neutral-50 dark:border-white/10 dark:hover:bg-white/5",
+                      : "border-neutral-200 hover:bg-neutral-50 dark:border-[hsl(var(--border-subtle))] dark:hover:bg-[hsl(var(--surface-2))]",
                     disabled && "cursor-default",
                   )}
                   onClick={() => {

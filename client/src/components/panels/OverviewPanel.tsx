@@ -227,10 +227,10 @@ export function OverviewPanel() {
   const settlementCompleted = latestSettlement?.status === "settled" && allBalancesZero;
   const personalStatus = useMemo<HeroStatus>(() => {
     if (hasOnlyCreator && !hasAnyExpenses) {
-      return { label: "Invite friends", tone: "cta-outline", action: "invite" };
+      return { label: "Invite Friends", tone: "cta-outline", action: "invite" };
     }
     if (!hasOnlyCreator && !hasAnyExpenses) {
-      return { label: "Add expense", tone: "cta-primary", action: "expense" };
+      return { label: "Add Expense", tone: "cta-primary", action: "expense" };
     }
     if (settlementCompleted) {
       return { label: "All settled", tone: "settled", action: null };
@@ -411,7 +411,7 @@ export function OverviewPanel() {
   const heroIconButtonClass = hasHeroBanner
     ? activeBannerTone === "light-content"
       ? "border-white/20 bg-black/25 text-white/90"
-      : "border-black/10 bg-white/70 text-slate-900"
+      : "border-black/10 bg-white/70 text-slate-900 dark:border-white/10 dark:bg-[hsl(var(--surface-1))]/88 dark:text-[hsl(var(--text-primary))]"
     : "";
   const heroPrimaryTextStyle = hasHeroBanner
     ? {
@@ -501,7 +501,7 @@ export function OverviewPanel() {
 
   return (
     <PanelShell>
-      <div className={cn("flex items-center justify-between gap-4 rounded-t-[inherit] border-b border-neutral-200 bg-neutral-50 px-6 py-4", isMobile && "px-3.5 py-2.5")}>
+      <div className={cn("flex items-center justify-between gap-4 rounded-t-[inherit] border-b border-neutral-200 bg-neutral-50 px-6 py-4 dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-1))]", isMobile && "px-3.5 py-2.5")}>
         <p className={cn("font-semibold tracking-tight text-foreground", isMobile ? "text-lg" : "text-xl")}>Overview</p>
         <Button
           type="button"
@@ -548,7 +548,7 @@ export function OverviewPanel() {
                 isMobile && "rounded-[18px] p-3.5",
                 hasVisibleBanner
                   ? "border border-black/5 bg-primary/5 dark:border-[hsl(var(--border-subtle))] dark:bg-[linear-gradient(180deg,hsl(var(--surface-2))/0.98,hsl(var(--surface-1))/0.98)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
-                  : "border border-primary/15 bg-primary/10 shadow-[var(--shadow-sm)] dark:border-primary/20 dark:bg-[linear-gradient(180deg,rgba(214,168,73,0.18),rgba(33,28,22,0.92))] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]",
+                  : "border border-primary/15 bg-primary/10 shadow-[var(--shadow-sm)] dark:border-[hsl(var(--border-subtle))] dark:bg-[linear-gradient(180deg,hsl(var(--surface-2)),hsl(var(--surface-1)))] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]",
               )}
             >
               {hasVisibleBanner ? (
@@ -683,7 +683,7 @@ export function OverviewPanel() {
                   personalStatus.tone === "muted" && "border-border/70 bg-background/70 text-muted-foreground dark:border-white/8 dark:bg-[hsl(var(--surface-2))]/88",
                   personalStatus.tone === "cta-outline" && "border-primary/50 bg-primary/10 text-foreground hover:border-primary/70 hover:bg-primary/16 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   personalStatus.tone === "cta-primary" && "border-primary/60 bg-primary text-slate-900 hover:border-primary/75 hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  hasVisibleBanner && bannerTone === "dark-content" && personalStatus.tone === "muted" && "border-black/10 bg-white/72 text-slate-900/78",
+                  hasVisibleBanner && bannerTone === "dark-content" && personalStatus.tone === "muted" && "border-black/10 bg-white/72 text-slate-900/78 dark:border-white/10 dark:bg-[hsl(var(--surface-1))]/84 dark:text-[hsl(var(--text-secondary))]",
                 )}
                   role={personalStatus.action ? "button" : undefined}
                   tabIndex={personalStatus.action ? 0 : undefined}
@@ -700,7 +700,7 @@ export function OverviewPanel() {
                       "inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-medium shadow-sm",
                       hasVisibleBanner
                         ? "border-white/20 bg-white/10 text-white/82 backdrop-blur-sm"
-                        : "border-border/70 bg-background/88 text-muted-foreground",
+                        : "border-border/70 bg-background/88 text-muted-foreground dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-2))]/92",
                     )}
                     style={!hasVisibleBanner ? heroSecondaryTextStyle : undefined}
                   >
@@ -722,7 +722,7 @@ export function OverviewPanel() {
                 }
               }}
               className={cn(
-                "interactive-card rounded-[18px] border border-primary/15 bg-primary/10 p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-primary/25 dark:bg-primary/12 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]",
+                "interactive-card rounded-[18px] border border-primary/15 bg-primary/10 p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-[hsl(var(--border-subtle))] dark:bg-[linear-gradient(180deg,hsl(var(--surface-2)),hsl(var(--surface-1)))] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]",
                 isMobile && "p-3",
               )}
             >
@@ -750,7 +750,7 @@ export function OverviewPanel() {
                 )}
               </div>
               {latestRunningPoll ? (
-                <div className="mt-3 rounded-2xl border border-yellow-200/80 bg-white/70 p-3 backdrop-blur-sm dark:border-yellow-500/20 dark:bg-black/10">
+                <div className="mt-3 rounded-2xl border border-yellow-200/80 bg-white/70 p-3 backdrop-blur-sm dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-2))]/96">
                   <div className="flex items-start gap-3">
                     <div className="min-w-0">
                       <div className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-yellow-700 dark:text-yellow-300">
@@ -815,7 +815,7 @@ export function OverviewPanel() {
                 }
               }}
               className={cn(
-                "interactive-card w-full rounded-[18px] border border-black/5 bg-background/96 p-4 text-left hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-white/9 dark:bg-[hsl(var(--surface-1))]/96 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] dark:hover:bg-[hsl(var(--surface-1))]",
+                "interactive-card w-full rounded-[18px] border border-black/5 bg-background/96 p-4 text-left hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-1))]/96 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] dark:hover:bg-[hsl(var(--surface-2))]",
                 isMobile && "p-3",
               )}
             >
@@ -874,7 +874,7 @@ export function OverviewPanel() {
                 ))}
                 {hiddenContributorCount > 0 ? (
                   <div className="min-w-[64px] text-center">
-                    <div className="mx-auto grid h-12 w-12 place-items-center rounded-full border border-dashed border-border/70 bg-background text-xs font-semibold text-muted-foreground dark:border-white/8 dark:bg-[hsl(var(--surface-1))]/90">
+                    <div className="mx-auto grid h-12 w-12 place-items-center rounded-full border border-dashed border-border/70 bg-background text-xs font-semibold text-muted-foreground dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-2))]/90">
                       +{hiddenContributorCount}
                     </div>
                     <p className="mt-2 text-xs font-medium text-foreground">more</p>
@@ -894,7 +894,7 @@ export function OverviewPanel() {
                 }
               }}
               className={cn(
-                "interactive-card rounded-[18px] border border-black/5 bg-background/96 p-4 hover:border-border/80 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-white/9 dark:bg-[hsl(var(--surface-1))]/96 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] dark:hover:bg-[hsl(var(--surface-1))]",
+                "interactive-card rounded-[18px] border border-black/5 bg-background/96 p-4 hover:border-border/80 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-1))]/96 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] dark:hover:bg-[hsl(var(--surface-2))]",
                 isMobile && "p-3",
               )}
             >
@@ -962,7 +962,7 @@ export function OverviewPanel() {
                 }
               }}
               className={cn(
-              "interactive-card rounded-[18px] border border-primary/15 bg-primary/10 p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-primary/25 dark:bg-primary/12 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]",
+              "interactive-card rounded-[18px] border border-primary/15 bg-primary/10 p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-[hsl(var(--border-subtle))] dark:bg-[linear-gradient(180deg,hsl(var(--surface-2)),hsl(var(--surface-1)))] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]",
               isMobile && "p-3",
               latestSettlement?.status === "settled"
                 ? "border-emerald-200 bg-emerald-50/80 dark:border-emerald-500/25 dark:bg-emerald-500/10"
@@ -1031,7 +1031,7 @@ export function OverviewPanel() {
                   openRecentActivity();
                 }
               }}
-              className="interactive-card rounded-[18px] border border-black/5 bg-background/96 p-4 hover:border-border/80 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-white/8 dark:bg-[hsl(var(--surface-1))]/96 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]"
+              className="interactive-card rounded-[18px] border border-black/5 bg-background/96 p-4 hover:border-border/80 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-1))]/96 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] dark:hover:bg-[hsl(var(--surface-2))]"
             >
               <div className="flex items-center justify-between gap-3">
                 <div>
@@ -1045,8 +1045,8 @@ export function OverviewPanel() {
               </div>
               <ul className="mt-4 space-y-1.5">
                 {visibleActivityItems.length > 0 ? visibleActivityItems.map((item) => (
-                  <li key={item.id} className="flex items-start gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-background/40 dark:hover:bg-black/10">
-                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[hsl(var(--surface-2))] text-sm dark:bg-[hsl(var(--surface-1))]/95">
+                  <li key={item.id} className="flex items-start gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-background/40 dark:hover:bg-[hsl(var(--surface-2))]/90">
+                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[hsl(var(--surface-2))] text-sm dark:bg-[hsl(var(--surface-2))]/95">
                       {getActivityIcon(item.type)}
                     </span>
                     <div className="min-w-0 flex-1">
@@ -1061,7 +1061,7 @@ export function OverviewPanel() {
                     </div>
                   </li>
                 )) : (
-                  <li className="rounded-xl bg-background/40 px-2 py-3 text-sm text-muted-foreground">No activity yet.</li>
+                  <li className="rounded-xl bg-background/40 px-2 py-3 text-sm text-muted-foreground dark:bg-[hsl(var(--surface-2))]/90">No activity yet.</li>
                 )}
               </ul>
             </section>

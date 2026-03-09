@@ -1,8 +1,11 @@
 import { useMemo, useState } from "react";
 import { ChevronDown, Plus, Receipt, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { getCategoryDef } from "@/config/expenseCategories";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { usePlan, usePlanCrew, usePlanExpenses } from "@/hooks/use-plan-data";
+import { resolveAssetUrl } from "@/lib/asset-url";
 import { computeSplit } from "@/lib/split/calc";
 import { cn } from "@/lib/utils";
 import { usePanel } from "@/state/panel";
@@ -28,6 +31,16 @@ function formatCreated(value?: string | null) {
   return date.toLocaleDateString(undefined, { day: "numeric", month: "short" });
 }
 
+function initials(value?: string | null) {
+  const parts = String(value ?? "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2);
+  if (parts.length === 0) return "U";
+  return parts.map((part) => part[0]?.toUpperCase() ?? "").join("") || "U";
+}
+
 export function ExpensesPanel() {
   const [recentExpanded, setRecentExpanded] = useState(false);
   const isMobile = useIsMobile();
@@ -38,6 +51,7 @@ export function ExpensesPanel() {
   const expensesQuery = usePlanExpenses(eventId);
   const plan = planQuery.data;
   const participants = crewQuery.data?.participants ?? [];
+  const members = crewQuery.data?.members ?? [];
   const expenses = expensesQuery.data ?? [];
   const splitExpenses = useMemo(
     () => expenses.map((expense) => ({ ...expense, amount: Number(expense.amount || 0) })),
@@ -57,6 +71,10 @@ export function ExpensesPanel() {
     [expenses],
   );
   const visibleRecentExpenses = recentExpanded ? sortedExpenses : sortedExpenses.slice(0, 3);
+  const memberByUserId = useMemo(
+    () => new Map(members.map((member) => [Number(member.userId), member])),
+    [members],
+  );
   const handleAddExpense = () => {
     if (!eventId) return;
     replacePanel({ type: "add-expense", source: "expenses" });
@@ -80,9 +98,9 @@ export function ExpensesPanel() {
             )}
             onClick={handleAddExpense}
             disabled={!eventId}
-            title="Add expense"
+            title="Add Expense"
           >
-            Add expense +
+            Add Expense +
           </Button>
         )}
         meta={(
@@ -117,7 +135,7 @@ export function ExpensesPanel() {
                   disabled={!eventId}
                 >
                   <Plus className="mr-2 h-4 w-4" />
-                  Add expense
+                  Add Expense
                 </Button>
               </section>
             ) : null}
@@ -136,37 +154,51 @@ export function ExpensesPanel() {
               {visibleRecentExpenses.length > 0 ? (
                 <div id="recent-expenses-list" className={cn("mt-3 space-y-2", isMobile && "mt-2.5 space-y-1.5")}>
                   {visibleRecentExpenses.map((expense) => (
-                    <button
-                      type="button"
-                      key={`expenses-panel-${expense.id}`}
-                      onClick={() => openExpenseDetail(expense.id)}
-                      className={cn(
-                        "interactive-card flex w-full items-center justify-between gap-3 rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))] text-left hover:border-border/80 hover:bg-[hsl(var(--surface-2))]/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                        isMobile ? "px-3 py-2.5" : "px-3 py-2.5",
-                      )}
-                    >
-                      <div className="min-w-0">
-                        <p className={cn("truncate font-medium text-foreground", isMobile ? "text-sm" : "text-sm")}>
-                          {expense.item || "Expense"}
-                        </p>
-                        <p className="truncate text-xs text-muted-foreground">
-                          Paid by {expense.participantName || "Unknown"}
-                        </p>
-                        {isMobile ? (
-                          <p className="truncate text-[11px] text-muted-foreground">
-                            {expense.category || "Other"} · {formatCreated(expense.createdAt ? String(expense.createdAt) : null)}
-                          </p>
-                        ) : null}
-                        {!isMobile ? (
-                          <p className="truncate text-xs text-muted-foreground">
-                            {expense.category || "Other"} · {formatCreated(expense.createdAt ? String(expense.createdAt) : null)}
-                          </p>
-                        ) : null}
-                      </div>
-                      <span className={cn("shrink-0 font-semibold text-foreground", isMobile ? "text-sm" : "text-sm")}>
-                        {formatCurrency(Number(expense.amount || 0), currency)}
-                      </span>
-                    </button>
+                    (() => {
+                      const categoryLabel = String(expense.category || "Other").trim() || "Other";
+                      const CategoryIcon = getCategoryDef(categoryLabel).icon;
+                      const payerName = String(expense.participantName || "Unknown").trim() || "Unknown";
+                      const member = expense.participantUserId ? memberByUserId.get(Number(expense.participantUserId)) : undefined;
+                      const avatarUrl = resolveAssetUrl(member?.avatarUrl ?? null) ?? member?.avatarUrl ?? "";
+                      return (
+                        <button
+                          type="button"
+                          key={`expenses-panel-${expense.id}`}
+                          onClick={() => openExpenseDetail(expense.id)}
+                          className={cn(
+                            "group w-full cursor-pointer rounded-xl border-b border-[hsl(var(--border-subtle))] bg-transparent px-3 py-3 text-left transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                            isMobile && "px-2.5 py-3",
+                          )}
+                        >
+                          <div className="flex items-start justify-between gap-4">
+                            <div className="min-w-0 flex items-center gap-2.5">
+                              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted/70 text-muted-foreground">
+                                <CategoryIcon className="h-4 w-4" />
+                              </span>
+                              <p className="truncate text-[15px] font-medium text-foreground">
+                                {expense.item || "Expense"}
+                              </p>
+                            </div>
+                            <span className="shrink-0 text-lg font-semibold text-foreground">
+                              {formatCurrency(Number(expense.amount || 0), currency)}
+                            </span>
+                          </div>
+                          <div className="mt-2 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                            <Avatar className="h-5 w-5 shrink-0">
+                              {avatarUrl ? <AvatarImage src={avatarUrl} alt={payerName} /> : null}
+                              <AvatarFallback className="bg-primary/10 text-[9px] font-semibold text-primary">
+                                {initials(payerName)}
+                              </AvatarFallback>
+                            </Avatar>
+                            <span className="truncate">{payerName}</span>
+                            <span aria-hidden>·</span>
+                            <span className="truncate">{categoryLabel}</span>
+                            <span aria-hidden>·</span>
+                            <span className="shrink-0">{formatCreated(expense.createdAt ? String(expense.createdAt) : null)}</span>
+                          </div>
+                        </button>
+                      );
+                    })()
                   ))}
                 </div>
               ) : (

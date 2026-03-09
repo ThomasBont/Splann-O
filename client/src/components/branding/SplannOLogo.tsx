@@ -8,10 +8,10 @@ type SplannOLogoProps = {
 export function SplannOLogo({ className, title = "Splann-O" }: SplannOLogoProps) {
   return (
     <svg
-      viewBox="0 0 228 58"
+      viewBox="0 0 232 58"
       role="img"
       aria-label={title}
-      className={cn("h-auto w-[228px] max-w-full overflow-visible text-foreground", className)}
+      className={cn("h-auto w-[232px] max-w-full overflow-visible text-foreground", className)}
       xmlns="http://www.w3.org/2000/svg"
     >
       <title>{title}</title>
@@ -24,10 +24,10 @@ export function SplannOLogo({ className, title = "Splann-O" }: SplannOLogoProps)
         fontWeight="650"
         letterSpacing="-2.2"
         lengthAdjust="spacingAndGlyphs"
-        textLength="228"
+        textLength="232"
       >
         <tspan>Splann-</tspan>
-        <tspan fill="hsl(var(--primary))" fontSize="57">O</tspan>
+        <tspan dx="1.5" fill="hsl(var(--primary))" fontSize="61">O</tspan>
       </text>
     </svg>
   );

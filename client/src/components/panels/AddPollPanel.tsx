@@ -142,7 +142,7 @@ export function AddPollPanel({
                     <button
                       type="button"
                       onClick={() => removeOptionField(index)}
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition hover:bg-neutral-100 hover:text-foreground"
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition hover:bg-neutral-100 hover:text-foreground dark:hover:bg-[hsl(var(--surface-2))]"
                       aria-label={`Remove option ${index + 1}`}
                     >
                       <X className="h-4 w-4" />

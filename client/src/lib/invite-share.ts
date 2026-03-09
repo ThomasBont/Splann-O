@@ -49,7 +49,7 @@ function getInviteIntro(event: InviteEventContext) {
     || eventType.includes("festival")
     || eventType.includes("backpacking")
   ) {
-    return "Join our trip on Splanno ✈️";
+    return "Join our trip on Splann-O ✈️";
   }
   if (eventType.includes("birthday")) {
     return "You're invited to a birthday plan 🎂";
@@ -57,7 +57,7 @@ function getInviteIntro(event: InviteEventContext) {
   if (eventType.includes("dinner") || eventType.includes("brunch")) {
     return "Join our dinner plan 🍝";
   }
-  return "You're invited to a plan on Splanno 🎉";
+  return "You're invited to a plan on Splann-O 🎉";
 }
 
 export function buildInviteUrl(inviteToken?: string | null, options?: { forceProduction?: boolean }) {
@@ -69,7 +69,7 @@ export function generateInviteMessage(event: InviteEventContext, inviteUrl: stri
   const lines = [
     getInviteIntro(event),
     "",
-    String(event.name ?? "").trim() || "Splanno plan",
+    String(event.name ?? "").trim() || "Splann-O plan",
   ];
 
   const location = resolveInviteLocation(event).trim();
@@ -81,7 +81,5 @@ export function generateInviteMessage(event: InviteEventContext, inviteUrl: stri
   lines.push("Join the plan:");
   lines.push(inviteUrl);
   lines.push("");
-  lines.push("Split costs, stay friends.");
-
   return lines.join("\n").trim();
 }

@@ -77,7 +77,7 @@ export function AddExpensePanel({ source = "overview" }: { source?: "overview" |
     <PanelShell>
       <PanelHeader
         label="Expense"
-        title="Add expense"
+        title="Add Expense"
         meta={plan ? <span className="text-sm text-muted-foreground">{plan.name}</span> : undefined}
       />
       <div className="flex-1 overflow-y-auto px-5 py-5">
@@ -229,7 +229,7 @@ export function AddExpensePanel({ source = "overview" }: { source?: "overview" |
                 {createExpense.isPending ? "Adding..." : (
                   <span className="inline-flex items-center gap-2">
                     <CheckCircle2 className="h-4 w-4" />
-                    Add expense
+                    Add Expense
                   </span>
                 )}
               </Button>

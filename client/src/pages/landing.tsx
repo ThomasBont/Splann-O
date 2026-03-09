@@ -1,7 +1,7 @@
 import { useLanguage, SELECTABLE_LANGUAGES } from "@/hooks/use-language";
 import { useTheme } from "@/hooks/use-theme";
 import { Link } from "wouter";
-import { SplannoLogo } from "@/components/splanno-logo";
+import { SplannOLogo } from "@/components/branding/SplannOLogo";
 import { LandingHero } from "@/components/landing/LandingHero";
 import { SocialProof } from "@/components/landing/SocialProof";
 import { UseCases } from "@/components/landing/UseCases";
@@ -54,10 +54,7 @@ export default function Landing() {
       <header className="border-b border-border py-3 px-4 flex items-center justify-between sticky top-0 z-50 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <Link href="/">
           <div className="flex items-center gap-3 cursor-pointer">
-            <SplannoLogo variant="icon" size={40} />
-            <span className="font-display font-bold text-primary text-base sm:text-lg truncate">
-              {t.title}
-            </span>
+            <SplannOLogo className="h-10 w-auto max-w-full sm:h-11" />
           </div>
         </Link>
         <div className="flex items-center gap-2">

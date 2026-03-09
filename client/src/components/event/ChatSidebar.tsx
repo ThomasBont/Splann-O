@@ -1099,15 +1099,15 @@ export function ChatSidebar({
   return (
     <>
     <aside
-      className={cn("pointer-events-auto relative flex h-full min-h-0 flex-col overflow-hidden bg-neutral-50", className)}
+      className={cn("pointer-events-auto relative flex h-full min-h-0 flex-col overflow-hidden bg-[hsl(var(--surface-0))]", className)}
       style={
         {
-          "--chat-pattern-bg": "linear-gradient(180deg, #ffffff 0%, #ffffff 100%)",
+          "--chat-pattern-bg": "linear-gradient(180deg, hsl(var(--surface-0)) 0%, hsl(var(--surface-0)) 100%)",
         } as CSSProperties
       }
     >
       <header className={cn(
-        "shrink-0 border-b border-neutral-200 bg-neutral-50",
+        "shrink-0 border-b border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))]",
         isMobile ? "px-3 py-2" : "px-6 py-4",
       )}>
         <div className="flex items-start justify-between gap-4">
@@ -1130,7 +1130,7 @@ export function ChatSidebar({
           </div>
           <div className={cn("flex items-center", isMobile ? "gap-2.5" : "gap-2")}>
             <div className={cn(
-              "inline-flex items-center gap-1.5 rounded-full border border-neutral-200 bg-white text-[10px] text-muted-foreground",
+              "inline-flex items-center gap-1.5 rounded-full border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))] text-[10px] text-muted-foreground",
               isMobile ? "min-h-8 px-2.5 py-1" : "px-2 py-1",
             )}>
               <span className={`inline-block h-1.5 w-1.5 rounded-full ${liveLabel.cls}`} />
@@ -1236,7 +1236,7 @@ export function ChatSidebar({
 
       <div
         ref={listRef}
-        className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden bg-white"
+        className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden bg-[hsl(var(--surface-0))]"
         style={{
           WebkitOverflowScrolling: "touch",
           background: `${chatPatternStyle.backgroundImage} 0 0 / 184px 184px repeat, var(--chat-pattern-bg)`,
@@ -1751,9 +1751,9 @@ export function ChatSidebar({
       ) : null}
 
       <div className={cn(
-        "shrink-0 border-t border-neutral-200 bg-neutral-50",
+        "shrink-0 border-t border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))]",
         isMobile
-          ? "px-2.5 py-1.5 pb-[max(env(safe-area-inset-bottom),0.5rem)] shadow-[0_-6px_18px_rgba(15,23,42,0.05)]"
+          ? "px-2.5 py-1.5 pb-[max(env(safe-area-inset-bottom),0.5rem)] shadow-[0_-10px_24px_rgba(0,0,0,0.24)]"
           : "px-6 py-1",
       )}>
         {expenseSuggestion ? (

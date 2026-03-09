@@ -63,7 +63,7 @@ export function PanelHeader({
     : { label: "Overview", panel: { type: "overview" } as const };
 
   return (
-    <div className={cn("rounded-t-[inherit] border-b border-neutral-200 bg-neutral-50 px-5 py-5", isMobile && "px-4 py-3.5")}>
+    <div className={cn("rounded-t-[inherit] border-b border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] px-5 py-5", isMobile && "px-4 py-3.5")}>
       <div className={cn("flex items-center justify-between gap-4", isMobile && "gap-3")}>
         <div className="min-w-0">
           {showBackButton ? (

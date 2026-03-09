@@ -253,11 +253,11 @@ export function createApp() {
       const baseUrl = resolveBaseUrl(`${req.protocol}://${req.get("host") || ""}`);
       const template = await loadJoinPreviewTemplate();
       const html = renderJoinPreviewHtml(template, {
-        title: `${inviterName} invited you to ${planName}`,
-        description: "Join the plan on Splanno — split costs, stay friends.",
-        imageUrl: `${baseUrl}/branding/splanno-og-image.png`,
+        title: "You're invited to a plan on Splann-O",
+        description: `${inviterName} invited you to join ${planName}. Open the plan, chat with the group, and stay in sync.`,
+        imageUrl: `${baseUrl}/branding/splann-o-og-image.svg`,
         url: `${baseUrl}/join/${encodeURIComponent(token)}`,
-        siteName: "Splanno",
+        siteName: "Splann-O",
       });
 
       res

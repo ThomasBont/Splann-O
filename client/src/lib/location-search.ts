@@ -123,55 +123,78 @@ export async function searchLocationsGlobal(
     return fallback;
   }
 
-  const res = await fetch("https://places.googleapis.com/v1/places:autocomplete", {
-    method: "POST",
-    signal,
-    headers: {
-      "Content-Type": "application/json",
-      "X-Goog-Api-Key": googleApiKey,
-      "X-Goog-FieldMask": "suggestions.placePrediction.placeId,suggestions.placePrediction.text,suggestions.placePrediction.structuredFormat",
-    },
-    body: JSON.stringify({
-      input: q,
-      languageCode: language,
-      includedPrimaryTypes: ["locality", "administrative_area_level_3", "postal_code", "establishment"],
-      regionCode: ((import.meta.env.VITE_GOOGLE_PLACES_REGION as string | undefined) || "").trim().toUpperCase() || undefined,
-    }),
-  });
-  if (!res.ok) {
-    if (import.meta.env.DEV) {
-      console.debug("[places] google autocomplete request failed", { status: res.status, query: q });
+  try {
+    const res = await fetch("https://places.googleapis.com/v1/places:autocomplete", {
+      method: "POST",
+      signal,
+      headers: {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": googleApiKey,
+        "X-Goog-FieldMask": "suggestions.placePrediction.placeId,suggestions.placePrediction.text,suggestions.placePrediction.structuredFormat",
+      },
+      body: JSON.stringify({
+        input: q,
+        languageCode: language,
+        includedPrimaryTypes: ["locality", "administrative_area_level_3", "postal_code", "establishment"],
+        regionCode: ((import.meta.env.VITE_GOOGLE_PLACES_REGION as string | undefined) || "").trim().toUpperCase() || undefined,
+      }),
+    });
+    if (!res.ok) {
+      if (import.meta.env.DEV) {
+        console.debug("[places] google autocomplete request failed; using local fallback", {
+          status: res.status,
+          query: q,
+        });
+      }
+      const fallback = searchLocations(q).slice(0, 6);
+      if (fallback.length > 0) CACHE.set(cacheKey, fallback);
+      else CACHE.delete(cacheKey);
+      return fallback;
     }
-    throw new Error(`GOOGLE_PLACES_${res.status}`);
+
+    const json = await res.json() as GoogleAutocompleteResponse;
+    if (import.meta.env.DEV) {
+      console.debug("[places] raw autocomplete response", { query: q, json });
+    }
+
+    const nextApiPredictions = Array.isArray(json.suggestions)
+      ? json.suggestions.flatMap((suggestion) => {
+        const values: GoogleAutocompletePrediction[] = [];
+        if (suggestion.placePrediction) values.push(suggestion.placePrediction);
+        if (suggestion.queryPrediction) values.push(suggestion.queryPrediction);
+        return values;
+      })
+      : [];
+    const legacyPredictions = Array.isArray(json.predictions) ? json.predictions : [];
+    const predictions = [...nextApiPredictions, ...legacyPredictions];
+
+    const mapped = predictions
+      .map((prediction) => mapGooglePredictionToLocation(prediction))
+      .filter((item): item is LocationOption => item !== null)
+      .slice(0, 6);
+    if (import.meta.env.DEV) {
+      console.debug("[places] mapped suggestions", { query: q, predictions, mapped });
+    }
+
+    if (mapped.length > 0) {
+      CACHE.set(cacheKey, mapped);
+      return mapped;
+    }
+
+    const fallback = searchLocations(q).slice(0, 6);
+    if (fallback.length > 0) CACHE.set(cacheKey, fallback);
+    else CACHE.delete(cacheKey);
+    return fallback;
+  } catch (error) {
+    if ((error as Error | undefined)?.name === "AbortError") throw error;
+    if (import.meta.env.DEV) {
+      console.debug("[places] autocomplete threw; using local fallback", { query: q, error });
+    }
+    const fallback = searchLocations(q).slice(0, 6);
+    if (fallback.length > 0) CACHE.set(cacheKey, fallback);
+    else CACHE.delete(cacheKey);
+    return fallback;
   }
-
-  const json = await res.json() as GoogleAutocompleteResponse;
-  if (import.meta.env.DEV) {
-    console.debug("[places] raw autocomplete response", { query: q, json });
-  }
-
-  const nextApiPredictions = Array.isArray(json.suggestions)
-    ? json.suggestions.flatMap((suggestion) => {
-      const values: GoogleAutocompletePrediction[] = [];
-      if (suggestion.placePrediction) values.push(suggestion.placePrediction);
-      if (suggestion.queryPrediction) values.push(suggestion.queryPrediction);
-      return values;
-    })
-    : [];
-  const legacyPredictions = Array.isArray(json.predictions) ? json.predictions : [];
-  const predictions = [...nextApiPredictions, ...legacyPredictions];
-
-  const mapped = predictions
-    .map((prediction) => mapGooglePredictionToLocation(prediction))
-    .filter((item): item is LocationOption => item !== null)
-    .slice(0, 6);
-  if (import.meta.env.DEV) {
-    console.debug("[places] mapped suggestions", { query: q, predictions, mapped });
-  }
-
-  if (mapped.length > 0) CACHE.set(cacheKey, mapped);
-  else CACHE.delete(cacheKey);
-  return mapped;
 }
 
 export async function enrichLocationByPlaceId(

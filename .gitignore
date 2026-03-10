@@ -27,3 +27,6 @@ Thumbs.db
 server/public
 vite.config.ts.*
 *.tar.gz
+
+# Claude worktrees
+.claude/worktrees/

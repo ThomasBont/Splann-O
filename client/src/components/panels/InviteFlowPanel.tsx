@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, Users } from "lucide-react";
+import { Loader2, MessageCircle, Users } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -426,16 +426,32 @@ export function InviteFlowPanel() {
             </PanelSection>
 
             <PanelSection title={copy.pendingInvitesTitle} variant="list">
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                They haven't joined yet — send them the link directly if needed.
+              </p>
               {pendingInvites.length > 0 ? (
-                <div className="divide-y divide-[hsl(var(--border-subtle))]">
+                <div className="mt-3 divide-y divide-[hsl(var(--border-subtle))]">
                   {pendingInvites.map((invite) => (
-                    <div key={`invite-row-${invite.id}`} className="px-1 py-3 first:pt-0 last:pb-0">
-                      <p className="truncate text-sm font-medium text-foreground">
-                        {invite.invitee?.name ?? invite.email ?? copy.pendingInviteFallback}
-                      </p>
-                      <p className="truncate text-xs text-muted-foreground">
-                        {invite.invitee?.username ? `@${invite.invitee.username}` : copy.waitingForResponse}
-                      </p>
+                    <div key={`invite-row-${invite.id}`} className="flex items-center justify-between gap-3 px-1 py-3 first:pt-0 last:pb-0">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-foreground">
+                          {invite.invitee?.name ?? invite.email ?? copy.pendingInviteFallback}
+                        </p>
+                        <p className="truncate text-xs text-muted-foreground">
+                          {invite.invitee?.username ? `@${invite.invitee.username}` : copy.waitingForResponse}
+                        </p>
+                      </div>
+                      <a
+                        href={`https://wa.me/?text=${encodeURIComponent(
+                          `Hey! Join my plan on Splann-O: ${inviteUrl}`,
+                        )}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-green-200 bg-green-50 px-2.5 py-1.5 text-xs font-medium text-green-700 transition hover:bg-green-100 dark:border-green-500/25 dark:bg-green-500/10 dark:text-green-300"
+                      >
+                        <MessageCircle className="h-3.5 w-3.5" />
+                        WhatsApp
+                      </a>
                     </div>
                   ))}
                 </div>

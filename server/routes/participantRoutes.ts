@@ -78,12 +78,48 @@ router.post("/invites/:token/accept", requireAuth, asyncHandler(async (req, res)
 
   const me = await userRepo.findById(userId);
   if (me) {
-    await db.insert(participants).values({
-      barbecueId: eventId,
-      name: me.displayName || me.username,
-      userId: me.id,
-      status: "accepted",
-    }).onConflictDoNothing();
+    const existingParticipant = await db
+      .select()
+      .from(participants)
+      .where(
+        and(
+          eq(participants.barbecueId, eventId),
+          eq(participants.userId, me.id),
+        ),
+      )
+      .limit(1);
+
+    if (existingParticipant[0]) {
+      await db
+        .update(participants)
+        .set({
+          status: "accepted",
+          name: me.displayName || me.username,
+        })
+        .where(eq(participants.id, existingParticipant[0].id));
+    } else {
+      await db.insert(participants).values({
+        barbecueId: eventId,
+        name: me.displayName || me.username,
+        userId: me.id,
+        status: "accepted",
+      });
+    }
+
+    await db
+      .update(eventInvites)
+      .set({
+        status: "accepted",
+        acceptedByUserId: me.id,
+        acceptedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(eventInvites.eventId, eventId),
+          eq(eventInvites.status, "pending"),
+          eq(eventInvites.acceptedByUserId, me.id),
+        ),
+      );
   }
   if (me) {
     await postSystemChatMessage(eventId, `${me.displayName || me.username} joined the plan`);

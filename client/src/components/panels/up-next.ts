@@ -127,8 +127,8 @@ const pollsPlaceholderRule: UpNextRule = () => null;
 
 const allDoneRule: UpNextRule = () => ({
   type: "done",
-  title: "All done! Great trip 🎉",
-  description: "Nothing needs attention right now.",
+  title: "You're all good 🎉",
+  description: "Nothing left to do — the plan is on track.",
   ctaLabel: null,
   action: null,
 });

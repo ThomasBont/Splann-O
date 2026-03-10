@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent, type MouseEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, BarChart3, Camera, CheckCircle2, CreditCard, Crown, Link2, Loader2, Plus, Receipt, Scale, Upload, Users } from "lucide-react";
+import { ArrowRight, BarChart3, Camera, CheckCircle2, Crown, Link2, Loader2, Plus, Scale, Upload, Users } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -78,6 +78,17 @@ function formatScopeLabel(scopeType: "everyone" | "selected", selectedCount?: nu
   if ((selectedCount ?? 0) <= 0) return "Selected people";
   return `${selectedCount} selected`;
 }
+
+const UP_NEXT_CONFETTI_COLORS = [
+  "bg-yellow-400",
+  "bg-primary",
+  "bg-emerald-400",
+  "bg-pink-400",
+  "bg-blue-400",
+  "bg-orange-400",
+] as const;
+
+const UP_NEXT_CONFETTI_ANGLES = [0, 60, 120, 180, 240, 300] as const;
 
 function countryCodeToFlagEmoji(countryCode: string | null | undefined) {
   const code = String(countryCode ?? "").trim().toUpperCase();
@@ -256,6 +267,7 @@ export function OverviewPanel() {
   const latestRunningPollQuery = useLatestRunningPoll(eventId, !!eventId);
   const isCreator = Number(plan?.creatorUserId) === Number(user?.id);
   const [upNextRotationIndex, setUpNextRotationIndex] = useState(0);
+  const [showConfetti, setShowConfetti] = useState(false);
 
   const hasAnyExpenses = laterSettleExpenses.length > 0;
   const hasOnlyCreator = participants.length <= 1;
@@ -316,10 +328,6 @@ export function OverviewPanel() {
   const openAddExpenseFlow = () => {
     if (!eventId) return;
     replacePanel({ type: "add-expense", source: "overview" });
-  };
-  const openPaybackExpenseFlow = () => {
-    if (!eventId) return;
-    replacePanel({ type: "add-expense", source: "overview", initialResolutionMode: "now" });
   };
   const heroActionHandlers: Partial<Record<Exclude<HeroStatusAction, null>, () => void>> = {
     invite: openInvite,
@@ -391,6 +399,33 @@ export function OverviewPanel() {
     }, getUpNextRotationIntervalMs());
     return () => window.clearInterval(interval);
   }, [upNextCandidates.length]);
+
+  useEffect(() => {
+    const styleId = "splann-o-up-next-confetti";
+    if (document.getElementById(styleId)) return;
+    const style = document.createElement("style");
+    style.id = styleId;
+    style.textContent = `
+      @keyframes confetti-burst {
+        0% { transform: translate(-50%, -50%) rotate(var(--angle)) translateY(0px); opacity: 1; }
+        100% { transform: translate(-50%, -50%) rotate(var(--angle)) translateY(-28px); opacity: 0; }
+      }
+      .animate-confetti-burst {
+        animation: confetti-burst 0.9s ease-out forwards;
+      }
+    `;
+    document.head.appendChild(style);
+  }, []);
+
+  useEffect(() => {
+    if (upNext.type !== "done") {
+      setShowConfetti(false);
+      return;
+    }
+    setShowConfetti(true);
+    const timeout = window.setTimeout(() => setShowConfetti(false), 1200);
+    return () => window.clearTimeout(timeout);
+  }, [upNext.type]);
 
   const eventBanner = useMemo(() => getEventBanner(plan), [plan]);
   const bannerPresetClass = useMemo(
@@ -772,11 +807,33 @@ export function OverviewPanel() {
                   >
                     {upNext.ctaLabel}
                   </Button>
-                ) : (
-                  <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold tracking-wide text-emerald-700 dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-300">
-                    DONE
-                  </span>
-                )}
+                ) : upNext.type === "done" ? (
+                  <div className="relative flex items-center justify-center">
+                    {showConfetti ? (
+                      <div className="pointer-events-none absolute inset-0">
+                        {UP_NEXT_CONFETTI_ANGLES.map((angle, index) => (
+                          <span
+                            key={`up-next-confetti-${angle}`}
+                            className={cn(
+                              "absolute h-2 w-2 rounded-full opacity-0",
+                              UP_NEXT_CONFETTI_COLORS[index],
+                              showConfetti && "animate-confetti-burst",
+                            )}
+                            style={{
+                              top: "50%",
+                              left: "50%",
+                              "--angle": `${angle}deg`,
+                              animationDelay: `${index * 60}ms`,
+                            } as React.CSSProperties}
+                          />
+                        ))}
+                      </div>
+                    ) : null}
+                    <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-300">
+                      All good ✓
+                    </span>
+                  </div>
+                ) : null}
               </div>
               {latestRunningPoll ? (
                 <div className="mt-3 rounded-2xl border border-yellow-200/80 bg-white/70 p-3 backdrop-blur-sm dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-2))]/96">
@@ -918,67 +975,76 @@ export function OverviewPanel() {
                 isMobile && "p-3",
               )}>
                 <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-semibold tracking-tight text-foreground">Money</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Shared costs for this plan. Add group expenses here, then settle up later if balances need wrapping up.
+                  <p className="text-sm font-semibold tracking-tight text-foreground">Money</p>
+                  {laterSettleExpenses.length > 0 ? (
+                    <span className="shrink-0 text-sm font-semibold text-foreground">
+                      {formatCurrency(totalShared, currency)}
+                    </span>
+                  ) : null}
+                </div>
+                {laterSettleExpenses.length > 0 ? (
+                  <>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {laterSettleExpenses.length} expense{laterSettleExpenses.length === 1 ? "" : "s"} · {participants.length} people
                     </p>
-                  </div>
-                  <Receipt className="h-4 w-4 text-muted-foreground" />
-                </div>
-                <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                  <div className="rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]/70 px-3 py-3">
-                    <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Shared total</p>
-                    <p className="mt-1 text-sm font-semibold text-foreground">{formatCurrency(totalShared, currency)}</p>
-                  </div>
-                  <div className="rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]/70 px-3 py-3">
-                    <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Expenses</p>
-                    <p className="mt-1 text-sm font-semibold text-foreground">{expenses.length}</p>
-                  </div>
-                  <div className="rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]/70 px-3 py-3 sm:block hidden">
-                    <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">People</p>
-                    <p className="mt-1 text-sm font-semibold text-foreground">{participants.length}</p>
-                  </div>
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <Button type="button" size="sm" onClick={openAddExpenseFlow}>
-                    <Plus className="mr-1.5 h-4 w-4" />
-                    Add expense
-                  </Button>
-                    <Button type="button" size="sm" variant="outline" onClick={openPaybackExpenseFlow}>
-                      <CreditCard className="mr-1.5 h-4 w-4" />
-                      Pay someone back
-                    </Button>
-                </div>
 
-                <div className="mt-4 space-y-2">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-sm font-medium text-foreground">Recent shared expenses</p>
-                    <button type="button" className="text-xs font-medium text-muted-foreground transition hover:text-foreground" onClick={openExpenses}>
-                      View all expenses
-                    </button>
-                  </div>
-                  {recentExpenses.length > 0 ? recentExpenses.map((expense) => (
-                    <button
-                      key={`overview-expense-${expense.id}`}
-                      type="button"
-                      onClick={openExpenses}
-                      className="flex w-full items-center justify-between gap-3 rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]/70 px-3 py-2.5 text-left transition hover:bg-[hsl(var(--surface-2))]"
-                    >
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-foreground">{expense.item || "Expense"}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {expense.participantName || "Unknown"} · {new Date(String(expense.createdAt ?? Date.now())).toLocaleDateString(undefined, { day: "numeric", month: "short" })}
-                        </p>
-                      </div>
-                      <span className="shrink-0 text-sm font-semibold text-foreground">{formatCurrency(Number(expense.amount || 0), currency)}</span>
-                    </button>
-                  )) : (
-                    <div className="rounded-xl border border-dashed border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]/40 px-3 py-3 text-sm text-muted-foreground">
-                      No shared costs yet. Add an expense when someone pays for the group.
+                    <div className="mt-4 space-y-2">
+                      {recentExpenses.map((expense) => {
+                        const resolutionMode = String((expense as { resolutionMode?: string | null }).resolutionMode ?? "later").trim().toLowerCase();
+                        const isSettledNow = resolutionMode === "now"
+                          || Boolean((expense as { excludedFromFinalSettlement?: boolean | null }).excludedFromFinalSettlement);
+                        return (
+                          <button
+                            key={`overview-expense-${expense.id}`}
+                            type="button"
+                            onClick={openExpenses}
+                            className="flex w-full items-center justify-between gap-3 rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]/70 px-3 py-2.5 text-left transition hover:bg-[hsl(var(--surface-2))]"
+                          >
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium text-foreground">{expense.item || "Expense"}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {expense.participantName || "Unknown"} · {new Date(String(expense.createdAt ?? Date.now())).toLocaleDateString(undefined, { day: "numeric", month: "short" })}
+                              </p>
+                            </div>
+                            <div className="ml-3 flex shrink-0 items-center">
+                              <span className="text-sm font-semibold text-foreground">{formatCurrency(Number(expense.amount || 0), currency)}</span>
+                              {isSettledNow ? (
+                                <span className="ml-2 inline-flex items-center rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
+                                  Settled now
+                                </span>
+                              ) : null}
+                            </div>
+                          </button>
+                        );
+                      })}
                     </div>
-                  )}
-                </div>
+
+                    <div className="mt-3 flex items-center justify-between gap-3">
+                      <Button type="button" size="sm" onClick={openAddExpenseFlow}>
+                        <Plus className="mr-1.5 h-4 w-4" />
+                        Add expense
+                      </Button>
+                      <button
+                        type="button"
+                        className="text-xs font-medium text-muted-foreground transition hover:text-foreground"
+                        onClick={openExpenses}
+                      >
+                        View all →
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="mt-3 rounded-xl border border-dashed border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]/40 px-4 py-5 text-center">
+                    <p className="text-sm font-medium text-foreground">No shared costs yet</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Add the first expense when someone pays for the group.
+                    </p>
+                    <Button type="button" size="sm" className="mt-4" onClick={openAddExpenseFlow}>
+                      <Plus className="mr-1.5 h-4 w-4" />
+                      Add expense
+                    </Button>
+                  </div>
+                )}
 
                 {showBalancesSection ? (
                   <div className="mt-5 space-y-3 border-t border-[hsl(var(--border-subtle))] pt-4">
@@ -988,7 +1054,7 @@ export function OverviewPanel() {
                         <p className="mt-1 text-xs text-muted-foreground">
                           {activeFinalSettlementRound
                             ? "Settle up is in progress for the shared costs."
-                            : "Settle up wraps only the shared costs from this plan. Paybacks stay separate."}
+                            : "Only expenses marked 'Later settle' count toward balances and settle up."}
                         </p>
                       </div>
                       <Scale className="h-4 w-4 text-muted-foreground" />

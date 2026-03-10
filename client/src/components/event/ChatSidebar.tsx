@@ -29,6 +29,8 @@ type ChatSidebarProps = {
   eventName?: string | null;
   eventType?: string | null;
   templateData?: unknown;
+  planStatus?: string | null;
+  settledAt?: string | Date | null;
   location?: string | null;
   dateTime?: Date | string | null;
   participantCount?: number;
@@ -386,6 +388,8 @@ export function ChatSidebar({
   eventName,
   eventType = null,
   templateData,
+  planStatus,
+  settledAt = null,
   location = null,
   dateTime = null,
   participantCount = 0,
@@ -1277,9 +1281,12 @@ export function ChatSidebar({
           <InlineQueryError message="Messages unavailable." onRetry={retry} />
         ) : messages.length === 0 ? (
           <div className="h-full min-h-[180px] flex items-center justify-center text-center px-4">
-            <div className="space-y-1 text-muted-foreground">
-              <MessageCircle className="h-4 w-4 mx-auto" />
-              <p className="text-sm">No messages yet.</p>
+            <div className="space-y-1.5 text-muted-foreground">
+              <MessageCircle className="h-5 w-5 mx-auto opacity-40" />
+              <p className="text-sm font-medium">No messages yet</p>
+              <p className="text-xs opacity-70">
+                Start the conversation — share details, ask who&apos;s coming, or add the first expense.
+              </p>
             </div>
           </div>
         ) : (
@@ -1793,11 +1800,6 @@ export function ChatSidebar({
             </Button>
           </div>
         ) : null}
-        {isLocked ? (
-          <p className="mb-2 text-xs text-muted-foreground">
-            Chat closed after event. History remains visible.
-          </p>
-        ) : null}
         <div className={cn("min-h-4", isMobile ? "mb-1.5" : "mb-1")}>
           {visibleTypingUsers.length > 0 ? (
             <div className={cn(
@@ -1813,13 +1815,32 @@ export function ChatSidebar({
             </div>
           ) : null}
         </div>
-        <div className={cn("flex items-end gap-2", isMobile ? "pb-0.5" : "items-center")}>
-          <div
-            className={cn(
-              "flex flex-1 flex-col rounded-2xl border border-border/70 bg-background",
-              isMobile ? "min-h-10 shadow-sm" : "min-h-10",
-            )}
-          >
+        {isLocked ? (
+          <div className={cn(
+            "border-t border-border/50 bg-muted/30 px-4 py-4 text-center",
+            isMobile && "px-3 py-3",
+          )}>
+            <div className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background px-3 py-1.5">
+              <span className="h-2 w-2 rounded-full bg-emerald-500" />
+              <span className="text-xs font-medium text-muted-foreground">
+                This plan has ended
+                {settledAt
+                  ? ` · ${new Date(settledAt).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })}`
+                  : ""}
+              </span>
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Chat history is preserved. Expenses and balances are still viewable.
+            </p>
+          </div>
+        ) : (
+          <div className={cn("flex items-end gap-2", isMobile ? "pb-0.5" : "items-center")}>
+            <div
+              className={cn(
+                "flex flex-1 flex-col rounded-2xl border border-border/70 bg-background",
+                isMobile ? "min-h-10 shadow-sm" : "min-h-10",
+              )}
+            >
             {replyingTo ? (
               <div className="flex items-center gap-2 rounded-t-[15px] border-x border-t border-border/60 bg-muted/40 px-3 py-2">
                 <div className="w-0.5 self-stretch rounded-full bg-primary" />
@@ -1899,12 +1920,11 @@ export function ChatSidebar({
                 "flex items-center gap-2",
                 isMobile ? "max-h-[132px] px-3 py-1.5" : "max-h-[132px] px-4 py-1.5",
               )}
-              onMouseDown={(e) => {
-                if (isLocked) return;
-                e.preventDefault();
-                inputRef.current?.focus();
-                debugFocusBlock();
-              }}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  inputRef.current?.focus();
+                  debugFocusBlock();
+                }}
             >
               <TooltipProvider delayDuration={120}>
                 <Tooltip>
@@ -1984,7 +2004,6 @@ export function ChatSidebar({
                   isMobile ? "min-h-[22px] max-h-[104px] py-0 leading-[1.35]" : "min-h-[20px] max-h-[104px] py-0.5 md:text-sm",
                 )}
                 rows={1}
-                disabled={isLocked}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
@@ -1994,20 +2013,21 @@ export function ChatSidebar({
               />
             </div>
           </div>
-          <Button
-            type="button"
-            size="icon"
-            className={cn(
-              "shrink-0 rounded-full bg-primary text-slate-900 hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground",
-              isMobile ? "h-10 w-10" : "h-10 w-10",
-            )}
-            onClick={() => void handleSubmit()}
-            disabled={isLocked || sending || (!draft.trim() && !pendingAttachment) || !eventId}
-            aria-label="Send message"
-          >
-            {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <SendHorizontal className="h-4 w-4" />}
-          </Button>
-        </div>
+            <Button
+              type="button"
+              size="icon"
+              className={cn(
+                "shrink-0 rounded-full bg-primary text-slate-900 hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground",
+                isMobile ? "h-10 w-10" : "h-10 w-10",
+              )}
+              onClick={() => void handleSubmit()}
+              disabled={sending || (!draft.trim() && !pendingAttachment) || !eventId}
+              aria-label="Send message"
+            >
+              {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <SendHorizontal className="h-4 w-4" />}
+            </Button>
+          </div>
+        )}
       </div>
     </aside>
     <Dialog open={isImageViewerOpen} onOpenChange={(open) => { if (!open) setViewerImage(null); }}>

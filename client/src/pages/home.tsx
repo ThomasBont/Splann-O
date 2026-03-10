@@ -3936,6 +3936,8 @@ export default function Home({
                         eventId={selectedBbq.id}
                         eventName={selectedBbq.name}
                         eventType={selectedBbq.eventType ?? null}
+                        planStatus={selectedBbq.status ?? null}
+                        settledAt={selectedBbq.settledAt ?? null}
                         templateData={selectedBbq.templateData}
                         location={
                           selectedBbq.locationText
@@ -4015,6 +4017,8 @@ export default function Home({
                       eventId={selectedBbq.id}
                       eventName={selectedBbq.name}
                       eventType={selectedBbq.eventType ?? null}
+                      planStatus={selectedBbq.status ?? null}
+                      settledAt={selectedBbq.settledAt ?? null}
                       templateData={selectedBbq.templateData}
                       location={
                         selectedBbq.locationText
@@ -5563,6 +5567,8 @@ export default function Home({
                   eventId={selectedBbq.id}
                   eventName={selectedBbq.name}
                   eventType={selectedBbq.eventType ?? null}
+                  planStatus={selectedBbq.status ?? null}
+                  settledAt={selectedBbq.settledAt ?? null}
                   templateData={selectedBbq.templateData}
                   location={
                     selectedBbq.locationText

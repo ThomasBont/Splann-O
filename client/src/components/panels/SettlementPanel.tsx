@@ -108,7 +108,7 @@ function getScopeLabel(scopeType: "everyone" | "selected", selectedCount?: numbe
 }
 
 function getRoundTypeLabel(roundType: "balance_settlement" | "direct_split") {
-  return roundType === "direct_split" ? "Payback" : "Settle up";
+  return roundType === "direct_split" ? "Settle now" : "Settle up";
 }
 
 export function SettlementPanel({ settlementId, createMode }: { settlementId?: string; createMode?: "direct-split" | "balance-settlement" }) {
@@ -230,7 +230,7 @@ export function SettlementPanel({ settlementId, createMode }: { settlementId?: s
     ? (selectedSettlement.roundType === "direct_split" ? "direct-split" : "balance-settlement")
     : draftMode;
   const panelTitle = selectedSettlement?.title
-    ?? (panelMode === "direct-split" ? "Pay someone back" : "Settle up");
+    ?? (panelMode === "direct-split" ? "Settle now" : "Settle up");
   const panelSubtitle = selectedSettlement
     ? null
     : panelMode === "direct-split"
@@ -583,10 +583,10 @@ export function SettlementPanel({ settlementId, createMode }: { settlementId?: s
             {!selectedSettlement ? (
               panelMode === "direct-split" ? (
                 <>
-                  <PanelSection title="Pay someone back" variant="workflow">
+                  <PanelSection title="Settle now" variant="workflow">
                     <div className="space-y-4">
                       <p className="text-sm text-muted-foreground">
-                        Use this for one-off paybacks like Uber, taxi, drinks, tickets, or groceries.
+                        For expenses that were settled immediately — the involved people pay back right away.
                       </p>
 
                       {activeQuickSettleRound ? (
@@ -605,9 +605,9 @@ export function SettlementPanel({ settlementId, createMode }: { settlementId?: s
                         </div>
                       ) : (
                         <div className="rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))]/80 p-3">
-                          <p className="text-sm font-medium text-foreground">No paybacks yet.</p>
+                          <p className="text-sm font-medium text-foreground">No settle-now expenses yet.</p>
                           <p className="mt-1 text-xs text-muted-foreground">
-                            Need someone to pay you back? Start here.
+                            Add an expense with “Settle now” when people should pay back right away.
                           </p>
                         </div>
                       )}
@@ -684,18 +684,18 @@ export function SettlementPanel({ settlementId, createMode }: { settlementId?: s
                             disabled={startDirectSplit.isPending || !canStartDirectSplit}
                           >
                             {startDirectSplit.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Receipt className="mr-1.5 h-4 w-4" />}
-                            Pay someone back
+                            Settle now
                           </Button>
                         </div>
                       ) : (
                         <div className="rounded-xl border border-dashed border-border/70 bg-card/60 p-3 text-sm text-muted-foreground">
-                          Finish the active payback before starting a new one.
+                          Finish the active settle-now request before starting a new one.
                         </div>
                       )}
                     </div>
                   </PanelSection>
 
-                  <PanelSection title="Recent paybacks" variant="list">
+                  <PanelSection title="Recent settle-now expenses" variant="list">
                     {pastQuickSettleRounds.length > 0 ? (
                       <div className="space-y-2">
                         {pastQuickSettleRounds
@@ -710,7 +710,7 @@ export function SettlementPanel({ settlementId, createMode }: { settlementId?: s
                               <div className="min-w-0">
                                 <p className="truncate text-sm font-medium text-foreground">{round.title}</p>
                                 <p className="mt-1 text-xs text-muted-foreground">
-                                  {round.completedAt ? formatRoundDate(round.completedAt) : "Past round"} · {round.paidByName ? `Paid by ${round.paidByName}` : "Payback"}
+                                  {round.completedAt ? formatRoundDate(round.completedAt) : "Past round"} · {round.paidByName ? `Paid by ${round.paidByName}` : "Settled now"}
                                 </p>
                               </div>
                               <span className="shrink-0 text-sm font-semibold text-foreground">
@@ -721,7 +721,7 @@ export function SettlementPanel({ settlementId, createMode }: { settlementId?: s
                       </div>
                     ) : (
                       <div className="rounded-xl border border-dashed border-border/70 bg-card/60 p-3 text-sm text-muted-foreground">
-                        No paybacks in history yet.
+                        No settle-now history yet.
                       </div>
                     )}
                   </PanelSection>

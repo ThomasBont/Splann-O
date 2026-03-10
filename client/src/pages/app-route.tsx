@@ -24,7 +24,6 @@ import {
   Trash2,
   Users,
   Receipt,
-  Scale,
   StickyNote,
   Zap,
   LayoutGrid,
@@ -129,7 +128,8 @@ function formatEventLocation(event: Barbecue) {
   return "Location TBA";
 }
 
-function getSidebarEventDotClass(event: Pick<Barbecue, "area" | "eventType">) {
+function getSidebarEventDotClass(event: Pick<Barbecue, "area" | "eventType" | "status">) {
+  if (event.status === "settled") return "bg-emerald-400/60";
   const category = event.area === "trips" ? "trip" : "party";
   return getEventTheme(category, event.eventType ?? null).accent.bg;
 }
@@ -275,6 +275,7 @@ function AppSidebar({
   const { data: events = [], isLoading: eventsLoading, error: eventsError, refetch: refetchEvents } = useBarbecues();
   const { user } = useAuth();
   const [recentCollapsed, setRecentCollapsed] = useState(false);
+  const [archivedCollapsed, setArchivedCollapsed] = useState(true);
   const [pinGroups, setPinGroups] = useState<PinGroup[]>(() => defaultPinGroups());
   const [advanced, setAdvanced] = useState({
     showUnsettled: false,
@@ -372,6 +373,10 @@ function AppSidebar({
 
   const advancedUnsettled = useMemo(
     () => allSortedEvents.filter((event) => isPrivateEvent(event) && event.status !== "settled").slice(0, 8),
+    [allSortedEvents],
+  );
+  const settledEvents = useMemo(
+    () => allSortedEvents.filter((event) => isPrivateEvent(event) && event.status === "settled"),
     [allSortedEvents],
   );
   const advancedUpcoming = useMemo(() => {
@@ -588,6 +593,28 @@ function AppSidebar({
                     )}
                   </div>
                 )}
+                {settledEvents.length > 0 && (
+                  <div className="space-y-1 pt-1">
+                    <div className="flex items-center justify-between px-1">
+                      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                        Archived · {settledEvents.length}
+                      </p>
+                      <button
+                        type="button"
+                        className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+                        onClick={() => setArchivedCollapsed((v) => !v)}
+                        aria-label={archivedCollapsed ? "Show archived plans" : "Hide archived plans"}
+                      >
+                        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${archivedCollapsed ? "" : "rotate-180"}`} />
+                      </button>
+                    </div>
+                    {!archivedCollapsed && (
+                      <div className="space-y-1 opacity-60">
+                        {renderEventList(settledEvents, "No archived plans")}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
             </section>
@@ -672,7 +699,6 @@ function RightActionRail({
   const isPollsOpen = isEvent && panel?.type === "polls";
   const isCrewOpen = isEvent && panel?.type === "crew";
   const isExpensesOpen = isEvent && panel?.type === "expenses";
-  const isSettlementOpen = isEvent && panel?.type === "settlement";
   const isNotesOpen = isEvent && panel?.type === "notes";
   const isNextActionOpen = isEvent && panel?.type === "next-action";
   const railButtonClass = (active: boolean) =>
@@ -719,19 +745,6 @@ function RightActionRail({
             }}
           >
             <Receipt className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            title="Settle up"
-            aria-label="Settle up"
-            disabled={!isEvent}
-            className={railButtonClass(isSettlementOpen)}
-            onClick={() => {
-              if (!isEvent) return;
-              openPanel({ type: "settlement", createMode: "balance-settlement" });
-            }}
-          >
-            <Scale className="h-4 w-4" />
           </button>
           <button
             type="button"
@@ -944,6 +957,7 @@ export default function AppRoute() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [mobileRecentCollapsed, setMobileRecentCollapsed] = useState(false);
+  const [mobileArchivedCollapsed, setMobileArchivedCollapsed] = useState(true);
   const { prefetchPlan, prefetchPlanOnHover, cancelHoverPrefetch } = usePrefetchPlan();
 
   const pathname = typeof window !== "undefined" ? window.location.pathname : (location.split("?")[0] || "/app");
@@ -1099,8 +1113,14 @@ export default function AppRoute() {
 
   const mobileQuickSwitchEvents = useMemo(() => {
     const sorted = [...appEvents].filter((event) => isPrivateEvent(event)).sort((a, b) => getEventDateMs(b) - getEventDateMs(a));
-    return sorted.slice(0, 8);
+    return sorted.filter((event) => event.status !== "settled").slice(0, 8);
   }, [appEvents]);
+  const mobileArchivedEvents = useMemo(
+    () => [...appEvents]
+      .filter((event) => isPrivateEvent(event) && event.status === "settled")
+      .sort((a, b) => getEventDateMs(b) - getEventDateMs(a)),
+    [appEvents],
+  );
 
   const currentEventName = useMemo(() => {
     if (section !== "event" || !routeEventId) return null;
@@ -1387,6 +1407,82 @@ export default function AppRoute() {
                           </a>
                         </Link>
                       ))}
+                    </div>
+                  )}
+                  {mobileArchivedEvents.length > 0 && (
+                    <div className="space-y-1 pt-1">
+                      <div className="flex items-center justify-between">
+                        <p className="text-[11px] font-medium uppercase tracking-[0.2em] text-muted-foreground">Archived · {mobileArchivedEvents.length}</p>
+                        <button
+                          type="button"
+                          className="inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                          aria-label={mobileArchivedCollapsed ? "Show archived plans" : "Hide archived plans"}
+                          onClick={() => setMobileArchivedCollapsed((v) => !v)}
+                        >
+                          <ChevronDown className={`h-3.5 w-3.5 transition-transform ${mobileArchivedCollapsed ? "" : "rotate-180"}`} />
+                        </button>
+                      </div>
+                      {!mobileArchivedCollapsed && (
+                        <div className="space-y-2 opacity-60">
+                          {mobileArchivedEvents.map((event) => (
+                            <Link key={`mobile-archived-event-${event.id}`} href={`/app/e/${event.id}`}>
+                              <a
+                                onClick={() => setIsSidebarOpen(false)}
+                                onMouseEnter={() => {
+                                  const planId = Number(event.id);
+                                  if (!Number.isFinite(planId)) return;
+                                  prefetchPlanOnHover(planId);
+                                }}
+                                onMouseLeave={() => {
+                                  const planId = Number(event.id);
+                                  if (!Number.isFinite(planId)) return;
+                                  cancelHoverPrefetch(planId);
+                                }}
+                                onFocus={() => {
+                                  const planId = Number(event.id);
+                                  if (!Number.isFinite(planId)) return;
+                                  prefetchPlan(planId);
+                                }}
+                                onTouchStart={() => {
+                                  const planId = Number(event.id);
+                                  if (!Number.isFinite(planId)) return;
+                                  prefetchPlan(planId);
+                                }}
+                                className={`relative block rounded-2xl border bg-card px-3 py-3 transition hover:bg-muted/20 ${
+                                  Number(routeEventId) === Number(event.id)
+                                    ? "border-primary/30 bg-primary/10 pl-[14px] before:absolute before:inset-y-2 before:left-0 before:w-0.5 before:rounded-full before:bg-primary"
+                                    : "border-border/60"
+                                }`}
+                              >
+                                <div className="flex items-start gap-2">
+                                  <span className={`mt-[7px] h-2.5 w-2.5 shrink-0 rounded-full ${getSidebarEventDotClass(event)}`} />
+                                  <div className="min-w-0 flex-1">
+                                    <p className="truncate text-sm font-medium">{event.name}</p>
+                                    <p className="mt-1 truncate text-xs text-muted-foreground">
+                                      {formatEventLocation(event)}
+                                    </p>
+                                  </div>
+                                  {Number((event as { unreadCount?: number }).unreadCount ?? 0) > 0 ? (
+                                    (() => {
+                                      const unread = Number((event as { unreadCount?: number }).unreadCount ?? 0);
+                                      const singleDigit = unread < 10;
+                                      return (
+                                        <span
+                                          className={singleDigit
+                                            ? "shrink-0 grid h-5 w-5 place-items-center rounded-full bg-primary text-xs font-semibold text-primary-foreground"
+                                            : "shrink-0 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-xs font-semibold text-primary-foreground"}
+                                        >
+                                          {unread}
+                                        </span>
+                                      );
+                                    })()
+                                  ) : null}
+                                </div>
+                              </a>
+                            </Link>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

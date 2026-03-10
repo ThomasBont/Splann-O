@@ -56,7 +56,7 @@ function formatMoney(amount: number, currency: string): string {
 }
 
 function getRoundTypeLabel(roundType?: "balance_settlement" | "direct_split" | null) {
-  return roundType === "direct_split" ? "Payback" : "Settle up";
+  return roundType === "direct_split" ? "Settle now" : "Settle up";
 }
 
 export function SettlementCard({ eventId, settlementId, currency, className }: SettlementCardProps) {
@@ -139,7 +139,7 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
     || (totalTransfers > 0 && paidTransfers >= totalTransfers);
   const roundType = settlementQuery.data?.settlement?.roundType ?? "balance_settlement";
   const paidByName = settlementQuery.data?.settlement?.paidByName ?? null;
-  const roundTitle = settlementQuery.data?.settlement?.title?.trim() || (roundType === "direct_split" ? "Payback" : "Settle up");
+  const roundTitle = settlementQuery.data?.settlement?.title?.trim() || (roundType === "direct_split" ? "Settle now" : "Settle up");
 
   const orderedTransfers = useMemo(() => {
     return [...transfers].sort((a, b) => {
@@ -170,7 +170,7 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
         onClick={openSettlementPanel}
       >
         <span className="text-sm font-medium text-emerald-800 dark:text-emerald-300">
-          ✅ {roundType === "direct_split" ? "Payback completed" : "Settle up completed"}
+          ✅ {roundType === "direct_split" ? "Settled now completed" : "Settle up completed"}
         </span>
         <span className="inline-flex items-center gap-1 text-xs text-emerald-700/85 dark:text-emerald-300/85">
           View details

@@ -66,7 +66,7 @@ export function formatActivityPreview(
 
   if (item.type === "EXPENSE_ADDED" && title) {
     return resolutionMode === "now"
-      ? `${actor} added ${title} and settled it now${Number.isFinite(amount) ? ` · ${formatCurrency(amount, currency)}` : ""}`
+      ? `${actor} settled ${title} now${Number.isFinite(amount) ? ` (${formatCurrency(amount, currency)})` : ""}`
       : `${actor} added ${title}${Number.isFinite(amount) ? ` · ${formatCurrency(amount, currency)}` : ""}`;
   }
   if (item.type === "EXPENSE_DELETED" && title) {

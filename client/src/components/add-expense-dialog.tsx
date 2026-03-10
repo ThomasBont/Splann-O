@@ -15,9 +15,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Plus, Upload, Trash2, ExternalLink, Check } from "lucide-react";
+import { Loader2, Upload, Trash2, ExternalLink, Check } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { getCategoryDef, getPlaceholderKeyForCategory } from "@/config/expenseCategories";
 import { getExpensePlaceholderKey, getThemeConfig, type ThemeId } from "@/themes/themeRegistry";
 import { getSmartDefaultsForGroup, resolveExpenseDefaults, updateSmartDefaultsAfterExpenseCreate } from "@/lib/smart-defaults";
 import type { ExpenseWithParticipant } from "@shared/schema";
@@ -46,7 +45,6 @@ interface AddExpenseDialogProps {
   showReceipt?: boolean;
 }
 
-const DEFAULT_CATEGORIES = ["Meat", "Bread", "Drinks", "Charcoal", "Transportation", "Other"];
 const EMPTY_PARTICIPANTS: Array<{ id: number; userId?: string | null; name: string }> = [];
 
 function parseIncludedUserIds(value: unknown): string[] {
@@ -80,17 +78,12 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
   const uploadReceipt = useUploadExpenseReceipt(bbqId);
   const deleteReceipt = useDeleteExpenseReceipt(bbqId);
 
-  const categories = categoriesProp ?? DEFAULT_CATEGORIES;
-
   const [participantId, setParticipantId] = useState<string>("");
-  const [category, setCategory] = useState<string>(categories[0] ?? "Other");
   const [item, setItem] = useState("");
   const [amount, setAmount] = useState("");
   const [splitMode, setSplitMode] = useState<"everyone" | "selected">("everyone");
   const [includedUserIds, setIncludedUserIds] = useState<string[]>([]);
   const [optInByDefault, setOptInByDefault] = useState(false);
-  const [showCustomCategoryInput, setShowCustomCategoryInput] = useState(false);
-  const [customCategoryName, setCustomCategoryName] = useState("");
   const [receiptDataUrl, setReceiptDataUrl] = useState<string | null>(null);
   const [receiptPreviewUrl, setReceiptPreviewUrl] = useState<string | null>(null);
   const [removeExistingReceipt, setRemoveExistingReceipt] = useState(false);
@@ -131,7 +124,6 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
       ? [
         editingExpense.id,
         editingExpense.participantId ?? "",
-        editingExpense.category ?? "",
         editingExpense.item ?? "",
         editingExpense.amount ?? "",
         editingExpense.receiptUrl ?? "",
@@ -142,21 +134,15 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
       bbqId ?? "",
       participantList.length,
       resolvedDefaults.payerParticipantId ?? "",
-      smartStored.defaults?.lastCategory ?? "",
-      defaultCategoryProp ?? "",
       defaultItemProp ?? "",
       defaultOptInProp == null ? "" : String(defaultOptInProp),
-      categories.join("|"),
     ].join("::");
 
     if (resetSignatureRef.current === signature) return;
     resetSignatureRef.current = signature;
 
-    setShowCustomCategoryInput(false);
-    setCustomCategoryName("");
     if (editingExpense) {
       setParticipantId(editingExpense.participantId?.toString() || "");
-      setCategory(editingExpense.category);
       setItem(editingExpense.item);
       setAmount(editingExpense.amount.toString());
       const savedIncluded = parseIncludedUserIds(editingExpense.includedUserIds);
@@ -178,9 +164,6 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
       const suggestedPayerId = resolvedDefaults.payerParticipantId ?? participantList[0].id;
       setParticipantId(String(suggestedPayerId));
     }
-    const rememberedCategory = smartStored.defaults?.lastCategory;
-    const cat = defaultCategoryProp ?? (rememberedCategory && categories.includes(rememberedCategory) ? rememberedCategory : undefined) ?? categories[0] ?? "Other";
-    setCategory(categories.includes(cat) ? cat : categories[0] ?? "Other");
     setItem(defaultItemProp ?? "");
     setAmount("");
     setSplitMode("everyone");
@@ -193,22 +176,18 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
     open,
     editingExpense?.id,
     editingExpense?.participantId,
-    editingExpense?.category,
     editingExpense?.item,
     editingExpense?.amount,
     editingExpense?.receiptUrl,
     bbqId,
     participantList.length,
-    categories,
     defaultItemProp,
-    defaultCategoryProp,
     defaultOptInProp,
     resolvedDefaults.payerParticipantId,
-    smartStored.defaults?.lastCategory,
   ]);
 
   const themeId = eventType && eventKind ? (getThemeConfig(eventKind, eventType).id as ThemeId) : null;
-  const placeholderKey = themeId != null ? getExpensePlaceholderKey(category, themeId) : getPlaceholderKeyForCategory(category);
+  const placeholderKey = themeId != null ? getExpensePlaceholderKey("other", themeId) : "itemOther";
   const itemPlaceholder = (t.placeholders as Record<string, string>)[placeholderKey] ?? "e.g. Miscellaneous";
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -218,7 +197,6 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
 
     const payload = {
       participantId: parseInt(participantId),
-      category,
       item: item.trim(),
       amount: amount,
       includedUserIds: splitMode === "selected" ? includedUserIds : null,
@@ -260,7 +238,6 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
             payerParticipantId: parseInt(participantId),
             payerUserId: payer?.userId ?? null,
             participantIds: [parseInt(participantId)],
-            category,
           });
         }
         toast({ variant: "success", message: t.modals.expenseAdded });
@@ -303,9 +280,6 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
     const lastParticipantId = lastExpense.participantId != null ? String(lastExpense.participantId) : "";
     if (lastParticipantId && participantList.some((p) => String(p.id) === lastParticipantId)) {
       setParticipantId(lastParticipantId);
-    }
-    if (lastExpense.category && categories.includes(lastExpense.category)) {
-      setCategory(lastExpense.category);
     }
     setItem(lastExpense.item ?? "");
     setAmount("");
@@ -384,97 +358,6 @@ export function AddExpenseDialog({ open, onOpenChange, editingExpense, bbqId, cu
               ))}
             </SelectContent>
           </Select>
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="category" className="uppercase text-xs tracking-wider text-muted-foreground">
-            {t.modals.categoryLabel}
-          </Label>
-          <Select
-            value={category}
-            onValueChange={(v) => {
-              if (v === "__create__") setShowCustomCategoryInput(true);
-              else setCategory(v);
-            }}
-          >
-            <SelectTrigger id="category" className="bg-secondary/50 border-white/10" data-testid="select-expense-category">
-              <SelectValue placeholder={t.modals.categoryLabel}>
-                <span className="flex items-center gap-2">
-                  {(() => {
-                    const def = getCategoryDef(category);
-                    const Icon = def.icon;
-                    return (
-                      <>
-                        <Icon className="w-4 h-4 shrink-0" />
-                        {t.categories[def.i18nKey as keyof typeof t.categories] ?? category}
-                      </>
-                    );
-                  })()}
-                </span>
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent className="bg-card border-white/10">
-              {categories.map((cat) => {
-                const def = getCategoryDef(cat);
-                const Icon = def.icon;
-                return (
-                  <SelectItem key={cat} value={cat}>
-                    <span className="flex items-center gap-2">
-                      <Icon className="w-4 h-4 shrink-0" />
-                      {t.categories[def.i18nKey as keyof typeof t.categories] ?? cat}
-                    </span>
-                  </SelectItem>
-                );
-              })}
-              {onAddCustomCategory && (
-                <SelectItem value="__create__">
-                  <span className="flex items-center gap-2 text-primary">
-                    <Plus className="w-4 h-4 shrink-0" />
-                    {t.modals.createCustomCategory}
-                  </span>
-                </SelectItem>
-              )}
-            </SelectContent>
-          </Select>
-          {showCustomCategoryInput && onAddCustomCategory && (
-            <div className="flex gap-2 items-center pt-1">
-              <Input
-                value={customCategoryName}
-                onChange={(e) => setCustomCategoryName(e.target.value)}
-                placeholder={t.modals.categoryLabel}
-                className="bg-secondary/50 border-white/10 text-sm"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && customCategoryName.trim()) {
-                    onAddCustomCategory(customCategoryName.trim());
-                    setCategory(customCategoryName.trim());
-                    setShowCustomCategoryInput(false);
-                    setCustomCategoryName("");
-                  }
-                  if (e.key === "Escape") {
-                    setShowCustomCategoryInput(false);
-                    setCustomCategoryName("");
-                  }
-                }}
-                autoFocus
-              />
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => {
-                  if (customCategoryName.trim()) {
-                    onAddCustomCategory(customCategoryName.trim());
-                    setCategory(customCategoryName.trim());
-                    setShowCustomCategoryInput(false);
-                    setCustomCategoryName("");
-                  }
-                }}
-                disabled={!customCategoryName.trim()}
-              >
-                {t.modals.add}
-              </Button>
-            </div>
-          )}
         </div>
 
         {allowOptIn && (

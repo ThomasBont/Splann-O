@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Loader2, Plus, Receipt, Scale, Users } from "lucide-react";
+import { CheckCircle2, Loader2, Plus, Receipt, Scale } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -118,8 +118,6 @@ export function SettlementPanel({ settlementId, createMode }: { settlementId?: s
   const { toastError, toastSuccess } = useAppToast();
   const { replacePanel } = usePanel();
   const [draftMode, setDraftMode] = useState<"direct-split" | "balance-settlement">(createMode ?? "direct-split");
-  const [creationScope, setCreationScope] = useState<"everyone" | "selected">("everyone");
-  const [selectedParticipantIds, setSelectedParticipantIds] = useState<number[]>([]);
   const [splitTitle, setSplitTitle] = useState("");
   const [splitAmount, setSplitAmount] = useState("");
   const [paidByParticipantId, setPaidByParticipantId] = useState<number | null>(null);
@@ -223,9 +221,7 @@ export function SettlementPanel({ settlementId, createMode }: { settlementId?: s
     && Number.isInteger(paidByParticipantId)
     && splitWithParticipantIds.length > 0
     && !activeQuickSettleRound;
-  const canStartRound = canSettle
-    && !activeFinalSettlementRound
-    && (creationScope === "everyone" || selectedParticipantIds.length >= 2);
+  const canStartRound = canSettle && !activeFinalSettlementRound;
   const panelMode = selectedSettlement
     ? (selectedSettlement.roundType === "direct_split" ? "direct-split" : "balance-settlement")
     : draftMode;
@@ -246,11 +242,6 @@ export function SettlementPanel({ settlementId, createMode }: { settlementId?: s
     const mine = selectableParticipants.find((participant: (typeof selectableParticipants)[number]) => Number(participant.userId) === Number(user?.id));
     setPaidByParticipantId(mine?.id ?? selectableParticipants[0]?.id ?? null);
   }, [paidByParticipantId, selectableParticipants, user?.id]);
-
-  useEffect(() => {
-    if (creationScope === "everyone") return;
-    setSelectedParticipantIds((current) => current.filter((id) => selectableParticipants.some((participant: (typeof selectableParticipants)[number]) => participant.id === id)));
-  }, [creationScope, selectableParticipants]);
 
   useEffect(() => {
     if (paidByParticipantId == null) return;
@@ -763,116 +754,33 @@ export function SettlementPanel({ settlementId, createMode }: { settlementId?: s
                             </Button>
                           </div>
                         </div>
-                      ) : canSettle ? (
-                        <div className="rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))]/80 p-3">
-                          <p className="text-sm font-medium text-foreground">Balances are ready to wrap up.</p>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            Start settle up when the event is ending and you want to resolve the shared expense ledger.
-                          </p>
-                        </div>
-                      ) : (
+                      ) : !canSettle ? (
                         <div className="rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))]/80 p-3">
                           <p className="text-sm font-medium text-foreground">No settle up yet.</p>
                           <p className="mt-1 text-xs text-muted-foreground">
                             Add shared expenses first. Settle up appears when the plan has balances to resolve.
                           </p>
                         </div>
-                      )}
+                      ) : null}
 
                       {!activeFinalSettlementRound ? (
-                        <div className="space-y-3">
-                          <div className="rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))]/80 p-3">
-                            <div className="flex items-center justify-between gap-2">
-                              <div>
-                                <p className="text-sm font-medium text-foreground">Choose people</p>
-                                <p className="mt-1 text-xs text-muted-foreground">Use everyone for the full wrap-up, or limit it to a smaller group.</p>
-                              </div>
-                            </div>
-                            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                              <button
-                                type="button"
-                                onClick={() => setCreationScope("everyone")}
-                                className={`rounded-xl border px-3 py-3 text-left transition ${creationScope === "everyone" ? "border-primary bg-primary/10" : "border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]/70 hover:bg-[hsl(var(--surface-2))]"}`}
-                              >
-                                <div className="inline-flex items-center gap-2">
-                                  <Users className="h-4 w-4 text-muted-foreground" />
-                                  <p className="text-sm font-medium text-foreground">Everyone</p>
-                                </div>
-                                <p className="mt-1 text-xs text-muted-foreground">Use the full current shared-expense snapshot.</p>
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setCreationScope("selected")}
-                                className={`rounded-xl border px-3 py-3 text-left transition ${creationScope === "selected" ? "border-primary bg-primary/10" : "border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]/70 hover:bg-[hsl(var(--surface-2))]"}`}
-                              >
-                                <div className="inline-flex items-center gap-2">
-                                  <Scale className="h-4 w-4 text-muted-foreground" />
-                                  <p className="text-sm font-medium text-foreground">Selected people</p>
-                                </div>
-                                <p className="mt-1 text-xs text-muted-foreground">Limit settle up to a smaller shared-cost group.</p>
-                              </button>
-                            </div>
-
-                            {creationScope === "selected" ? (
-                              <>
-                                <div className="mt-3 flex items-center justify-between gap-2">
-                                  <p className="text-sm font-medium text-foreground">Included people</p>
-                                  <span className="rounded-full border border-border/70 bg-background/70 px-2 py-1 text-[10px] font-medium text-muted-foreground">
-                                    {selectedParticipantIds.length} selected
-                                  </span>
-                                </div>
-                                <div className="mt-2 space-y-2">
-                                  {selectableParticipants.map((participant: (typeof selectableParticipants)[number]) => {
-                                    const checked = selectedParticipantIds.includes(participant.id);
-                                    return (
-                                      <label key={`settlement-scope-${participant.id}`} className="flex cursor-pointer items-center gap-3 rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]/70 px-3 py-2.5">
-                                        <Checkbox
-                                          checked={checked}
-                                          onCheckedChange={(nextChecked) => {
-                                            setSelectedParticipantIds((current) => nextChecked
-                                              ? [...current, participant.id]
-                                              : current.filter((id) => id !== participant.id));
-                                          }}
-                                        />
-                                        <div className="min-w-0">
-                                          <p className="truncate text-sm font-medium text-foreground">{participant.name}</p>
-                                          <p className="text-xs text-muted-foreground">Included in this round</p>
-                                        </div>
-                                      </label>
-                                    );
-                                  })}
-                                </div>
-                              </>
-                            ) : null}
+                        isCreator ? (
+                          <Button
+                            type="button"
+                            onClick={() => void startManualSettlement.mutateAsync({
+                              scopeType: "everyone",
+                              selectedIds: null,
+                            })}
+                            disabled={startManualSettlement.isPending || !canStartRound}
+                          >
+                            {startManualSettlement.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Scale className="mr-1.5 h-4 w-4" />}
+                            Start settle up
+                          </Button>
+                        ) : (
+                          <div className="rounded-xl border border-dashed border-border/70 bg-card/60 px-3 py-3 text-sm text-muted-foreground">
+                            Only the plan creator can start settle up. You can still add expenses and open existing rounds.
                           </div>
-
-                          <div className="rounded-xl border border-dashed border-primary/30 bg-primary/5 px-3 py-3">
-                            <p className="text-sm font-medium text-foreground">Missing an expense?</p>
-                            <p className="mt-1 text-xs text-muted-foreground">Add the missing cost before you settle up the shared expenses.</p>
-                            <Button type="button" variant="ghost" className="mt-1 h-auto p-0 text-sm hover:bg-transparent" onClick={() => replacePanel({ type: "add-expense", source: "overview" })}>
-                              <Plus className="mr-1 h-3.5 w-3.5" />
-                              Add expense first
-                            </Button>
-                          </div>
-
-                          {isCreator ? (
-                            <Button
-                              type="button"
-                              onClick={() => void startManualSettlement.mutateAsync({
-                                scopeType: creationScope,
-                                selectedIds: creationScope === "selected" ? selectedParticipantIds : null,
-                              })}
-                              disabled={startManualSettlement.isPending || !canStartRound}
-                            >
-                              {startManualSettlement.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Scale className="mr-1.5 h-4 w-4" />}
-                              Start settle up
-                            </Button>
-                          ) : (
-                            <div className="rounded-xl border border-dashed border-border/70 bg-card/60 px-3 py-3 text-sm text-muted-foreground">
-                              Only the plan creator can start settle up. You can still add expenses and open existing rounds.
-                            </div>
-                          )}
-                        </div>
+                        )
                       ) : null}
                     </div>
                   </PanelSection>

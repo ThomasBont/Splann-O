@@ -79,6 +79,7 @@ router.post(p(api.expenses.create.path), asyncHandler(async (req, res) => {
     includedUserIds: z.array(z.string()).optional().nullable(),
     resolutionMode: z.enum(["later", "now"]).optional(),
     occurredOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+    category: z.string().optional().default("other"),
   });
   const input = bodySchema.parse(req.body);
   const acceptedParticipants = await participantRepo.listByBbq(bbqId, "accepted");

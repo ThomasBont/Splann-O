@@ -53,7 +53,7 @@ export function serializeEventChatMessage(
     user: row.type === "system"
       ? {
           id: SYSTEM_USER_ID,
-          name: row.authorName || SYSTEM_USER_NAME,
+          name: SYSTEM_USER_NAME,
           avatarUrl: row.authorAvatarUrl ?? null,
         }
       : row.authorUserId

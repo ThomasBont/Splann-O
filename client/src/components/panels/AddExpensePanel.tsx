@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, ChevronDown, CreditCard, Receipt, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -14,13 +14,10 @@ import {
 import { useAppToast } from "@/hooks/use-app-toast";
 import { useCreateExpense } from "@/hooks/use-expenses";
 import { useLanguage } from "@/hooks/use-language";
-import { usePlan, usePlanCrew, usePlanExpenses } from "@/hooks/use-plan-data";
+import { usePlan, usePlanCrew } from "@/hooks/use-plan-data";
 import { PanelHeader, PanelSection, PanelShell, useActiveEventId } from "@/components/panels/panel-primitives";
 import { usePanel } from "@/state/panel";
-import { getPlaceholderKeyForCategory } from "@/config/expenseCategories";
 import { cn } from "@/lib/utils";
-
-const DEFAULT_CATEGORIES = ["Food", "Drinks", "Transport", "Accommodation", "Activities", "Other"];
 type PlanParticipant = { id: number; name: string; userId?: number | null };
 
 function formatDetectedReceiptDate(value: string | null) {
@@ -43,27 +40,17 @@ export function AddExpensePanel({
   const { replacePanel } = usePanel();
   const planQuery = usePlan(eventId);
   const crewQuery = usePlanCrew(eventId);
-  const expensesQuery = usePlanExpenses(eventId);
   const createExpense = useCreateExpense(eventId);
   const plan = planQuery.data;
   const participants = (crewQuery.data?.participants ?? []) as PlanParticipant[];
-  const expenses = expensesQuery.data ?? [];
-
-  const categories = useMemo(() => {
-    const fromExpenses = Array.from(new Set(expenses.map((expense) => String(expense.category || "").trim()).filter(Boolean)));
-    const merged = [...fromExpenses, ...DEFAULT_CATEGORIES];
-    return Array.from(new Set(merged));
-  }, [expenses]);
 
   const [participantId, setParticipantId] = useState("");
-  const [category, setCategory] = useState(categories[0] ?? "Other");
   const [item, setItem] = useState("");
   const [amount, setAmount] = useState("");
   const [splitMode, setSplitMode] = useState<"everyone" | "selected">("everyone");
   const [includedUserIds, setIncludedUserIds] = useState<string[]>([]);
   const [resolutionMode, setResolutionMode] = useState<"later" | "now">(initialResolutionMode);
   const [showAdvancedSplit, setShowAdvancedSplit] = useState(false);
-  const [categoryTouched, setCategoryTouched] = useState(false);
   const [itemTouchedByUser, setItemTouchedByUser] = useState(false);
   const [amountTouchedByUser, setAmountTouchedByUser] = useState(false);
   const [expenseDate, setExpenseDate] = useState("");
@@ -97,7 +84,7 @@ export function AddExpensePanel({
     );
   }, [participantId, participants, resolutionMode]);
 
-  const isLoadingData = planQuery.isLoading || crewQuery.isLoading || expensesQuery.isLoading;
+  const isLoadingData = planQuery.isLoading || crewQuery.isLoading;
   const isValid = !!participantId
     && !!item.trim()
     && !!amount
@@ -106,11 +93,7 @@ export function AddExpensePanel({
       ? includedUserIds.length > 0
       : splitMode === "everyone" || includedUserIds.length > 0);
   const includedCount = splitMode === "everyone" ? participants.length : includedUserIds.length;
-  const selectedCategory = categories.includes(category) ? category : (categories[0] ?? "Other");
-  const placeholderKey = getPlaceholderKeyForCategory(selectedCategory);
-  const itemPlaceholder = categoryTouched
-    ? (t.placeholders as Record<string, string>)[placeholderKey] ?? "e.g. Miscellaneous"
-    : "e.g. pizza, taxi, hotel, groceries...";
+  const itemPlaceholder = "e.g. pizza, taxi, hotel, groceries...";
   const itemDetectedFromReceipt = !!receiptDetectedMerchant && !itemTouchedByUser;
   const amountDetectedFromReceipt = receiptDetectedAmount != null && !amountTouchedByUser;
   const dateDetectedFromReceipt = !!receiptDetectedDate && !dateTouchedByUser;
@@ -198,7 +181,6 @@ export function AddExpensePanel({
     try {
       const created = await createExpense.mutateAsync({
         participantId: Number(participantId),
-        category: selectedCategory,
         item: item.trim(),
         amount,
         occurredOn: expenseDate.trim() || null,
@@ -399,28 +381,6 @@ export function AddExpensePanel({
                   {dateDetectedFromReceipt ? (
                     <p className="text-[11px] font-medium text-primary">Detected from receipt</p>
                   ) : null}
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="panel-expense-category">Category</Label>
-                  <Select
-                    value={selectedCategory}
-                    onValueChange={(val) => {
-                      setCategory(val);
-                      setCategoryTouched(true);
-                    }}
-                  >
-                    <SelectTrigger id="panel-expense-category">
-                      <SelectValue placeholder="Select category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {categories.map((entry) => (
-                        <SelectItem key={`panel-expense-category-${entry}`} value={entry}>
-                          {entry}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
                 </div>
 
                 <div className="space-y-2">

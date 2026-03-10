@@ -206,7 +206,7 @@ export const api = {
     create: {
       method: 'POST' as const,
       path: '/api/barbecues/:bbqId/expenses' as const,
-      input: insertExpenseSchema.omit({ barbecueId: true }).extend({ optInByDefault: z.boolean().optional() }),
+      input: insertExpenseSchema.omit({ barbecueId: true }).extend({ optInByDefault: z.boolean().optional(), category: z.string().optional().default("other") }),
       responses: {
         201: z.custom<ExpenseWithParticipant>(),
         400: errorSchemas.validation,
@@ -289,6 +289,6 @@ export function buildUrl(path: string, params?: Record<string, string | number>)
 }
 
 export type InsertParticipant = z.infer<typeof api.participants.create.input>;
-export type InsertExpense = z.infer<typeof api.expenses.create.input>;
+export type InsertExpense = z.input<typeof api.expenses.create.input>;
 export type UpdateExpenseRequest = z.infer<typeof api.expenses.update.input>;
 export type InsertNote = z.infer<typeof api.notes.create.input>;

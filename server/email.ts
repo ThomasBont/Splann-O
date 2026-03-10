@@ -7,8 +7,8 @@
  */
 import { resolveBaseUrl } from "./config/env";
 
-const APP_NAME = "Splanno";
-const FROM = "Splanno <noreply@resend.dev>";
+const APP_NAME = "Splann-O";
+const FROM = process.env.EMAIL_FROM ?? "Splann-O <noreply@resend.dev>";
 const BRAND_COLOR = "#111827";
 const ACCENT_COLOR = "#2563eb";
 const APP_URL = resolveBaseUrl();
@@ -148,7 +148,7 @@ export async function sendWelcomeEmail(toEmail: string, displayName: string): Pr
   const openUrl = APP_URL;
 
   if (isDevMailMode()) {
-    logDevMail("Welcome to Splanno", toEmail, [`OPEN URL: ${openUrl}`, `COPY: ${openUrl}`]);
+    logDevMail("Welcome to Splann-O", toEmail, [`OPEN URL: ${openUrl}`, `COPY: ${openUrl}`]);
     return { sent: true };
   }
 
@@ -160,12 +160,12 @@ export async function sendWelcomeEmail(toEmail: string, displayName: string): Pr
       <p style="margin:0 0 16px;">Welcome! Your account is ready. Create trips and events, add expenses, and split the bill with friends—with support for multiple currencies.</p>
       <p style="margin:0 0 16px;">Get started by creating your first event or trip.</p>
     `,
-    ctaText: "Open Splanno",
+    ctaText: "Open Splann-O",
     ctaUrl: openUrl,
     footer: `© ${new Date().getFullYear()} ${APP_NAME}. Create events, split costs, settle up.`,
   });
 
-  return sendEmail({ to: toEmail, subject: "Welcome to Splanno", html });
+  return sendEmail({ to: toEmail, subject: "Welcome to Splann-O", html });
 }
 
 export async function sendPasswordResetEmail(toEmail: string, resetUrl: string): Promise<{ sent: boolean }> {
@@ -176,7 +176,7 @@ export async function sendPasswordResetEmail(toEmail: string, resetUrl: string):
   }
 
   if (isDevMailMode()) {
-    logDevMail("Reset your Splanno password", toEmail, [`RESET URL: ${url}`, `COPY: ${url}`]);
+    logDevMail("Reset your Splann-O password", toEmail, [`RESET URL: ${url}`, `COPY: ${url}`]);
     return { sent: true };
   }
 
@@ -184,7 +184,7 @@ export async function sendPasswordResetEmail(toEmail: string, resetUrl: string):
     title: "Reset your password",
     preheader: "Click the button below to set a new password. This link expires in 1 hour.",
     bodyHtml: `
-      <p style="margin:0 0 16px;">You requested a password reset for your Splanno account.</p>
+      <p style="margin:0 0 16px;">You requested a password reset for your Splann-O account.</p>
       <p style="margin:0 0 16px;">Click the button below to set a new password. This link expires in <strong>1 hour</strong>. If you didn't request this, you can safely ignore this email.</p>
       <p style="margin:16px 0 0;font-size:14px;color:#6b7280;">If the button doesn't work, copy and paste this link into your browser:</p>
       <p style="margin:8px 0 0;word-break:break-all;font-size:13px;color:${ACCENT_COLOR};">${url}</p>
@@ -194,7 +194,7 @@ export async function sendPasswordResetEmail(toEmail: string, resetUrl: string):
     footer: `© ${new Date().getFullYear()} ${APP_NAME}. If you didn't request this, ignore this email.`,
   });
 
-  return sendEmail({ to: toEmail, subject: "Reset your Splanno password", html });
+  return sendEmail({ to: toEmail, subject: "Reset your Splann-O password", html });
 }
 
 export async function sendEmailVerificationEmail(toEmail: string, displayName: string, verifyUrl: string): Promise<{ sent: boolean }> {
@@ -207,16 +207,16 @@ export async function sendEmailVerificationEmail(toEmail: string, displayName: s
   const name = displayName?.trim() || "there";
 
   if (isDevMailMode()) {
-    logDevMail("Verify your Splanno email", toEmail, [`VERIFY URL: ${url}`, `COPY: ${url}`]);
+    logDevMail("Verify your Splann-O email", toEmail, [`VERIFY URL: ${url}`, `COPY: ${url}`]);
     return { sent: true };
   }
 
   const html = layout({
     title: "Verify your email",
-    preheader: "Click the button below to verify your Splanno account. This link expires in 24 hours.",
+    preheader: "Click the button below to verify your Splann-O account. This link expires in 24 hours.",
     bodyHtml: `
       <p style="margin:0 0 16px;">Hey <strong>${name}</strong>,</p>
-      <p style="margin:0 0 16px;">Please verify your email address to complete your Splanno account setup.</p>
+      <p style="margin:0 0 16px;">Please verify your email address to complete your Splann-O account setup.</p>
       <p style="margin:0 0 16px;">Click the button below. This link expires in <strong>24 hours</strong>. If you didn't create an account, you can safely ignore this email.</p>
       <p style="margin:16px 0 0;font-size:14px;color:#6b7280;">If the button doesn't work, copy and paste this link into your browser:</p>
       <p style="margin:8px 0 0;word-break:break-all;font-size:13px;color:${ACCENT_COLOR};">${url}</p>
@@ -226,5 +226,5 @@ export async function sendEmailVerificationEmail(toEmail: string, displayName: s
     footer: `© ${new Date().getFullYear()} ${APP_NAME}. If you didn't create an account, ignore this email.`,
   });
 
-  return sendEmail({ to: toEmail, subject: "Verify your Splanno email", html });
+  return sendEmail({ to: toEmail, subject: "Verify your Splann-O email", html });
 }

@@ -32,6 +32,23 @@ function formatCurrency(amount: number, currencyCode?: string | null) {
   return `€${safeAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+function formatExpenseOccurredOn(value: string | null | undefined) {
+  if (!value) return "Date TBD";
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const [year, month, day] = value.split("-").map(Number);
+    const date = new Date(year, month - 1, day, 12, 0, 0);
+    if (!Number.isNaN(date.getTime())) {
+      return date.toLocaleDateString(undefined, {
+        weekday: "short",
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      });
+    }
+  }
+  return formatPanelDate(value);
+}
+
 export function ExpenseDetailPanel({ id }: { id: string }) {
   const eventId = useActiveEventId();
   const expensesQuery = useExpenses(eventId);
@@ -87,7 +104,9 @@ export function ExpenseDetailPanel({ id }: { id: string }) {
             </span>
             <span className="inline-flex items-center gap-2">
               <Clock3 className="h-4 w-4" />
-              {formatPanelDate(expense.createdAt ?? null)}
+              {(expense as { occurredOn?: string | null }).occurredOn
+                ? formatExpenseOccurredOn((expense as { occurredOn?: string | null }).occurredOn)
+                : formatPanelDate(expense.createdAt ?? null)}
             </span>
           </>
         )}
@@ -111,6 +130,14 @@ export function ExpenseDetailPanel({ id }: { id: string }) {
               <span className="text-muted-foreground">Resolution</span>
               <span className="font-medium text-foreground">{isSettledNow ? "Settled now" : "Later settle"}</span>
             </div>
+            {(expense as { occurredOn?: string | null }).occurredOn ? (
+              <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/40 px-3 py-2">
+                <span className="text-muted-foreground">Expense date</span>
+                <span className="font-medium text-foreground">
+                  {formatExpenseOccurredOn((expense as { occurredOn?: string | null }).occurredOn ?? null)}
+                </span>
+              </div>
+            ) : null}
           </div>
         </PanelSection>
 

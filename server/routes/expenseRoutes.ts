@@ -19,10 +19,20 @@ import { postSystemChatMessage } from "../lib/systemChat";
 import { badRequest, forbidden, notFound, unauthorized } from "../lib/errors";
 import { asyncHandler, assertEventAccessOrThrow, ensurePrivateEventParticipantOrCreator, getBarbecueOr404, p } from "./_helpers";
 import { deleteFile, uploadFile } from "../lib/r2";
+import { scanReceiptWithVision } from "../lib/vision-receipt";
 
 const router = Router();
 const RECEIPT_UPLOAD_DIR = path.resolve(process.cwd(), "public/uploads/receipts");
 const MAX_RECEIPT_SIZE_BYTES = 5 * 1024 * 1024;
+const ALLOWED_RECEIPT_MIME = new Set([
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+  "image/heic",
+  "image/heif",
+]);
 
 function normalizeIncludedUserIds(input: unknown): string[] | null | undefined {
   if (input === undefined) return undefined;
@@ -36,6 +46,19 @@ function normalizeIncludedUserIds(input: unknown): string[] | null | undefined {
     ),
   );
   return cleaned;
+}
+
+function parseReceiptDataUrl(dataUrl: string) {
+  const match = dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+  if (!match) badRequest("Invalid receipt image");
+  const mime = match[1].toLowerCase();
+  const base64 = match[2];
+  if (!ALLOWED_RECEIPT_MIME.has(mime)) badRequest("Unsupported image type");
+
+  const buffer = Buffer.from(base64, "base64");
+  if (!buffer.length) badRequest("Invalid image payload");
+  if (buffer.length > MAX_RECEIPT_SIZE_BYTES) badRequest("Receipt image must be 5MB or smaller");
+  return { mime, buffer };
 }
 
 router.get(p(api.expenses.list.path), asyncHandler(async (req, res) => {
@@ -55,6 +78,7 @@ router.post(p(api.expenses.create.path), asyncHandler(async (req, res) => {
     participantId: z.coerce.number(),
     includedUserIds: z.array(z.string()).optional().nullable(),
     resolutionMode: z.enum(["later", "now"]).optional(),
+    occurredOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   });
   const input = bodySchema.parse(req.body);
   const acceptedParticipants = await participantRepo.listByBbq(bbqId, "accepted");
@@ -308,6 +332,24 @@ router.delete(p(api.expenses.delete.path), requireAuth, asyncHandler(async (req,
   res.status(204).send();
 }));
 
+router.post("/receipts/scan", requireAuth, asyncHandler(async (req, res) => {
+  const payload = z.object({
+    dataUrl: z.string().min(1),
+  }).parse(req.body ?? {});
+
+  const { mime, buffer } = parseReceiptDataUrl(payload.dataUrl);
+
+  try {
+    const result = await scanReceiptWithVision({ buffer, mimeType: mime });
+    res.json(result);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Receipt scan failed";
+    res.status(502).json({
+      message: message || "Receipt scan failed",
+    });
+  }
+}));
+
 router.post("/expenses/:expenseId/receipt", requireAuth, asyncHandler(async (req, res) => {
   const expenseId = Number(req.params.expenseId);
   if (!Number.isFinite(expenseId)) badRequest("Invalid expense id");
@@ -319,16 +361,7 @@ router.post("/expenses/:expenseId/receipt", requireAuth, asyncHandler(async (req
     dataUrl: z.string().min(1),
   }).parse(req.body ?? {});
 
-  const match = payload.dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
-  if (!match) badRequest("Invalid receipt image");
-  const mime = match[1].toLowerCase();
-  const base64 = match[2];
-  const allowedMime = new Set(["image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"]);
-  if (!allowedMime.has(mime)) badRequest("Unsupported image type");
-
-  const buffer = Buffer.from(base64, "base64");
-  if (!buffer.length) badRequest("Invalid image payload");
-  if (buffer.length > MAX_RECEIPT_SIZE_BYTES) badRequest("Receipt image must be 5MB or smaller");
+  const { mime, buffer } = parseReceiptDataUrl(payload.dataUrl);
 
   const extensionByMime: Record<string, string> = {
     "image/jpeg": "jpg",
@@ -336,6 +369,8 @@ router.post("/expenses/:expenseId/receipt", requireAuth, asyncHandler(async (req
     "image/png": "png",
     "image/webp": "webp",
     "image/gif": "gif",
+    "image/heic": "heic",
+    "image/heif": "heif",
   };
   const ext = extensionByMime[mime] ?? "jpg";
   const fileName = `expense-${expenseId}-${randomUUID()}.${ext}`;

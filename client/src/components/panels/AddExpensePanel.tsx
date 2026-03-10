@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, ChevronDown, CreditCard, Receipt, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -22,6 +22,13 @@ import { cn } from "@/lib/utils";
 
 const DEFAULT_CATEGORIES = ["Food", "Drinks", "Transport", "Accommodation", "Activities", "Other"];
 type PlanParticipant = { id: number; name: string; userId?: number | null };
+
+function formatDetectedReceiptDate(value: string | null) {
+  if (!value) return "";
+  const date = new Date(`${value}T12:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" });
+}
 
 export function AddExpensePanel({
   source = "overview",
@@ -57,6 +64,17 @@ export function AddExpensePanel({
   const [resolutionMode, setResolutionMode] = useState<"later" | "now">(initialResolutionMode);
   const [showAdvancedSplit, setShowAdvancedSplit] = useState(false);
   const [categoryTouched, setCategoryTouched] = useState(false);
+  const [itemTouchedByUser, setItemTouchedByUser] = useState(false);
+  const [amountTouchedByUser, setAmountTouchedByUser] = useState(false);
+  const [expenseDate, setExpenseDate] = useState("");
+  const [dateTouchedByUser, setDateTouchedByUser] = useState(false);
+  const [isScanningReceipt, setIsScanningReceipt] = useState(false);
+  const [receiptScanError, setReceiptScanError] = useState<string | null>(null);
+  const [receiptDetectedMerchant, setReceiptDetectedMerchant] = useState<string | null>(null);
+  const [receiptDetectedAmount, setReceiptDetectedAmount] = useState<number | null>(null);
+  const [receiptDetectedDate, setReceiptDetectedDate] = useState<string | null>(null);
+  const [receiptAmountConfidence, setReceiptAmountConfidence] = useState<number>(0);
+  const receiptInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (resolutionMode === "now") {
@@ -93,6 +111,86 @@ export function AddExpensePanel({
   const itemPlaceholder = categoryTouched
     ? (t.placeholders as Record<string, string>)[placeholderKey] ?? "e.g. Miscellaneous"
     : "e.g. pizza, taxi, hotel, groceries...";
+  const itemDetectedFromReceipt = !!receiptDetectedMerchant && !itemTouchedByUser;
+  const amountDetectedFromReceipt = receiptDetectedAmount != null && !amountTouchedByUser;
+  const dateDetectedFromReceipt = !!receiptDetectedDate && !dateTouchedByUser;
+
+  const handleScanReceipt = async (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      setReceiptScanError("Use an image file for receipt scanning.");
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setReceiptScanError("Receipt image must be 5MB or smaller.");
+      return;
+    }
+
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result ?? ""));
+      reader.onerror = () => reject(new Error("Could not read receipt image"));
+      reader.readAsDataURL(file);
+    });
+
+    setIsScanningReceipt(true);
+    setReceiptScanError(null);
+    setReceiptAmountConfidence(0);
+    try {
+      const res = await fetch("/api/receipts/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ dataUrl }),
+      });
+      const body = await res.json().catch(() => ({} as {
+        message?: string;
+        merchant?: string | null;
+        amount?: number | null;
+        date?: string | null;
+        confidence?: { merchant?: number; amount?: number; date?: number } | null;
+      }));
+      if (!res.ok) {
+        throw new Error(body.message || "Couldn’t scan receipt.");
+      }
+
+      const merchant = typeof body.merchant === "string" && body.merchant.trim().length > 0
+        ? body.merchant.trim()
+        : null;
+      const total = typeof body.amount === "number" && Number.isFinite(body.amount)
+        ? body.amount
+        : null;
+      const date = typeof body.date === "string" && body.date.trim().length > 0
+        ? body.date.trim()
+        : null;
+      const amountConfidence = typeof body.confidence?.amount === "number" ? body.confidence.amount : 0;
+
+      setReceiptDetectedMerchant(merchant);
+      setReceiptDetectedAmount(total);
+      setReceiptDetectedDate(date);
+      setReceiptAmountConfidence(amountConfidence);
+
+      if (merchant && !itemTouchedByUser && !item.trim()) {
+        setItem(merchant);
+      }
+      if (total != null && !amountTouchedByUser && !amount.trim()) {
+        setAmount(total.toFixed(2));
+      }
+      if (date && !dateTouchedByUser && !expenseDate.trim()) {
+        setExpenseDate(date);
+      }
+
+      if (!merchant && total == null && !date) {
+        setReceiptScanError("We scanned the receipt, but couldn’t confidently detect useful details.");
+      }
+    } catch (error) {
+      setReceiptScanError(error instanceof Error ? error.message : "Couldn’t scan receipt.");
+    } finally {
+      setIsScanningReceipt(false);
+      if (receiptInputRef.current) {
+        receiptInputRef.current.value = "";
+      }
+    }
+  };
 
   const onSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -103,6 +201,7 @@ export function AddExpensePanel({
         category: selectedCategory,
         item: item.trim(),
         amount,
+        occurredOn: expenseDate.trim() || null,
         resolutionMode,
         includedUserIds: resolutionMode === "now"
           ? includedUserIds
@@ -185,6 +284,53 @@ export function AddExpensePanel({
                 </div>
 
                 <div className="space-y-2">
+                  <Label>Scan receipt</Label>
+                  <div className="rounded-xl border border-border/70 bg-muted/20 p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        ref={receiptInputRef}
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          if (!file) return;
+                          void handleScanReceipt(file);
+                        }}
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => receiptInputRef.current?.click()}
+                        disabled={isScanningReceipt}
+                      >
+                        <Receipt className="mr-1.5 h-4 w-4" />
+                        {isScanningReceipt ? "Scanning receipt..." : "Upload receipt"}
+                      </Button>
+                      {(receiptDetectedMerchant || receiptDetectedAmount != null || receiptDetectedDate) && !isScanningReceipt ? (
+                        <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                          Detected from receipt
+                        </span>
+                      ) : null}
+                    </div>
+                    {receiptScanError ? (
+                      <p className="mt-2 text-xs text-destructive">{receiptScanError}</p>
+                    ) : null}
+                    {receiptDetectedDate ? (
+                      <p className="mt-2 text-xs text-muted-foreground">
+                        Receipt date detected: {formatDetectedReceiptDate(receiptDetectedDate)}
+                      </p>
+                    ) : null}
+                    {receiptDetectedAmount != null && receiptAmountConfidence > 0 && receiptAmountConfidence < 0.7 ? (
+                      <p className="mt-1 text-xs text-amber-600 dark:text-amber-300">
+                        Review the detected total before saving.
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
                   <Label htmlFor="panel-expense-payer">Paid by</Label>
                   <Select
                     value={participantId}
@@ -208,9 +354,15 @@ export function AddExpensePanel({
                   <Input
                     id="panel-expense-item"
                     value={item}
-                    onChange={(event) => setItem(event.target.value)}
+                    onChange={(event) => {
+                      setItemTouchedByUser(true);
+                      setItem(event.target.value);
+                    }}
                     placeholder={itemPlaceholder}
                   />
+                  {itemDetectedFromReceipt ? (
+                    <p className="text-[11px] font-medium text-primary">Detected from receipt</p>
+                  ) : null}
                 </div>
 
                 <div className="space-y-2">
@@ -222,9 +374,31 @@ export function AddExpensePanel({
                     min="0.01"
                     step="0.01"
                     value={amount}
-                    onChange={(event) => setAmount(event.target.value)}
+                    onChange={(event) => {
+                      setAmountTouchedByUser(true);
+                      setAmount(event.target.value);
+                    }}
                     placeholder="0.00"
                   />
+                  {amountDetectedFromReceipt ? (
+                    <p className="text-[11px] font-medium text-primary">Detected from receipt</p>
+                  ) : null}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="panel-expense-date">Date (optional)</Label>
+                  <Input
+                    id="panel-expense-date"
+                    type="date"
+                    value={expenseDate}
+                    onChange={(event) => {
+                      setDateTouchedByUser(true);
+                      setExpenseDate(event.target.value);
+                    }}
+                  />
+                  {dateDetectedFromReceipt ? (
+                    <p className="text-[11px] font-medium text-primary">Detected from receipt</p>
+                  ) : null}
                 </div>
 
                 <div className="space-y-2">

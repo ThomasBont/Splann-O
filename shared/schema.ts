@@ -175,6 +175,7 @@ export const expenses = pgTable("expenses", {
   category: text("category").notNull(),
   item: text("item").notNull(),
   amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  occurredOn: text("occurred_on"),
   resolutionMode: text("resolution_mode").notNull().default("later"), // later | now
   excludedFromFinalSettlement: boolean("excluded_from_final_settlement").notNull().default(false),
   settledAt: timestamp("settled_at"),

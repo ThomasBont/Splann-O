@@ -12,6 +12,7 @@ import { auditSecurity } from "../lib/audit";
 import { badRequest, forbidden, notFound } from "../lib/errors";
 import passport from "passport";
 import { resolveBaseUrl } from "../config/env";
+import { uploadFile } from "../lib/r2";
 
 const router = Router();
 const currencyCodeSchema = z.string().regex(/^[A-Z]{3}$/, "Currency code must be 3 uppercase letters");
@@ -275,11 +276,13 @@ router.post(
     };
     const ext = extensionByMime[mime] ?? "jpg";
     const fileName = `avatar-${req.session!.userId}-${randomUUID()}.${ext}`;
-    await fs.mkdir(AVATAR_UPLOAD_DIR, { recursive: true });
-    const filePath = path.join(AVATAR_UPLOAD_DIR, fileName);
-    await fs.writeFile(filePath, buffer);
-
-    const publicPath = `/uploads/avatars/${fileName}`;
+    const publicPath = await uploadFile({
+      key: `avatars/${fileName}`,
+      buffer,
+      mimeType: mime,
+      localFallbackPath: path.join(AVATAR_UPLOAD_DIR, fileName),
+      localPublicPath: `/uploads/avatars/${fileName}`,
+    });
     res.json({
       assetId: fileName,
       path: publicPath,

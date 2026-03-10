@@ -29,6 +29,7 @@
     "split:verify": "npx tsx client/src/lib/split/calc.verify.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1005.0",
     "@hookform/resolvers": "^3.10.0",
     "@jridgewell/trace-mapping": "^0.3.25",
     "@radix-ui/react-accordion": "^1.2.4",

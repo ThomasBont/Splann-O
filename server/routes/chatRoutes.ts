@@ -2,7 +2,6 @@
 import { Router } from "express";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
-import { promises as fs } from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { appendEventChatMessage, deleteEventChatMessage, editEventChatMessage, listEventChatMessages, toggleEventChatReaction } from "../lib/eventChatStore";
@@ -13,6 +12,7 @@ import { isEventChatLocked } from "../lib/eventChatPolicy";
 import { assertEventAccessOrThrow, asyncHandler, toPublicUploadsUrl } from "./_helpers";
 import { db } from "../db";
 import { barbecues } from "@shared/schema";
+import { uploadFile } from "../lib/r2";
 
 const router = Router();
 const CHAT_UPLOAD_DIR = path.resolve(process.cwd(), "public/uploads/chat");
@@ -89,10 +89,13 @@ async function uploadChatAttachment(
   const baseName = sanitizeBaseName(parsed.fileName);
   const fileName = `chat-${eventId}-${randomUUID()}-${baseName}.${extension}`;
 
-  await fs.mkdir(CHAT_UPLOAD_DIR, { recursive: true });
-  await fs.writeFile(path.join(CHAT_UPLOAD_DIR, fileName), buffer);
-
-  const relativePath = `/uploads/chat/${fileName}`;
+  const relativePath = await uploadFile({
+    key: `chat/${fileName}`,
+    buffer,
+    mimeType: mime,
+    localFallbackPath: path.join(CHAT_UPLOAD_DIR, fileName),
+    localPublicPath: `/uploads/chat/${fileName}`,
+  });
   return {
     locked: false as const,
     attachment: {
@@ -102,7 +105,7 @@ async function uploadChatAttachment(
       size: buffer.length,
       path: relativePath,
       url: relativePath,
-      publicUrl: toPublicUploadsUrl(req, relativePath),
+      publicUrl: /^https?:\/\//i.test(relativePath) ? relativePath : toPublicUploadsUrl(req, relativePath),
     },
   };
 }

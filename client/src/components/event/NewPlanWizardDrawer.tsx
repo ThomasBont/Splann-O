@@ -1,14 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
-import { CalendarDays, Check, ChevronDown, Clock3, Loader2, PartyPopper, Plane, X } from "lucide-react";
+import { CalendarDays, Check, ChevronDown, Clock3, Copy, Loader2, MessageCircle, PartyPopper, Plane, X } from "lucide-react";
 import { normalizeCountryCode } from "@shared/lib/country-code";
 import { useAuth } from "@/hooks/use-auth";
 import { useCreateBarbecue } from "@/hooks/use-bbq-data";
 import { useAppToast } from "@/hooks/use-app-toast";
+import { useFriends } from "@/hooks/use-friends";
+import { useAddEventMember } from "@/hooks/use-participants";
 import { useNewPlanWizard } from "@/contexts/new-plan-wizard";
 import type { LocationOption } from "@/lib/locations-data";
 import { currencyForCountry } from "@/lib/locations-data";
 import { enrichLocationByPlaceId, searchLocationsGlobal } from "@/lib/location-search";
+import { cn } from "@/lib/utils";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { CurrencyPicker } from "@/components/currency-picker";
 import { Input } from "@/components/ui/input";
@@ -37,7 +41,7 @@ type PartySubcategory =
   | "drinks_night"
   | "brunch";
 type Subcategory = TripSubcategory | PartySubcategory;
-type WizardStep = "TYPE" | "BASICS";
+type WizardStep = "TYPE" | "BASICS" | "INVITE";
 
 type SubcategoryDef = {
   id: Subcategory;
@@ -131,6 +135,7 @@ export default function NewPlanWizardDrawer() {
   const [, setLocation] = useLocation();
   const { user } = useAuth();
   const createBbq = useCreateBarbecue();
+  const friendsQuery = useFriends();
   const { toastSuccess, toastError } = useAppToast();
   const { isNewPlanWizardOpen, newPlanWizardStep, openNewPlanWizard, closeNewPlanWizard } = useNewPlanWizard();
   const planNameInputRef = useRef<HTMLInputElement | null>(null);
@@ -152,6 +157,15 @@ export default function NewPlanWizardDrawer() {
   const [subcategory, setSubcategory] = useState<Subcategory | null>(null);
   const [planCurrency, setPlanCurrency] = useState("EUR");
   const [localCurrency, setLocalCurrency] = useState<string>("");
+  const [createdPlanId, setCreatedPlanId] = useState<number | null>(null);
+  const [createdPlanName, setCreatedPlanName] = useState<string>("");
+  const [inviteLink, setInviteLink] = useState<string>("");
+  const [inviteLinkCopied, setInviteLinkCopied] = useState(false);
+  const [selectedFriendIds, setSelectedFriendIds] = useState<number[]>([]);
+  const [sentInviteIds, setSentInviteIds] = useState<number[]>([]);
+  const [friendPickerOpen, setFriendPickerOpen] = useState(false);
+  const friends = friendsQuery.data ?? [];
+  const addMember = useAddEventMember(createdPlanId ?? 0);
 
   useEffect(() => {
     if (!isNewPlanWizardOpen) return;
@@ -175,6 +189,13 @@ export default function NewPlanWizardDrawer() {
     setSubcategory(null);
     setPlanCurrency("EUR");
     setLocalCurrency("");
+    setCreatedPlanId(null);
+    setCreatedPlanName("");
+    setInviteLink("");
+    setInviteLinkCopied(false);
+    setSelectedFriendIds([]);
+    setSentInviteIds([]);
+    setFriendPickerOpen(false);
   };
 
   useEffect(() => {
@@ -360,12 +381,33 @@ export default function NewPlanWizardDrawer() {
   };
 
   const goBack = () => {
+    if (step === "INVITE") {
+      closeNewPlanWizard();
+      reset();
+      if (createdPlanId) setLocation(`/app/e/${createdPlanId}`);
+      return;
+    }
     if (step === "BASICS") {
       setStep("TYPE");
       return;
     }
     closeNewPlanWizard();
     reset();
+  };
+
+  const handleSendInvites = async () => {
+    if (!createdPlanId || selectedFriendIds.length === 0) return;
+    for (const userId of selectedFriendIds) {
+      if (sentInviteIds.includes(userId)) continue;
+      try {
+        await addMember.mutateAsync({ userId });
+        setSentInviteIds((prev) => [...prev, userId]);
+      } catch {
+        // silently skip failed invites
+      }
+    }
+    setSelectedFriendIds([]);
+    setFriendPickerOpen(false);
   };
 
   const handleCreate = () => {
@@ -419,9 +461,22 @@ export default function NewPlanWizardDrawer() {
             window.localStorage.setItem(LAST_PLAN_CURRENCY_KEY, planCurrency);
           }
           toastSuccess("Plan created");
-          closeNewPlanWizard();
-          reset();
-          setLocation(`/app/e/${created.id}`);
+          setCreatedPlanId(Number(created.id));
+          setCreatedPlanName(name.trim());
+          fetch(`/api/barbecues/${created.id}/ensure-invite-token`, {
+            method: "POST",
+            credentials: "include",
+          })
+            .then((res) => (res.ok ? res.json() : Promise.reject()))
+            .then((body: { inviteToken?: string }) => {
+              if (body.inviteToken && typeof window !== "undefined") {
+                setInviteLink(`${window.location.origin}/join/${body.inviteToken}`);
+              }
+            })
+            .catch(() => {
+              // invite link unavailable, step still shows without link
+            });
+          setStep("INVITE");
         },
         onError: () => {
           toastError("Couldn’t create plan. Try again.");
@@ -476,6 +531,7 @@ export default function NewPlanWizardDrawer() {
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <span className={`px-2 py-0.5 rounded-full border ${step === "TYPE" ? "border-primary/40 text-primary bg-primary/5" : "border-border"}`}>Plan type</span>
                 <span className={`px-2 py-0.5 rounded-full border ${step === "BASICS" ? "border-primary/40 text-primary bg-primary/5" : "border-border"}`}>The plan</span>
+                <span className={`px-2 py-0.5 rounded-full border ${step === "INVITE" ? "border-primary/40 text-primary bg-primary/5" : "border-border"}`}>Invite</span>
               </div>
 
               {step === "TYPE" && (
@@ -762,13 +818,163 @@ export default function NewPlanWizardDrawer() {
                   </div>
                 </div>
               )}
+
+              {step === "INVITE" && (
+                <div className="space-y-5">
+                  <div className="space-y-1">
+                    <h4 className="text-sm font-semibold">Invite your crew</h4>
+                    <p className="text-xs text-muted-foreground">
+                      {createdPlanName} is ready. Share the link so friends can join directly.
+                    </p>
+                  </div>
+
+                  {friends.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                          Invite from your friends
+                        </p>
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground transition hover:text-foreground"
+                          onClick={() => setFriendPickerOpen((value) => !value)}
+                        >
+                          <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", friendPickerOpen && "rotate-180")} />
+                          {friendPickerOpen ? "Hide" : "Choose friends"}
+                        </button>
+                      </div>
+                      {friendPickerOpen ? (
+                        <div className="rounded-xl border border-border/70 bg-muted/20 p-3 space-y-2">
+                          <div className="space-y-1 max-h-48 overflow-y-auto">
+                            {friends.map((friend) => {
+                              const alreadySent = sentInviteIds.includes(friend.userId);
+                              const selected = selectedFriendIds.includes(friend.userId);
+                              const displayName = friend.displayName || friend.username || "Friend";
+                              return (
+                                <button
+                                  key={friend.userId}
+                                  type="button"
+                                  disabled={alreadySent}
+                                  onClick={() => {
+                                    if (alreadySent) return;
+                                    setSelectedFriendIds((prev) => (
+                                      prev.includes(friend.userId)
+                                        ? prev.filter((id) => id !== friend.userId)
+                                        : [...prev, friend.userId]
+                                    ));
+                                  }}
+                                  className={cn(
+                                    "flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left transition",
+                                    alreadySent
+                                      ? "cursor-default opacity-50"
+                                      : selected
+                                        ? "border border-primary/30 bg-primary/10"
+                                        : "border border-transparent hover:bg-background",
+                                  )}
+                                >
+                                  <Avatar className="h-7 w-7 shrink-0">
+                                    <AvatarFallback className="bg-primary/10 text-[10px] font-semibold text-primary">
+                                      {displayName.slice(0, 2).toUpperCase()}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                  <div className="min-w-0 flex-1">
+                                    <p className="truncate text-sm font-medium text-foreground">{displayName}</p>
+                                    {friend.username ? (
+                                      <p className="truncate text-xs text-muted-foreground">@{friend.username}</p>
+                                    ) : null}
+                                  </div>
+                                  {alreadySent ? (
+                                    <span className="shrink-0 text-xs font-medium text-emerald-600">Added ✓</span>
+                                  ) : selected ? (
+                                    <Check className="h-4 w-4 shrink-0 text-primary" />
+                                  ) : null}
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          {selectedFriendIds.length > 0 ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              className="w-full"
+                              onClick={() => { void handleSendInvites(); }}
+                              disabled={addMember.isPending}
+                            >
+                              {addMember.isPending ? (
+                                <Loader2 className="h-4 w-4 animate-spin mr-1.5" />
+                              ) : null}
+                              Invite {selectedFriendIds.length} {selectedFriendIds.length === 1 ? "friend" : "friends"}
+                            </Button>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  )}
+
+                  <div className="rounded-xl border border-border/70 bg-muted/20 p-4 space-y-3">
+                    <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                      Share invite link
+                    </p>
+                    {inviteLink ? (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <input
+                            readOnly
+                            value={inviteLink}
+                            className="flex-1 min-w-0 rounded-lg border border-border/60 bg-background px-3 py-2 text-sm text-foreground"
+                            onFocus={(e) => e.target.select()}
+                          />
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              void navigator.clipboard.writeText(inviteLink).then(() => {
+                                setInviteLinkCopied(true);
+                                window.setTimeout(() => setInviteLinkCopied(false), 2000);
+                              });
+                            }}
+                          >
+                            {inviteLinkCopied ? (
+                              <Check className="h-4 w-4 text-emerald-500" />
+                            ) : (
+                              <Copy className="h-4 w-4" />
+                            )}
+                          </Button>
+                        </div>
+                        <a
+                          href={`https://wa.me/?text=${encodeURIComponent(
+                            `Hey! Join my plan "${createdPlanName}" on Splann-O: ${inviteLink}`,
+                          )}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-sm font-medium text-green-700 transition hover:bg-green-100 dark:border-green-500/25 dark:bg-green-500/10 dark:text-green-300"
+                        >
+                          <MessageCircle className="h-4 w-4" />
+                          Share via WhatsApp
+                        </a>
+                      </>
+                    ) : (
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        Generating invite link...
+                      </div>
+                    )}
+                  </div>
+
+                  <p className="text-xs text-muted-foreground">
+                    You can also invite people later from the plan overview.
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 
           <footer className="shrink-0 border-t border-border/60 bg-background/95 px-6 py-4 backdrop-blur">
             <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3 w-full">
               <Button variant="ghost" onClick={goBack} className="w-full sm:w-auto order-2 sm:order-1">
-                {step === "TYPE" ? "Cancel" : "Back"}
+                {step === "INVITE" ? "Skip for now" : step === "TYPE" ? "Cancel" : "Back"}
               </Button>
               {step === "TYPE" ? (
                 <Button
@@ -778,7 +984,7 @@ export default function NewPlanWizardDrawer() {
                 >
                   Next
                 </Button>
-              ) : (
+              ) : step === "BASICS" ? (
                 <Button
                   onClick={handleCreate}
                   disabled={!basicsValid || createBbq.isPending}
@@ -786,6 +992,17 @@ export default function NewPlanWizardDrawer() {
                 >
                   {createBbq.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1.5" /> : null}
                   Start plan
+                </Button>
+              ) : (
+                <Button
+                  onClick={() => {
+                    closeNewPlanWizard();
+                    reset();
+                    if (createdPlanId) setLocation(`/app/e/${createdPlanId}`);
+                  }}
+                  className="w-full sm:w-auto bg-primary text-primary-foreground font-semibold order-1 sm:order-2"
+                >
+                  Open plan →
                 </Button>
               )}
             </div>

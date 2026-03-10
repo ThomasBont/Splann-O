@@ -521,8 +521,8 @@ function AppSidebar({
           <div className="mx-0 my-2 h-px bg-border/60" />
         </div>
 
-        <div className="px-3 pb-3 flex-1 min-h-0">
-          <div className="sticky top-4 h-[calc(100vh-2rem)] min-h-0 flex flex-col gap-3">
+        <div className="px-3 pb-3 flex-1 min-h-0 overflow-hidden">
+          <div className="h-full min-h-0 flex flex-col gap-3">
             <section className="flex min-h-0 flex-1 flex-col rounded-xl border border-border/60 bg-card/70">
               <div className="shrink-0 border-b border-border/50 p-2">
                 <p className="px-1 text-[11px] uppercase tracking-wide text-muted-foreground">Your plans</p>

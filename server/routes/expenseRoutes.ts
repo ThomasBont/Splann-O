@@ -1,7 +1,6 @@
 // Expense routes: expense CRUD, receipt upload/delete, and expense shares.
 import { Router } from "express";
 import { and, eq } from "drizzle-orm";
-import { promises as fs } from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { z } from "zod";
@@ -19,6 +18,7 @@ import { createDirectSplitRound } from "../lib/settlement";
 import { postSystemChatMessage } from "../lib/systemChat";
 import { badRequest, forbidden, notFound, unauthorized } from "../lib/errors";
 import { asyncHandler, assertEventAccessOrThrow, ensurePrivateEventParticipantOrCreator, getBarbecueOr404, p } from "./_helpers";
+import { deleteFile, uploadFile } from "../lib/r2";
 
 const router = Router();
 const RECEIPT_UPLOAD_DIR = path.resolve(process.cwd(), "public/uploads/receipts");
@@ -339,12 +339,14 @@ router.post("/expenses/:expenseId/receipt", requireAuth, asyncHandler(async (req
   };
   const ext = extensionByMime[mime] ?? "jpg";
   const fileName = `expense-${expenseId}-${randomUUID()}.${ext}`;
-  await fs.mkdir(RECEIPT_UPLOAD_DIR, { recursive: true });
-  const filePath = path.join(RECEIPT_UPLOAD_DIR, fileName);
-  await fs.writeFile(filePath, buffer);
-
   const prevReceiptUrl = expense.receiptUrl ?? null;
-  const receiptUrl = `/uploads/receipts/${fileName}`;
+  const receiptUrl = await uploadFile({
+    key: `receipts/${fileName}`,
+    buffer,
+    mimeType: mime,
+    localFallbackPath: path.join(RECEIPT_UPLOAD_DIR, fileName),
+    localPublicPath: `/uploads/receipts/${fileName}`,
+  });
   const updated = await expenseRepo.update(expenseId, {
     receiptUrl,
     receiptMime: mime,
@@ -352,10 +354,7 @@ router.post("/expenses/:expenseId/receipt", requireAuth, asyncHandler(async (req
   });
   if (!updated) notFound("Expense not found");
 
-  if (prevReceiptUrl?.startsWith("/uploads/receipts/")) {
-    const oldPath = path.join(RECEIPT_UPLOAD_DIR, path.basename(prevReceiptUrl));
-    await fs.unlink(oldPath).catch(() => undefined);
-  }
+  await deleteFile(prevReceiptUrl);
 
   res.json({
     expenseId,
@@ -372,10 +371,7 @@ router.delete("/expenses/:expenseId/receipt", requireAuth, asyncHandler(async (r
   if (!expense) notFound("Expense not found");
   await ensurePrivateEventParticipantOrCreator(req, expense.barbecueId);
 
-  if (expense.receiptUrl?.startsWith("/uploads/receipts/")) {
-    const oldPath = path.join(RECEIPT_UPLOAD_DIR, path.basename(expense.receiptUrl));
-    await fs.unlink(oldPath).catch(() => undefined);
-  }
+  await deleteFile(expense.receiptUrl);
 
   const updated = await expenseRepo.update(expenseId, {
     receiptUrl: null,

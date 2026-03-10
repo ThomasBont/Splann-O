@@ -1,7 +1,6 @@
 // Media routes: SVG share card, banner upload/delete, media import, and Stripe webhook.
 import { Router, type Request } from "express";
 import { eq } from "drizzle-orm";
-import { promises as fs } from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 import { z } from "zod";
@@ -26,6 +25,7 @@ import {
 } from "./_helpers";
 import * as bbqService from "../services/bbqService";
 import { resolveBaseUrl } from "../config/env";
+import { deleteFile, uploadFile } from "../lib/r2";
 
 const router = Router();
 const EVENT_BANNER_UPLOAD_DIR = path.resolve(process.cwd(), "public/uploads/event-banners");
@@ -179,14 +179,16 @@ router.post("/barbecues/:bbqId/banner", requireAuth, asyncHandler(async (req, re
   };
   const ext = extensionByMime[mime] ?? "jpg";
   const fileName = `event-${bbqId}-${randomUUID()}.${ext}`;
-  await fs.mkdir(EVENT_BANNER_UPLOAD_DIR, { recursive: true });
-  const filePath = path.join(EVENT_BANNER_UPLOAD_DIR, fileName);
-  await fs.writeFile(filePath, buffer);
-
   const prevBannerUrl = bbq.bannerImageUrl ?? null;
   const relativeBannerPath = `/uploads/event-banners/${fileName}`;
-  const publicBannerUrl = toPublicUploadsUrl(req, relativeBannerPath);
-  const bannerImageUrl = relativeBannerPath;
+  const bannerImageUrl = await uploadFile({
+    key: `event-banners/${fileName}`,
+    buffer,
+    mimeType: mime,
+    localFallbackPath: path.join(EVENT_BANNER_UPLOAD_DIR, fileName),
+    localPublicPath: relativeBannerPath,
+  });
+  const publicBannerUrl = /^https?:\/\//i.test(bannerImageUrl) ? bannerImageUrl : toPublicUploadsUrl(req, bannerImageUrl);
   if (process.env.NODE_ENV !== "production") {
     log("info", "Banner uploaded", {
       route: "POST /api/barbecues/:bbqId/banner",
@@ -203,11 +205,7 @@ router.post("/barbecues/:bbqId/banner", requireAuth, asyncHandler(async (req, re
   });
   if (!updated) notFound("Event not found");
 
-  const prevFileName = getEventBannerFileNameFromUrl(prevBannerUrl);
-  if (prevFileName) {
-    const oldPath = path.join(EVENT_BANNER_UPLOAD_DIR, prevFileName);
-    await fs.unlink(oldPath).catch(() => undefined);
-  }
+  await deleteFile(prevBannerUrl);
 
   res.json({
     bbqId,
@@ -266,10 +264,13 @@ router.post("/media/import", requireAuth, asyncHandler(async (req, res) => {
   const ext = imageExtensionByMime[mime] ?? "jpg";
   const buffer = await readImageResponseBodyWithLimit(response, MEDIA_IMPORT_MAX_BYTES);
   const fileName = `event-import-${Date.now()}-${randomUUID()}.${ext}`;
-  await fs.mkdir(EVENT_BANNER_UPLOAD_DIR, { recursive: true });
-  await fs.writeFile(path.join(EVENT_BANNER_UPLOAD_DIR, fileName), buffer);
-
-  const storedPath = `/uploads/event-banners/${fileName}`;
+  const storedPath = await uploadFile({
+    key: `event-banners/${fileName}`,
+    buffer,
+    mimeType: mime,
+    localFallbackPath: path.join(EVENT_BANNER_UPLOAD_DIR, fileName),
+    localPublicPath: `/uploads/event-banners/${fileName}`,
+  });
   res.status(201).json({
     storedUrl: storedPath,
     url: storedPath,
@@ -290,11 +291,7 @@ router.delete("/barbecues/:bbqId/banner", requireAuth, asyncHandler(async (req, 
     await assertEventAccessOrThrow(req, bbqId);
   }
 
-  const oldFileName = bbq.bannerAssetId ?? getEventBannerFileNameFromUrl(bbq.bannerImageUrl ?? null);
-  if (oldFileName) {
-    const oldPath = path.join(EVENT_BANNER_UPLOAD_DIR, oldFileName);
-    await fs.unlink(oldPath).catch(() => undefined);
-  }
+  await deleteFile(bbq.bannerImageUrl);
 
   const updated = await bbqRepo.update(bbqId, { bannerImageUrl: null, bannerAssetId: null });
   if (!updated) notFound("Event not found");

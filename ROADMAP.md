@@ -1,47 +1,21 @@
-# Splanno Refactor Roadmap
+# Splanno Roadmap
 
-See **[docs/refactor-roadmap.md](./docs/refactor-roadmap.md)** for the full phased plan, schema details, and migration notes.
+> Refactor phases (0–3) zijn volledig afgerond. De gedetailleerde migratienotities zijn gearchiveerd in `docs/refactor-roadmap.md`.
 
-## Quick Summary
+## Afgeronde refactor-fasen
 
-| Phase | Status | Description |
-|-------|--------|-------------|
-| **Phase 0** | ✅ Done | Indexes, constraints, timestamps |
-| **Phase 1** | 📋 Planned | User ID type consistency (text → integer FK) |
-| **Phase 2** | ✅ Done | Split logic extraction + components |
-| **Phase 3** | ✅ Done | Authz layer, audit logging, plan/tier model |
+| Phase | Status | Beschrijving |
+|-------|--------|--------------|
+| **Phase 0** | ✅ Gedaan | Indexes, constraints, timestamps |
+| **Phase 1** | ✅ Gedaan | User ID type consistency (text → integer FK) |
+| **Phase 2** | ✅ Gedaan | Split logic extractie + componenten |
+| **Phase 3** | ✅ Gedaan | Authz layer, audit logging, plan/tier model |
 
-## Run Migrations
-
-```bash
-# Apply Phase 0 (indexes, expenses.createdAt, barbecues.updatedAt)
-psql $DATABASE_URL -f migrations/0003_phase0_indexes_constraints.sql
-
-# Apply Phase 3 (users.plan, users.planExpiresAt)
-psql $DATABASE_URL -f migrations/0005_phase3_plan_tiers.sql
-```
-
-## Verify Split Logic
+## Handige commando's
 
 ```bash
-npm run split:verify
+npm run dev          # Start dev server op http://localhost:5001
+npm run db:migrate   # Voer openstaande migraties uit
+npm run check        # TypeScript typecheck
+npm run split:verify # Verifieer split/settlement logica
 ```
-
-## Files Changed (This Pass)
-
-### New Files
-- `docs/refactor-roadmap.md` – Full roadmap
-- `client/src/lib/split/calc.ts` – Pure split/settlement logic
-- `client/src/lib/split/calc.verify.ts` – Verification harness
-- `client/src/components/split/IndividualContributions.tsx`
-- `client/src/components/split/SettlementPlan.tsx`
-- `server/lib/authz.ts` – assertCanAccessBarbecue, assertIsCreator
-- `server/lib/audit.ts` – auditLog for critical actions
-- `server/lib/features.ts` – canUseFeature for plan gating
-- `migrations/0003_phase0_indexes_constraints.sql`
-- `migrations/0005_phase3_plan_tiers.sql`
-
-### Modified Files
-- `shared/schema.ts` – expenses.createdAt, barbecues.updatedAt, users.plan/planExpiresAt
-- `client/src/pages/home.tsx` – Uses calc + split components
-- `package.json` – split:verify script

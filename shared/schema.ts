@@ -175,6 +175,10 @@ export const expenses = pgTable("expenses", {
   category: text("category").notNull(),
   item: text("item").notNull(),
   amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+  resolutionMode: text("resolution_mode").notNull().default("later"), // later | now
+  excludedFromFinalSettlement: boolean("excluded_from_final_settlement").notNull().default(false),
+  settledAt: timestamp("settled_at"),
+  linkedSettlementRoundId: uuid("linked_settlement_round_id"),
   includedUserIds: text("included_user_ids").array(),
   receiptUrl: text("receipt_url"),
   receiptMime: text("receipt_mime"),
@@ -305,20 +309,25 @@ export const eventChatMessageReactions = pgTable("event_chat_message_reactions",
   uniqueUserReactionPerEmoji: unique("event_chat_message_reactions_message_user_emoji_unique").on(table.messageId, table.userId, table.emoji),
 }));
 
-export const eventSettlements = pgTable("event_settlements", {
+export const eventSettlementRounds = pgTable("event_settlement_rounds", {
   id: uuid("id").defaultRandom().primaryKey(),
   eventId: integer("event_id").references(() => barbecues.id, { onDelete: "cascade" }).notNull(),
-  status: text("status").notNull().default("proposed"), // proposed | in_progress | settled
-  settledAt: timestamp("settled_at", { withTimezone: true }),
-  source: text("source").notNull().default("auto"), // auto | manual
+  title: text("title").notNull(),
+  roundType: text("round_type").notNull().default("balance_settlement"), // balance_settlement | direct_split
+  scopeType: text("scope_type").notNull().default("everyone"), // everyone | selected
+  selectedParticipantIds: json("selected_participant_ids").$type<number[] | null>().default(null),
+  status: text("status").notNull().default("active"), // active | completed | cancelled
+  completedAt: timestamp("completed_at", { withTimezone: true }),
   createdByUserId: integer("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
-  idempotencyKey: text("idempotency_key").notNull().unique(),
+  paidByUserId: integer("paid_by_user_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-});
+}, (table) => ({
+  eventCreatedAtIdx: index("event_settlement_rounds_event_created_at_idx").on(table.eventId, table.createdAt),
+}));
 
 export const eventSettlementTransfers = pgTable("event_settlement_transfers", {
   id: uuid("id").defaultRandom().primaryKey(),
-  settlementId: uuid("settlement_id").references(() => eventSettlements.id, { onDelete: "cascade" }).notNull(),
+  settlementRoundId: uuid("settlement_round_id").references(() => eventSettlementRounds.id, { onDelete: "cascade" }).notNull(),
   fromUserId: integer("from_user_id").references(() => users.id, { onDelete: "set null" }).notNull(),
   toUserId: integer("to_user_id").references(() => users.id, { onDelete: "set null" }).notNull(),
   amountCents: integer("amount_cents").notNull(),
@@ -328,7 +337,7 @@ export const eventSettlementTransfers = pgTable("event_settlement_transfers", {
   paymentRef: text("payment_ref"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 }, (table) => ({
-  settlementIdx: index("event_settlement_transfers_settlement_idx").on(table.settlementId),
+  settlementRoundIdx: index("event_settlement_transfers_settlement_round_idx").on(table.settlementRoundId),
 }));
 
 export const polls = pgTable("polls", {
@@ -387,6 +396,7 @@ export const insertParticipantSchema = createInsertSchema(participants).omit({ i
 export const insertExpenseSchema = createInsertSchema(expenses).omit({ id: true }).extend({
   amount: z.union([z.string(), z.number()]),
   includedUserIds: z.array(z.string()).optional().nullable(),
+  resolutionMode: z.enum(["later", "now"]).optional(),
 });
 
 export type User = typeof users.$inferSelect;
@@ -408,7 +418,7 @@ export type EventMember = typeof eventMembers.$inferSelect;
 export type EventInvite = typeof eventInvites.$inferSelect;
 export type PlanActivity = typeof planActivity.$inferSelect;
 export type EventChatMessageRow = typeof eventChatMessages.$inferSelect;
-export type EventSettlement = typeof eventSettlements.$inferSelect;
+export type EventSettlementRound = typeof eventSettlementRounds.$inferSelect;
 export type EventSettlementTransfer = typeof eventSettlementTransfers.$inferSelect;
 export type Poll = typeof polls.$inferSelect;
 export type PollOption = typeof pollOptions.$inferSelect;

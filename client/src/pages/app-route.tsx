@@ -24,6 +24,7 @@ import {
   Trash2,
   Users,
   Receipt,
+  Scale,
   StickyNote,
   Zap,
   LayoutGrid,
@@ -671,6 +672,7 @@ function RightActionRail({
   const isPollsOpen = isEvent && panel?.type === "polls";
   const isCrewOpen = isEvent && panel?.type === "crew";
   const isExpensesOpen = isEvent && panel?.type === "expenses";
+  const isSettlementOpen = isEvent && panel?.type === "settlement";
   const isNotesOpen = isEvent && panel?.type === "notes";
   const isNextActionOpen = isEvent && panel?.type === "next-action";
   const railButtonClass = (active: boolean) =>
@@ -717,6 +719,19 @@ function RightActionRail({
             }}
           >
             <Receipt className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            title="Settle up"
+            aria-label="Settle up"
+            disabled={!isEvent}
+            className={railButtonClass(isSettlementOpen)}
+            onClick={() => {
+              if (!isEvent) return;
+              openPanel({ type: "settlement", createMode: "balance-settlement" });
+            }}
+          >
+            <Scale className="h-4 w-4" />
           </button>
           <button
             type="button"

@@ -75,7 +75,10 @@ export function useCreateExpense(bbqId: number | null) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       });
-      if (!res.ok) throw new Error("Failed to create expense");
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({} as { message?: string }));
+        throw new Error(body.message || "Failed to create expense");
+      }
       return res.json();
     },
     onSuccess: (createdExpense) => {

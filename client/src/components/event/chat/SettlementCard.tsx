@@ -18,11 +18,13 @@ type SettlementResponse = {
   settlement: {
     id: string;
     eventId: number;
-    status: "proposed" | "in_progress" | "settled";
-    source: "auto" | "manual";
+    title?: string;
+    roundType?: "balance_settlement" | "direct_split";
+    status: "active" | "completed" | "cancelled";
     currency: string | null;
     createdAt: string | null;
-    settledAt?: string | null;
+    completedAt?: string | null;
+    paidByName?: string | null;
   } | null;
   transfers: Array<{
     id: string;
@@ -51,6 +53,10 @@ function formatMoney(amount: number, currency: string): string {
     }
   }
   return `${currency || "€"}${safe.toFixed(2)}`;
+}
+
+function getRoundTypeLabel(roundType?: "balance_settlement" | "direct_split" | null) {
+  return roundType === "direct_split" ? "Payback" : "Settle up";
 }
 
 export function SettlementCard({ eventId, settlementId, currency, className }: SettlementCardProps) {
@@ -98,12 +104,12 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
         ));
         const total = transfers.length;
         const paid = transfers.filter((transfer) => !!transfer.paidAt).length;
-        const nextStatus = total > 0 && paid >= total ? "settled" : (paid > 0 ? "in_progress" : old.settlement?.status ?? "proposed");
+        const nextStatus = total > 0 && paid >= total ? "completed" : (old.settlement?.status ?? "active");
         return {
           ...old,
           settlement: old.settlement ? {
             ...old.settlement,
-            status: nextStatus as "proposed" | "in_progress" | "settled",
+            status: nextStatus as "active" | "completed" | "cancelled",
           } : old.settlement,
           transfers,
         };
@@ -129,8 +135,11 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
   const paidTransfers = transfers.filter((transfer) => !!transfer.paidAt).length;
   const progressText = `${paidTransfers}/${totalTransfers} paid`;
   const progressPercent = totalTransfers > 0 ? Math.round((paidTransfers / totalTransfers) * 100) : 0;
-  const isSettled = (settlementQuery.data?.settlement?.status === "settled")
+  const isSettled = (settlementQuery.data?.settlement?.status === "completed")
     || (totalTransfers > 0 && paidTransfers >= totalTransfers);
+  const roundType = settlementQuery.data?.settlement?.roundType ?? "balance_settlement";
+  const paidByName = settlementQuery.data?.settlement?.paidByName ?? null;
+  const roundTitle = settlementQuery.data?.settlement?.title?.trim() || (roundType === "direct_split" ? "Payback" : "Settle up");
 
   const orderedTransfers = useMemo(() => {
     return [...transfers].sort((a, b) => {
@@ -160,7 +169,9 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
         )}
         onClick={openSettlementPanel}
       >
-        <span className="text-sm font-medium text-emerald-800 dark:text-emerald-300">✅ All settled up</span>
+        <span className="text-sm font-medium text-emerald-800 dark:text-emerald-300">
+          ✅ {roundType === "direct_split" ? "Payback completed" : "Settle up completed"}
+        </span>
         <span className="inline-flex items-center gap-1 text-xs text-emerald-700/85 dark:text-emerald-300/85">
           View details
           <ChevronDown className="h-3.5 w-3.5" />
@@ -189,10 +200,14 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
         <div className="min-w-0">
           <div className="inline-flex items-center gap-1.5 text-sm font-medium text-foreground">
             <CircleDollarSign className="h-4 w-4 text-muted-foreground" />
-            Settle up
+            {getRoundTypeLabel(roundType)}
           </div>
+          <p className="mt-1 truncate text-sm font-semibold text-foreground">{roundTitle}</p>
           {totalTransfers > 0 ? (
-            <p className="mt-0.5 text-[11px] text-muted-foreground">{progressText}</p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">
+              {roundType === "direct_split" && paidByName ? `Paid by ${paidByName} · ` : ""}
+              {progressText}
+            </p>
           ) : null}
         </div>
         {isSettled ? (
@@ -209,7 +224,7 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
           </button>
         ) : (
           <span className="rounded-full border border-primary/25 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-foreground">
-            {settlementQuery.data?.settlement?.status ?? "proposed"}
+            {settlementQuery.data?.settlement?.status ?? "active"}
           </span>
         )}
       </div>
@@ -231,7 +246,7 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
               <div key={transfer.id} className="flex items-center justify-between gap-2 px-2 py-1.5 text-xs">
                 <p className="min-w-0 truncate text-muted-foreground">
                   <span className="font-medium text-foreground">{transfer.fromName || transfer.fromUserId}</span>
-                  {" \u2192 "}
+                  {" owes "}
                   <span className="font-medium text-foreground">{transfer.toName || transfer.toUserId}</span>
                   {" "}
                   <span className="font-semibold text-foreground">{formatMoney(transfer.amount, displayCurrency)}</span>

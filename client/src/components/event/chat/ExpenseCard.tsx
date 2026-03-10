@@ -24,6 +24,7 @@ export type ExpenseFallbackSnapshot = {
 export type ExpenseMessageMetadata = ExpenseFallbackSnapshot & {
   action: ExpenseAction;
   expenseId: number;
+  resolutionMode?: "later" | "now" | string;
 };
 
 function parseIncludedUserIds(value: unknown): string[] {
@@ -84,6 +85,7 @@ export function ExpenseCard({
   onOpenDetail,
   onDelete,
   onCopyAmount,
+  resolutionMode,
 }: {
   eventId: number;
   expenseId: number;
@@ -96,6 +98,7 @@ export function ExpenseCard({
   onOpenDetail?: ((expenseId: number) => void) | undefined;
   onDelete?: ((expenseId: number) => void) | undefined;
   onCopyAmount?: ((expense: { amount: number; currency: string }) => void) | undefined;
+  resolutionMode?: "later" | "now" | string | undefined;
 }) {
   const expensesQuery = useExpenses(eventId);
   const liveExpense = useMemo(() => {
@@ -112,6 +115,7 @@ export function ExpenseCard({
         currency: fallback.currency || "€",
         paidBy: liveExpense.participantName || fallback.paidBy || "Someone",
         splitCount,
+        resolutionMode: String((liveExpense as unknown as { resolutionMode?: string | null }).resolutionMode ?? resolutionMode ?? "later").trim().toLowerCase(),
         deleted: false,
         notLoaded: false,
       };
@@ -123,6 +127,7 @@ export function ExpenseCard({
         currency: fallback.currency || "€",
         paidBy: fallback.paidBy || "Someone",
         splitCount: 0,
+        resolutionMode: String(resolutionMode ?? "later").trim().toLowerCase(),
         deleted: true,
         notLoaded: false,
       };
@@ -133,10 +138,11 @@ export function ExpenseCard({
       currency: fallback.currency || "€",
       paidBy: fallback.paidBy || "Someone",
       splitCount: 0,
+      resolutionMode: String(resolutionMode ?? "later").trim().toLowerCase(),
       deleted: false,
       notLoaded: true,
     };
-  }, [action, fallback.amount, fallback.currency, fallback.item, fallback.paidBy, liveExpense, optimisticDeleted]);
+  }, [action, fallback.amount, fallback.currency, fallback.item, fallback.paidBy, liveExpense, optimisticDeleted, resolutionMode]);
 
   const handleEdit = () => {
     if (onOpenEdit) {
@@ -152,6 +158,7 @@ export function ExpenseCard({
   const displayItem = resolved.deleted ? "Deleted expense" : compactItemLabel(resolved.item);
   const formattedAmount = formatAmount(resolved.amount, resolved.currency);
   const splitChipLabel = resolved.splitCount > 0 ? `Split ${resolved.splitCount}` : "Everyone";
+  const resolutionChipLabel = resolved.resolutionMode === "now" ? "Settled now" : "Later settle";
   const summary = actionSummary(action, resolved.paidBy);
   const amountLine = resolved.deleted
     ? `${formattedAmount} · originally paid by ${resolved.paidBy}`
@@ -177,12 +184,15 @@ export function ExpenseCard({
       <span className="absolute right-3 top-2.5 inline-flex h-fit items-center rounded-full border border-border/70 bg-background px-2 py-0.5 text-[11px] font-medium text-muted-foreground shadow-sm dark:border-neutral-700/80 dark:bg-neutral-900 dark:text-neutral-300">
         {splitChipLabel}
       </span>
+      <span className="absolute right-3 top-9 inline-flex h-fit items-center rounded-full border border-border/70 bg-background px-2 py-0.5 text-[10px] font-medium text-muted-foreground shadow-sm dark:border-neutral-700/80 dark:bg-neutral-900 dark:text-neutral-300">
+        {resolutionChipLabel}
+      </span>
       <div className="grid w-full grid-cols-[24px,minmax(0,1fr)] items-start gap-x-3">
         <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-border/60 bg-background text-muted-foreground dark:border-neutral-700/80 dark:bg-neutral-900 dark:text-neutral-300">
           <ReceiptText className="h-4 w-4" />
         </span>
         <div className="min-w-0">
-          <p className="overflow-hidden whitespace-nowrap pr-24 text-[11px] font-medium tracking-wide text-muted-foreground/95 dark:text-neutral-400">
+          <p className="overflow-hidden whitespace-nowrap pr-28 text-[11px] font-medium tracking-wide text-muted-foreground/95 dark:text-neutral-400">
             {summary}
           </p>
           <p className={cn("mt-1 text-[15px] font-medium leading-5 text-foreground", resolved.deleted && "line-through text-foreground/80")}>

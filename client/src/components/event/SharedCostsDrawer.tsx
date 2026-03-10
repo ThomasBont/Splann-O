@@ -59,11 +59,11 @@ type SettlementResponse = {
   settlement: {
     id: string;
     eventId: number;
-    status: "proposed" | "in_progress" | "settled";
-    source: "auto" | "manual";
+    title?: string;
+    status: "active" | "completed" | "cancelled";
     currency: string | null;
     createdAt: string | null;
-    settledAt?: string | null;
+    completedAt?: string | null;
   } | null;
   transfers: Array<{
     id: string;
@@ -209,6 +209,10 @@ export function SharedCostsDrawer({
         toastError("Only the plan creator can start settlement.");
         return;
       }
+      if (err.code === "active_settlement_exists") {
+        toastError("Finish the active settlement before starting a new one.");
+        return;
+      }
       toastError(message);
     },
     onSuccess: (result) => {
@@ -256,7 +260,7 @@ export function SharedCostsDrawer({
           ...old,
           settlement: old.settlement ? {
             ...old.settlement,
-            status: total > 0 && paid >= total ? "settled" : (paid > 0 ? "in_progress" : old.settlement.status),
+            status: total > 0 && paid >= total ? "completed" : old.settlement.status,
           } : old.settlement,
           transfers: nextTransfers,
         };
@@ -282,12 +286,12 @@ export function SharedCostsDrawer({
   });
   const settlementData = latestSettlementQuery.data ?? { settlement: null, transfers: [] };
   const settlementTransfers = settlementData.transfers;
-  const settlementLocked = !!settlementData.settlement;
+  const hasActiveSettlement = settlementData.settlement?.status === "active";
   const paidTransfersCount = settlementTransfers.filter((transfer) => !!transfer.paidAt).length;
   const unpaidTransfers = settlementTransfers.filter((transfer) => !transfer.paidAt);
   const outstandingAmount = unpaidTransfers.reduce((sum, transfer) => sum + Number(transfer.amount || 0), 0);
   const isSettlementComplete = settlementTransfers.length > 0
-    && (settlementData.settlement?.status === "settled" || paidTransfersCount >= settlementTransfers.length);
+    && (settlementData.settlement?.status === "completed" || paidTransfersCount >= settlementTransfers.length);
   const isCreator = !!(currentUserId && creatorUserId && currentUserId === creatorUserId);
   const myParticipant = useMemo(
     () => (currentUserId ? participants.find((participant) => participant.userId === currentUserId) ?? null : null),
@@ -431,10 +435,6 @@ export function SharedCostsDrawer({
   const handleCreateExpense = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!eventId || !participantId || !item.trim() || !amount || Number(amount) <= 0 || !canSubmitExpenseForm) return;
-    if (settlementLocked) {
-      toastError("Expenses are locked after settlement starts.");
-      return;
-    }
     if (splitMode === "selected" && includedUserIds.length === 0) return;
 
     try {
@@ -482,20 +482,12 @@ export function SharedCostsDrawer({
       setView("overview");
     } catch (error) {
       const message = (error as Error).message || (editingExpense ? "Couldn’t update expense. Try again." : "Couldn’t add expense. Try again.");
-      if (message.includes("Settlement is active; expenses are locked.")) {
-        toastError("Expenses are locked after settlement starts.");
-        return;
-      }
       toastError(message);
     }
   };
 
   const handleDeleteExpense = async () => {
     if (!eventId || !editingExpense) return;
-    if (settlementLocked) {
-      toastError("Expenses are locked after settlement starts.");
-      return;
-    }
     try {
       await deleteExpense.mutateAsync(editingExpense.id);
       toastSuccess("Expense deleted");
@@ -503,10 +495,6 @@ export function SharedCostsDrawer({
       setView("overview");
     } catch (error) {
       const message = (error as Error).message || "Couldn’t delete expense. Try again.";
-      if (message.includes("Settlement is active; expenses are locked.")) {
-        toastError("Expenses are locked after settlement starts.");
-        return;
-      }
       toastError(message);
     }
   };
@@ -521,7 +509,7 @@ export function SharedCostsDrawer({
     && amount
     && Number(amount) > 0
     && (splitMode === "everyone" || includedUserIds.length > 0),
-  ) && !settlementLocked;
+  );
   const splitIncludedCount = splitMode === "everyone" ? participants.length : includedUserIds.length;
   const collapseStorageKey = eventId ? `sharedCosts:collapsed:${eventId}` : null;
 
@@ -902,7 +890,7 @@ export function SharedCostsDrawer({
                     type="button"
                     className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
                     onClick={openAddExpenseView}
-                    disabled={participants.length === 0 || settlementLocked}
+                    disabled={participants.length === 0}
                   >
                     <Receipt className="mr-1.5 h-4 w-4" />
                     Add expense
@@ -921,8 +909,8 @@ export function SharedCostsDrawer({
                 </div>
                 {!canSettle ? (
                   <p className="text-xs text-slate-500 dark:text-neutral-400">Nothing to settle.</p>
-                ) : settlementLocked ? (
-                  <p className="text-xs text-slate-500 dark:text-neutral-400">Expenses are locked after settlement starts.</p>
+                ) : hasActiveSettlement ? (
+                  <p className="text-xs text-slate-500 dark:text-neutral-400">An active settlement snapshot is in progress. New expenses will apply to the next round.</p>
                 ) : null}
 
               <section className="rounded-2xl border border-slate-200 bg-white p-4 transition-colors hover:border-slate-300 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-neutral-700">
@@ -950,10 +938,8 @@ export function SharedCostsDrawer({
                         key={`shared-cost-expense-${expense.id}`}
                         className="flex w-full items-center justify-between gap-2 rounded-xl border border-slate-200/80 px-3 py-2 text-left transition-colors hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 dark:border-neutral-700 dark:hover:border-neutral-600 dark:hover:bg-neutral-800/70"
                         onClick={() => {
-                          if (settlementLocked) return;
                           openEditExpenseView(expense);
                         }}
-                        disabled={settlementLocked}
                       >
                         <div className="min-w-0">
                           <p className="truncate text-sm text-slate-800 dark:text-neutral-100">{expense.item}</p>

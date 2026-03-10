@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, CreditCard, Receipt } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -22,7 +22,13 @@ import { getPlaceholderKeyForCategory } from "@/config/expenseCategories";
 const DEFAULT_CATEGORIES = ["Food", "Drinks", "Transport", "Accommodation", "Activities", "Other"];
 type PlanParticipant = { id: number; name: string; userId?: number | null };
 
-export function AddExpensePanel({ source = "overview" }: { source?: "overview" | "expenses" }) {
+export function AddExpensePanel({
+  source = "overview",
+  initialResolutionMode = "later",
+}: {
+  source?: "overview" | "expenses";
+  initialResolutionMode?: "later" | "now";
+}) {
   const eventId = useActiveEventId();
   const { t } = useLanguage();
   const { toastError, toastSuccess } = useAppToast();
@@ -47,6 +53,7 @@ export function AddExpensePanel({ source = "overview" }: { source?: "overview" |
   const [amount, setAmount] = useState("");
   const [splitMode, setSplitMode] = useState<"everyone" | "selected">("everyone");
   const [includedUserIds, setIncludedUserIds] = useState<string[]>([]);
+  const [resolutionMode, setResolutionMode] = useState<"later" | "now">(initialResolutionMode);
 
   const isLoadingData = planQuery.isLoading || crewQuery.isLoading || expensesQuery.isLoading;
   const isValid = !!participantId && !!item.trim() && !!amount && Number(amount) > 0 && (splitMode === "everyone" || includedUserIds.length > 0);
@@ -59,14 +66,20 @@ export function AddExpensePanel({ source = "overview" }: { source?: "overview" |
     event.preventDefault();
     if (!eventId || !isValid) return;
     try {
-      await createExpense.mutateAsync({
+      const created = await createExpense.mutateAsync({
         participantId: Number(participantId),
         category: selectedCategory,
         item: item.trim(),
         amount,
+        resolutionMode,
         includedUserIds: splitMode === "selected" ? includedUserIds : null,
       });
-      toastSuccess("Expense added");
+      toastSuccess(resolutionMode === "now" ? "Expense added and settled now" : "Expense added");
+      const linkedSettlementRoundId = String((created as { linkedSettlementRoundId?: string | null }).linkedSettlementRoundId ?? "").trim();
+      if (resolutionMode === "now" && linkedSettlementRoundId) {
+        replacePanel({ type: "settlement", settlementId: linkedSettlementRoundId });
+        return;
+      }
       replacePanel({ type: "expenses" });
     } catch (error) {
       toastError(error instanceof Error ? error.message : "Couldn’t add expense. Try again.");
@@ -77,7 +90,7 @@ export function AddExpensePanel({ source = "overview" }: { source?: "overview" |
     <PanelShell>
       <PanelHeader
         label="Expense"
-        title="Add Expense"
+        title={resolutionMode === "now" ? "Add expense" : "Add expense"}
         meta={plan ? <span className="text-sm text-muted-foreground">{plan.name}</span> : undefined}
       />
       <div className="flex-1 overflow-y-auto px-5 py-5">
@@ -97,6 +110,40 @@ export function AddExpensePanel({ source = "overview" }: { source?: "overview" |
           <form className="space-y-4" onSubmit={onSubmit}>
             <PanelSection title="Record expense" variant="default">
               <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label>Resolution</Label>
+                  <div className="rounded-xl border border-border/70 bg-muted/20 p-2.5">
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <button
+                        type="button"
+                        onClick={() => setResolutionMode("later")}
+                        className={`rounded-xl border px-3 py-3 text-left transition ${resolutionMode === "later" ? "border-primary bg-primary/10" : "border-border/70 bg-background hover:bg-muted/40"}`}
+                      >
+                        <div className="inline-flex items-center gap-2">
+                          <Receipt className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm font-medium text-foreground">Later settle</span>
+                        </div>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Add this to the shared group costs. It will be included in settle up later.
+                        </p>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setResolutionMode("now")}
+                        className={`rounded-xl border px-3 py-3 text-left transition ${resolutionMode === "now" ? "border-primary bg-primary/10" : "border-border/70 bg-background hover:bg-muted/40"}`}
+                      >
+                        <div className="inline-flex items-center gap-2">
+                          <CreditCard className="h-4 w-4 text-muted-foreground" />
+                          <span className="text-sm font-medium text-foreground">Settle now</span>
+                        </div>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          Use this when a few people should pay this back now. It won’t be included in settle up later.
+                        </p>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="space-y-2">
                   <Label htmlFor="panel-expense-payer">Paid by</Label>
                   <Select
@@ -133,7 +180,7 @@ export function AddExpensePanel({ source = "overview" }: { source?: "overview" |
                 </div>
 
                 <div className="space-y-2">
-                  <Label>Split</Label>
+                  <Label>{resolutionMode === "now" ? "Who should pay back?" : "Split"}</Label>
                   <div className="rounded-xl border border-border/70 bg-muted/20 p-2.5">
                     <div className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-background p-1">
                       <Button
@@ -161,7 +208,13 @@ export function AddExpensePanel({ source = "overview" }: { source?: "overview" |
                       </Button>
                     </div>
                     <p className="mt-2 text-xs text-muted-foreground">
-                      {splitMode === "everyone" ? `Included: Everyone (${participants.length})` : `Included: ${includedCount} people`}
+                      {splitMode === "everyone"
+                        ? resolutionMode === "now"
+                          ? `Everyone except the payer will pay this back (${Math.max(0, participants.length - 1)})`
+                          : `Included: Everyone (${participants.length})`
+                        : resolutionMode === "now"
+                          ? `${includedCount} people will pay this back`
+                          : `Included: ${includedCount} people`}
                     </p>
                     {splitMode === "selected" ? (
                       <div className="mt-2 space-y-1.5">
@@ -171,9 +224,9 @@ export function AddExpensePanel({ source = "overview" }: { source?: "overview" |
                           return (
                             <label key={`panel-expense-split-${participant.id}`} className="flex cursor-pointer items-center justify-between gap-2 rounded-md px-2 py-1.5 hover:bg-background">
                               <span className="text-sm text-foreground">{participant.name}</span>
-                              <Checkbox
-                                checked={checked}
-                                onCheckedChange={(next) => {
+                                <Checkbox
+                                  checked={checked}
+                                  onCheckedChange={(next) => {
                                   setIncludedUserIds((prev) => {
                                     if (next) return Array.from(new Set([...prev, value]));
                                     return prev.filter((entry) => entry !== value);
@@ -226,10 +279,10 @@ export function AddExpensePanel({ source = "overview" }: { source?: "overview" |
                 Cancel
               </Button>
               <Button type="submit" disabled={!isValid || createExpense.isPending}>
-                {createExpense.isPending ? "Adding..." : (
+                {createExpense.isPending ? "Saving..." : (
                   <span className="inline-flex items-center gap-2">
                     <CheckCircle2 className="h-4 w-4" />
-                    Add Expense
+                    {resolutionMode === "now" ? "Add expense & settle now" : "Add Expense"}
                   </span>
                 )}
               </Button>

@@ -45,6 +45,8 @@ export function ExpenseDetailPanel({ id }: { id: string }) {
     ? participants.filter((participant: { id: number }) => includedIds.includes(String(participant.id)))
     : participants;
   const currency = typeof planQuery.data?.currency === "string" ? planQuery.data.currency : "EUR";
+  const resolutionMode = String((expense as { resolutionMode?: string | null } | null)?.resolutionMode ?? "later").trim().toLowerCase();
+  const isSettledNow = resolutionMode === "now" || Boolean((expense as { excludedFromFinalSettlement?: boolean | null } | null)?.excludedFromFinalSettlement);
 
   if (!eventId) {
     return (
@@ -105,8 +107,20 @@ export function ExpenseDetailPanel({ id }: { id: string }) {
                 {expense.category || "Other"}
               </span>
             </div>
+            <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/40 px-3 py-2">
+              <span className="text-muted-foreground">Resolution</span>
+              <span className="font-medium text-foreground">{isSettledNow ? "Settled now" : "Later settle"}</span>
+            </div>
           </div>
         </PanelSection>
+
+        {isSettledNow ? (
+          <PanelSection title="Status">
+            <div className="rounded-xl bg-muted/40 px-3 py-3 text-sm text-muted-foreground">
+              This expense was settled right away and won’t be included in the final settle up.
+            </div>
+          </PanelSection>
+        ) : null}
 
         <PanelSection title="Split">
           <div className="rounded-xl bg-muted/40 px-3 py-3">

@@ -23,7 +23,7 @@ import { broadcastEventRealtime } from "../lib/eventRealtime";
 import { getLimits } from "../lib/plan";
 import { listPlanActivity, logPlanActivity } from "../lib/planActivity";
 import { postSystemChatMessage } from "../lib/systemChat";
-import { ensureAutoSettlement, ensureSettlementForView, getLatestSettlement, getSettlementById, markSettlementTransferPaid } from "../lib/settlement";
+import { createDirectSplitRound, ensureSettlementForView, getLatestSettlement, getSettlementById, listSettlementRounds, markSettlementTransferPaid } from "../lib/settlement";
 import { log } from "../lib/logger";
 import { auditLog, auditSecurity } from "../lib/audit";
 import { badRequest, forbidden, notFound, unauthorized, upgradeRequired } from "../lib/errors";
@@ -142,15 +142,19 @@ router.get("/plans/:id/activity", requireAuth, asyncHandler(async (req, res) => 
   });
 }));
 
+router.get("/events/:eventId/settlements", requireAuth, asyncHandler(async (req, res) => {
+  const eventId = Number(req.params.eventId);
+  if (!Number.isInteger(eventId) || eventId <= 0) badRequest("Invalid event id");
+  await assertEventAccessOrThrow(req, eventId);
+  const rounds = await listSettlementRounds(eventId);
+  res.json(rounds);
+}));
+
 router.get("/events/:eventId/settlement/latest", requireAuth, asyncHandler(async (req, res) => {
   const eventId = Number(req.params.eventId);
   if (!Number.isInteger(eventId) || eventId <= 0) badRequest("Invalid event id");
   await assertEventAccessOrThrow(req, eventId);
-  let latest = await getLatestSettlement(eventId);
-  if (!latest) {
-    await ensureAutoSettlement(eventId);
-    latest = await getLatestSettlement(eventId);
-  }
+  const latest = await getLatestSettlement(eventId);
   if (!latest) {
     res.json({ settlement: null, transfers: [] });
     return;
@@ -169,13 +173,33 @@ router.post("/events/:eventId/settlement/ensure", requireAuth, asyncHandler(asyn
   if (bbq.creatorUserId !== userId) {
     res.status(403).json({
       code: "only_creator_can_start_settlement",
-      message: "Only the plan creator can start settlement.",
+      message: "Only the plan creator can start the final settlement.",
     });
     return;
   }
 
-  await ensureSettlementForView(eventId);
-  const latest = await getLatestSettlement(eventId);
+  const body = z.object({
+    scopeType: z.enum(["everyone", "selected"]).optional(),
+    selectedParticipantIds: z.array(z.coerce.number().int().positive()).optional().nullable(),
+  }).optional().parse(req.body ?? {});
+
+  const result = await ensureSettlementForView({
+    eventId,
+    createdByUserId: userId,
+    actorName: req.session?.username ?? null,
+    requireFinished: false,
+    scopeType: body?.scopeType,
+    selectedParticipantIds: body?.selectedParticipantIds ?? null,
+  });
+  if (result.code === "active_settlement_exists") {
+    res.status(409).json({
+      code: "active_settlement_exists",
+      message: "Finish the active final settlement before starting a new one.",
+      active: result.detail,
+    });
+    return;
+  }
+  const latest = result.code === "created" ? result.detail : await getLatestSettlement(eventId);
   res.json({
     ensured: true,
     hasSettlement: !!latest?.settlement,
@@ -195,18 +219,92 @@ router.post("/events/:eventId/settlement/manual", requireAuth, asyncHandler(asyn
   if (bbq.creatorUserId !== userId) {
     res.status(403).json({
       code: "only_creator_can_start_settlement",
-      message: "Only the plan creator can start settlement.",
+      message: "Only the plan creator can start the final settlement.",
     });
     return;
   }
 
-  await ensureSettlementForView(eventId);
-  const latest = await getLatestSettlement(eventId);
+  const body = z.object({
+    scopeType: z.enum(["everyone", "selected"]).optional(),
+    selectedParticipantIds: z.array(z.coerce.number().int().positive()).optional().nullable(),
+  }).optional().parse(req.body ?? {});
+
+  const result = await ensureSettlementForView({
+    eventId,
+    createdByUserId: userId,
+    actorName: req.session?.username ?? null,
+    requireFinished: false,
+    scopeType: body?.scopeType,
+    selectedParticipantIds: body?.selectedParticipantIds ?? null,
+  });
+  if (result.code === "active_settlement_exists") {
+    res.status(409).json({
+      code: "active_settlement_exists",
+      message: "Finish the active final settlement before starting a new one.",
+      active: result.detail,
+    });
+    return;
+  }
+  const latest = result.code === "created" ? result.detail : await getLatestSettlement(eventId);
   res.json({
     ensured: true,
     hasSettlement: !!latest?.settlement,
     settlementId: latest?.settlement?.id ?? null,
     latest: latest ?? { settlement: null, transfers: [] },
+  });
+}));
+
+router.post("/events/:eventId/split-payment", requireAuth, asyncHandler(async (req, res) => {
+  const eventId = Number(req.params.eventId);
+  if (!Number.isInteger(eventId) || eventId <= 0) badRequest("Invalid event id");
+  await assertEventAccessOrThrow(req, eventId);
+  const userId = req.session?.userId;
+  if (!userId) unauthorized("Not authenticated");
+
+  const body = z.object({
+    title: z.string().trim().min(1).max(120),
+    amount: z.coerce.number().positive(),
+    paidByParticipantId: z.coerce.number().int().positive(),
+    splitWithParticipantIds: z.array(z.coerce.number().int().positive()).min(1),
+  }).parse(req.body ?? {});
+
+  const result = await createDirectSplitRound({
+    eventId,
+    createdByUserId: userId,
+    actorName: req.session?.username ?? null,
+    title: body.title,
+    amount: body.amount,
+    paidByParticipantId: body.paidByParticipantId,
+    splitWithParticipantIds: body.splitWithParticipantIds,
+  });
+
+  if (result.code === "active_settlement_exists") {
+    res.status(409).json({
+      code: "active_settlement_exists",
+      message: "Finish the active quick settle before starting a new one.",
+      active: result.detail,
+    });
+    return;
+  }
+  if (result.code === "invalid_direct_split") {
+    res.status(400).json({
+      code: "invalid_direct_split",
+      message: "Choose a payer, at least one person to split with, and a valid amount.",
+    });
+    return;
+  }
+  if (result.code !== "created" || !result.detail) {
+    res.status(500).json({
+      code: "split_payment_failed",
+      message: "Could not create split payment.",
+    });
+    return;
+  }
+
+  res.json({
+    created: true,
+    settlementId: result.detail.settlement?.id ?? null,
+    latest: result.detail,
   });
 }));
 

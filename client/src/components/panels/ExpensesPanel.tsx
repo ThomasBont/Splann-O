@@ -6,7 +6,6 @@ import { getCategoryDef } from "@/config/expenseCategories";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { usePlan, usePlanCrew, usePlanExpenses } from "@/hooks/use-plan-data";
 import { resolveAssetUrl } from "@/lib/asset-url";
-import { computeSplit } from "@/lib/split/calc";
 import { cn } from "@/lib/utils";
 import { usePanel } from "@/state/panel";
 import { PanelHeader, PanelSection, PanelShell, panelHeaderAddButtonClass, useActiveEventId } from "@/components/panels/panel-primitives";
@@ -53,19 +52,16 @@ export function ExpensesPanel() {
   const participants = crewQuery.data?.participants ?? [];
   const members = crewQuery.data?.members ?? [];
   const expenses = expensesQuery.data ?? [];
-  const splitExpenses = useMemo(
-    () => expenses.map((expense) => ({ ...expense, amount: Number(expense.amount || 0) })),
+  const sharedExpenses = useMemo(
+    () => expenses.filter((expense) => {
+      const resolutionMode = String((expense as { resolutionMode?: string | null }).resolutionMode ?? "later").trim().toLowerCase();
+      const excluded = Boolean((expense as { excludedFromFinalSettlement?: boolean | null }).excludedFromFinalSettlement);
+      return !excluded && resolutionMode !== "now";
+    }),
     [expenses],
   );
   const currency = typeof plan?.currency === "string" ? plan.currency : "EUR";
-  const totalShared = expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
-  const { balances, settlements } = useMemo(
-    () => computeSplit(participants, splitExpenses, [], false),
-    [participants, splitExpenses],
-  );
-  const significantBalances = balances
-    .filter((entry) => Math.abs(Number(entry.balance) || 0) >= 0.01)
-    .sort((a, b) => Math.abs(Number(b.balance) || 0) - Math.abs(Number(a.balance) || 0));
+  const totalShared = sharedExpenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
   const sortedExpenses = useMemo(
     () => [...expenses].sort((a, b) => new Date(String(b.createdAt ?? 0)).getTime() - new Date(String(a.createdAt ?? 0)).getTime()),
     [expenses],
@@ -79,6 +75,10 @@ export function ExpensesPanel() {
     if (!eventId) return;
     replacePanel({ type: "add-expense", source: "expenses" });
   };
+  const handleSettleNowExpense = () => {
+    if (!eventId) return;
+    replacePanel({ type: "add-expense", source: "expenses", initialResolutionMode: "now" });
+  };
   const openExpenseDetail = (expenseId: number) => {
     replacePanel({ type: "expense", id: String(expenseId) });
   };
@@ -87,7 +87,7 @@ export function ExpensesPanel() {
     <PanelShell>
       <PanelHeader
         label="Expenses"
-        title="Shared money"
+        title="Shared expenses"
         actions={(
           <Button
             type="button"
@@ -98,7 +98,7 @@ export function ExpensesPanel() {
             )}
             onClick={handleAddExpense}
             disabled={!eventId}
-            title="Add Expense"
+            title="Add expense"
           >
             Add Expense +
           </Button>
@@ -113,7 +113,7 @@ export function ExpensesPanel() {
               <Users className="h-4 w-4" />
               {isMobile
                 ? `${formatCurrency(totalShared, currency)} shared`
-                : `${formatCurrency(totalShared, currency)} shared · ${participants.length} people · ${expenses.length} expense${expenses.length === 1 ? "" : "s"}`}
+                : `${formatCurrency(totalShared, currency)} shared · ${participants.length} people · ${sharedExpenses.length} expense${sharedExpenses.length === 1 ? "" : "s"}`}
             </span>
           </>
         )}
@@ -126,6 +126,41 @@ export function ExpensesPanel() {
           </div>
         ) : (
           <>
+            <PanelSection title="Expense snapshot" variant="quiet">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                <div className="rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))]/80 px-3 py-3">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Shared total</p>
+                  <p className="mt-1 text-sm font-semibold text-foreground">{formatCurrency(totalShared, currency)}</p>
+                </div>
+                <div className="rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))]/80 px-3 py-3">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Expenses</p>
+                  <p className="mt-1 text-sm font-semibold text-foreground">{sharedExpenses.length}</p>
+                </div>
+                <div className="rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))]/80 px-3 py-3 sm:block hidden">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">People</p>
+                  <p className="mt-1 text-sm font-semibold text-foreground">{participants.length}</p>
+                </div>
+              </div>
+              <p className="mt-3 text-xs text-muted-foreground">
+                Shared costs for this plan. Add group expenses here. If a few people should pay you back right away, use settle now inside the expense form.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Button type="button" size="sm" onClick={handleAddExpense}>
+                  <Plus className="mr-1.5 h-4 w-4" />
+                  Add expense
+                </Button>
+                <Button type="button" size="sm" variant="outline" onClick={handleSettleNowExpense}>
+                  <Plus className="mr-1.5 h-4 w-4" />
+                  Add expense & settle now
+                </Button>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-3 text-xs text-muted-foreground">
+                <button type="button" className="transition hover:text-foreground" onClick={() => replacePanel({ type: "settlement", createMode: "balance-settlement" })}>
+                  Settle up
+                </button>
+              </div>
+            </PanelSection>
+
             {isMobile ? (
               <section className="sticky top-0 z-10 -mx-0.5 rounded-2xl border border-primary/20 bg-background/95 p-1 backdrop-blur supports-[backdrop-filter]:bg-background/88">
                 <Button
@@ -160,6 +195,8 @@ export function ExpensesPanel() {
                       const payerName = String(expense.participantName || "Unknown").trim() || "Unknown";
                       const member = expense.participantUserId ? memberByUserId.get(Number(expense.participantUserId)) : undefined;
                       const avatarUrl = resolveAssetUrl(member?.avatarUrl ?? null) ?? member?.avatarUrl ?? "";
+                      const resolutionMode = String((expense as { resolutionMode?: string | null }).resolutionMode ?? "later").trim().toLowerCase();
+                      const isSettledNow = resolutionMode === "now" || Boolean((expense as { excludedFromFinalSettlement?: boolean | null }).excludedFromFinalSettlement);
                       return (
                         <button
                           type="button"
@@ -178,6 +215,9 @@ export function ExpensesPanel() {
                               <p className="truncate text-[15px] font-medium text-foreground">
                                 {expense.item || "Expense"}
                               </p>
+                              <span className="inline-flex shrink-0 items-center rounded-full border border-border/70 bg-background px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                                {isSettledNow ? "Settled now" : "Later settle"}
+                              </span>
                             </div>
                             <span className="shrink-0 text-lg font-semibold text-foreground">
                               {formatCurrency(Number(expense.amount || 0), currency)}
@@ -205,46 +245,6 @@ export function ExpensesPanel() {
                 <p id="recent-expenses-list" className="mt-3 text-sm text-muted-foreground">No expenses yet.</p>
               )}
             </section>
-
-            <PanelSection title="Balances" variant="ledger">
-              {settlements.length > 0 ? (
-                <div className="space-y-2">
-                  {settlements.slice(0, 4).map((settlement, index) => (
-                    <div key={`shared-money-settlement-${index}-${settlement.from}-${settlement.to}`} className="flex items-center gap-3 rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))] px-3 py-3">
-                      <div className="min-w-0 flex-1 text-sm">
-                        <p className="truncate font-medium text-foreground">
-                          {settlement.from} owes {settlement.to}
-                        </p>
-                        <p className="text-xs text-muted-foreground">Suggested settlement</p>
-                      </div>
-                      <span className="shrink-0 text-sm font-semibold text-foreground">{formatCurrency(settlement.amount, currency)}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : significantBalances.length > 0 ? (
-                <div className="space-y-2">
-                  {significantBalances.slice(0, 4).map((entry) => {
-                    const amount = Math.abs(Number(entry.balance) || 0);
-                    return (
-                      <div
-                        key={`shared-money-balance-${entry.id}`}
-                    className={cn("flex items-center justify-between gap-3 rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]", isMobile ? "px-3 py-2.5" : "px-3 py-2.5")}
-                      >
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium text-foreground">{entry.name}</p>
-                          <p className="text-xs text-muted-foreground">{Number(entry.balance) > 0 ? "Should receive" : "Owes"}</p>
-                        </div>
-                        <span className={Number(entry.balance) > 0 ? "shrink-0 text-sm font-semibold text-emerald-700 dark:text-emerald-300" : "shrink-0 text-sm font-semibold text-amber-700 dark:text-amber-200"}>
-                          {formatCurrency(amount, currency)}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">Everyone is settled so far.</p>
-              )}
-            </PanelSection>
           </>
         )}
       </div>

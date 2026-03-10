@@ -121,13 +121,14 @@ function toExpenseMetadata(input: Record<string, unknown> | null | undefined): E
 type SettlementMetadata = {
   type: "settlement";
   settlementId: string;
-  action: "proposed" | "updated" | "settled";
+  action: "started" | "completed";
   currency: string;
 };
 
 type SettlementPaymentMetadata = {
   type: "settlement_payment";
   settlementId: string;
+  settlementRoundId?: string;
   transferId: string;
   fromUserId: number;
   toUserId: number;
@@ -177,10 +178,11 @@ const FILE_ATTACHMENT_ACCEPT = ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,
 
 function toSettlementMetadata(input: Record<string, unknown> | null | undefined): SettlementMetadata | null {
   if (!input || input.type !== "settlement") return null;
-  const settlementId = String(input.settlementId ?? "").trim();
+  const settlementId = String(input.settlementRoundId ?? input.settlementId ?? "").trim();
   if (!settlementId) return null;
-  const action = input.action;
-  if (action !== "proposed" && action !== "updated" && action !== "settled") return null;
+  const rawAction = input.action;
+  const action = rawAction === "proposed" ? "started" : rawAction === "settled" ? "completed" : rawAction;
+  if (action !== "started" && action !== "completed") return null;
   const currency = String(input.currency ?? "").trim() || "EUR";
   return {
     type: "settlement",
@@ -194,8 +196,7 @@ type SettlementCacheResponse = {
   settlement: {
     id: string;
     eventId: number;
-    status: "proposed" | "in_progress" | "settled";
-    source: "auto" | "manual";
+    status: "active" | "completed" | "cancelled";
     currency: string | null;
     createdAt: string | null;
   } | null;
@@ -217,7 +218,7 @@ type SettlementCacheResponse = {
 
 function toSettlementPaymentMetadata(input: Record<string, unknown> | null | undefined): SettlementPaymentMetadata | null {
   if (!input || input.type !== "settlement_payment") return null;
-  const settlementId = String(input.settlementId ?? "").trim();
+  const settlementId = String(input.settlementRoundId ?? input.settlementId ?? "").trim();
   const transferId = String(input.transferId ?? "").trim();
   const fromUserId = Number(input.fromUserId);
   const toUserId = Number(input.toUserId);
@@ -1373,6 +1374,7 @@ export function ChatSidebar({
                                 currency: expenseMeta.currency,
                                 paidBy: expenseMeta.paidBy,
                               }}
+                              resolutionMode={expenseMeta.resolutionMode}
                               optimisticDeleted={optimisticallyDeletedExpenseIds.includes(expenseMeta.expenseId)}
                               onOpenEdit={openExpenseEditor}
                               onOpenDetail={openExpenseDetail}

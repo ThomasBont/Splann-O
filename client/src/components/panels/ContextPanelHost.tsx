@@ -48,10 +48,10 @@ export function ContextPanelHost({
       content = <NotesPanel />;
       break;
     case "add-expense":
-      content = <AddExpensePanel source={panel.source} />;
+      content = <AddExpensePanel source={panel.source} initialResolutionMode={panel.initialResolutionMode} />;
       break;
     case "settlement":
-      content = <SettlementPanel settlementId={panel.settlementId} />;
+      content = <SettlementPanel settlementId={panel.settlementId} createMode={panel.createMode} />;
       break;
     case "polls":
       content = <PollsPanel />;
@@ -85,9 +85,10 @@ export function ContextPanelHost({
     activeEventId ?? "no-event",
     panel.type,
     panel.type === "expense" ? panel.id : "",
-    panel.type === "settlement" ? (panel.settlementId ?? "") : "",
+    panel.type === "settlement" ? `${panel.settlementId ?? ""}:${panel.createMode ?? ""}` : "",
     panel.type === "member-profile" ? panel.username : "",
     panel.type === "invite" || panel.type === "add-expense" || panel.type === "add-poll" ? (panel.source ?? "") : "",
+    panel.type === "add-expense" ? (panel.initialResolutionMode ?? "") : "",
   ].join(":");
 
   return (

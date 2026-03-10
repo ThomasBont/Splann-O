@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent, type MouseEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, BarChart3, Camera, CheckCircle2, Crown, Link2, Loader2, Upload, Users } from "lucide-react";
+import { ArrowRight, BarChart3, Camera, CheckCircle2, CreditCard, Crown, Link2, Loader2, Plus, Receipt, Scale, Upload, Users } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -24,20 +24,29 @@ import { usePlanActivity } from "@/hooks/use-plan-activity";
 import { useLatestRunningPoll } from "@/hooks/use-latest-running-poll";
 import { formatActivityPreview, formatActivityTime, getActivityIcon } from "@/components/panels/activity-format";
 
-type SettlementResponse = {
-  settlement: {
-    id: string;
-    status: "proposed" | "in_progress" | "settled";
-    currency: string | null;
-  } | null;
-  transfers: Array<{
-    id: string;
-    settlementId: string;
-    fromName?: string;
-    toName?: string;
-    amount: number;
-    paidAt: string | null;
-  }>;
+type SettlementRoundSummary = {
+  id: string;
+  title: string;
+  roundType: "balance_settlement" | "direct_split";
+  scopeType: "everyone" | "selected";
+  selectedParticipantIds: number[] | null;
+  status: "active" | "completed" | "cancelled";
+  currency: string | null;
+  paidByUserId?: number | null;
+  paidByName?: string | null;
+  createdAt: string | null;
+  completedAt: string | null;
+  transferCount: number;
+  paidTransfersCount: number;
+  totalAmount: number;
+  outstandingAmount: number;
+};
+
+type SettlementRoundsResponse = {
+  activeFinalSettlementRound: SettlementRoundSummary | null;
+  activeQuickSettleRound: SettlementRoundSummary | null;
+  pastFinalSettlementRounds: SettlementRoundSummary[];
+  pastQuickSettleRounds: SettlementRoundSummary[];
 };
 
 type HeroStatusTone = "cta-outline" | "cta-primary" | "positive" | "negative" | "settled" | "muted";
@@ -62,6 +71,12 @@ function getInitials(name: string) {
   if (parts.length === 0) return "?";
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return `${parts[0][0] ?? ""}${parts[parts.length - 1][0] ?? ""}`.toUpperCase();
+}
+
+function formatScopeLabel(scopeType: "everyone" | "selected", selectedCount?: number | null) {
+  if (scopeType === "everyone") return "Everyone";
+  if ((selectedCount ?? 0) <= 0) return "Selected people";
+  return `${selectedCount} selected`;
 }
 
 function countryCodeToFlagEmoji(countryCode: string | null | undefined) {
@@ -151,13 +166,20 @@ export function OverviewPanel() {
   const planQuery = usePlan(eventId);
   const crewQuery = usePlanCrew(eventId);
   const expensesQuery = usePlanExpenses(eventId);
-  const latestSettlementQuery = useQuery<SettlementResponse>({
-    queryKey: ["/api/events", eventId, "settlement", "latest"],
+  const settlementRoundsQuery = useQuery<SettlementRoundsResponse>({
+    queryKey: ["/api/events", eventId, "settlements"],
     queryFn: async () => {
-      if (!eventId) return { settlement: null, transfers: [] };
-      const res = await fetch(`/api/events/${eventId}/settlement/latest`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to load settlement");
-      return res.json() as Promise<SettlementResponse>;
+      if (!eventId) {
+        return {
+          activeFinalSettlementRound: null,
+          activeQuickSettleRound: null,
+          pastFinalSettlementRounds: [],
+          pastQuickSettleRounds: [],
+        };
+      }
+      const res = await fetch(`/api/events/${eventId}/settlements`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load money rounds");
+      return res.json() as Promise<SettlementRoundsResponse>;
     },
     enabled: !!eventId,
     staleTime: 15_000,
@@ -180,9 +202,17 @@ export function OverviewPanel() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const updateBarbecue = useUpdateBarbecue();
   const uploadEventBanner = useUploadEventBanner(eventId);
-  const splitExpenses = useMemo(
-    () => expenses.map((expense) => ({ ...expense, amount: Number(expense.amount || 0) })),
+  const laterSettleExpenses = useMemo(
+    () => expenses.filter((expense) => {
+      const resolutionMode = String((expense as { resolutionMode?: string | null }).resolutionMode ?? "later").trim().toLowerCase();
+      const excluded = Boolean((expense as { excludedFromFinalSettlement?: boolean | null }).excludedFromFinalSettlement);
+      return !excluded && resolutionMode !== "now";
+    }),
     [expenses],
+  );
+  const splitExpenses = useMemo(
+    () => laterSettleExpenses.map((expense) => ({ ...expense, amount: Number(expense.amount || 0) })),
+    [laterSettleExpenses],
   );
   const currency = typeof plan?.currency === "string" ? plan.currency : "EUR";
   const localCurrency = typeof plan?.localCurrency === "string" ? plan.localCurrency.trim().toUpperCase() : "";
@@ -193,8 +223,14 @@ export function OverviewPanel() {
   );
   const showLocalCurrency = !!localCurrency && localCurrency !== currency;
   const totalShared = useMemo(
-    () => expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0),
-    [expenses],
+    () => laterSettleExpenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0),
+    [laterSettleExpenses],
+  );
+  const recentExpenses = useMemo(
+    () => [...laterSettleExpenses]
+      .sort((a, b) => new Date(String(b.createdAt ?? 0)).getTime() - new Date(String(a.createdAt ?? 0)).getTime())
+      .slice(0, 3),
+    [laterSettleExpenses],
   );
   const localSharedTotal = useMemo(
     () => (showLocalCurrency ? convertCurrency(totalShared, currency, localCurrency) : 0),
@@ -205,10 +241,10 @@ export function OverviewPanel() {
     [participants, splitExpenses],
   );
   const canSettle = settlements.length > 0;
-  const latestSettlement = latestSettlementQuery.data?.settlement ?? null;
-  const settlementTransfers = latestSettlementQuery.data?.transfers ?? [];
-  const paidTransfers = settlementTransfers.filter((transfer) => !!transfer.paidAt).length;
-  const unpaidTransfers = settlementTransfers.length - paidTransfers;
+  const activeFinalSettlementRound = settlementRoundsQuery.data?.activeFinalSettlementRound ?? null;
+  const pastFinalSettlementRounds = settlementRoundsQuery.data?.pastFinalSettlementRounds ?? [];
+  const paidTransfers = activeFinalSettlementRound?.paidTransfersCount ?? 0;
+  const unpaidTransfers = Math.max(0, (activeFinalSettlementRound?.transferCount ?? 0) - paidTransfers);
   const myParticipant = user?.id
     ? participants.find((participant: { userId?: number | null }) => participant.userId === user.id) ?? null
     : null;
@@ -221,10 +257,10 @@ export function OverviewPanel() {
   const isCreator = Number(plan?.creatorUserId) === Number(user?.id);
   const [upNextRotationIndex, setUpNextRotationIndex] = useState(0);
 
-  const hasAnyExpenses = expenses.length > 0;
+  const hasAnyExpenses = laterSettleExpenses.length > 0;
   const hasOnlyCreator = participants.length <= 1;
   const allBalancesZero = balances.every((entry) => Math.abs(Number(entry.balance) || 0) < 0.01);
-  const settlementCompleted = latestSettlement?.status === "settled" && allBalancesZero;
+  const settlementCompleted = !activeFinalSettlementRound && pastFinalSettlementRounds[0]?.status === "completed" && allBalancesZero;
   const personalStatus = useMemo<HeroStatus>(() => {
     if (hasOnlyCreator && !hasAnyExpenses) {
       return { label: "Invite Friends", tone: "cta-outline", action: "invite" };
@@ -243,12 +279,12 @@ export function OverviewPanel() {
   }, [currency, hasAnyExpenses, hasOnlyCreator, myBalance, myParticipant, settlementCompleted]);
 
   const contributionRows = useMemo(() => {
-    return buildCrewContributionRows({ participants, members, expenses }).map((row, index) => ({
+    return buildCrewContributionRows({ participants, members, expenses: laterSettleExpenses }).map((row, index) => ({
       ...row,
       tint: avatarTint(index),
       isMe: row.id === myParticipant?.id,
     }));
-  }, [expenses, members, myParticipant?.id, participants]);
+  }, [laterSettleExpenses, members, myParticipant?.id, participants]);
 
   const topPayerId = contributionRows[0]?.id ?? null;
   const visibleContributors = contributionRows.slice(0, isMobile ? 3 : 5);
@@ -256,28 +292,17 @@ export function OverviewPanel() {
   const visibleActivityItems = activityItems.slice(0, isMobile ? 2 : 3);
   const latestRunningPoll = latestRunningPollQuery.latestRunningPoll?.data ?? null;
   const latestRunningPollLeadingOption = latestRunningPoll?.options.find((option) => option.isLeading) ?? null;
-
-  const balanceRows = useMemo(() => {
-    const significant = balances
+  const visibleBalanceRows = useMemo(
+    () => balances
       .filter((entry) => Math.abs(Number(entry.balance) || 0) >= 0.01)
-      .sort((a, b) => Math.abs(Number(b.balance) || 0) - Math.abs(Number(a.balance) || 0));
-    const mine = myBalance ? significant.find((entry) => entry.id === myBalance.id) : null;
-    const rows = significant.slice(0, 4);
-    if (mine && !rows.some((entry) => entry.id === mine.id)) {
-      rows[rows.length - 1] = mine;
-    }
-    return rows;
-  }, [balances, myBalance]);
-  const visibleBalanceRows = isMobile ? balanceRows.slice(0, 3) : balanceRows;
-  const showSettlementCard = !isMobile || !!latestSettlement || canSettle;
-
-  const maxAbsBalance = Math.max(
-    1,
-    ...balanceRows.map((entry) => Math.abs(Number(entry.balance) || 0)),
+      .sort((a, b) => Math.abs(Number(b.balance) || 0) - Math.abs(Number(a.balance) || 0))
+      .slice(0, 3),
+    [balances],
   );
+  const showBalancesSection = !!activeFinalSettlementRound || canSettle || pastFinalSettlementRounds.length > 0;
 
   const openExpenses = () => replacePanel({ type: "expenses" });
-  const openSettlement = () => replacePanel({ type: "settlement" });
+  const openSettlement = (settlementId?: string, createMode?: "direct-split" | "balance-settlement") => replacePanel({ type: "settlement", settlementId, createMode });
   const openCrew = () => replacePanel({ type: "crew" });
   const openInvite = () => replacePanel({ type: "invite", source: "overview" });
   const openUpNext = () => replacePanel({ type: "next-action" });
@@ -291,6 +316,10 @@ export function OverviewPanel() {
   const openAddExpenseFlow = () => {
     if (!eventId) return;
     replacePanel({ type: "add-expense", source: "overview" });
+  };
+  const openPaybackExpenseFlow = () => {
+    if (!eventId) return;
+    replacePanel({ type: "add-expense", source: "overview", initialResolutionMode: "now" });
   };
   const heroActionHandlers: Partial<Record<Exclude<HeroStatusAction, null>, () => void>> = {
     invite: openInvite,
@@ -318,7 +347,7 @@ export function OverviewPanel() {
     expensesCount: expenses.length,
     pendingInvitesCount: pendingInvites.length,
     canSettle,
-    latestSettlementStatus: latestSettlement?.status ?? null,
+    latestSettlementStatus: activeFinalSettlementRound?.status ?? null,
     unpaidTransfers,
     eventDate: plan?.date,
     isCreator,
@@ -363,18 +392,6 @@ export function OverviewPanel() {
     return () => window.clearInterval(interval);
   }, [upNextCandidates.length]);
 
-  const settlementStatusLabel = latestSettlement?.status === "settled"
-    ? "SETTLED"
-    : latestSettlement
-      ? "IN PROGRESS"
-      : canSettle
-        ? "READY"
-        : "WAITING";
-  const settlementProgress = settlementTransfers.length > 0
-    ? Math.round((paidTransfers / settlementTransfers.length) * 100)
-    : latestSettlement?.status === "settled"
-      ? 100
-      : 0;
   const eventBanner = useMemo(() => getEventBanner(plan), [plan]);
   const bannerPresetClass = useMemo(
     () => getBannerPresetClass(eventBanner.presetId),
@@ -895,188 +912,216 @@ export function OverviewPanel() {
               </div>
             </section>
 
-            <section
-              role="button"
-              tabIndex={0}
-              onClick={openExpenses}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  openExpenses();
-                }
-              }}
-              className={cn(
-                "interactive-card rounded-[18px] border border-black/5 bg-background/96 p-4 hover:border-border/80 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-1))]/96 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] dark:hover:bg-[hsl(var(--surface-2))]",
+            <section className="space-y-3">
+              <section className={cn(
+                "rounded-[18px] border border-black/5 bg-background/96 p-4 dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-1))]/96 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
                 isMobile && "p-3",
-              )}
-            >
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold tracking-tight text-foreground">Balances</p>
-                  {!isMobile ? <p className="mt-1 text-xs text-muted-foreground">Who should receive and who still owes</p> : null}
+              )}>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold tracking-tight text-foreground">Money</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Shared costs for this plan. Add group expenses here, then settle up later if balances need wrapping up.
+                    </p>
+                  </div>
+                  <Receipt className="h-4 w-4 text-muted-foreground" />
                 </div>
-                <ArrowRight className="h-4 w-4 text-muted-foreground" />
-              </div>
-              <div className={cn("mt-4 space-y-3", isMobile && "mt-3 space-y-2.5")}>
-                {visibleBalanceRows.length > 0 ? visibleBalanceRows.map((entry) => {
-                  const amount = Number(entry.balance) || 0;
-                  const width = Math.max((Math.abs(amount) / maxAbsBalance) * 50, Math.abs(amount) > 0.01 ? 8 : 0);
-                  const isMine = entry.id === myBalance?.id;
-                  return (
-                    <div key={`overview-balance-${entry.id}`} className={cn("grid items-center gap-3", isMobile ? "grid-cols-[72px,1fr,72px]" : "grid-cols-[92px,1fr,72px]")}>
-                      <span className={cn("truncate text-xs font-medium", isMine ? "text-foreground" : "text-muted-foreground")}>
-                        {entry.name.trim().split(/\s+/)[0] || entry.name}
-                      </span>
-                      <div className="relative h-5">
-                        <div className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-border/80" />
-                        {amount < 0 ? (
-                          <div
-                            className={cn(
-                              "absolute right-1/2 top-1/2 h-2.5 -translate-y-1/2 rounded-full",
-                              isMine ? "bg-amber-500" : "bg-amber-400/90",
-                            )}
-                            style={{ width: `${width}%` }}
-                          />
-                        ) : null}
-                        {amount > 0 ? (
-                          <div
-                            className={cn(
-                              "absolute left-1/2 top-1/2 h-2.5 -translate-y-1/2 rounded-full",
-                              isMine ? "bg-emerald-500" : "bg-emerald-400/90",
-                            )}
-                            style={{ width: `${width}%` }}
-                          />
+                <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  <div className="rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]/70 px-3 py-3">
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Shared total</p>
+                    <p className="mt-1 text-sm font-semibold text-foreground">{formatCurrency(totalShared, currency)}</p>
+                  </div>
+                  <div className="rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]/70 px-3 py-3">
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">Expenses</p>
+                    <p className="mt-1 text-sm font-semibold text-foreground">{expenses.length}</p>
+                  </div>
+                  <div className="rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]/70 px-3 py-3 sm:block hidden">
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">People</p>
+                    <p className="mt-1 text-sm font-semibold text-foreground">{participants.length}</p>
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Button type="button" size="sm" onClick={openAddExpenseFlow}>
+                    <Plus className="mr-1.5 h-4 w-4" />
+                    Add expense
+                  </Button>
+                    <Button type="button" size="sm" variant="outline" onClick={openPaybackExpenseFlow}>
+                      <CreditCard className="mr-1.5 h-4 w-4" />
+                      Pay someone back
+                    </Button>
+                </div>
+
+                <div className="mt-4 space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-medium text-foreground">Recent shared expenses</p>
+                    <button type="button" className="text-xs font-medium text-muted-foreground transition hover:text-foreground" onClick={openExpenses}>
+                      View all expenses
+                    </button>
+                  </div>
+                  {recentExpenses.length > 0 ? recentExpenses.map((expense) => (
+                    <button
+                      key={`overview-expense-${expense.id}`}
+                      type="button"
+                      onClick={openExpenses}
+                      className="flex w-full items-center justify-between gap-3 rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]/70 px-3 py-2.5 text-left transition hover:bg-[hsl(var(--surface-2))]"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-foreground">{expense.item || "Expense"}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {expense.participantName || "Unknown"} · {new Date(String(expense.createdAt ?? Date.now())).toLocaleDateString(undefined, { day: "numeric", month: "short" })}
+                        </p>
+                      </div>
+                      <span className="shrink-0 text-sm font-semibold text-foreground">{formatCurrency(Number(expense.amount || 0), currency)}</span>
+                    </button>
+                  )) : (
+                    <div className="rounded-xl border border-dashed border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]/40 px-3 py-3 text-sm text-muted-foreground">
+                      No shared costs yet. Add an expense when someone pays for the group.
+                    </div>
+                  )}
+                </div>
+
+                {showBalancesSection ? (
+                  <div className="mt-5 space-y-3 border-t border-[hsl(var(--border-subtle))] pt-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold tracking-tight text-foreground">Balances</p>
+                        <p className="mt-1 text-xs text-muted-foreground">
+                          {activeFinalSettlementRound
+                            ? "Settle up is in progress for the shared costs."
+                            : "Settle up wraps only the shared costs from this plan. Paybacks stay separate."}
+                        </p>
+                      </div>
+                      <Scale className="h-4 w-4 text-muted-foreground" />
+                    </div>
+
+                    {visibleBalanceRows.length > 0 ? (
+                      <div className="space-y-2">
+                        {visibleBalanceRows.map((entry) => {
+                          const amount = Number(entry.balance) || 0;
+                          const label = amount > 0 ? "gets" : "owes";
+                          return (
+                            <div
+                              key={`overview-balance-${entry.id}`}
+                              className="flex items-center justify-between gap-3 rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]/70 px-3 py-2.5"
+                            >
+                              <p className="min-w-0 truncate text-sm text-foreground">
+                                <span className="font-medium">{entry.name}</span> {label}
+                              </p>
+                              <span className="shrink-0 text-sm font-semibold text-foreground">
+                                {formatCurrency(Math.abs(amount), currency)}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : activeFinalSettlementRound ? null : (
+                      <div className="rounded-xl border border-dashed border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]/40 px-3 py-3 text-sm text-muted-foreground">
+                        Settle up appears when shared costs create balances.
+                      </div>
+                    )}
+
+                    {activeFinalSettlementRound ? (
+                      <div className="flex items-start justify-between gap-3 rounded-xl border border-primary/15 bg-primary/10 px-3 py-3 dark:border-[hsl(var(--border-subtle))] dark:bg-[linear-gradient(180deg,hsl(var(--surface-2)),hsl(var(--surface-1)))]">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-foreground">{activeFinalSettlementRound.title}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {paidTransfers}/{activeFinalSettlementRound.transferCount} paid · {formatCurrency(activeFinalSettlementRound.outstandingAmount, activeFinalSettlementRound.currency || currency)} left
+                          </p>
+                        </div>
+                        <Button type="button" size="sm" variant="outline" onClick={() => openSettlement(activeFinalSettlementRound.id)}>
+                          Open settle up
+                        </Button>
+                      </div>
+                    ) : canSettle ? (
+                      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]/70 px-3 py-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-foreground">Shared costs are ready to settle up.</p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {isCreator ? "Start settle up when the event is ending." : "Only the creator can start settle up."}
+                          </p>
+                        </div>
+                        {isCreator ? (
+                          <Button type="button" size="sm" onClick={() => openSettlement(undefined, "balance-settlement")}>
+                            <Scale className="mr-1.5 h-4 w-4" />
+                            Settle up
+                          </Button>
                         ) : null}
                       </div>
-                      <span className={cn(
-                        "text-right text-xs font-semibold",
-                        amount > 0 ? "text-emerald-700 dark:text-emerald-300" : amount < 0 ? "text-amber-700 dark:text-amber-200" : "text-muted-foreground",
-                      )}>
-                        {amount === 0 ? "€ 0,00" : formatCurrency(Math.abs(amount), currency)}
-                      </span>
-                    </div>
-                  );
-                }) : (
-                  <p className="text-sm text-muted-foreground">Everyone is level right now.</p>
-                )}
-              </div>
-            </section>
+                    ) : null}
 
-            {showSettlementCard ? (
-            <section
-              role="button"
-              tabIndex={0}
-              onClick={openSettlement}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  openSettlement();
-                }
-              }}
-              className={cn(
-              "interactive-card rounded-[18px] border border-primary/15 bg-primary/10 p-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-[hsl(var(--border-subtle))] dark:bg-[linear-gradient(180deg,hsl(var(--surface-2)),hsl(var(--surface-1)))] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]",
-              isMobile && "p-3",
-              latestSettlement?.status === "settled"
-                ? "border-emerald-200 bg-emerald-50/80 dark:border-emerald-500/25 dark:bg-emerald-500/10"
-                : "",
-            )}>
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-sm font-semibold tracking-tight text-foreground">Settle up</p>
-                  {!isMobile ? (
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    {settlementTransfers.length > 0
-                      ? `${paidTransfers}/${settlementTransfers.length} payments marked paid`
-                      : latestSettlement?.status === "settled"
-                        ? "Everything has been paid"
-                        : canSettle
-                          ? "Balances are ready to turn into a settlement"
-                          : "Settlement will appear when shared balances need it"}
-                  </p>
-                  ) : null}
-                </div>
-                <span className={cn(
-                  "rounded-full border px-2.5 py-1 text-[10px] font-semibold tracking-wide",
-                  latestSettlement?.status === "settled"
-                    ? "border-emerald-200 bg-emerald-100 text-emerald-700 dark:border-emerald-500/25 dark:bg-emerald-500/15 dark:text-emerald-300"
-                    : "border-primary/30 bg-primary/10 text-foreground",
-                )}>
-                  {settlementStatusLabel}
-                </span>
-              </div>
-              <div className="mt-4 h-2 overflow-hidden rounded-full bg-muted/70 dark:bg-white/8">
-                <div
-                  className={cn(
-                    "h-full rounded-full transition-all",
-                    latestSettlement?.status === "settled" ? "bg-emerald-500" : "bg-primary",
-                  )}
-                  style={{ width: `${settlementProgress}%` }}
-                />
-              </div>
-              <div className="mt-4 flex items-center justify-between gap-3">
-                {latestSettlement?.status === "settled" ? (
-                  <div className="inline-flex items-center gap-2 text-sm font-medium text-emerald-700 dark:text-emerald-300">
-                    <CheckCircle2 className="h-4 w-4" />
-                    All settled 🎉
+                    {pastFinalSettlementRounds.length > 0 ? (
+                      <div className="space-y-2">
+                        <p className="text-xs font-medium text-muted-foreground">Previous settle-ups</p>
+                        {pastFinalSettlementRounds.slice(0, 2).map((round) => (
+                          <button
+                            key={`overview-past-final-settlement-${round.id}`}
+                            type="button"
+                            onClick={() => openSettlement(round.id)}
+                            className="flex w-full items-center justify-between gap-3 rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]/70 px-3 py-2.5 text-left transition hover:bg-[hsl(var(--surface-2))]"
+                          >
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium text-foreground">{round.title}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {round.completedAt ? new Date(round.completedAt).toLocaleDateString() : "Completed"} · {formatScopeLabel(round.scopeType, round.selectedParticipantIds?.length ?? null)}
+                              </p>
+                            </div>
+                            <span className="shrink-0 text-sm font-semibold text-foreground">
+                              {formatCurrency(round.totalAmount, round.currency || currency)}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">
-                    {latestSettlement
-                      ? "Payments are underway. Keep the group posted as people settle up."
-                      : canSettle
-                        ? "The plan looks ready to settle."
-                        : "Nothing to settle yet."}
-                  </p>
-                )}
-              </div>
+                ) : null}
+              </section>
             </section>
-            ) : null}
 
             {!isMobile ? (
-            <section
-              role="button"
-              tabIndex={0}
-              onClick={openRecentActivity}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  openRecentActivity();
-                }
-              }}
-              className="interactive-card rounded-[18px] border border-black/5 bg-background/96 p-4 hover:border-border/80 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-1))]/96 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] dark:hover:bg-[hsl(var(--surface-2))]"
-            >
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold tracking-tight text-foreground">Recent activity</p>
-                  <p className="mt-1 text-xs text-muted-foreground">The latest moments from the plan</p>
+              <section
+                role="button"
+                tabIndex={0}
+                onClick={openRecentActivity}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    openRecentActivity();
+                  }
+                }}
+                className="interactive-card rounded-[18px] border border-black/5 bg-background/96 p-4 hover:border-border/80 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-1))]/96 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] dark:hover:bg-[hsl(var(--surface-2))]"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold tracking-tight text-foreground">Recent activity</p>
+                    <p className="mt-1 text-xs text-muted-foreground">The latest moments from the plan</p>
+                  </div>
+                  <span className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground">
+                    View all
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </span>
                 </div>
-                <span className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground">
-                  View all
-                  <ArrowRight className="h-3.5 w-3.5" />
-                </span>
-              </div>
-              <ul className="mt-4 space-y-1.5">
-                {visibleActivityItems.length > 0 ? visibleActivityItems.map((item) => (
-                  <li key={item.id} className="flex items-start gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-background/40 dark:hover:bg-[hsl(var(--surface-2))]/90">
-                    <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[hsl(var(--surface-2))] text-sm dark:bg-[hsl(var(--surface-2))]/95">
-                      {getActivityIcon(item.type)}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-3">
-                        <p className="min-w-0 text-sm font-medium leading-5 text-foreground">
-                          <span className="line-clamp-2">{formatActivityPreview(item, currency)}</span>
-                        </p>
-                        <span className="shrink-0 pt-0.5 text-[11px] text-muted-foreground">
-                          {formatActivityTime(item.createdAt)}
-                        </span>
+                <ul className="mt-4 space-y-1.5">
+                  {visibleActivityItems.length > 0 ? visibleActivityItems.map((item) => (
+                    <li key={item.id} className="flex items-start gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-background/40 dark:hover:bg-[hsl(var(--surface-2))]/90">
+                      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[hsl(var(--surface-2))] text-sm dark:bg-[hsl(var(--surface-2))]/95">
+                        {getActivityIcon(item.type)}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-3">
+                          <p className="min-w-0 text-sm font-medium leading-5 text-foreground">
+                            <span className="line-clamp-2">{formatActivityPreview(item, currency)}</span>
+                          </p>
+                          <span className="shrink-0 pt-0.5 text-[11px] text-muted-foreground">
+                            {formatActivityTime(item.createdAt)}
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                  </li>
-                )) : (
-                  <li className="rounded-xl bg-background/40 px-2 py-3 text-sm text-muted-foreground dark:bg-[hsl(var(--surface-2))]/90">No activity yet.</li>
-                )}
-              </ul>
-            </section>
+                    </li>
+                  )) : (
+                    <li className="rounded-xl bg-background/40 px-2 py-3 text-sm text-muted-foreground dark:bg-[hsl(var(--surface-2))]/90">No activity yet.</li>
+                  )}
+                </ul>
+              </section>
             ) : null}
             </section>
           </>

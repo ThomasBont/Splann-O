@@ -52,6 +52,9 @@ export function formatActivityPreview(
   const meta = item.meta ?? {};
   const amount = typeof meta.amount === "number" ? meta.amount : Number(meta.amount);
   const currency = typeof meta.currency === "string" && meta.currency.trim() ? meta.currency : currencyCode;
+  const roundType = meta.roundType === "direct_split" ? "direct_split" : meta.roundType === "balance_settlement" ? "balance_settlement" : null;
+  const resolutionMode = typeof meta.resolutionMode === "string" ? meta.resolutionMode.trim().toLowerCase() : "later";
+  const paidByName = typeof meta.paidByName === "string" && meta.paidByName.trim() ? meta.paidByName.trim() : "";
   const title = typeof meta.title === "string"
     ? meta.title.trim()
     : item.type.startsWith("EXPENSE_")
@@ -62,7 +65,9 @@ export function formatActivityPreview(
       : "";
 
   if (item.type === "EXPENSE_ADDED" && title) {
-    return `${actor} added ${title}${Number.isFinite(amount) ? ` · ${formatCurrency(amount, currency)}` : ""}`;
+    return resolutionMode === "now"
+      ? `${actor} added ${title} and settled it now${Number.isFinite(amount) ? ` · ${formatCurrency(amount, currency)}` : ""}`
+      : `${actor} added ${title}${Number.isFinite(amount) ? ` · ${formatCurrency(amount, currency)}` : ""}`;
   }
   if (item.type === "EXPENSE_DELETED" && title) {
     return `${actor} removed ${title}${Number.isFinite(amount) ? ` · ${formatCurrency(amount, currency)}` : ""}`;
@@ -96,6 +101,23 @@ export function formatActivityPreview(
     return winner
       ? `${actor} closed the vote · ${question || winner} · Winner: ${winner}`
       : `${actor} closed a vote${question ? ` · ${question}` : ""}`;
+  }
+  if (item.type === "SETTLEMENT_STARTED") {
+    if (roundType === "direct_split") {
+      const amountPart = Number.isFinite(amount) ? ` · ${formatCurrency(amount, currency)}` : "";
+      const paidByPart = paidByName ? ` · Paid by ${paidByName}` : "";
+      return `${actor} paid for ${title || "something"}${amountPart}${paidByPart}`;
+    }
+    return `${actor} started settle up${title ? ` · ${title}` : ""}`;
+  }
+  if (item.type === "SETTLEMENT_PAYMENT_PAID") {
+    return item.message.trim() || `${actor} marked a payment as paid`;
+  }
+  if (item.type === "SETTLEMENT_COMPLETED") {
+    if (roundType === "direct_split") {
+      return `${title || "Payback"} completed`;
+    }
+    return title ? `${title} completed` : "Shared costs settled";
   }
 
   return item.message

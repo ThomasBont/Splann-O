@@ -13,7 +13,7 @@ export type UpNextContext = {
   expensesCount: number;
   pendingInvitesCount: number;
   canSettle: boolean;
-  latestSettlementStatus: "proposed" | "in_progress" | "settled" | null;
+  latestSettlementStatus: "active" | "completed" | "cancelled" | null;
   unpaidTransfers: number;
   eventDate: Date | string | null | undefined;
   isCreator: boolean;
@@ -42,18 +42,18 @@ function formatUpcomingLabel(date: Date) {
 }
 
 const settlementRule: UpNextRule = (context) => {
-  if (context.latestSettlementStatus && context.latestSettlementStatus !== "settled") {
+  if (context.latestSettlementStatus === "active") {
     return {
       type: "settlement",
       title: context.unpaidTransfers > 0
         ? context.unpaidTransfers === 1
           ? "1 payment is still outstanding"
           : `${context.unpaidTransfers} payments still outstanding`
-        : "Settlement is in progress",
+        : "Settle up is in progress",
       description: context.unpaidTransfers > 0
-        ? "Open the settlement workflow to review transfers and mark payments as paid."
-        : "Open settlement to confirm transfer status and finish the workflow.",
-      ctaLabel: "View settlement",
+        ? "Open settle up to review transfers and mark payments as paid."
+        : "Open settle up to confirm transfer status and finish the workflow.",
+      ctaLabel: "Open settle up",
       action: "settlement",
     };
   }
@@ -63,9 +63,9 @@ const settlementRule: UpNextRule = (context) => {
       type: "settlement",
       title: "Balances are ready to settle",
       description: context.isCreator
-        ? "Start the settlement plan so everyone can see who still needs to pay."
-        : "Open settlement to see who still needs to pay whom.",
-      ctaLabel: context.isCreator ? "Start settlement" : "Open settlement",
+        ? "Start settle up so everyone can see who still needs to pay."
+        : "Open settle up to see who still needs to pay whom.",
+      ctaLabel: context.isCreator ? "Start settle up" : "Open settle up",
       action: "settlement",
     };
   }

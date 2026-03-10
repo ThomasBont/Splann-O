@@ -5,8 +5,8 @@ export type PanelState =
   | { type: "expense"; id: string }
   | { type: "expenses" }
   | { type: "notes" }
-  | { type: "add-expense"; source?: "overview" | "expenses" }
-  | { type: "settlement"; settlementId?: string }
+  | { type: "add-expense"; source?: "overview" | "expenses"; initialResolutionMode?: "later" | "now" }
+  | { type: "settlement"; settlementId?: string; createMode?: "direct-split" | "balance-settlement" }
   | { type: "polls" }
   | { type: "add-poll"; source?: "polls" | "overview" }
   | { type: "crew" }

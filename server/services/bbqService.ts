@@ -427,6 +427,8 @@ export async function listBarbecues(currentUsername?: string, currentUserId?: nu
         participantId: expenses.participantId,
         amount: expenses.amount,
         includedUserIds: expenses.includedUserIds,
+        resolutionMode: expenses.resolutionMode,
+        excludedFromFinalSettlement: expenses.excludedFromFinalSettlement,
       })
       .from(expenses)
       .where(inArray(expenses.barbecueId, eventIds)),
@@ -457,7 +459,7 @@ export async function listBarbecues(currentUsername?: string, currentUserId?: nu
     if (current) current.push(normalizedRow);
     else participantsByEvent.set(row.eventId, [normalizedRow]);
   }
-  const expensesByEvent = new Map<number, Array<{ id: number; participantId: number; amount: number; includedUserIds: string[] | null }>>();
+  const expensesByEvent = new Map<number, Array<{ id: number; participantId: number; amount: number; includedUserIds: string[] | null; resolutionMode: string | null; excludedFromFinalSettlement: boolean }>>();
   for (const row of expenseRows) {
     const current = expensesByEvent.get(row.eventId);
     const normalizedRow = {
@@ -465,6 +467,8 @@ export async function listBarbecues(currentUsername?: string, currentUserId?: nu
       participantId: row.participantId,
       amount: Number(row.amount),
       includedUserIds: row.includedUserIds ?? null,
+      resolutionMode: (row as { resolutionMode?: string | null }).resolutionMode ?? "later",
+      excludedFromFinalSettlement: Boolean((row as { excludedFromFinalSettlement?: boolean | null }).excludedFromFinalSettlement),
     };
     if (current) current.push(normalizedRow);
     else expensesByEvent.set(row.eventId, [normalizedRow]);
@@ -482,7 +486,10 @@ export async function listBarbecues(currentUsername?: string, currentUserId?: nu
 
   return normalized.map((event) => {
     const eventParticipants = participantsByEvent.get(event.id) ?? [];
-    const eventExpenses = expensesByEvent.get(event.id) ?? [];
+    const allEventExpenses = expensesByEvent.get(event.id) ?? [];
+    const eventExpenses = allEventExpenses.filter((expense) => (
+      !expense.excludedFromFinalSettlement && String(expense.resolutionMode ?? "later").trim().toLowerCase() !== "now"
+    ));
     const eventExpenseShares = expenseSharesByEvent.get(event.id) ?? [];
     const effectiveExpenseShares = buildEffectiveExpenseShares({
       participants: eventParticipants,
@@ -519,7 +526,7 @@ export async function listBarbecues(currentUsername?: string, currentUserId?: nu
     return {
       ...event,
       participantCount: participantCountByEvent.get(event.id) ?? 0,
-      expenseTotal: expenseTotalByEvent.get(event.id) ?? 0,
+      expenseTotal: eventExpenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0),
       lastActivityAt,
       unreadCount: unreadByEventMap.get(event.id) ?? 0,
       myBalance,

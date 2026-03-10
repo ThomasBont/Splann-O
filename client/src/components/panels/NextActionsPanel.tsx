@@ -15,7 +15,7 @@ import { PanelHeader, PanelSection, PanelShell, useActiveEventId } from "@/compo
 type SettlementResponse = {
   settlement: {
     id: string;
-    status: "proposed" | "in_progress" | "settled";
+    status: "active" | "completed" | "cancelled";
     currency: string | null;
   } | null;
   transfers: Array<{

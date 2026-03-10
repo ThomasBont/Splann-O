@@ -20,6 +20,11 @@ export function parseIncludedUserIds(value: unknown): string[] {
     .filter((entry) => entry.length > 0);
 }
 
+function isIncludedInSharedBalances(expense: { resolutionMode?: string | null; excludedFromFinalSettlement?: boolean | null }) {
+  if (expense.excludedFromFinalSettlement) return false;
+  return String(expense.resolutionMode ?? "later").trim().toLowerCase() !== "now";
+}
+
 export function buildEffectiveExpenseShares(params: {
   participants: Array<{ id: number }>;
   expenses: Array<{ id: number; includedUserIds?: string[] | null }>;
@@ -62,11 +67,12 @@ export async function buildPlanBalancesSnapshot(planId: number): Promise<PlanBal
   const bbq = await bbqRepo.getById(planId);
   if (!bbq) return null;
 
-  const [participants, expenses, shares] = await Promise.all([
+  const [participants, allExpenses, shares] = await Promise.all([
     participantRepo.listByBbq(planId, "accepted"),
     expenseRepo.listByBbq(planId),
     bbq.allowOptInExpenses ? expenseRepo.getExpenseShares(planId) : Promise.resolve([]),
   ]);
+  const expenses = allExpenses.filter((expense) => isIncludedInSharedBalances(expense));
 
   const effectiveShares = buildEffectiveExpenseShares({
     participants,

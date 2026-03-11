@@ -15,6 +15,7 @@ type MobileChatSheetProps = {
   dateTime?: Date | string | null;
   participantCount?: number;
   sharedTotal?: number;
+  expenseCount?: number;
   currency?: string;
   onSummaryClick?: () => void;
   currentUser?: { id?: number | null; username?: string | null; avatarUrl?: string | null } | null;
@@ -32,6 +33,7 @@ export function MobileChatSheet({
   dateTime = null,
   participantCount = 0,
   sharedTotal = 0,
+  expenseCount = 0,
   currency = "EUR",
   onSummaryClick,
   currentUser,
@@ -76,6 +78,7 @@ export function MobileChatSheet({
             dateTime={dateTime}
             participantCount={participantCount}
             sharedTotal={sharedTotal}
+            expenseCount={expenseCount}
             currency={currency}
             onSummaryClick={onSummaryClick}
             currentUser={currentUser}

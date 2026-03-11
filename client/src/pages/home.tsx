@@ -3947,6 +3947,7 @@ export default function Home({
                         dateTime={selectedBbq.date ?? null}
                         participantCount={participants.length}
                         sharedTotal={Number(totalSpent)}
+                        expenseCount={expenses.length}
                         currency={(selectedBbq.currency as string) || defaultCurrency}
                         onSummaryClick={() => openPanel({ type: "overview" })}
                         currentUser={{
@@ -4028,6 +4029,7 @@ export default function Home({
                       dateTime={selectedBbq.date ?? null}
                       participantCount={participants.length}
                       sharedTotal={Number(totalSpent)}
+                      expenseCount={expenses.length}
                       currency={(selectedBbq.currency as string) || defaultCurrency}
                       onSummaryClick={() => openPanel({ type: "plan-details" })}
                       currentUser={{
@@ -5578,6 +5580,7 @@ export default function Home({
                   dateTime={selectedBbq.date ?? null}
                   participantCount={participants.length}
                   sharedTotal={Number(totalSpent)}
+                  expenseCount={expenses.length}
                   currency={(selectedBbq.currency as string) || defaultCurrency}
                   onSummaryClick={() => setIsPlanDetailsOpen(true)}
                   currentUser={{

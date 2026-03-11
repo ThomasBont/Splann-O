@@ -12,6 +12,7 @@ import { log } from "../lib/logger";
 import { AppError, badRequest, forbidden, notFound } from "../lib/errors";
 import { eventInvites, eventMembers, participants, users } from "@shared/schema";
 import { resolveLegacyAssetIdToPublicPath } from "../lib/assets";
+import { assertEventCreatorOrThrow } from "./_helpers";
 
 const router = Router();
 
@@ -133,6 +134,7 @@ router.post("/:eventId/members", requireAuth, asyncHandler(async (req, res) => {
     const eventId = Number(req.params.eventId);
     if (!Number.isFinite(eventId)) badRequest("Invalid event id");
     await assertEventAccessOrThrow(req, eventId);
+    await assertEventCreatorOrThrow(req, eventId);
     const parsed = z.object({ userId: z.coerce.number().int().positive() }).parse(req.body ?? {});
 
     const targetUser = await userRepo.findById(parsed.userId);

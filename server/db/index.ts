@@ -1,5 +1,9 @@
 /**
  * DB layer: pg Pool + Drizzle. Used by session store and repositories.
+ * Security note: this is a direct Postgres connection (including when the
+ * database is hosted on Supabase). Requests using this pool do NOT go through
+ * Supabase Row Level Security. Normal app access must therefore be protected
+ * by explicit backend auth + authorization checks in our Express routes.
  */
 import "dotenv/config";
 import { drizzle } from "drizzle-orm/node-postgres";

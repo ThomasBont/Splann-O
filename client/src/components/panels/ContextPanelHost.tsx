@@ -7,7 +7,6 @@ import ExpenseDetailPanel from "@/components/panels/ExpenseDetailPanel";
 import ExpensesPanel from "@/components/panels/ExpensesPanel";
 import NotesPanel from "@/components/panels/NotesPanel";
 import AddExpensePanel from "@/components/panels/AddExpensePanel";
-import SettlementPanel from "@/components/panels/SettlementPanel";
 import PollsPanel from "@/components/panels/PollsPanel";
 import AddPollPanel from "@/components/panels/AddPollPanel";
 import CrewPanel from "@/components/panels/CrewPanel";
@@ -51,7 +50,7 @@ export function ContextPanelHost({
       content = <AddExpensePanel source={panel.source} initialResolutionMode={panel.initialResolutionMode} />;
       break;
     case "settlement":
-      content = <SettlementPanel settlementId={panel.settlementId} createMode={panel.createMode} />;
+      content = <ExpensesPanel />;
       break;
     case "polls":
       content = <PollsPanel />;

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar, Copy, CreditCard, FileText, ImageIcon, Loader2, MapPin, MessageCircle, MoreHorizontal, Paperclip, Pencil, Reply, SendHorizontal, Smile, Trash2, Users, X } from "lucide-react";
+import { Calendar, Copy, CreditCard, FileText, ImageIcon, Loader2, MapPin, MessageCircle, MoreHorizontal, Paperclip, Pencil, Receipt, Reply, SendHorizontal, Smile, Trash2, Users, X } from "lucide-react";
 import { InlineQueryError, SkeletonLine } from "@/components/ui/load-states";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useEventChat } from "@/hooks/use-event-chat";
@@ -35,6 +35,7 @@ type ChatSidebarProps = {
   dateTime?: Date | string | null;
   participantCount?: number;
   sharedTotal?: number;
+  expenseCount?: number;
   currency?: string;
   onSummaryClick?: () => void;
   currentUser?: { id?: number | null; username?: string | null; avatarUrl?: string | null } | null;
@@ -394,6 +395,7 @@ export function ChatSidebar({
   dateTime = null,
   participantCount = 0,
   sharedTotal = 0,
+  expenseCount = 0,
   currency = "EUR",
   onSummaryClick,
   currentUser,
@@ -838,6 +840,7 @@ export function ChatSidebar({
   const peopleLabel = `${participantCount} ${participantCount === 1 ? "person" : "people"}`;
   const dateLabel = formatHeaderDate(dateTime);
   const sharedLabel = `${formatMoneyForSystem(sharedTotal, currency)} shared`;
+  const expensesLabel = `${expenseCount} expense${expenseCount === 1 ? "" : "s"}`;
   const chatPatternStyle = useMemo(() => getChatPatternStyle({ eventType, templateData }), [eventType, templateData]);
   const hasEventId = Number.isFinite(Number(eventId)) && Number(eventId) > 0;
   const openPlanDetails = () => {
@@ -1128,8 +1131,11 @@ export function ChatSidebar({
                   : "text-foreground/95 hover:text-foreground",
               )}
             >
-              <span className={cn("block truncate font-semibold tracking-tight", isMobile ? "text-lg" : "text-xl")}>
-                {isMobile ? eventName : "Chat"}
+              <span className="block text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                Chat
+              </span>
+              <span className={cn("mt-1 block truncate font-semibold tracking-tight", isMobile ? "text-lg" : "text-xl")}>
+                {eventName || "Current plan"}
               </span>
             </button>
           </div>
@@ -1226,6 +1232,35 @@ export function ChatSidebar({
                 className={cn(
                   "inline-flex items-center gap-1.5 rounded-md text-sm transition active:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                   "px-1.5 py-1",
+                  isExpensesOpen
+                    ? "text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <CreditCard className="h-3.5 w-3.5" />
+                <span className={cn("font-medium", isExpensesOpen ? "text-foreground" : "")}>{sharedLabel}</span>
+              </button>
+              <span className="text-muted-foreground/45">•</span>
+              <span className="inline-flex items-center gap-1.5 px-1.5 py-1 text-sm text-muted-foreground">
+                <Receipt className="h-3.5 w-3.5" />
+                <span>{expensesLabel}</span>
+              </span>
+            </>
+          ) : null}
+          {isMobile ? (
+            <>
+              <span className="text-muted-foreground/45">•</span>
+              <span className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-1.5 py-1 text-sm text-muted-foreground">
+                <Receipt className="h-3.5 w-3.5" />
+                <span>{expensesLabel}</span>
+              </span>
+              <span className="text-muted-foreground/45">•</span>
+              <button
+                type="button"
+                aria-label="Open shared costs drawer"
+                onClick={openExpenses}
+                className={cn(
+                  "inline-flex min-h-8 items-center gap-1.5 rounded-md px-1.5 py-1 text-sm transition active:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                   isExpensesOpen
                     ? "text-foreground"
                     : "text-muted-foreground hover:text-foreground",

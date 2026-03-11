@@ -129,6 +129,17 @@ export async function assertEventAccessOrThrow(req: Request, eventId: number) {
   if (!ok) forbidden("Not a member of this event");
 }
 
+export async function assertEventCreatorOrThrow(req: Request, eventId: number) {
+  const userId = req.session?.userId;
+  if (!userId) unauthorized("Not authenticated");
+  const bbq = await bbqRepo.getById(eventId);
+  if (!bbq) notFound("Event not found");
+  if (bbq.creatorUserId !== userId) {
+    forbidden("Only the plan creator can perform this action");
+  }
+  return bbq;
+}
+
 export function getPublicBaseUrl(req: Request) {
   const forwardedProto = String(req.get("x-forwarded-proto") ?? "")
     .split(",")[0]

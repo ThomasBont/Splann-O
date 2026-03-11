@@ -61,13 +61,13 @@ function parseReceiptDataUrl(dataUrl: string) {
   return { mime, buffer };
 }
 
-router.get(p(api.expenses.list.path), asyncHandler(async (req, res) => {
+router.get(p(api.expenses.list.path), requireAuth, asyncHandler(async (req, res) => {
   const bbq = await getBarbecueOr404(req, Number(req.params.bbqId));
   const items = await expenseRepo.listByBbq(bbq.id);
   res.json(items);
 }));
 
-router.post(p(api.expenses.create.path), asyncHandler(async (req, res) => {
+router.post(p(api.expenses.create.path), requireAuth, asyncHandler(async (req, res) => {
   const bbqId = Number(req.params.bbqId);
   const bbq = await getBarbecueOr404(req, bbqId);
   const sessionUserId = req.session?.userId;
@@ -185,7 +185,7 @@ router.post(p(api.expenses.create.path), asyncHandler(async (req, res) => {
   res.status(201).json(createdWithResolution);
 }));
 
-router.put(p(api.expenses.update.path), asyncHandler(async (req, res) => {
+router.put(p(api.expenses.update.path), requireAuth, asyncHandler(async (req, res) => {
   const expenseId = Number(req.params.id);
   if (!Number.isInteger(expenseId) || expenseId <= 0) badRequest("Invalid expense id");
   const sessionUserId = req.session?.userId;
@@ -418,7 +418,7 @@ router.delete("/expenses/:expenseId/receipt", requireAuth, asyncHandler(async (r
   res.json({ expenseId, receiptUrl: null });
 }));
 
-router.get("/barbecues/:bbqId/expense-shares", asyncHandler(async (req, res) => {
+router.get("/barbecues/:bbqId/expense-shares", requireAuth, asyncHandler(async (req, res) => {
   const bbq = await getBarbecueOr404(req, Number(req.params.bbqId));
   const shares = await expenseRepo.getExpenseShares(bbq.id);
   res.json(shares);

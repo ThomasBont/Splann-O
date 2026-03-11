@@ -15,7 +15,7 @@ import { broadcastEventRealtime } from "../lib/eventRealtime";
 import { logPlanActivity } from "../lib/planActivity";
 import { postSystemChatMessage } from "../lib/systemChat";
 import { badRequest, conflict, forbidden, gone, notFound, unauthorized, upgradeRequired } from "../lib/errors";
-import { assertEventAccessOrThrow, asyncHandler, getBarbecueOr404, isEventMemberUser, p } from "./_helpers";
+import { assertEventAccessOrThrow, assertEventCreatorOrThrow, asyncHandler, getBarbecueOr404, isEventMemberUser, p } from "./_helpers";
 
 const router = Router();
 
@@ -372,27 +372,28 @@ router.post("/barbecues/:id/ensure-invite-token", requireAuth, asyncHandler(asyn
   res.json(updated);
 }));
 
-router.get(p(api.participants.list.path), asyncHandler(async (req, res) => {
+router.get(p(api.participants.list.path), requireAuth, asyncHandler(async (req, res) => {
   const bbq = await getBarbecueOr404(req, Number(req.params.bbqId));
   const items = await participantRepo.listByBbq(bbq.id, "accepted");
   res.json(items);
 }));
 
-router.get(p(api.participants.pending.path), asyncHandler(async (req, res) => {
+router.get(p(api.participants.pending.path), requireAuth, asyncHandler(async (req, res) => {
   const bbq = await getBarbecueOr404(req, Number(req.params.bbqId));
   const items = await participantRepo.listByBbq(bbq.id, "pending");
   res.json(items);
 }));
 
-router.get("/barbecues/:bbqId/invited", asyncHandler(async (req, res) => {
+router.get("/barbecues/:bbqId/invited", requireAuth, asyncHandler(async (req, res) => {
   const bbq = await getBarbecueOr404(req, Number(req.params.bbqId));
   const items = await participantRepo.listByBbq(bbq.id, "invited");
   res.json(items);
 }));
 
-router.post(p(api.participants.create.path), asyncHandler(async (req, res) => {
+router.post(p(api.participants.create.path), requireAuth, asyncHandler(async (req, res) => {
   const bbqId = Number(req.params.bbqId);
   const bbq = await getBarbecueOr404(req, bbqId);
+  await assertEventCreatorOrThrow(req, bbqId);
   const creatorUser = bbq.creatorUserId ? await userRepo.findById(bbq.creatorUserId) : undefined;
   const limits = getLimits(creatorUser ?? undefined);
   const participantCount = await participantRepo.countByBbq(bbqId);
@@ -430,7 +431,7 @@ router.post(p(api.participants.create.path), asyncHandler(async (req, res) => {
   res.status(201).json(created);
 }));
 
-router.post(p(api.participants.join.path), asyncHandler(async (req, res) => {
+router.post(p(api.participants.join.path), requireAuth, asyncHandler(async (req, res) => {
   const input = api.participants.join.input.parse(req.body);
   const bbqId = Number(req.params.bbqId);
   const bbq = await getBarbecueOr404(req, bbqId);
@@ -442,6 +443,9 @@ router.post(p(api.participants.join.path), asyncHandler(async (req, res) => {
   }
   const joinUserId = Number(input.userId);
   if (!Number.isInteger(joinUserId) || joinUserId <= 0) badRequest("Invalid userId");
+  if (joinUserId !== req.session!.userId!) {
+    forbidden("Can only join for yourself");
+  }
   const existing = await participantRepo.getMemberships(joinUserId);
   const alreadyIn = existing.find((m) => m.bbqId === bbqId);
   if (alreadyIn) {
@@ -469,8 +473,12 @@ router.post("/barbecues/:bbqId/invite", requireAuth, asyncHandler(async (req, re
   res.status(201).json(created);
 }));
 
-router.patch(p(api.participants.accept.path), asyncHandler(async (req, res) => {
-  const updated = await participantRepo.accept(Number(req.params.id));
+router.patch(p(api.participants.accept.path), requireAuth, asyncHandler(async (req, res) => {
+  const participantId = Number(req.params.id);
+  const participant = await participantRepo.getById(participantId);
+  if (!participant) notFound("Participant not found");
+  await assertEventCreatorOrThrow(req, participant.barbecueId);
+  const updated = await participantRepo.accept(participantId);
   if (!updated) notFound("Participant not found");
   const user = updated.userId ? await userRepo.findById(updated.userId) : null;
   if (updated.userId) {
@@ -496,7 +504,7 @@ router.patch(p(api.participants.accept.path), asyncHandler(async (req, res) => {
   res.json(updated);
 }));
 
-router.patch(p(api.participants.update.path), asyncHandler(async (req, res) => {
+router.patch(p(api.participants.update.path), requireAuth, asyncHandler(async (req, res) => {
   const userId = req.session?.userId;
   if (!userId) unauthorized("Not authenticated");
   const id = Number(req.params.id);
@@ -600,9 +608,8 @@ router.delete(p(api.participants.delete.path), requireAuth, asyncHandler(async (
   res.status(204).send();
 }));
 
-router.get(p(api.memberships.list.path), asyncHandler(async (req, res) => {
-  const rawUserId = (req.query.userId as string | undefined) ?? String(req.session?.userId ?? "");
-  const userId = Number(rawUserId);
+router.get(p(api.memberships.list.path), requireAuth, asyncHandler(async (req, res) => {
+  const userId = req.session!.userId!;
   if (!Number.isInteger(userId) || userId <= 0) return res.json([]);
   const memberships = await participantRepo.getMemberships(userId);
   res.json(memberships);

@@ -1,5 +1,8 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
+// Browser data access goes through our own /api routes with session auth.
+// Do not introduce direct browser-side database/Supabase reads for normal app
+// data unless they are intentionally protected by an anon key + RLS.
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;

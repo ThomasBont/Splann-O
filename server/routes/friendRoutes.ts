@@ -15,6 +15,21 @@ import { asyncHandler, escapeLikeQuery } from "./_helpers";
 
 const router = Router();
 
+async function getFriendshipForUserOr404(friendshipId: number, userId: number) {
+  // Friendship ids are guessable integers; always bind actions to the
+  // authenticated user before allowing accept/decline/remove.
+  const [friendship] = await db
+    .select()
+    .from(friendships)
+    .where(eq(friendships.id, friendshipId))
+    .limit(1);
+  if (!friendship) notFound("Friend request not found");
+  if (friendship.requesterId !== userId && friendship.addresseeId !== userId) {
+    notFound("Friend request not found");
+  }
+  return friendship;
+}
+
 router.get("/friends", requireAuth, asyncHandler(async (req, res) => {
   const friends = await participantRepo.getFriends(req.session!.userId!);
   res.json(friends);
@@ -152,22 +167,43 @@ router.post("/friends/request", requireAuth, asyncHandler(async (req, res) => {
 }));
 
 router.patch("/friends/:id/accept", requireAuth, asyncHandler(async (req, res) => {
-  await participantRepo.acceptFriendRequest(Number(req.params.id));
+  const friendshipId = Number(req.params.id);
+  const me = req.session!.userId!;
+  const friendship = await getFriendshipForUserOr404(friendshipId, me);
+  if (friendship.addresseeId !== me || friendship.status !== "pending") {
+    conflict("friend_request_not_pending");
+  }
+  await participantRepo.acceptFriendRequest(friendshipId);
   res.json({ ok: true });
 }));
 
 router.post("/friends/requests/:id/accept", requireAuth, asyncHandler(async (req, res) => {
-  await participantRepo.acceptFriendRequest(Number(req.params.id));
+  const friendshipId = Number(req.params.id);
+  const me = req.session!.userId!;
+  const friendship = await getFriendshipForUserOr404(friendshipId, me);
+  if (friendship.addresseeId !== me || friendship.status !== "pending") {
+    conflict("friend_request_not_pending");
+  }
+  await participantRepo.acceptFriendRequest(friendshipId);
   res.json({ ok: true });
 }));
 
 router.post("/friends/requests/:id/decline", requireAuth, asyncHandler(async (req, res) => {
-  await participantRepo.declineFriendRequest(Number(req.params.id));
+  const friendshipId = Number(req.params.id);
+  const me = req.session!.userId!;
+  const friendship = await getFriendshipForUserOr404(friendshipId, me);
+  if (friendship.addresseeId !== me || friendship.status !== "pending") {
+    conflict("friend_request_not_pending");
+  }
+  await participantRepo.declineFriendRequest(friendshipId);
   res.json({ ok: true });
 }));
 
 router.delete("/friends/:id", requireAuth, asyncHandler(async (req, res) => {
-  await participantRepo.removeFriend(Number(req.params.id));
+  const friendshipId = Number(req.params.id);
+  const me = req.session!.userId!;
+  await getFriendshipForUserOr404(friendshipId, me);
+  await participantRepo.removeFriend(friendshipId);
   res.status(204).send();
 }));
 

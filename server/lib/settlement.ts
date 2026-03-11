@@ -804,6 +804,13 @@ export async function markSettlementTransferPaid(input: {
         ))
         .returning({ id: eventSettlementRounds.id });
       completedTransitioned = !!transitioned;
+
+      if (completedTransitioned && round.roundType === "balance_settlement") {
+        await tx
+          .update(barbecues)
+          .set({ status: "settled", settledAt: new Date(), updatedAt: new Date() })
+          .where(eq(barbecues.id, input.eventId));
+      }
     }
 
     return {

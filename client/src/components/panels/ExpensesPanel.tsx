@@ -1,11 +1,25 @@
-import { useMemo } from "react";
-import { Plus, Receipt, Users } from "lucide-react";
+import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ArrowRight, CheckCircle2, Loader2, Plus, Receipt, Scale } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { getCategoryDef } from "@/config/expenseCategories";
+import { useAuth } from "@/hooks/use-auth";
+import { useAppToast } from "@/hooks/use-app-toast";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { usePlan, usePlanCrew, usePlanExpenses } from "@/hooks/use-plan-data";
+import { planQueryKey, usePlan, usePlanCrew, usePlanExpenses } from "@/hooks/use-plan-data";
 import { resolveAssetUrl } from "@/lib/asset-url";
+import { computeSplit } from "@/lib/split/calc";
 import { cn } from "@/lib/utils";
 import { usePanel } from "@/state/panel";
 import { PanelHeader, PanelSection, PanelShell, panelHeaderAddButtonClass, useActiveEventId } from "@/components/panels/panel-primitives";
@@ -30,6 +44,13 @@ function formatCreated(value?: string | null) {
   return date.toLocaleDateString(undefined, { day: "numeric", month: "short" });
 }
 
+function formatLongDate(value?: string | Date | null) {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" });
+}
+
 function initials(value?: string | null) {
   const parts = String(value ?? "")
     .trim()
@@ -40,10 +61,65 @@ function initials(value?: string | null) {
   return parts.map((part) => part[0]?.toUpperCase() ?? "").join("") || "U";
 }
 
+type SettlementRoundSummary = {
+  id: string;
+  title: string;
+  roundType: "balance_settlement" | "direct_split";
+  status: "active" | "completed" | "cancelled";
+  currency: string | null;
+  createdAt: string | null;
+  completedAt: string | null;
+  transferCount: number;
+  paidTransfersCount: number;
+  totalAmount: number;
+  outstandingAmount: number;
+};
+
+type SettlementRoundsResponse = {
+  activeFinalSettlementRound: SettlementRoundSummary | null;
+  activeQuickSettleRound: SettlementRoundSummary | null;
+  pastFinalSettlementRounds: SettlementRoundSummary[];
+  pastQuickSettleRounds: SettlementRoundSummary[];
+};
+
+type SettlementDetailResponse = {
+  settlement: {
+    id: string;
+    title: string;
+    roundType: "balance_settlement" | "direct_split";
+    status: "active" | "completed" | "cancelled";
+    currency: string | null;
+    createdAt: string | null;
+    completedAt: string | null;
+  } | null;
+  transfers: Array<{
+    id: string;
+    settlementId: string;
+    settlementRoundId: string;
+    fromUserId: number;
+    fromName?: string;
+    toUserId: number;
+    toName?: string;
+    amount: number;
+    currency: string;
+    paidAt: string | null;
+    paidByUserId: number | null;
+  }>;
+  summary: {
+    transferCount: number;
+    paidTransfersCount: number;
+    totalAmount: number;
+    outstandingAmount: number;
+  };
+};
+
 export function ExpensesPanel() {
   const isMobile = useIsMobile();
   const eventId = useActiveEventId();
   const { replacePanel } = usePanel();
+  const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const { toastError, toastSuccess } = useAppToast();
   const planQuery = usePlan(eventId);
   const crewQuery = usePlanCrew(eventId);
   const expensesQuery = usePlanExpenses(eventId);
@@ -61,6 +137,10 @@ export function ExpensesPanel() {
   );
   const currency = typeof plan?.currency === "string" ? plan.currency : "EUR";
   const totalShared = sharedExpenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+  const splitExpenses = useMemo(
+    () => sharedExpenses.map((expense) => ({ ...expense, amount: Number(expense.amount || 0) })),
+    [sharedExpenses],
+  );
   const sortedExpenses = useMemo(
     () => [...expenses].sort((a, b) => new Date(String(b.createdAt ?? 0)).getTime() - new Date(String(a.createdAt ?? 0)).getTime()),
     [expenses],
@@ -69,6 +149,209 @@ export function ExpensesPanel() {
     () => new Map(members.map((member) => [Number(member.userId), member])),
     [members],
   );
+  const memberByName = useMemo(
+    () => new Map(members.map((member) => [String(member.name ?? "").trim().toLowerCase(), member])),
+    [members],
+  );
+  const { settlements } = useMemo(
+    () => computeSplit(participants, splitExpenses, [], false),
+    [participants, splitExpenses],
+  );
+  const { balances } = useMemo(
+    () => computeSplit(participants, splitExpenses, [], false),
+    [participants, splitExpenses],
+  );
+  const visibleBalanceRows = useMemo(
+    () => settlements.filter((entry) => Number(entry.amount) > 0).slice(0, 8),
+    [settlements],
+  );
+  const balanceRows = useMemo(
+    () => balances
+      .map((entry) => ({
+        id: entry.id,
+        name: entry.name,
+        balance: Number(entry.balance) || 0,
+      }))
+      .sort((a, b) => a.balance - b.balance || a.name.localeCompare(b.name)),
+    [balances],
+  );
+  const maxAbsBalance = useMemo(
+    () => Math.max(0, ...balanceRows.map((entry) => Math.abs(entry.balance))),
+    [balanceRows],
+  );
+  const allBalancesSettled = sharedExpenses.length > 0 && visibleBalanceRows.length === 0;
+  const isPlanCompleted = plan?.status === "settled";
+  const planCreatedAt = formatLongDate((plan as { createdAt?: string | Date | null } | null)?.createdAt ?? String(plan?.date ?? ""));
+  const planCompletedAt = formatLongDate((plan as { settledAt?: string | Date | null } | null)?.settledAt ?? null);
+  const isCreator = Number(plan?.creatorUserId) === Number(user?.id);
+  const [confirmSettleUpOpen, setConfirmSettleUpOpen] = useState(false);
+  const settlementRoundsQueryKey = ["/api/events", eventId, "settlements"] as const;
+  const settlementRoundsQuery = useQuery<SettlementRoundsResponse>({
+    queryKey: settlementRoundsQueryKey,
+    queryFn: async () => {
+      if (!eventId) {
+        return {
+          activeFinalSettlementRound: null,
+          activeQuickSettleRound: null,
+          pastFinalSettlementRounds: [],
+          pastQuickSettleRounds: [],
+        };
+      }
+      const res = await fetch(`/api/events/${eventId}/settlements`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load settlements");
+      return res.json() as Promise<SettlementRoundsResponse>;
+    },
+    enabled: !!eventId,
+    staleTime: 15_000,
+    refetchInterval: eventId ? 5_000 : false,
+    refetchOnWindowFocus: true,
+  });
+  const activeFinalSettlementRound = settlementRoundsQuery.data?.activeFinalSettlementRound ?? null;
+  const canStartSettlement = isCreator
+    && !activeFinalSettlementRound
+    && sharedExpenses.length > 0
+    && visibleBalanceRows.length > 0;
+  const latestPastFinalSettlementRound = settlementRoundsQuery.data?.pastFinalSettlementRounds?.[0] ?? null;
+  const displayedSettlementId = activeFinalSettlementRound?.id ?? latestPastFinalSettlementRound?.id ?? null;
+  const settlementDetailQueryKey = ["/api/events", eventId, "settlement", displayedSettlementId ?? "none"] as const;
+  const settlementDetailQuery = useQuery<SettlementDetailResponse>({
+    queryKey: settlementDetailQueryKey,
+    queryFn: async () => {
+      if (!eventId || !displayedSettlementId) {
+        return {
+          settlement: null,
+          transfers: [],
+          summary: { transferCount: 0, paidTransfersCount: 0, totalAmount: 0, outstandingAmount: 0 },
+        };
+      }
+      const res = await fetch(`/api/events/${eventId}/settlement/${encodeURIComponent(displayedSettlementId)}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load settlement");
+      return res.json() as Promise<SettlementDetailResponse>;
+    },
+    enabled: !!eventId && !!displayedSettlementId,
+    staleTime: 15_000,
+    refetchInterval: eventId && displayedSettlementId ? 5_000 : false,
+    refetchOnWindowFocus: true,
+  });
+  const activeSettlement = settlementDetailQuery.data?.settlement ?? null;
+  const settlementTransfers = settlementDetailQuery.data?.transfers ?? [];
+  const settlementSummary = settlementDetailQuery.data?.summary ?? {
+    transferCount: 0,
+    paidTransfersCount: 0,
+    totalAmount: 0,
+    outstandingAmount: 0,
+  };
+  const settlementIsComplete = activeSettlement?.status === "completed"
+    || (settlementTransfers.length > 0 && settlementTransfers.every((transfer) => !!transfer.paidAt));
+
+  const createSettlement = useMutation({
+    mutationFn: async () => {
+      if (!eventId) throw new Error("Event not found");
+      const res = await fetch(`/api/events/${eventId}/settlement/manual`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ scopeType: "everyone", selectedParticipantIds: null }),
+      });
+      const body = await res.json().catch(() => ({} as { code?: string; message?: string }));
+      if (!res.ok) {
+        const error = new Error(body.message || "Failed to create settlement") as Error & { code?: string };
+        error.code = body.code;
+        throw error;
+      }
+      return body as { latest?: SettlementDetailResponse };
+    },
+    onSuccess: async () => {
+      setConfirmSettleUpOpen(false);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: planQueryKey(eventId) }),
+        queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] }),
+        queryClient.invalidateQueries({ queryKey: settlementRoundsQueryKey }),
+        queryClient.invalidateQueries({ queryKey: settlementDetailQueryKey }),
+      ]);
+      toastSuccess("Settlement created");
+    },
+    onError: (error) => {
+      const err = error as Error & { code?: string };
+      if (err.code === "only_creator_can_start_settlement") {
+        toastError("Only the event creator can create a settlement.");
+        return;
+      }
+      if (err.code === "active_settlement_exists") {
+        toastError("There is already an active settlement.");
+        return;
+      }
+      toastError(err.message || "Couldn’t create settlement.");
+    },
+  });
+
+  const markTransferPaid = useMutation({
+    mutationFn: async ({ settlementId, transferId }: { settlementId: string; transferId: string }) => {
+      if (!eventId) throw new Error("Event not found");
+      const res = await fetch(`/api/events/${eventId}/settlement/${settlementId}/transfers/${transferId}/mark-paid`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({} as { code?: string; message?: string }));
+        const error = new Error(body.message || "Failed to mark payment as paid") as Error & { code?: string };
+        error.code = body.code;
+        throw error;
+      }
+      return res.json() as Promise<{ transferId: string; paidAt: string | null }>;
+    },
+    onMutate: async ({ transferId }) => {
+      await queryClient.cancelQueries({ queryKey: settlementDetailQueryKey });
+      const previous = queryClient.getQueryData<SettlementDetailResponse>(settlementDetailQueryKey);
+      const paidAt = new Date().toISOString();
+      queryClient.setQueryData<SettlementDetailResponse>(settlementDetailQueryKey, (old) => {
+        if (!old) return old;
+        const nextTransfers = old.transfers.map((transfer) => (
+          transfer.id === transferId
+            ? { ...transfer, paidAt, paidByUserId: transfer.paidByUserId ?? Number(user?.id ?? 0) }
+            : transfer
+        ));
+        const paidCount = nextTransfers.filter((transfer) => !!transfer.paidAt).length;
+        const totalCount = nextTransfers.length;
+        return {
+          ...old,
+          settlement: old.settlement ? {
+            ...old.settlement,
+            status: totalCount > 0 && paidCount >= totalCount ? "completed" : old.settlement.status,
+          } : old.settlement,
+          transfers: nextTransfers,
+          summary: {
+            ...old.summary,
+            paidTransfersCount: paidCount,
+            outstandingAmount: nextTransfers
+              .filter((transfer) => !transfer.paidAt)
+              .reduce((sum, transfer) => sum + Number(transfer.amount || 0), 0),
+          },
+        };
+      });
+      return { previous };
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: planQueryKey(eventId) }),
+        queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] }),
+        queryClient.invalidateQueries({ queryKey: settlementRoundsQueryKey }),
+        queryClient.invalidateQueries({ queryKey: settlementDetailQueryKey }),
+      ]);
+    },
+    onError: (error, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(settlementDetailQueryKey, context.previous);
+      }
+      const err = error as Error & { code?: string };
+      if (err.code === "not_transfer_participant") {
+        toastError("Only the payer or receiver can mark this as paid.");
+        return;
+      }
+      toastError(err.message || "Couldn’t mark payment as paid.");
+    },
+  });
+
   const handleAddExpense = () => {
     if (!eventId) return;
     replacePanel({ type: "add-expense", source: "expenses" });
@@ -83,33 +366,38 @@ export function ExpensesPanel() {
         label="Expenses"
         title="Shared expenses"
         actions={(
-          <Button
-            type="button"
-            size="sm"
-            className={cn(
-              panelHeaderAddButtonClass(),
-              isMobile && "hidden",
-            )}
-            onClick={handleAddExpense}
-            disabled={!eventId}
-            title="Add expense"
-          >
-            Add Expense +
-          </Button>
+          <div className={cn("items-center gap-2", isMobile ? "hidden" : "flex")}>
+            {!activeFinalSettlementRound && !isPlanCompleted ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="border-border/70 bg-muted/40 text-foreground hover:bg-muted/70"
+                onClick={() => setConfirmSettleUpOpen(true)}
+                disabled={!canStartSettlement || createSettlement.isPending}
+                title={isCreator ? "Settle up" : "Only the creator can settle up"}
+              >
+                {createSettlement.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Scale className="mr-1.5 h-4 w-4" />}
+                Settle Up
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              size="sm"
+              className={panelHeaderAddButtonClass()}
+              onClick={handleAddExpense}
+              disabled={!eventId || isPlanCompleted}
+              title={isPlanCompleted ? "Plan completed" : "Add expense"}
+            >
+              Add Expense +
+            </Button>
+          </div>
         )}
         meta={(
-          <>
-            <span className="inline-flex items-center gap-2">
-              <Receipt className="h-4 w-4" />
-              <span className="font-medium text-foreground">{plan?.name ?? "Current plan"}</span>
-            </span>
-            <span className="inline-flex items-center gap-2">
-              <Users className="h-4 w-4" />
-              {isMobile
-                ? `${formatCurrency(totalShared, currency)} shared`
-                : `${formatCurrency(totalShared, currency)} shared · ${participants.length} people · ${sharedExpenses.length} expense${sharedExpenses.length === 1 ? "" : "s"}`}
-            </span>
-          </>
+          <span className="inline-flex items-center gap-2">
+            <Receipt className="h-4 w-4" />
+            <span className="font-medium text-foreground">{plan?.name ?? "Current plan"}</span>
+          </span>
         )}
       />
 
@@ -140,35 +428,313 @@ export function ExpensesPanel() {
                   Add expense
                 </Button>
               </div>
-            ) : (
-              <div className={cn("space-y-1", isMobile && "space-y-0.5")}>
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-xs text-muted-foreground">
-                    {formatCurrency(totalShared, currency)} shared
-                    {" · "}
-                    {sharedExpenses.length} expense{sharedExpenses.length === 1 ? "" : "s"}
-                    {" · "}
-                    {participants.length} people
-                  </p>
-                  <Button type="button" size="sm" onClick={handleAddExpense} disabled={!eventId}>
-                    <Plus className="mr-1.5 h-4 w-4" />
-                    Add expense
-                  </Button>
-                </div>
-              </div>
-            )}
+            ) : null}
 
             {isMobile ? (
               <section className="sticky top-0 z-10 -mx-0.5 rounded-2xl border border-primary/20 bg-background/95 p-1 backdrop-blur supports-[backdrop-filter]:bg-background/88">
-                <Button
-                  type="button"
-                  className="h-10.5 w-full rounded-[16px] bg-primary text-sm font-semibold text-slate-900 hover:bg-primary/90"
-                  onClick={handleAddExpense}
-                  disabled={!eventId}
-                >
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add Expense
-                </Button>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {!activeFinalSettlementRound && !isPlanCompleted ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-10.5 rounded-[16px] border-border/70 bg-muted/40 text-sm font-semibold text-foreground hover:bg-muted/70"
+                      onClick={() => setConfirmSettleUpOpen(true)}
+                      disabled={!canStartSettlement || createSettlement.isPending}
+                    >
+                      {createSettlement.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Scale className="mr-2 h-4 w-4" />}
+                      Settle Up
+                    </Button>
+                  ) : (
+                    <div className="h-10.5 rounded-[16px] border border-border/60 bg-muted/30 px-3 text-sm font-medium text-muted-foreground flex items-center justify-center">
+                      Settlement in progress
+                    </div>
+                  )}
+                  <Button
+                    type="button"
+                    className="h-10.5 rounded-[16px] bg-primary text-sm font-semibold text-slate-900 hover:bg-primary/90"
+                    onClick={handleAddExpense}
+                    disabled={!eventId || isPlanCompleted}
+                  >
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add Expense
+                  </Button>
+                </div>
+              </section>
+            ) : null}
+
+            {isPlanCompleted && sharedExpenses.length > 0 ? (
+              <section className={cn("rounded-2xl border border-emerald-200/80 bg-emerald-50/60 p-4 shadow-none dark:border-emerald-500/25 dark:bg-emerald-500/10", isMobile && "rounded-[18px] p-3.5")}>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-background/80 px-3 py-1 text-xs font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-background/15 dark:text-emerald-300">
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      Plan completed 🎉
+                    </div>
+                    <h3 className="text-base font-semibold text-foreground">{plan?.name ?? "Plan completed"}</h3>
+                    <p className="text-sm text-muted-foreground">
+                      {formatCurrency(totalShared, currency)} shared across {sharedExpenses.length} {sharedExpenses.length === 1 ? "expense" : "expenses"} by {participants.length} {participants.length === 1 ? "person" : "people"}
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-emerald-200/70 bg-background/70 px-3 py-2 text-right dark:border-emerald-500/20 dark:bg-background/10">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Completed</p>
+                    <p className="mt-1 text-sm font-medium text-foreground">{planCompletedAt ?? "Just now"}</p>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))]/70 px-3 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Created</p>
+                    <p className="mt-1 text-sm font-medium text-foreground">{planCreatedAt ?? "Date unavailable"}</p>
+                  </div>
+                  <div className="rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))]/70 px-3 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Final settlement result</p>
+                    {settlementTransfers.length > 0 ? (
+                      <div className="mt-1 space-y-1.5">
+                        {settlementTransfers.slice(0, 3).map((transfer) => (
+                          <div key={`completed-settlement-${transfer.id}`} className="flex items-center justify-between gap-3 text-sm">
+                            <p className="min-w-0 truncate text-foreground">
+                              <span className="font-medium">{transfer.fromName || "Someone"}</span>
+                              <span className="text-muted-foreground"> → </span>
+                              <span className="font-medium">{transfer.toName || "Someone"}</span>
+                            </p>
+                            <span className="shrink-0 font-semibold text-foreground">
+                              {formatCurrency(Number(transfer.amount || 0), transfer.currency || currency)}
+                            </span>
+                          </div>
+                        ))}
+                        {settlementTransfers.length > 3 ? (
+                          <p className="text-xs text-muted-foreground">+{settlementTransfers.length - 3} more paid transfers</p>
+                        ) : null}
+                      </div>
+                    ) : (
+                      <p className="mt-1 text-sm text-muted-foreground">All shared costs were settled.</p>
+                    )}
+                  </div>
+                </div>
+              </section>
+            ) : null}
+
+            {sharedExpenses.length > 0 && !isPlanCompleted ? (
+              <PanelSection title="Balances" variant="list">
+                {balanceRows.length > 0 && !allBalancesSettled ? (
+                  <div className="rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))]/80 px-3 py-3">
+                    <div className="mb-3 flex items-center justify-between gap-3 px-0.5">
+                      <p className="text-xs font-medium text-muted-foreground">
+                        Negative owes · positive gets paid
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      {balanceRows.map((entry) => {
+                        const member = memberByName.get(entry.name.trim().toLowerCase());
+                        const avatarUrl = resolveAssetUrl(member?.avatarUrl ?? null) ?? member?.avatarUrl ?? "";
+                        const ratio = maxAbsBalance > 0 ? Math.min(1, Math.abs(entry.balance) / maxAbsBalance) : 0;
+                        const barWidth = `${Math.max(0, Math.round(ratio * 50))}%`;
+                        const isPositive = entry.balance > 0.009;
+                        const isNegative = entry.balance < -0.009;
+                        const amountLabel = `${isNegative ? "-" : isPositive ? "+" : ""}${formatCurrency(Math.abs(entry.balance), currency)}`;
+                        return (
+                          <div
+                            key={`expenses-balance-chart-${entry.id}`}
+                            className={cn(
+                              "grid grid-cols-[minmax(0,132px)_minmax(0,1fr)_84px] items-center gap-3 rounded-lg px-1 py-1.5",
+                              isMobile && "grid-cols-[minmax(0,110px)_minmax(0,1fr)_72px] gap-2",
+                            )}
+                          >
+                            <div className="flex min-w-0 items-center gap-2">
+                              <Avatar className="h-6 w-6 shrink-0 border border-background/70">
+                                {avatarUrl ? <AvatarImage src={avatarUrl} alt={entry.name} /> : null}
+                                <AvatarFallback className="bg-muted text-[9px] font-semibold text-foreground">
+                                  {initials(entry.name)}
+                                </AvatarFallback>
+                              </Avatar>
+                              <span className="min-w-0 truncate text-sm font-medium text-foreground">{entry.name}</span>
+                            </div>
+                            <div className="relative h-8 overflow-hidden rounded-lg bg-muted/30">
+                              <div className="absolute inset-y-1 left-1/2 w-px -translate-x-1/2 bg-border/80" />
+                              {isNegative ? (
+                                <div
+                                  className="absolute right-1/2 top-1/2 h-3.5 -translate-y-1/2 rounded-l-full rounded-r-sm bg-orange-400/85 dark:bg-orange-400/75"
+                                  style={{ width: barWidth }}
+                                />
+                              ) : null}
+                              {isPositive ? (
+                                <div
+                                  className="absolute left-1/2 top-1/2 h-3.5 -translate-y-1/2 rounded-l-sm rounded-r-full bg-emerald-500/85 dark:bg-emerald-400/75"
+                                  style={{ width: barWidth }}
+                                />
+                              ) : null}
+                              {!isPositive && !isNegative ? (
+                                <div className="absolute inset-0 flex items-center justify-center text-[10px] font-medium text-muted-foreground">
+                                  0
+                                </div>
+                              ) : null}
+                            </div>
+                            <div className="text-right">
+                              <span
+                                className={cn(
+                                  "text-sm font-semibold tabular-nums",
+                                  isNegative
+                                    ? "text-orange-600 dark:text-orange-300"
+                                    : isPositive
+                                      ? "text-emerald-600 dark:text-emerald-300"
+                                      : "text-muted-foreground",
+                                )}
+                              >
+                                {amountLabel}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : allBalancesSettled ? (
+                  <div className="rounded-xl border border-emerald-200/80 bg-emerald-50/70 px-4 py-4 text-center dark:border-emerald-500/25 dark:bg-emerald-500/10">
+                    <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-background/80 px-3 py-1 text-xs font-semibold text-emerald-700 dark:border-emerald-500/25 dark:bg-background/20 dark:text-emerald-300">
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      All settled 🎉
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))]/60 px-4 py-4 text-sm text-muted-foreground">
+                    Balances appear when shared costs create something to settle.
+                  </div>
+                )}
+              </PanelSection>
+            ) : null}
+
+            {sharedExpenses.length > 0 && !isPlanCompleted && (visibleBalanceRows.length > 0 || activeSettlement) ? (
+              <section className={cn("rounded-2xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-3.5 shadow-none", isMobile && "rounded-[18px] p-3")}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-foreground">
+                      {activeSettlement
+                        ? (settlementIsComplete ? "Settlement completed" : "Settlement in progress")
+                        : "Suggested settlement"}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {activeSettlement
+                        ? (settlementIsComplete
+                          ? "All suggested payments have been marked paid."
+                          : `${settlementSummary.paidTransfersCount}/${settlementSummary.transferCount} paid`)
+                        : "Use this to turn the current balances into payments."}
+                    </p>
+                  </div>
+                  {activeSettlement ? (
+                    !settlementIsComplete ? (
+                      <span className="rounded-full border border-primary/25 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-foreground">
+                        Active
+                      </span>
+                    ) : (
+                      <span className="rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-300">
+                        Completed
+                      </span>
+                    )
+                  ) : null}
+                </div>
+
+                <div className="mt-3 space-y-1.5">
+                  {(activeSettlement ? settlementTransfers : visibleBalanceRows).map((entry) => {
+                    if (activeSettlement) {
+                      const transfer = entry as SettlementDetailResponse["transfers"][number];
+                      const canMarkPaid = !transfer.paidAt && Number(user?.id ?? 0) > 0
+                        && (Number(user?.id) === transfer.fromUserId || Number(user?.id) === transfer.toUserId);
+                      return (
+                        <div
+                          key={`expenses-settlement-transfer-${transfer.id}`}
+                          className={cn(
+                            "rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]/70 px-3 py-2.5",
+                            isMobile && "px-2.5 py-2.5",
+                          )}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="min-w-0 text-sm text-foreground">
+                              <span className="font-medium">{transfer.fromName || "Someone"}</span>
+                              <span className="text-muted-foreground"> → </span>
+                              <span className="font-medium">{transfer.toName || "Someone"}</span>
+                            </p>
+                            <span className="shrink-0 text-sm font-semibold text-foreground">
+                              {formatCurrency(Number(transfer.amount || 0), transfer.currency || currency)}
+                            </span>
+                          </div>
+                          <div className="mt-2">
+                            {transfer.paidAt ? (
+                              <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-300">
+                                <CheckCircle2 className="h-3.5 w-3.5" />
+                                Paid
+                              </span>
+                            ) : canMarkPaid ? (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                onClick={() => markTransferPaid.mutate({ settlementId: transfer.settlementId, transferId: transfer.id })}
+                                disabled={markTransferPaid.isPending || settlementIsComplete}
+                              >
+                                Mark as paid
+                              </Button>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">
+                                Waiting for payer or receiver to confirm.
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    const suggestion = entry as typeof visibleBalanceRows[number];
+                    const debtor = memberByName.get(suggestion.from.trim().toLowerCase());
+                    const creditor = memberByName.get(suggestion.to.trim().toLowerCase());
+                    const debtorAvatarUrl = resolveAssetUrl(debtor?.avatarUrl ?? null) ?? debtor?.avatarUrl ?? "";
+                    const creditorAvatarUrl = resolveAssetUrl(creditor?.avatarUrl ?? null) ?? creditor?.avatarUrl ?? "";
+                    return (
+                      <div
+                        key={`expenses-balance-${suggestion.from}-${suggestion.to}-${suggestion.amount}`}
+                        className={cn(
+                          "flex items-center justify-between gap-3 rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]/70 px-3 py-2.5",
+                          isMobile && "px-2.5 py-2.5",
+                        )}
+                      >
+                        <div className="flex min-w-0 items-center gap-2">
+                          <Avatar className="h-6 w-6 shrink-0 border border-background/70">
+                            {debtorAvatarUrl ? <AvatarImage src={debtorAvatarUrl} alt={suggestion.from} /> : null}
+                            <AvatarFallback className="bg-muted text-[9px] font-semibold text-foreground">
+                              {initials(suggestion.from)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <span className="min-w-0 truncate text-sm font-medium text-foreground">{suggestion.from}</span>
+                          <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                          <Avatar className="h-6 w-6 shrink-0 border border-background/70">
+                            {creditorAvatarUrl ? <AvatarImage src={creditorAvatarUrl} alt={suggestion.to} /> : null}
+                            <AvatarFallback className="bg-muted text-[9px] font-semibold text-foreground">
+                              {initials(suggestion.to)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <span className="min-w-0 truncate text-sm font-medium text-foreground">{suggestion.to}</span>
+                        </div>
+                        <span className="shrink-0 text-sm font-semibold text-foreground">
+                          {formatCurrency(Number(suggestion.amount) || 0, currency)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {!activeSettlement ? (
+                  <div className="mt-3">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setConfirmSettleUpOpen(true)}
+                      disabled={!canStartSettlement || createSettlement.isPending}
+                    >
+                      {createSettlement.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
+                      Start settlement
+                    </Button>
+                  </div>
+                ) : null}
               </section>
             ) : null}
 
@@ -233,22 +799,34 @@ export function ExpensesPanel() {
                   })()
                   ))}
                 </div>
-                {sharedExpenses.length > 0 ? (
-                  <div className="mt-2 px-1">
-                    <button
-                      type="button"
-                      className="text-xs font-medium text-muted-foreground transition hover:text-foreground"
-                      onClick={() => replacePanel({ type: "settlement", createMode: "balance-settlement" })}
-                    >
-                      Settle up
-                    </button>
-                  </div>
-                ) : null}
               </section>
             ) : null}
           </>
         )}
       </div>
+      <AlertDialog open={confirmSettleUpOpen} onOpenChange={setConfirmSettleUpOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Create settlement?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Create a settlement based on current expenses?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={createSettlement.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                void createSettlement.mutateAsync();
+              }}
+              disabled={createSettlement.isPending}
+            >
+              {createSettlement.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
+              Create settlement
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </PanelShell>
   );
 }

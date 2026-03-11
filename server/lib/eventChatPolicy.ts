@@ -3,6 +3,7 @@ type EventLike = {
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const CHAT_GRACE_DAYS = 2;
 
 export function getEventChatCutoffAt(eventDate: Date | string | null | undefined): Date | null {
   if (!eventDate) return null;
@@ -15,7 +16,7 @@ export function getEventChatCutoffAt(eventDate: Date | string | null | undefined
     parsed.getUTCDate(),
     23, 59, 59, 999,
   ));
-  return new Date(endOfEventDayUtc.getTime() + DAY_MS);
+  return new Date(endOfEventDayUtc.getTime() + (DAY_MS * CHAT_GRACE_DAYS));
 }
 
 export function isEventChatLocked(event: EventLike, now = new Date()): boolean {
@@ -23,4 +24,3 @@ export function isEventChatLocked(event: EventLike, now = new Date()): boolean {
   if (!cutoffAt) return false;
   return now.getTime() > cutoffAt.getTime();
 }
-

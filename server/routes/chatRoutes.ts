@@ -13,6 +13,7 @@ import { assertEventAccessOrThrow, asyncHandler, toPublicUploadsUrl } from "./_h
 import { db } from "../db";
 import { barbecues } from "@shared/schema";
 import { uploadFile } from "../lib/r2";
+import { getPlanLifecycleState } from "../lib/planLifecycle";
 
 const router = Router();
 const CHAT_UPLOAD_DIR = path.resolve(process.cwd(), "public/uploads/chat");
@@ -111,6 +112,8 @@ async function uploadChatAttachment(
 }
 
 async function isChatLockedForEvent(eventId: number): Promise<boolean> {
+  const lifecycle = await getPlanLifecycleState(eventId);
+  if (lifecycle && lifecycle.status !== "active") return true;
   const [event] = await db.select({ date: barbecues.date }).from(barbecues).where(eq(barbecues.id, eventId)).limit(1);
   if (!event) return false;
   return isEventChatLocked({ date: event.date ?? null });

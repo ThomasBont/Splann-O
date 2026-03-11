@@ -14,6 +14,7 @@ import { useEventMembers } from "@/hooks/use-participants";
 import { useDeleteExpense } from "@/hooks/use-expenses";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { resolveAssetUrl } from "@/lib/asset-url";
+import { getClientPlanStatus } from "@/lib/plan-lifecycle";
 import { getChatPatternStyle } from "@/lib/chat-pattern";
 import { markPlanSwitchPerf } from "@/lib/plan-switch-perf";
 import { circularActionButtonClass, cn } from "@/lib/utils";
@@ -402,6 +403,7 @@ export function ChatSidebar({
   enabled = true,
   className,
 }: ChatSidebarProps) {
+  const normalizedPlanStatus = getClientPlanStatus(planStatus);
   const { toastError, toastInfo } = useAppToast();
   const { openPanel, panel } = usePanel();
   const isMobile = useIsMobile();
@@ -1858,14 +1860,20 @@ export function ChatSidebar({
             <div className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background px-3 py-1.5">
               <span className="h-2 w-2 rounded-full bg-emerald-500" />
               <span className="text-xs font-medium text-muted-foreground">
-                This plan has ended
+                {normalizedPlanStatus === "settled"
+                  ? "This plan is settled"
+                  : normalizedPlanStatus === "closed"
+                    ? "This plan is closed"
+                    : "This plan has ended"}
                 {settledAt
                   ? ` · ${new Date(settledAt).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })}`
                   : ""}
               </span>
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
-              Chat history is preserved. Expenses and balances are still viewable.
+              {normalizedPlanStatus === "active"
+                ? "Chat history is preserved. Expenses and balances are still viewable."
+                : "Chat history is preserved. This plan is read-only now."}
             </p>
           </div>
         ) : (

@@ -17,7 +17,7 @@ import { logPlanActivity } from "../lib/planActivity";
 import { createDirectSplitRound } from "../lib/settlement";
 import { postSystemChatMessage } from "../lib/systemChat";
 import { badRequest, forbidden, notFound, unauthorized } from "../lib/errors";
-import { asyncHandler, assertEventAccessOrThrow, ensurePrivateEventParticipantOrCreator, getBarbecueOr404, p } from "./_helpers";
+import { asyncHandler, assertEventAccessOrThrow, assertExpensesWritable, ensurePrivateEventParticipantOrCreator, getBarbecueOr404, p } from "./_helpers";
 import { deleteFile, uploadFile } from "../lib/r2";
 import { scanReceiptWithVision } from "../lib/vision-receipt";
 
@@ -70,6 +70,7 @@ router.get(p(api.expenses.list.path), requireAuth, asyncHandler(async (req, res)
 router.post(p(api.expenses.create.path), requireAuth, asyncHandler(async (req, res) => {
   const bbqId = Number(req.params.bbqId);
   const bbq = await getBarbecueOr404(req, bbqId);
+  await assertExpensesWritable(bbqId);
   const sessionUserId = req.session?.userId;
   if (!sessionUserId) unauthorized("Not authenticated");
   const isCreator = bbq.creatorUserId === sessionUserId;
@@ -198,6 +199,7 @@ router.put(p(api.expenses.update.path), requireAuth, asyncHandler(async (req, re
   const input = bodySchema.parse(req.body);
   const [before] = await db.select().from(expenses).where(eq(expenses.id, expenseId)).limit(1);
   if (!before) notFound("Expense not found");
+  await assertExpensesWritable(before.barbecueId);
   const bbq = await getBarbecueOr404(req, before.barbecueId);
   const isCreator = bbq.creatorUserId === sessionUserId;
   const acceptedParticipants = await participantRepo.listByBbq(before.barbecueId, "accepted");
@@ -264,6 +266,7 @@ router.delete(p(api.expenses.delete.path), requireAuth, asyncHandler(async (req,
 
   const [expense] = await db.select().from(expenses).where(eq(expenses.id, expenseId)).limit(1);
   if (!expense) notFound("Expense not found");
+  await assertExpensesWritable(expense.barbecueId);
   await assertEventAccessOrThrow(req, expense.barbecueId);
 
   const [bbq] = await db.select().from(barbecues).where(eq(barbecues.id, expense.barbecueId)).limit(1);
@@ -356,6 +359,7 @@ router.post("/expenses/:expenseId/receipt", requireAuth, asyncHandler(async (req
   if (!Number.isFinite(expenseId)) badRequest("Invalid expense id");
   const [expense] = await db.select().from(expenses).where(eq(expenses.id, expenseId));
   if (!expense) notFound("Expense not found");
+  await assertExpensesWritable(expense.barbecueId);
   await ensurePrivateEventParticipantOrCreator(req, expense.barbecueId);
 
   const payload = z.object({
@@ -405,6 +409,7 @@ router.delete("/expenses/:expenseId/receipt", requireAuth, asyncHandler(async (r
   if (!Number.isFinite(expenseId)) badRequest("Invalid expense id");
   const [expense] = await db.select().from(expenses).where(eq(expenses.id, expenseId));
   if (!expense) notFound("Expense not found");
+  await assertExpensesWritable(expense.barbecueId);
   await ensurePrivateEventParticipantOrCreator(req, expense.barbecueId);
 
   await deleteFile(expense.receiptUrl);
@@ -429,6 +434,7 @@ router.patch("/barbecues/:bbqId/expenses/:expenseId/share", requireAuth, asyncHa
   const expenseId = Number(req.params.expenseId);
   const bbq = await bbqRepo.getById(bbqId);
   if (!bbq) notFound("BBQ not found");
+  await assertExpensesWritable(bbqId);
   if (bbq.visibility !== "private") badRequest("Opt-in expenses are only available for private events");
   if (!bbq.allowOptInExpenses) badRequest("Opt-in expenses not enabled for this BBQ");
   const participantsList = await participantRepo.listByBbq(bbqId, "accepted");

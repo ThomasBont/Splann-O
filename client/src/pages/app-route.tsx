@@ -130,6 +130,7 @@ function formatEventLocation(event: Barbecue) {
 
 function getSidebarEventDotClass(event: Pick<Barbecue, "area" | "eventType" | "status">) {
   if (event.status === "settled") return "bg-emerald-400/60";
+  if (event.status === "closed") return "bg-amber-400/70";
   const category = event.area === "trips" ? "trip" : "party";
   return getEventTheme(category, event.eventType ?? null).accent.bg;
 }

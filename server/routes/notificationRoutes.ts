@@ -10,7 +10,7 @@ import { db } from "../db";
 import { broadcastEventRealtime } from "../lib/eventRealtime";
 import { logPlanActivity } from "../lib/planActivity";
 import { badRequest, conflict, forbidden, gone, notFound, unauthorized } from "../lib/errors";
-import { asyncHandler, listPendingPlanInvitesForUser } from "./_helpers";
+import { assertMembersWritable, asyncHandler, listPendingPlanInvitesForUser } from "./_helpers";
 
 const router = Router();
 
@@ -50,6 +50,7 @@ router.post("/plans/invites/:inviteId/accept", requireAuth, asyncHandler(async (
     const row = await tx.select().from(eventInvites).where(eq(eventInvites.id, inviteId)).limit(1);
     const current = row[0];
     if (!current) notFound("Invite not found");
+    await assertMembersWritable(current.eventId);
     if (current.status !== "pending") conflict("Invite already handled");
     if (current.expiresAt.getTime() <= Date.now()) gone("Invite expired");
     const canHandle =

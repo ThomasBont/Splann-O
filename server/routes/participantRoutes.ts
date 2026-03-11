@@ -15,7 +15,7 @@ import { broadcastEventRealtime } from "../lib/eventRealtime";
 import { logPlanActivity } from "../lib/planActivity";
 import { postSystemChatMessage } from "../lib/systemChat";
 import { badRequest, conflict, forbidden, gone, notFound, unauthorized, upgradeRequired } from "../lib/errors";
-import { assertEventAccessOrThrow, assertEventCreatorOrThrow, asyncHandler, getBarbecueOr404, isEventMemberUser, p } from "./_helpers";
+import { assertEventAccessOrThrow, assertEventCreatorOrThrow, assertInvitesWritable, assertMembersWritable, asyncHandler, getBarbecueOr404, isEventMemberUser, p } from "./_helpers";
 
 const router = Router();
 
@@ -55,6 +55,7 @@ router.post("/invites/:token/accept", requireAuth, asyncHandler(async (req, res)
   const eventId = Number(invite.id);
   const event = await bbqRepo.getById(eventId);
   if (!event) notFound("Event not found");
+  await assertMembersWritable(eventId);
 
   const memberExists = await isEventMemberUser(eventId, userId, username);
   const existingMembership = (await participantRepo.getMemberships(userId)).find((membership) => membership.bbqId === eventId);
@@ -136,6 +137,7 @@ router.get("/events/:eventId/members", requireAuth, asyncHandler(async (req, res
   const eventId = Number(req.params.eventId);
   if (!Number.isFinite(eventId)) badRequest("Invalid event id");
   await assertEventAccessOrThrow(req, eventId);
+  await assertMembersWritable(eventId);
 
   const rows = await db
     .select({
@@ -172,6 +174,7 @@ router.post("/events/:eventId/members", requireAuth, asyncHandler(async (req, re
   const eventId = Number(req.params.eventId);
   if (!Number.isFinite(eventId)) badRequest("Invalid event id");
   await assertEventAccessOrThrow(req, eventId);
+  await assertInvitesWritable(eventId);
 
   const parsed = z.object({
     userId: z.coerce.number().int().positive(),
@@ -255,6 +258,7 @@ router.get("/events/:eventId/invites", requireAuth, asyncHandler(async (req, res
   const eventId = Number(req.params.eventId);
   if (!Number.isFinite(eventId)) badRequest("Invalid event id");
   await assertEventAccessOrThrow(req, eventId);
+  await assertInvitesWritable(eventId);
 
   const rows = await db
     .select({
@@ -367,6 +371,7 @@ router.post("/barbecues/:id/ensure-invite-token", requireAuth, asyncHandler(asyn
   const bbq = await bbqRepo.getById(id);
   if (!bbq) notFound("Event not found");
   await assertEventAccessOrThrow(req, id);
+  await assertInvitesWritable(id);
   const updated = await bbqRepo.ensureInviteToken(id);
   if (!updated) notFound("Event not found");
   res.json(updated);
@@ -394,6 +399,7 @@ router.post(p(api.participants.create.path), requireAuth, asyncHandler(async (re
   const bbqId = Number(req.params.bbqId);
   const bbq = await getBarbecueOr404(req, bbqId);
   await assertEventCreatorOrThrow(req, bbqId);
+  await assertMembersWritable(bbqId);
   const creatorUser = bbq.creatorUserId ? await userRepo.findById(bbq.creatorUserId) : undefined;
   const limits = getLimits(creatorUser ?? undefined);
   const participantCount = await participantRepo.countByBbq(bbqId);
@@ -435,6 +441,7 @@ router.post(p(api.participants.join.path), requireAuth, asyncHandler(async (req,
   const input = api.participants.join.input.parse(req.body);
   const bbqId = Number(req.params.bbqId);
   const bbq = await getBarbecueOr404(req, bbqId);
+  await assertMembersWritable(bbqId);
   const creatorUser = bbq.creatorUserId ? await userRepo.findById(bbq.creatorUserId) : undefined;
   const limits = getLimits(creatorUser ?? undefined);
   const participantCount = await participantRepo.countByBbq(bbqId);
@@ -460,6 +467,7 @@ router.post("/barbecues/:bbqId/invite", requireAuth, asyncHandler(async (req, re
   const { username } = schema.parse(req.body);
   const bbqId = Number(req.params.bbqId);
   await assertEventAccessOrThrow(req, bbqId);
+  await assertInvitesWritable(bbqId);
   const targetUser = await userRepo.findByUsername(username.trim());
   if (!targetUser) notFound("User not found");
   const existing = await db.select().from(participants).where(
@@ -477,6 +485,7 @@ router.patch(p(api.participants.accept.path), requireAuth, asyncHandler(async (r
   const participantId = Number(req.params.id);
   const participant = await participantRepo.getById(participantId);
   if (!participant) notFound("Participant not found");
+  await assertMembersWritable(participant.barbecueId);
   await assertEventCreatorOrThrow(req, participant.barbecueId);
   const updated = await participantRepo.accept(participantId);
   if (!updated) notFound("Participant not found");
@@ -511,6 +520,7 @@ router.patch(p(api.participants.update.path), requireAuth, asyncHandler(async (r
   const input = api.participants.update.input.parse(req.body);
   const participant = await participantRepo.getById(id);
   if (!participant) notFound("Participant not found");
+  await assertMembersWritable(participant.barbecueId);
   if (participant.userId !== userId) forbidden("Can only edit your own name");
   const updated = await participantRepo.updateName(id, input.name);
   if (!updated) notFound("Participant not found");
@@ -525,6 +535,7 @@ router.delete(p(api.participants.delete.path), requireAuth, asyncHandler(async (
 
   const participant = await participantRepo.getById(participantId);
   if (!participant) notFound("Participant not found");
+  await assertMembersWritable(participant.barbecueId);
 
   const bbq = await bbqRepo.getById(participant.barbecueId);
   if (!bbq) notFound("Plan not found");

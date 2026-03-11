@@ -224,7 +224,7 @@ export function useCreateBarbecue() {
       publicListFromAt?: string | null;
       publicListUntilAt?: string | null;
       publicListingExpiresAt?: string | null;
-      status?: "draft" | "active" | "settling" | "settled";
+      status?: "active" | "closed" | "settled";
       organizationName?: string | null;
       publicDescription?: string | null;
       bannerImageUrl?: string | null;
@@ -283,7 +283,7 @@ export function useUpdateBarbecue() {
       date?: string;
       allowOptInExpenses?: boolean;
       templateData?: unknown;
-      status?: "draft" | "active" | "settling" | "settled";
+      status?: "active" | "closed" | "settled";
       locationName?: string | null;
       city?: string | null;
       countryCode?: string | null;

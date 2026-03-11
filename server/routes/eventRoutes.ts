@@ -29,6 +29,8 @@ import { auditLog, auditSecurity } from "../lib/audit";
 import { badRequest, forbidden, notFound, unauthorized, upgradeRequired } from "../lib/errors";
 import {
   assertEventAccessOrThrow,
+  assertMembersWritable,
+  getPlanLifecycleOrThrow,
   asyncHandler,
   currencyCodeSchema,
   getBarbecueOr404,
@@ -170,6 +172,14 @@ router.post("/events/:eventId/settlement/ensure", requireAuth, asyncHandler(asyn
   if (!userId) unauthorized("Not authenticated");
   const bbq = await bbqRepo.getById(eventId);
   if (!bbq) notFound("Event not found");
+  const lifecycle = await getPlanLifecycleOrThrow(eventId);
+  if (lifecycle.status === "settled") {
+    res.status(409).json({
+      code: "plan_settled",
+      message: "This plan is already settled.",
+    });
+    return;
+  }
   if (bbq.creatorUserId !== userId) {
     res.status(403).json({
       code: "only_creator_can_start_settlement",
@@ -216,6 +226,14 @@ router.post("/events/:eventId/settlement/manual", requireAuth, asyncHandler(asyn
   if (!userId) unauthorized("Not authenticated");
   const bbq = await bbqRepo.getById(eventId);
   if (!bbq) notFound("Event not found");
+  const lifecycle = await getPlanLifecycleOrThrow(eventId);
+  if (lifecycle.status === "settled") {
+    res.status(409).json({
+      code: "plan_settled",
+      message: "This plan is already settled.",
+    });
+    return;
+  }
   if (bbq.creatorUserId !== userId) {
     res.status(403).json({
       code: "only_creator_can_start_settlement",
@@ -260,6 +278,14 @@ router.post("/events/:eventId/split-payment", requireAuth, asyncHandler(async (r
   await assertEventAccessOrThrow(req, eventId);
   const userId = req.session?.userId;
   if (!userId) unauthorized("Not authenticated");
+  const lifecycle = await getPlanLifecycleOrThrow(eventId);
+  if (lifecycle.status === "settled") {
+    res.status(409).json({
+      code: "plan_settled",
+      message: "Settled plans are read-only.",
+    });
+    return;
+  }
 
   const body = z.object({
     title: z.string().trim().min(1).max(120),
@@ -332,6 +358,14 @@ router.post("/events/:eventId/settlement/:settlementId/transfers/:transferId/mar
   await assertEventAccessOrThrow(req, eventId);
   const userId = req.session?.userId;
   if (!userId) unauthorized("Not authenticated");
+  const lifecycle = await getPlanLifecycleOrThrow(eventId);
+  if (lifecycle.status === "settled") {
+    res.status(409).json({
+      code: "plan_settled",
+      message: "Settled plans are read-only.",
+    });
+    return;
+  }
   const settlement = await getSettlementById(eventId, settlementId);
   if (!settlement?.settlement) notFound("Settlement not found");
   const transfer = settlement.transfers.find((row) => row.id === transferId);
@@ -451,6 +485,7 @@ async function handleLeavePlan(req: Request, res: any, planIdRaw: string | undef
 
   const bbq = await bbqRepo.getById(id);
   if (!bbq) notFound("Plan not found");
+  await assertMembersWritable(id);
 
   const sessionUserId = req.session?.userId;
   if (!sessionUserId) unauthorized("Not authenticated");
@@ -560,7 +595,7 @@ router.patch(p(api.barbecues.update.path), requireAuth, asyncHandler(async (req,
     date: z.coerce.date().optional(),
     allowOptInExpenses: z.boolean().optional(),
     templateData: z.unknown().optional(),
-    status: z.enum(["draft", "active", "settling", "settled"]).optional(),
+    status: z.enum(["active", "closed", "settled"]).optional(),
     locationName: z.string().nullable().optional(),
     city: z.string().nullable().optional(),
     countryCode: optionalCountryCodeSchema.nullable().optional(),
@@ -737,8 +772,6 @@ router.post("/barbecues/:id/settle-up", requireAuth, asyncHandler(async (req, re
   const settleSnapshot = { total, expenseCount: expensesList.length, at: now.toISOString() };
   const currentTemplate = (bbq.templateData as Record<string, unknown>) || {};
   const updated = await bbqRepo.update(id, {
-    status: "settling",
-    settledAt: now,
     templateData: { ...currentTemplate, settleSnapshot },
   });
   if (!updated) notFound("Event not found");

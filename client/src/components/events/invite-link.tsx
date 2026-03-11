@@ -24,6 +24,7 @@ export interface InviteLinkProps {
   shareMessage?: string;
   getShareMessage?: (url: string) => string;
   className?: string;
+  disabled?: boolean;
 }
 
 const ENABLE_SHARING = import.meta.env.VITE_ENABLE_SHARING !== "false";
@@ -42,6 +43,7 @@ export function InviteLink({
   shareMessage,
   getShareMessage,
   className,
+  disabled = false,
 }: InviteLinkProps) {
   const [displayUrl, setDisplayUrl] = useState(url);
   const [ensuring, setEnsuring] = useState(false);
@@ -165,12 +167,13 @@ export function InviteLink({
           readOnly
           value={displayUrl}
           className="flex-1 font-mono text-sm bg-muted/30 border-border"
+          disabled={disabled}
         />
         <Button
           variant="outline"
           size="icon"
           onClick={handleCopy}
-          disabled={ensuring}
+          disabled={ensuring || disabled}
           title={copyLabel}
         >
           {ensuring ? (
@@ -184,7 +187,7 @@ export function InviteLink({
             variant="outline"
             size="icon"
             onClick={handleShare}
-            disabled={ensuring}
+            disabled={ensuring || disabled}
             title={shareLabel}
           >
             <Share2 className="w-4 h-4" />
@@ -194,7 +197,7 @@ export function InviteLink({
           variant="outline"
           size="icon"
           onClick={handleShareWhatsApp}
-          disabled={ensuring}
+          disabled={ensuring || disabled}
           title={whatsappLabel}
         >
           <MessageCircle className="w-4 h-4" />
@@ -206,7 +209,7 @@ export function InviteLink({
             inputRef.current?.focus();
             inputRef.current?.select();
           }}
-          disabled={ensuring}
+          disabled={ensuring || disabled}
           title="Select link"
         >
           <span className="text-xs font-semibold">Aa</span>

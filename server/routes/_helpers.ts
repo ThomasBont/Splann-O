@@ -12,8 +12,9 @@ import { userRepo } from "../repositories/userRepo";
 import * as bbqService from "../services/bbqService";
 import { db } from "../db";
 import { log } from "../lib/logger";
-import { AppError, badRequest, forbidden, notFound, unauthorized } from "../lib/errors";
+import { AppError, badRequest, conflict, forbidden, notFound, unauthorized } from "../lib/errors";
 import { resolveBaseUrl } from "../config/env";
+import { getPlanLifecycleState, type CanonicalPlanStatus } from "../lib/planLifecycle";
 
 /** Strip /api prefix for routers mounted at /api. */
 export const p = (routePath: string) => (routePath.startsWith("/api") ? routePath.slice(4) : routePath);
@@ -95,6 +96,49 @@ export async function getBarbecueOr404(req: Request, bbqId: number, message = "E
   const bbq = await bbqService.getBarbecueIfAccessible(bbqId, req.session?.userId, req.session?.username);
   if (!bbq) notFound(message);
   return bbq;
+}
+
+export async function getPlanLifecycleOrThrow(eventId: number) {
+  const lifecycle = await getPlanLifecycleState(eventId);
+  if (!lifecycle) notFound("Event not found");
+  return lifecycle;
+}
+
+export function getLifecycleErrorCode(action: "expenses" | "invites" | "members" | "chat", status: CanonicalPlanStatus, settlementStarted: boolean) {
+  if (status === "settled") {
+    return `${action}_locked_plan_settled`;
+  }
+  if (status === "closed") {
+    return `${action}_locked_plan_closed`;
+  }
+  if (settlementStarted) {
+    return `${action}_locked_settlement_started`;
+  }
+  return `${action}_locked`;
+}
+
+export async function assertExpensesWritable(eventId: number) {
+  const lifecycle = await getPlanLifecycleOrThrow(eventId);
+  if (lifecycle.status === "settled") conflict("Plan is settled. Expenses are read-only.");
+  if (lifecycle.status === "closed") conflict("Plan is closed. New expenses are no longer allowed.");
+  if (lifecycle.settlementStarted) conflict("Settlement already started. Expenses are locked.");
+  return lifecycle;
+}
+
+export async function assertInvitesWritable(eventId: number) {
+  const lifecycle = await getPlanLifecycleOrThrow(eventId);
+  if (lifecycle.status === "settled") conflict("Plan is settled. Invites are disabled.");
+  if (lifecycle.status === "closed") conflict("Plan is closed. Invites are disabled.");
+  if (lifecycle.settlementStarted) conflict("Settlement already started. Invites are disabled.");
+  return lifecycle;
+}
+
+export async function assertMembersWritable(eventId: number) {
+  const lifecycle = await getPlanLifecycleOrThrow(eventId);
+  if (lifecycle.status === "settled") conflict("Plan is settled. Members are locked.");
+  if (lifecycle.status === "closed") conflict("Plan is closed. Members are locked.");
+  if (lifecycle.settlementStarted) conflict("Settlement already started. Members are locked.");
+  return lifecycle;
 }
 
 export async function ensurePrivateEventParticipantOrCreator(req: Request, bbqId: number) {

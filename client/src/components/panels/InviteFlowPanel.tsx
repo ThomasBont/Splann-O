@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, MessageCircle, Users } from "lucide-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,6 +15,7 @@ import { useLanguage, type Language } from "@/hooks/use-language";
 import type { EventInviteView } from "@/hooks/use-participants";
 import { PanelHeader, PanelSection, PanelShell, useActiveEventId } from "@/components/panels/panel-primitives";
 import { resolveAssetUrl } from "@/lib/asset-url";
+import { getClientPlanStatus } from "@/lib/plan-lifecycle";
 import { buildInviteUrl, generateInviteMessage } from "@/lib/invite-share";
 
 type UserSearchRow = {
@@ -22,6 +23,10 @@ type UserSearchRow = {
   displayName: string;
   username: string;
   avatarUrl?: string | null;
+};
+
+type SettlementRoundsResponse = {
+  activeFinalSettlementRound: { id: string } | null;
 };
 
 const INVITE_PANEL_COPY: Record<Language, {
@@ -174,7 +179,26 @@ export function InviteFlowPanel() {
   const dropdownRef = useRef<HTMLDivElement | null>(null);
   const localInvitedSetRef = useRef<Set<number>>(new Set());
   const plan = planQuery.data;
+  const planStatus = getClientPlanStatus(plan?.status);
   const pendingInvites = guests.invitesPending;
+  const settlementRoundsQuery = useQuery<SettlementRoundsResponse>({
+    queryKey: ["/api/events", eventId, "settlements", "invite-lock"],
+    enabled: !!eventId,
+    queryFn: async () => {
+      if (!eventId) return { activeFinalSettlementRound: null };
+      const res = await fetch(`/api/events/${eventId}/settlements`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load settlement lock");
+      return res.json() as Promise<SettlementRoundsResponse>;
+    },
+    staleTime: 15_000,
+    refetchInterval: eventId ? 5_000 : false,
+  });
+  const invitesLocked = planStatus !== "active" || !!settlementRoundsQuery.data?.activeFinalSettlementRound;
+  const invitesLockedMessage = planStatus === "settled"
+    ? "This plan is settled. Invites are disabled."
+    : planStatus === "closed"
+      ? "This plan is closed. Invites are disabled."
+      : "Settlement already started. The participant list is frozen.";
   const userSearch = useSearchUsers(debouncedSearch);
   const inviteUrl = useMemo(() => buildInviteUrl(plan?.inviteToken), [plan?.inviteToken]);
   const inviteMessage = useMemo(() => generateInviteMessage({
@@ -246,7 +270,7 @@ export function InviteFlowPanel() {
   }, [memberUserIds, pendingInviteUserIds, user?.id, userSearch.data]);
 
   const inviteUserDirectly = async (target: UserSearchRow) => {
-    if (!eventId) return;
+    if (!eventId || invitesLocked) return;
     const userId = Number(target.id);
     if (!Number.isFinite(userId) || userId <= 0) return;
 
@@ -362,6 +386,11 @@ export function InviteFlowPanel() {
           </div>
         ) : (
           <>
+            {invitesLocked ? (
+              <div className="rounded-2xl border border-amber-200/80 bg-amber-50/80 p-4 text-sm text-amber-800 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-200">
+                {invitesLockedMessage}
+              </div>
+            ) : null}
             <PanelSection title={copy.addUserTitle} variant="default">
               <p className="mb-3 text-sm text-muted-foreground">
                 {copy.addUserBody}
@@ -376,6 +405,7 @@ export function InviteFlowPanel() {
                   onFocus={() => setIsDropdownOpen(true)}
                   placeholder={copy.searchPlaceholder}
                   className="border-border bg-background"
+                  disabled={invitesLocked}
                   onKeyDown={(event) => {
                     if (!isDropdownOpen) return;
                     const maxIndex = Math.max(0, Math.min(filteredResults.length, 8) - 1);
@@ -413,6 +443,7 @@ export function InviteFlowPanel() {
                 label={copy.inviteLinkLabel}
                 shareTitle={plan?.name ?? copy.shareTitleFallback}
                 shareMessage={inviteMessage}
+                disabled={invitesLocked}
                 getShareMessage={(url) => generateInviteMessage({
                   name: plan?.name,
                   locationName: plan?.locationName,

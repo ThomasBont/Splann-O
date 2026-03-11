@@ -57,7 +57,7 @@ export const api = {
         date: z.union([z.string(), z.date()]).optional(),
         allowOptInExpenses: z.boolean().optional(),
         templateData: z.unknown().optional(),
-        status: z.enum(["draft", "active", "settling", "settled"]).optional(),
+        status: z.enum(["active", "closed", "settled"]).optional(),
         locationName: z.string().nullable().optional(),
         city: z.string().nullable().optional(),
         countryCode: optionalCountryCodeSchema.nullable().optional(),

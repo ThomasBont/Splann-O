@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Loader2, Users, UserPlus2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -6,8 +7,9 @@ import { useAuth } from "@/hooks/use-auth";
 import { useAppToast } from "@/hooks/use-app-toast";
 import { useEventGuests } from "@/hooks/use-event-guests";
 import { type FriendRelationshipStatus, useFriendStatuses, useSendFriendRequestByUserId } from "@/hooks/use-friends";
-import { usePlanCrew, usePlanExpenses } from "@/hooks/use-plan-data";
+import { usePlan, usePlanCrew, usePlanExpenses } from "@/hooks/use-plan-data";
 import { resolveAssetUrl } from "@/lib/asset-url";
+import { getClientPlanStatus } from "@/lib/plan-lifecycle";
 import { cn } from "@/lib/utils";
 import { PanelHeader, PanelSection, PanelShell, panelHeaderAddButtonClass, useActiveEventId } from "@/components/panels/panel-primitives";
 import { usePanel } from "@/state/panel";
@@ -43,6 +45,21 @@ export function CrewPanel() {
   const expenses = expensesQuery.data ?? [];
   const [addingFriendUserId, setAddingFriendUserId] = useState<number | null>(null);
   const [statusOverrides, setStatusOverrides] = useState<Record<string, FriendRelationshipStatus>>({});
+  const planQuery = usePlan(eventId);
+  const normalizedPlanStatus = getClientPlanStatus(planQuery.data?.status);
+  const settlementRoundsQuery = useQuery<{ activeFinalSettlementRound: { id: string } | null }>({
+    queryKey: ["/api/events", eventId, "settlements", "crew-lock"],
+    enabled: !!eventId,
+    queryFn: async () => {
+      if (!eventId) return { activeFinalSettlementRound: null };
+      const res = await fetch(`/api/events/${eventId}/settlements`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load settlement lock");
+      return res.json() as Promise<{ activeFinalSettlementRound: { id: string } | null }>;
+    },
+    staleTime: 15_000,
+    refetchInterval: eventId ? 5_000 : false,
+  });
+  const membersLocked = normalizedPlanStatus !== "active" || !!settlementRoundsQuery.data?.activeFinalSettlementRound;
 
   const orderedMembers = useMemo(() => {
     if (members.length === 0) return members;
@@ -112,6 +129,7 @@ export function CrewPanel() {
             size="sm"
             className={panelHeaderAddButtonClass()}
             onClick={() => replacePanel({ type: "invite", source: "crew" })}
+            disabled={membersLocked}
           >
             Invite Friends +
           </Button>
@@ -119,6 +137,15 @@ export function CrewPanel() {
       />
 
       <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
+        {membersLocked ? (
+          <div className="rounded-2xl border border-amber-200/80 bg-amber-50/80 p-4 text-sm text-amber-800 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-200">
+            {normalizedPlanStatus === "settled"
+              ? "This plan is settled. The crew is read-only."
+              : normalizedPlanStatus === "closed"
+                ? "This plan is closed. No new members can be added."
+                : "Settlement already started. The crew is frozen until it is finished."}
+          </div>
+        ) : null}
         {loading ? (
           <div className="rounded-2xl border border-border/60 bg-card/80 p-4 text-sm text-muted-foreground">
             Loading crew...

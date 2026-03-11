@@ -22,6 +22,7 @@ import { getUpNextCandidates } from "@/components/panels/up-next";
 import { useEventGuests } from "@/hooks/use-event-guests";
 import { usePlanActivity } from "@/hooks/use-plan-activity";
 import { formatActivityPreview, formatActivityTime, getActivityIcon } from "@/components/panels/activity-format";
+import { getClientPlanStatus } from "@/lib/plan-lifecycle";
 
 type SettlementRoundSummary = {
   id: string;
@@ -280,7 +281,11 @@ export function OverviewPanel() {
   const activeFinalSettlementRound = settlementRoundsQuery.data?.activeFinalSettlementRound ?? null;
   const pastFinalSettlementRounds = settlementRoundsQuery.data?.pastFinalSettlementRounds ?? [];
   const latestPastFinalSettlementRound = pastFinalSettlementRounds[0] ?? null;
-  const isPlanCompleted = plan?.status === "settled";
+  const planStatus = getClientPlanStatus(plan?.status);
+  const isPlanClosed = planStatus === "closed";
+  const isPlanCompleted = planStatus === "settled";
+  const invitesLocked = isPlanClosed || isPlanCompleted || !!activeFinalSettlementRound;
+  const expensesLocked = invitesLocked;
   const completedSettlementId = isPlanCompleted ? latestPastFinalSettlementRound?.id ?? null : null;
   const completedSettlementDetailQuery = useQuery<SettlementDetailResponse>({
     queryKey: ["/api/events", eventId, "settlement", completedSettlementId ?? "none", "overview-completed"],
@@ -324,11 +329,14 @@ export function OverviewPanel() {
     if (isPlanCompleted) {
       return { label: "Plan completed 🎉", tone: "settled", action: null };
     }
+    if (isPlanClosed) {
+      return { label: "Plan closed", tone: "muted", action: null };
+    }
     if (hasOnlyCreator && !hasAnyExpenses) {
-      return { label: "Invite Friends", tone: "cta-outline", action: "invite" };
+      return invitesLocked ? { label: "Invite locked", tone: "muted", action: null } : { label: "Invite Friends", tone: "cta-outline", action: "invite" };
     }
     if (!hasOnlyCreator && !hasAnyExpenses) {
-      return { label: "Add Expense", tone: "cta-primary", action: "expense" };
+      return expensesLocked ? { label: "Expenses locked", tone: "muted", action: null } : { label: "Add Expense", tone: "cta-primary", action: "expense" };
     }
     if (settlementCompleted) {
       return { label: "All settled", tone: "settled", action: null };
@@ -338,7 +346,7 @@ export function OverviewPanel() {
     if (Math.abs(amount) < 0.01) return { label: "All settled", tone: "settled", action: null };
     if (amount > 0) return { label: `You are owed ${formatCurrency(amount, currency)}`, tone: "positive", action: null };
     return { label: `You owe ${formatCurrency(Math.abs(amount), currency)}`, tone: "negative", action: null };
-  }, [currency, hasAnyExpenses, hasOnlyCreator, isPlanCompleted, myBalance, myParticipant, settlementCompleted]);
+  }, [currency, expensesLocked, hasAnyExpenses, hasOnlyCreator, invitesLocked, isPlanClosed, isPlanCompleted, myBalance, myParticipant, settlementCompleted]);
   const completedTransfers = completedSettlementDetailQuery.data?.transfers ?? [];
   const finalPayment = completedTransfers[0] ?? null;
   const planCreatedAt = formatLongDate((plan as { createdAt?: string | Date | null } | null)?.createdAt ?? String(plan?.date ?? ""));
@@ -369,11 +377,15 @@ export function OverviewPanel() {
     replacePanel({ type: "member-profile", username: targetUsername, source });
   };
   const openAddExpenseFlow = () => {
-    if (!eventId) return;
+    if (!eventId || expensesLocked) return;
     replacePanel({ type: "add-expense", source: "overview" });
   };
+  const openInviteFlow = () => {
+    if (invitesLocked) return;
+    openInvite();
+  };
   const heroActionHandlers: Partial<Record<Exclude<HeroStatusAction, null>, () => void>> = {
-    invite: openInvite,
+    invite: openInviteFlow,
     crew: openCrew,
     expense: openAddExpenseFlow,
   };
@@ -425,9 +437,9 @@ export function OverviewPanel() {
     onAction: upNextItem.action === "settlement"
       ? openSettlement
       : upNextItem.action === "invite"
-        ? openInvite
-      : upNextItem.action === "add-expense"
-        ? openAddExpenseFlow
+        ? openInviteFlow
+        : upNextItem.action === "add-expense"
+          ? openAddExpenseFlow
       : upNextItem.action === "crew"
         ? openCrew
       : upNextItem.action === "plan-details"
@@ -859,6 +871,25 @@ export function OverviewPanel() {
                     ) : (
                       <p className="mt-1 text-sm text-muted-foreground">Settlement completed successfully.</p>
                     )}
+                  </div>
+                </div>
+              </section>
+            ) : isPlanClosed ? (
+              <section
+                className={cn(
+                  "rounded-[18px] border border-amber-200/80 bg-amber-50/80 p-4 dark:border-amber-500/25 dark:bg-amber-500/10",
+                  isMobile && "p-3",
+                )}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-background/80 px-3 py-1 text-xs font-semibold text-amber-700 dark:border-amber-500/30 dark:bg-background/15 dark:text-amber-300">
+                      Plan closed
+                    </div>
+                    <p className="mt-3 text-sm font-semibold tracking-tight text-foreground">Planning is read-only now</p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      No new invites or expenses can be added. You can still finish settle up if balances remain.
+                    </p>
                   </div>
                 </div>
               </section>

@@ -16,6 +16,7 @@ import { resolveLegacyAssetIdToPublicPath } from "../lib/assets";
 import { buildEffectiveExpenseShares } from "../lib/planBalancesRealtime";
 import { fetchCanonicalPlace } from "../lib/googlePlaces";
 import { resolveGoogleTimezoneId } from "../lib/googleTimezone";
+import { refreshPlanLifecycle, refreshPlanLifecycles } from "../lib/planLifecycle";
 
 const DEFAULT_LISTING_DURATION_DAYS = Number(process.env.PUBLIC_LISTING_DAYS ?? 30);
 const warnedPrivatePollutionIds = new Set<number>();
@@ -346,7 +347,9 @@ type BarbecueListItem = Barbecue & {
 
 export async function listBarbecues(currentUsername?: string, currentUserId?: number): Promise<BarbecueListItem[]> {
   const rows = await bbqRepo.listAccessible(currentUsername, currentUserId);
-  const normalized = rows.map(normalizeEventForClient);
+  await refreshPlanLifecycles(rows.map((row) => row.id));
+  const refreshedRows = await bbqRepo.listAccessible(currentUsername, currentUserId);
+  const normalized = refreshedRows.map(normalizeEventForClient);
   const eventIds = normalized.map((row) => row.id).filter((id): id is number => Number.isInteger(id));
   if (eventIds.length === 0) return [];
 
@@ -805,7 +808,7 @@ export async function updateBarbecue(
     date?: Date | string;
     allowOptInExpenses?: boolean;
     templateData?: unknown;
-    status?: "draft" | "active" | "settling" | "settled";
+    status?: "active" | "closed" | "settled";
     settledAt?: Date | null;
     locationName?: string | null;
     city?: string | null;
@@ -932,6 +935,7 @@ export async function getBarbecueIfAccessible(
   userId?: number,
   username?: string
 ): Promise<Barbecue | null> {
+  await refreshPlanLifecycle(bbqId);
   const bbq = await bbqRepo.getById(bbqId);
   if (!bbq) return null;
   const hasAccess = await bbqRepo.hasAccess(bbq, username, userId);

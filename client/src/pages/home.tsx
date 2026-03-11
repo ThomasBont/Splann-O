@@ -2647,7 +2647,9 @@ export default function Home({
   const canEditEvent = canManage;
   const isAcceptedMember = !isCreator && !!myParticipant;
 
-  const eventStatus = (selectedBbq?.status as "draft" | "active" | "settling" | "settled") ?? "active";
+  const rawEventStatus = String(selectedBbq?.status ?? "active");
+  const eventStatus = rawEventStatus === "settled" ? "settled" : rawEventStatus === "closed" ? "closed" : "active";
+  const hasLegacySettlingState = rawEventStatus === "settling";
   const showEventStatusPill = isPublicBuilderContext || eventStatus !== "active";
   const publicListingActive = !!(
     selectedBbq?.publicListingStatus === "active" &&
@@ -4585,7 +4587,7 @@ export default function Home({
               )}
 
               {/* Participant settling banner: show when status=settling and current user owes */}
-              {!isPublicBuilderContext && eventStatus === "settling" && !isCreator && myParticipant && (() => {
+              {!isPublicBuilderContext && hasLegacySettlingState && !isCreator && myParticipant && (() => {
                 const myBalance = balances.find((b: { id: number }) => b.id === myParticipant.id) as { balance: number } | undefined;
                 const amountOwed = myBalance && myBalance.balance < -0.01 ? Math.abs(myBalance.balance) : 0;
                 if (amountOwed < 0.01) return null;
@@ -4649,7 +4651,7 @@ export default function Home({
               )}
 
               {/* Creator: Mark as settled when all balances zero */}
-              {!isPublicBuilderContext && isCreator && eventStatus === "settling" && allBalancesZero && (
+              {!isPublicBuilderContext && isCreator && hasLegacySettlingState && allBalancesZero && (
                 <div className={`mt-4 rounded-xl border border-green-500/30 bg-green-500/10 px-4 py-3 flex items-center justify-between gap-3 ${isPrivateContext ? "rounded-2xl bg-gradient-to-r from-emerald-500/12 to-transparent ring-1 ring-emerald-500/10" : ""}`}>
                   <p className="text-sm font-medium text-foreground">{isPrivateContext ? "Everything looks settled. You can close this out anytime." : t.settleUp.everyonePaid}</p>
                   <Button

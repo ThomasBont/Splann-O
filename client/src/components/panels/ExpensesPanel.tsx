@@ -19,6 +19,7 @@ import { useAppToast } from "@/hooks/use-app-toast";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { planQueryKey, usePlan, usePlanCrew, usePlanExpenses } from "@/hooks/use-plan-data";
 import { resolveAssetUrl } from "@/lib/asset-url";
+import { getClientPlanStatus } from "@/lib/plan-lifecycle";
 import { computeSplit } from "@/lib/split/calc";
 import { cn } from "@/lib/utils";
 import { usePanel } from "@/state/panel";
@@ -180,7 +181,9 @@ export function ExpensesPanel() {
     [balanceRows],
   );
   const allBalancesSettled = sharedExpenses.length > 0 && visibleBalanceRows.length === 0;
-  const isPlanCompleted = plan?.status === "settled";
+  const planStatus = getClientPlanStatus(plan?.status);
+  const isPlanClosed = planStatus === "closed";
+  const isPlanCompleted = planStatus === "settled";
   const planCreatedAt = formatLongDate((plan as { createdAt?: string | Date | null } | null)?.createdAt ?? String(plan?.date ?? ""));
   const planCompletedAt = formatLongDate((plan as { settledAt?: string | Date | null } | null)?.settledAt ?? null);
   const isCreator = Number(plan?.creatorUserId) === Number(user?.id);
@@ -211,6 +214,7 @@ export function ExpensesPanel() {
     && !activeFinalSettlementRound
     && sharedExpenses.length > 0
     && visibleBalanceRows.length > 0;
+  const expensesLocked = isPlanClosed || isPlanCompleted || !!activeFinalSettlementRound;
   const latestPastFinalSettlementRound = settlementRoundsQuery.data?.pastFinalSettlementRounds?.[0] ?? null;
   const displayedSettlementId = activeFinalSettlementRound?.id ?? latestPastFinalSettlementRound?.id ?? null;
   const settlementDetailQueryKey = ["/api/events", eventId, "settlement", displayedSettlementId ?? "none"] as const;
@@ -353,7 +357,7 @@ export function ExpensesPanel() {
   });
 
   const handleAddExpense = () => {
-    if (!eventId) return;
+    if (!eventId || expensesLocked) return;
     replacePanel({ type: "add-expense", source: "expenses" });
   };
   const openExpenseDetail = (expenseId: number) => {
@@ -386,8 +390,8 @@ export function ExpensesPanel() {
               size="sm"
               className={panelHeaderAddButtonClass()}
               onClick={handleAddExpense}
-              disabled={!eventId || isPlanCompleted}
-              title={isPlanCompleted ? "Plan completed" : "Add expense"}
+              disabled={!eventId || expensesLocked}
+              title={isPlanCompleted ? "Plan completed" : isPlanClosed ? "Plan closed" : activeFinalSettlementRound ? "Settlement in progress" : "Add expense"}
             >
               Add Expense +
             </Button>
@@ -422,7 +426,7 @@ export function ExpensesPanel() {
                   size="sm"
                   className="mt-4"
                   onClick={handleAddExpense}
-                  disabled={!eventId}
+                  disabled={!eventId || expensesLocked}
                 >
                   <Plus className="mr-1.5 h-4 w-4" />
                   Add expense
@@ -453,7 +457,7 @@ export function ExpensesPanel() {
                     type="button"
                     className="h-10.5 rounded-[16px] bg-primary text-sm font-semibold text-slate-900 hover:bg-primary/90"
                     onClick={handleAddExpense}
-                    disabled={!eventId || isPlanCompleted}
+                    disabled={!eventId || expensesLocked}
                   >
                     <Plus className="mr-2 h-4 w-4" />
                     Add Expense
@@ -510,6 +514,20 @@ export function ExpensesPanel() {
                       <p className="mt-1 text-sm text-muted-foreground">All shared costs were settled.</p>
                     )}
                   </div>
+                </div>
+              </section>
+            ) : null}
+
+            {isPlanClosed && sharedExpenses.length > 0 ? (
+              <section className={cn("rounded-2xl border border-amber-200/80 bg-amber-50/70 p-4 shadow-none dark:border-amber-500/25 dark:bg-amber-500/10", isMobile && "rounded-[18px] p-3.5")}>
+                <div className="space-y-1">
+                  <div className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-background/80 px-3 py-1 text-xs font-semibold text-amber-700 dark:border-amber-500/30 dark:bg-background/15 dark:text-amber-300">
+                    Plan closed
+                  </div>
+                  <h3 className="text-base font-semibold text-foreground">{plan?.name ?? "Plan closed"}</h3>
+                  <p className="text-sm text-muted-foreground">
+                    New expenses and member changes are locked. You can still review balances and start settle up if anything is still open.
+                  </p>
                 </div>
               </section>
             ) : null}

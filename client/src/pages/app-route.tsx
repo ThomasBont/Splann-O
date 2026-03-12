@@ -47,6 +47,7 @@ import { EventHeaderPreferencesProvider } from "@/hooks/use-event-header-prefere
 import { useNewPlanWizard } from "@/contexts/new-plan-wizard";
 import NewPlanWizardDrawer from "@/components/event/NewPlanWizardDrawer";
 import { SplannOLogo } from "@/components/branding/SplannOLogo";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { FEATURE_PUBLIC_PLANS } from "@/lib/features";
 import { getEventTheme } from "@/theme/useEventTheme";
 import {
@@ -951,6 +952,7 @@ function PrivateHomePage({ user, onCreatePlan }: { user: { id?: number | null; u
 }
 
 export default function AppRoute() {
+  const prefersReducedMotion = useReducedMotion();
   const [location, setLocation] = useLocation();
   const { closePanel } = usePanel();
   const { user, isLoading: isAuthLoading } = useAuth();
@@ -1275,21 +1277,21 @@ export default function AppRoute() {
 
   const mainContent = (
     <div className="h-screen bg-background lg:flex lg:bg-primary/10 overflow-hidden">
-        <header className="md:hidden sticky top-0 z-30 h-12 border-b border-border/60 bg-background/95 backdrop-blur-sm">
-          <div className="h-full px-2.5 flex items-center justify-between gap-2">
+        <header className="sticky top-0 z-30 h-12 border-b border-border/60 bg-background/92 shadow-[0_6px_18px_rgba(15,23,42,0.05)] backdrop-blur-md supports-[backdrop-filter]:bg-background/80 md:hidden">
+          <div className="flex h-full items-center justify-between gap-2 px-2.5">
             <Button
               variant="ghost"
               size="icon"
-              className="h-9 w-9"
+              className="h-9 w-9 rounded-2xl border border-border/60 bg-background/75 shadow-sm active:scale-[0.98]"
               onClick={() => setIsSidebarOpen(true)}
               aria-label="Open navigation"
             >
               <Menu className="h-5 w-5" />
             </Button>
             <div className="min-w-0 flex-1 px-1">
-              <p className="truncate text-sm font-semibold tracking-tight">{mobileSectionLabel}</p>
+              <p className="truncate text-sm font-semibold tracking-tight text-foreground">{mobileSectionLabel}</p>
               {section === "event" ? (
-                <p className="truncate text-[10px] leading-tight text-muted-foreground">Chat-first planning</p>
+                <p className="truncate text-[10px] leading-tight text-muted-foreground/90">Chat-first planning</p>
               ) : null}
             </div>
             <div className="flex items-center gap-1">
@@ -1297,7 +1299,7 @@ export default function AppRoute() {
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="relative h-9 w-9"
+                className="relative h-9 w-9 rounded-2xl border border-border/60 bg-background/75 shadow-sm active:scale-[0.98]"
                 aria-label="Open notifications"
                 onClick={() => setNotifOpen(true)}
               >
@@ -1312,28 +1314,39 @@ export default function AppRoute() {
           </div>
         </header>
 
+        <AnimatePresence>
         {isSidebarOpen && (
           <div className="md:hidden fixed inset-0 z-50">
-            <button
+            <motion.button
               type="button"
-              className="absolute inset-0 bg-black/45"
+              className="absolute inset-0 bg-slate-950/50 backdrop-blur-[2px]"
               aria-label="Close navigation drawer"
               onClick={() => setIsSidebarOpen(false)}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={prefersReducedMotion ? { duration: 0.12 } : { duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
             />
-            <aside className="absolute left-0 top-0 h-full w-[88vw] max-w-sm bg-background shadow-xl flex flex-col">
+            <motion.aside
+              className="absolute left-0 top-0 flex h-full w-[86vw] max-w-sm flex-col overflow-hidden border-r border-border/60 bg-[linear-gradient(180deg,hsl(var(--surface-1)),hsl(var(--surface-0)))] shadow-[0_18px_48px_rgba(15,23,42,0.22)]"
+              initial={prefersReducedMotion ? { opacity: 1 } : { x: -28, opacity: 0.96, scale: 0.985 }}
+              animate={{ x: 0, opacity: 1, scale: 1 }}
+              exit={prefersReducedMotion ? { opacity: 0 } : { x: -24, opacity: 0.98, scale: 0.99 }}
+              transition={prefersReducedMotion ? { duration: 0.14 } : { type: "spring", stiffness: 340, damping: 34, mass: 0.9 }}
+            >
               <div className="flex items-center justify-between px-5 pb-4 pt-5">
                 <Link href="/app/private">
                   <a className="flex min-h-10 flex-1 items-center overflow-hidden pr-3">
                     <SplannOLogo className="h-10 w-auto max-w-full" />
                   </a>
                 </Link>
-                <Button variant="ghost" size="icon" className="h-10 w-10 rounded-full" onClick={() => setIsSidebarOpen(false)} aria-label="Close drawer">
+                <Button variant="ghost" size="icon" className="h-10 w-10 rounded-full border border-border/60 bg-background/70" onClick={() => setIsSidebarOpen(false)} aria-label="Close drawer">
                   <X className="h-4 w-4" />
                 </Button>
               </div>
-              <div className="px-4 pb-4 shrink-0">
+              <div className="shrink-0 px-4 pb-4">
                 <NewEventMenuButton
-                  className="h-12 w-full justify-start rounded-full"
+                  className="h-12 w-full justify-start rounded-full border border-primary/70 bg-primary px-5 text-sm font-semibold text-primary-foreground shadow-[0_12px_28px_rgba(245,166,35,0.22)]"
                   align="start"
                   onCreate={() => {
                     setIsSidebarOpen(false);
@@ -1342,7 +1355,8 @@ export default function AppRoute() {
                 />
               </div>
               <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
-                <div className="space-y-3 pr-1">
+                <div className="space-y-4 pr-1">
+                  <div className="rounded-[22px] border border-border/60 bg-card/75 p-3 shadow-[0_8px_20px_rgba(15,23,42,0.06)]">
                   <div className="flex items-center justify-between">
                     <p className="text-[11px] font-medium uppercase tracking-[0.2em] text-muted-foreground">Running Plans</p>
                     <button
@@ -1361,7 +1375,7 @@ export default function AppRoute() {
                   ) : mobileQuickSwitchEvents.length === 0 ? (
                     <p className="text-xs text-muted-foreground py-1">No plans found</p>
                   ) : (
-                    <div id="mobile-recent-events-list" className="space-y-2">
+                    <div id="mobile-recent-events-list" className="space-y-2.5 pt-1">
                       {mobileQuickSwitchEvents.map((event) => (
                         <Link key={`mobile-event-${event.id}`} href={`/app/e/${event.id}`}>
                           <a
@@ -1386,17 +1400,17 @@ export default function AppRoute() {
                               if (!Number.isFinite(planId)) return;
                               prefetchPlan(planId);
                             }}
-                            className={`relative block rounded-2xl border bg-card px-3 py-3 transition hover:bg-muted/20 ${
+                            className={`relative block rounded-[20px] border bg-background/85 px-3.5 py-3.5 transition active:scale-[0.995] hover:bg-muted/20 ${
                               Number(routeEventId) === Number(event.id)
-                                ? "border-primary/30 bg-primary/10 pl-[14px] before:absolute before:inset-y-2 before:left-0 before:w-0.5 before:rounded-full before:bg-primary"
+                                ? "border-primary/35 bg-primary/10 pl-[15px] shadow-[0_10px_24px_rgba(245,166,35,0.12)] before:absolute before:inset-y-3 before:left-0 before:w-0.5 before:rounded-full before:bg-primary"
                                 : "border-border/60"
                             }`}
                           >
                             <div className="flex items-start gap-2">
                               <span className={`mt-[7px] h-2.5 w-2.5 shrink-0 rounded-full ${getSidebarEventDotClass(event)}`} />
                               <div className="min-w-0 flex-1">
-                                <p className="truncate text-sm font-medium">{event.name}</p>
-                                <p className="mt-1 truncate text-xs text-muted-foreground">
+                                <p className="truncate text-[14px] font-medium">{event.name}</p>
+                                <p className="mt-1 truncate text-[12px] text-muted-foreground">
                                   {formatEventLocation(event)}
                                 </p>
                               </div>
@@ -1421,8 +1435,9 @@ export default function AppRoute() {
                       ))}
                     </div>
                   )}
+                  </div>
                   {mobileArchivedEvents.length > 0 && (
-                    <div className="space-y-1 pt-1">
+                    <div className="rounded-[22px] border border-border/60 bg-card/60 p-3 shadow-[0_6px_18px_rgba(15,23,42,0.04)]">
                       <div className="flex items-center justify-between">
                         <p className="text-[11px] font-medium uppercase tracking-[0.2em] text-muted-foreground">Archived · {mobileArchivedEvents.length}</p>
                         <button
@@ -1435,7 +1450,7 @@ export default function AppRoute() {
                         </button>
                       </div>
                       {!mobileArchivedCollapsed && (
-                        <div className="space-y-2 opacity-60">
+                        <div className="space-y-2.5 pt-1 opacity-70">
                           {mobileArchivedEvents.map((event) => (
                             <Link key={`mobile-archived-event-${event.id}`} href={`/app/e/${event.id}`}>
                               <a
@@ -1460,17 +1475,17 @@ export default function AppRoute() {
                                   if (!Number.isFinite(planId)) return;
                                   prefetchPlan(planId);
                                 }}
-                                className={`relative block rounded-2xl border bg-card px-3 py-3 transition hover:bg-muted/20 ${
+                                className={`relative block rounded-[20px] border bg-background/80 px-3.5 py-3.5 transition active:scale-[0.995] hover:bg-muted/20 ${
                                   Number(routeEventId) === Number(event.id)
-                                    ? "border-primary/30 bg-primary/10 pl-[14px] before:absolute before:inset-y-2 before:left-0 before:w-0.5 before:rounded-full before:bg-primary"
+                                    ? "border-primary/30 bg-primary/10 pl-[15px] before:absolute before:inset-y-3 before:left-0 before:w-0.5 before:rounded-full before:bg-primary"
                                     : "border-border/60"
                                 }`}
                               >
                                 <div className="flex items-start gap-2">
                                   <span className={`mt-[7px] h-2.5 w-2.5 shrink-0 rounded-full ${getSidebarEventDotClass(event)}`} />
                                   <div className="min-w-0 flex-1">
-                                    <p className="truncate text-sm font-medium">{event.name}</p>
-                                    <p className="mt-1 truncate text-xs text-muted-foreground">
+                                    <p className="truncate text-[14px] font-medium">{event.name}</p>
+                                    <p className="mt-1 truncate text-[12px] text-muted-foreground">
                                       {formatEventLocation(event)}
                                     </p>
                                   </div>
@@ -1499,15 +1514,15 @@ export default function AppRoute() {
                   )}
                 </div>
               </div>
-              <div className="shrink-0 border-t border-border/60 px-4 py-4">
-                <div className="flex items-center justify-between gap-2">
+              <div className="shrink-0 border-t border-border/60 bg-background/80 px-4 py-4 backdrop-blur-sm">
+                <div className="flex items-center justify-between gap-2 rounded-[20px] border border-border/60 bg-card/80 px-2 py-2">
                   <button
                     type="button"
                     onClick={() => {
                       setIsSidebarOpen(false);
                       handleOpenAccount();
                     }}
-                    className="flex min-w-0 flex-1 items-center gap-2 rounded-lg px-1.5 py-1 transition hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-2 py-1.5 transition hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     <Avatar className="h-9 w-9 border border-border/60">
                       {(user as { profileImageUrl?: string | null; avatarUrl?: string | null } | null)?.profileImageUrl
@@ -1536,7 +1551,7 @@ export default function AppRoute() {
                       ) : null}
                     </span>
                   </button>
-                  <div className="relative z-30 flex shrink-0 items-center gap-1.5">
+                    <div className="relative z-30 flex shrink-0 items-center gap-1.5">
                     <button
                       type="button"
                       className={`relative inline-flex h-9 w-9 items-center justify-center ${circularActionButtonClass()}`}
@@ -1567,9 +1582,10 @@ export default function AppRoute() {
                   </div>
                 </div>
               </div>
-            </aside>
+            </motion.aside>
           </div>
         )}
+        </AnimatePresence>
 
         <AppSidebar
           section={section}

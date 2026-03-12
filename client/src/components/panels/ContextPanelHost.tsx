@@ -1,4 +1,5 @@
 import type { MouseEventHandler } from "react";
+import { motion, useReducedMotion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { usePanel } from "@/state/panel";
 import { useActiveEventId } from "@/components/panels/panel-primitives";
@@ -29,6 +30,7 @@ export function ContextPanelHost({
 } = {}) {
   const { panel } = usePanel();
   const activeEventId = useActiveEventId();
+  const reduceMotion = useReducedMotion();
 
   if (!panel) return null;
 
@@ -108,9 +110,22 @@ export function ContextPanelHost({
           shellClassName,
         )}
       >
-        <div key={panelInstanceKey} className="h-full min-h-0">
-          {content}
-        </div>
+        {mobile ? (
+          <motion.div
+            key={panelInstanceKey}
+            className="h-full min-h-0"
+            initial={reduceMotion ? { opacity: 1 } : { opacity: 0, y: 10, scale: 0.995 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={reduceMotion ? { opacity: 1 } : { opacity: 0, y: 6, scale: 0.998 }}
+            transition={reduceMotion ? { duration: 0.12 } : { duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+          >
+            {content}
+          </motion.div>
+        ) : (
+          <div key={panelInstanceKey} className="h-full min-h-0">
+            {content}
+          </div>
+        )}
       </div>
     </aside>
   );

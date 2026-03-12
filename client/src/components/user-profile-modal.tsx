@@ -103,6 +103,8 @@ export function UserProfileModal({ open, onOpenChange, username: usernameProp, o
   const pushStatusLabel = !pushNotifications.isSupported
     ? pushNotifications.supportReason === "insecure_context"
       ? "Push requires HTTPS or localhost"
+      : pushNotifications.supportReason === "ios_home_screen_required"
+        ? "On iPhone and iPad, add Splann-O to your Home Screen and open it from there"
       : "Not supported on this device"
     : pushNotifications.isSubscribed
       ? "On"

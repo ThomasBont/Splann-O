@@ -34,6 +34,7 @@ const ACCOUNT_SETTINGS_COPY: Record<Language, {
   notificationsDisabled: string;
   notificationsUnsupported: string;
   notificationsSecureContext: string;
+  notificationsIosHomeScreen: string;
   notificationsBlocked: string;
   notificationsEnabledToast: string;
   notificationsDisabledToast: string;
@@ -61,6 +62,7 @@ const ACCOUNT_SETTINGS_COPY: Record<Language, {
     notificationsDisabled: "Off",
     notificationsUnsupported: "Not supported on this device",
     notificationsSecureContext: "Push requires HTTPS or localhost.",
+    notificationsIosHomeScreen: "On iPhone and iPad, install Splann-O to your Home Screen and open it from there.",
     notificationsBlocked: "Blocked in browser settings",
     notificationsEnabledToast: "Push notifications enabled",
     notificationsDisabledToast: "Push notifications disabled",
@@ -88,6 +90,7 @@ const ACCOUNT_SETTINGS_COPY: Record<Language, {
     notificationsDisabled: "Desactivadas",
     notificationsUnsupported: "No compatible en este dispositivo",
     notificationsSecureContext: "Push requiere HTTPS o localhost.",
+    notificationsIosHomeScreen: "En iPhone y iPad, instala Splann-O en tu pantalla de inicio y ábrelo desde allí.",
     notificationsBlocked: "Bloqueadas en la configuración del navegador",
     notificationsEnabledToast: "Notificaciones push activadas",
     notificationsDisabledToast: "Notificaciones push desactivadas",
@@ -115,6 +118,7 @@ const ACCOUNT_SETTINGS_COPY: Record<Language, {
     notificationsDisabled: "Disattive",
     notificationsUnsupported: "Non supportato su questo dispositivo",
     notificationsSecureContext: "Le notifiche push richiedono HTTPS o localhost.",
+    notificationsIosHomeScreen: "Su iPhone e iPad, installa Splann-O nella schermata Home e aprilo da lì.",
     notificationsBlocked: "Bloccate nelle impostazioni del browser",
     notificationsEnabledToast: "Notifiche push attivate",
     notificationsDisabledToast: "Notifiche push disattivate",
@@ -142,6 +146,7 @@ const ACCOUNT_SETTINGS_COPY: Record<Language, {
     notificationsDisabled: "Uit",
     notificationsUnsupported: "Niet ondersteund op dit apparaat",
     notificationsSecureContext: "Push vereist HTTPS of localhost.",
+    notificationsIosHomeScreen: "Installeer Splann-O op iPhone of iPad eerst op je beginscherm en open het daarna van daaruit.",
     notificationsBlocked: "Geblokkeerd in browserinstellingen",
     notificationsEnabledToast: "Pushmeldingen ingeschakeld",
     notificationsDisabledToast: "Pushmeldingen uitgeschakeld",
@@ -170,6 +175,8 @@ export function AccountSettingsContent({ compact = false }: AccountSettingsConte
   const pushStatusLabel = !pushNotifications.isSupported
     ? pushNotifications.supportReason === "insecure_context"
       ? copy.notificationsSecureContext
+      : pushNotifications.supportReason === "ios_home_screen_required"
+        ? copy.notificationsIosHomeScreen
       : copy.notificationsUnsupported
     : pushNotifications.isSubscribed
       ? copy.notificationsEnabled

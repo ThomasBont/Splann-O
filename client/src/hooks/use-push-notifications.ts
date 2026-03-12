@@ -20,7 +20,7 @@ const DEFAULT_PUSH_PREFERENCES: PushPreferences = {
 
 type UsePushNotificationsResult = {
   isSupported: boolean;
-  supportReason: "ok" | "insecure_context" | "unsupported_api";
+  supportReason: "ok" | "insecure_context" | "unsupported_api" | "ios_home_screen_required";
   permission: PushPermission;
   isSubscribed: boolean;
   isLoading: boolean;
@@ -38,10 +38,25 @@ function isPushSupported(): boolean {
     && "PushManager" in window;
 }
 
-function getPushSupportReason(): "ok" | "insecure_context" | "unsupported_api" {
+function isAppleMobileDevice(): boolean {
+  if (typeof window === "undefined") return false;
+  const userAgent = window.navigator.userAgent;
+  const touchMac = /Macintosh/.test(userAgent) && "ontouchend" in document;
+  return /iPhone|iPad|iPod/.test(userAgent) || touchMac;
+}
+
+function isStandaloneWebApp(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.matchMedia?.("(display-mode: standalone)").matches
+    || window.matchMedia?.("(display-mode: fullscreen)").matches
+    || (typeof navigator !== "undefined" && Boolean((navigator as Navigator & { standalone?: boolean }).standalone));
+}
+
+function getPushSupportReason(): "ok" | "insecure_context" | "unsupported_api" | "ios_home_screen_required" {
   if (typeof window === "undefined") return "unsupported_api";
   if (!isPushSupported()) return "unsupported_api";
   if (!window.isSecureContext) return "insecure_context";
+  if (isAppleMobileDevice() && !isStandaloneWebApp()) return "ios_home_screen_required";
   return "ok";
 }
 

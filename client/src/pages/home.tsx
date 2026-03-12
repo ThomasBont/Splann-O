@@ -4060,8 +4060,8 @@ export default function Home({
                     )}
                     </div>
                   </div>
-                  <nav className="sticky bottom-0 z-20 border-t border-border/60 bg-background/98 px-2.5 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-1.5 backdrop-blur-md lg:hidden">
-                    <div className="grid grid-cols-4 gap-1 rounded-[20px] border border-border/60 bg-[hsl(var(--surface-1))] p-1 shadow-[0_-6px_18px_rgba(15,23,42,0.04)] dark:shadow-[0_-8px_20px_rgba(0,0,0,0.14)]">
+                  <nav className="sticky bottom-0 z-20 border-t border-border/60 bg-background/98 px-2 pb-[max(env(safe-area-inset-bottom),0.35rem)] pt-1 backdrop-blur-md lg:hidden">
+                    <div className="grid grid-cols-4 gap-1 rounded-[20px] border border-border/60 bg-[hsl(var(--surface-1))]/98 p-1.5 shadow-[0_-10px_26px_rgba(15,23,42,0.08)] dark:shadow-[0_-10px_24px_rgba(0,0,0,0.18)]">
                       {[
                         { key: "chat", label: "Chat", icon: MessageCircle, onClick: () => closePanel() },
                         { key: "expenses", label: "Expenses", icon: Receipt, onClick: () => openPanel({ type: "expenses" }) },
@@ -4076,15 +4076,15 @@ export default function Home({
                             type="button"
                             onClick={item.onClick}
                             className={cn(
-                              "flex min-h-[44px] flex-col items-center justify-center gap-0.5 rounded-[16px] px-2 py-1 text-[10px] font-medium transition-colors",
+                              "flex min-h-[44px] flex-col items-center justify-center gap-1 rounded-[16px] px-2 py-1.5 text-[10px] font-medium transition-all duration-200",
                               active
-                                ? "scale-[1.02] bg-primary text-slate-900 shadow-[0_8px_18px_rgba(245,166,35,0.22)]"
+                                ? "scale-[1.01] bg-primary text-slate-900 shadow-[0_10px_22px_rgba(245,166,35,0.22)]"
                                 : "text-muted-foreground active:bg-muted/60",
                             )}
                             aria-current={active ? "page" : undefined}
                           >
-                            <Icon className="h-4 w-4" />
-                            <span>{item.label}</span>
+                            <Icon className={cn("h-4 w-4 transition-transform", active && "scale-105")} />
+                            <span className={cn("leading-none", active && "font-semibold")}>{item.label}</span>
                           </button>
                         );
                       })}

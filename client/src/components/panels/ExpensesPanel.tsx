@@ -157,28 +157,31 @@ function ExpenseListRow({
       className={cn(
         "group w-full cursor-pointer rounded-xl border-b border-[hsl(var(--border-subtle))] px-3 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         "bg-transparent hover:bg-muted/30",
-        isMobile && "px-2.5 py-3",
+        isMobile && "rounded-[18px] border border-border/60 bg-background/80 px-3 py-3 shadow-[0_1px_0_rgba(15,23,42,0.03)]",
       )}
     >
       <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p className="truncate text-[15px] font-medium text-foreground">
             {expense.item || "Expense"}
           </p>
+          {isMobile ? (
+            <p className="mt-1 text-[11px] text-muted-foreground">Paid by {payerName}</p>
+          ) : null}
         </div>
-        <span className="shrink-0 text-lg font-semibold text-foreground">
+        <span className={cn("shrink-0 font-semibold text-foreground", isMobile ? "text-[17px]" : "text-lg")}>
           {formatCurrency(expense.amount, currency)}
         </span>
       </div>
-      <div className="mt-2 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+      <div className={cn("mt-2 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground", isMobile && "mt-1.5")}>
         <Avatar className="h-5 w-5 shrink-0">
           {avatarUrl ? <AvatarImage src={avatarUrl} alt={payerName} /> : null}
           <AvatarFallback className="bg-primary/10 text-[9px] font-semibold text-primary">
             {initials(payerName)}
           </AvatarFallback>
         </Avatar>
-        <span className="truncate">{payerName}</span>
-        <span aria-hidden>·</span>
+        {!isMobile ? <span className="truncate">{payerName}</span> : null}
+        {!isMobile ? <span aria-hidden>·</span> : null}
         <span className="shrink-0">{formatCreated(expense.createdAt ? String(expense.createdAt) : null)}</span>
       </div>
     </button>
@@ -252,11 +255,11 @@ function SettleNowExpenseRow({
         isPaid
           ? "border-emerald-200/80 bg-emerald-50/80 hover:bg-emerald-50 dark:border-emerald-500/25 dark:bg-emerald-500/10"
           : "border-amber-200/80 bg-amber-50/85 hover:bg-amber-50 dark:border-amber-500/25 dark:bg-amber-500/10",
-        isMobile && "px-2.5 py-3",
+        isMobile && "rounded-[20px] px-3 py-3",
       )}
     >
       <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <p className="truncate text-[15px] font-medium text-foreground">{expense.item || "Expense"}</p>
             <span
@@ -270,6 +273,9 @@ function SettleNowExpenseRow({
               {isPaid ? "Paid" : "Awaiting payment"}
             </span>
           </div>
+          {isMobile ? (
+            <p className="mt-1 text-[11px] text-muted-foreground">Paid by {payerName}</p>
+          ) : null}
           <div className="mt-2 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
             <Avatar className="h-5 w-5 shrink-0">
               {avatarUrl ? <AvatarImage src={avatarUrl} alt={payerName} /> : null}
@@ -280,12 +286,12 @@ function SettleNowExpenseRow({
                 {initials(payerName)}
               </AvatarFallback>
             </Avatar>
-            <span className="truncate">{payerName}</span>
-            <span aria-hidden>·</span>
+            {!isMobile ? <span className="truncate">{payerName}</span> : null}
+            {!isMobile ? <span aria-hidden>·</span> : null}
             <span className="shrink-0">{formatCreated(expense.createdAt ? String(expense.createdAt) : null)}</span>
           </div>
         </div>
-        <span className="shrink-0 text-lg font-semibold text-foreground">
+        <span className={cn("shrink-0 font-semibold text-foreground", isMobile ? "text-[17px]" : "text-lg")}>
           {formatCurrency(expense.amount, currency)}
         </span>
       </div>
@@ -296,16 +302,19 @@ function SettleNowExpenseRow({
               {transfers.map((transfer) => {
                 const canPay = !transfer.paidAt && Number(user?.id ?? 0) === transfer.fromUserId;
                 return (
-                  <div key={`settle-now-transfer-${expense.id}-${transfer.id}`} className="flex items-center justify-between gap-3">
-                    <p className="min-w-0 text-xs text-muted-foreground">
-                      <span className="font-medium text-foreground">{transfer.fromName || "Someone"}</span>
-                      {" owes "}
-                      <span className="font-medium text-foreground">{transfer.toName || "Someone"}</span>
-                      {" "}
-                      <span className="font-semibold text-foreground">
+                  <div key={`settle-now-transfer-${expense.id}-${transfer.id}`} className={cn("flex items-center justify-between gap-3", isMobile && "items-start")}>
+                    <div className="min-w-0">
+                      <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Direct payback</p>
+                      <p className="min-w-0 text-xs text-muted-foreground">
+                        <span className="font-medium text-foreground">{transfer.fromName || "Someone"}</span>
+                        {" owes "}
+                        <span className="font-medium text-foreground">{transfer.toName || "Someone"}</span>
+                      </p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="text-sm font-semibold text-foreground">
                         {formatCurrency(Number(transfer.amount || 0), transfer.currency || currency)}
-                      </span>
-                    </p>
+                      </p>
                     {canPay ? (
                       <Button
                         type="button"
@@ -323,6 +332,7 @@ function SettleNowExpenseRow({
                     ) : (
                       <span className="shrink-0 text-[11px] text-muted-foreground">Waiting for payment</span>
                     )}
+                    </div>
                   </div>
                 );
               })}
@@ -645,7 +655,7 @@ export function ExpensesPanel() {
         )}
       />
 
-      <div className={cn("flex-1 space-y-4 overflow-y-auto px-5 py-5", isMobile && "space-y-3 px-3.5 pb-20 pt-3")}>
+      <div className={cn("flex-1 space-y-4 overflow-y-auto px-5 py-5", isMobile && "space-y-3 px-3 pb-[4.5rem] pt-2.5")}>
         {!eventId ? (
           <div className="rounded-2xl border border-dashed border-border/70 bg-card/60 p-4 text-sm text-muted-foreground">
             Open a plan chat to inspect shared money.
@@ -655,7 +665,7 @@ export function ExpensesPanel() {
             {sortedExpenses.length === 0 ? (
               <div className={cn(
                 "rounded-xl border border-dashed border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))]/60 px-4 py-6 text-center",
-                isMobile && "py-5",
+                isMobile && "py-4",
               )}>
                 <p className="text-sm font-medium text-foreground">
                   {isFinanciallyCompleted ? "Plan completed" : isPlanClosed ? "Plan closed" : "No expenses yet"}
@@ -679,13 +689,16 @@ export function ExpensesPanel() {
             ) : null}
 
             {isMobile ? (
-              <section className="sticky top-0 z-10 -mx-0.5 rounded-2xl border border-primary/20 bg-background/95 p-1 backdrop-blur supports-[backdrop-filter]:bg-background/88">
-                <div className="grid grid-cols-2 gap-1.5">
+              <section className="sticky top-0 z-10 -mx-0.5 rounded-[22px] border border-primary/20 bg-background/95 p-1.5 shadow-[0_8px_22px_rgba(15,23,42,0.06)] backdrop-blur supports-[backdrop-filter]:bg-background/88">
+                <div className="mb-1 px-1">
+                  <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Quick actions</p>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
                   {!activeFinalSettlementRound && !isFinanciallyCompleted ? (
                     <Button
                       type="button"
                       variant="outline"
-                      className="h-10.5 rounded-[16px] border-border/70 bg-muted/40 text-sm font-semibold text-foreground hover:bg-muted/70"
+                      className="h-11 rounded-[16px] border-border/70 bg-muted/40 text-sm font-semibold text-foreground hover:bg-muted/70"
                       onClick={() => setConfirmSettleUpOpen(true)}
                       disabled={!canStartSettlement || createSettlement.isPending}
                     >
@@ -693,13 +706,13 @@ export function ExpensesPanel() {
                       Settle Up
                     </Button>
                   ) : (
-                    <div className="h-10.5 rounded-[16px] border border-border/60 bg-muted/30 px-3 text-sm font-medium text-muted-foreground flex items-center justify-center">
+                    <div className="flex h-11 items-center justify-center rounded-[16px] border border-border/60 bg-muted/30 px-3 text-sm font-medium text-muted-foreground">
                       Settlement in progress
                     </div>
                   )}
                   <Button
                     type="button"
-                    className="h-10.5 rounded-[16px] bg-primary text-sm font-semibold text-slate-900 hover:bg-primary/90"
+                    className="h-11 rounded-[16px] bg-primary text-sm font-semibold text-slate-900 shadow-[0_10px_22px_rgba(245,166,35,0.2)] hover:bg-primary/90"
                     onClick={handleAddExpense}
                     disabled={!eventId || expensesLocked}
                   >
@@ -790,7 +803,7 @@ export function ExpensesPanel() {
                         Negative owes · positive gets paid
                       </p>
                     </div>
-                    <div className="space-y-2">
+                    <div className={cn("space-y-2", isMobile && "space-y-2.5")}>
                       {balanceRows.map((entry) => {
                         const member = memberByName.get(entry.name.trim().toLowerCase());
                         const avatarUrl = resolveAssetUrl(member?.avatarUrl ?? null) ?? member?.avatarUrl ?? "";
@@ -871,7 +884,7 @@ export function ExpensesPanel() {
             ) : null}
 
             {sharedExpenses.length > 0 && !isFinanciallyCompleted && (visibleBalanceRows.length > 0 || activeSettlement) ? (
-              <section className={cn("rounded-2xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-3.5 shadow-none", isMobile && "rounded-[18px] p-3")}>
+              <section className={cn("rounded-2xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-3.5 shadow-none", isMobile && "rounded-[20px] p-3.5")}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <p className="text-sm font-semibold text-foreground">
@@ -900,7 +913,7 @@ export function ExpensesPanel() {
                   ) : null}
                 </div>
 
-                <div className="mt-3 space-y-1.5">
+                <div className="mt-3 space-y-2">
                   {(activeSettlement ? settlementTransfers : visibleBalanceRows).map((entry) => {
                     if (activeSettlement) {
                       const transfer = entry as SettlementDetailResponse["transfers"][number];
@@ -911,16 +924,19 @@ export function ExpensesPanel() {
                           key={`expenses-settlement-transfer-${transfer.id}`}
                           className={cn(
                             "rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]/70 px-3 py-2.5",
-                            isMobile && "px-2.5 py-2.5",
+                            isMobile && "px-3 py-3",
                           )}
                         >
-                          <div className="flex items-center justify-between gap-3">
-                            <p className="min-w-0 text-sm text-foreground">
-                              <span className="font-medium">{transfer.fromName || "Someone"}</span>
-                              <span className="text-muted-foreground"> → </span>
-                              <span className="font-medium">{transfer.toName || "Someone"}</span>
-                            </p>
-                            <span className="shrink-0 text-sm font-semibold text-foreground">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Payment</p>
+                              <p className="min-w-0 text-sm text-foreground">
+                                <span className="font-medium">{transfer.fromName || "Someone"}</span>
+                                <span className="text-muted-foreground"> owes </span>
+                                <span className="font-medium">{transfer.toName || "Someone"}</span>
+                              </p>
+                            </div>
+                            <span className="shrink-0 text-base font-semibold text-foreground">
                               {formatCurrency(Number(transfer.amount || 0), transfer.currency || currency)}
                             </span>
                           </div>
@@ -960,27 +976,30 @@ export function ExpensesPanel() {
                         key={`expenses-balance-${suggestion.from}-${suggestion.to}-${suggestion.amount}`}
                         className={cn(
                           "flex items-center justify-between gap-3 rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]/70 px-3 py-2.5",
-                          isMobile && "px-2.5 py-2.5",
+                          isMobile && "px-3 py-3",
                         )}
                       >
-                        <div className="flex min-w-0 items-center gap-2">
-                          <Avatar className="h-6 w-6 shrink-0 border border-background/70">
-                            {debtorAvatarUrl ? <AvatarImage src={debtorAvatarUrl} alt={suggestion.from} /> : null}
-                            <AvatarFallback className="bg-muted text-[9px] font-semibold text-foreground">
-                              {initials(suggestion.from)}
-                            </AvatarFallback>
-                          </Avatar>
-                          <span className="min-w-0 truncate text-sm font-medium text-foreground">{suggestion.from}</span>
-                          <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                          <Avatar className="h-6 w-6 shrink-0 border border-background/70">
-                            {creditorAvatarUrl ? <AvatarImage src={creditorAvatarUrl} alt={suggestion.to} /> : null}
-                            <AvatarFallback className="bg-muted text-[9px] font-semibold text-foreground">
-                              {initials(suggestion.to)}
-                            </AvatarFallback>
-                          </Avatar>
-                          <span className="min-w-0 truncate text-sm font-medium text-foreground">{suggestion.to}</span>
+                        <div className="min-w-0">
+                          <p className="text-[11px] uppercase tracking-wide text-muted-foreground">Suggested payment</p>
+                          <div className="mt-1 flex min-w-0 items-center gap-2">
+                            <Avatar className="h-6 w-6 shrink-0 border border-background/70">
+                              {debtorAvatarUrl ? <AvatarImage src={debtorAvatarUrl} alt={suggestion.from} /> : null}
+                              <AvatarFallback className="bg-muted text-[9px] font-semibold text-foreground">
+                                {initials(suggestion.from)}
+                              </AvatarFallback>
+                            </Avatar>
+                            <span className="min-w-0 truncate text-sm font-medium text-foreground">{suggestion.from}</span>
+                            <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                            <Avatar className="h-6 w-6 shrink-0 border border-background/70">
+                              {creditorAvatarUrl ? <AvatarImage src={creditorAvatarUrl} alt={suggestion.to} /> : null}
+                              <AvatarFallback className="bg-muted text-[9px] font-semibold text-foreground">
+                                {initials(suggestion.to)}
+                              </AvatarFallback>
+                            </Avatar>
+                            <span className="min-w-0 truncate text-sm font-medium text-foreground">{suggestion.to}</span>
+                          </div>
                         </div>
-                        <span className="shrink-0 text-sm font-semibold text-foreground">
+                        <span className="shrink-0 text-base font-semibold text-foreground">
                           {formatCurrency(Number(suggestion.amount) || 0, currency)}
                         </span>
                       </div>
@@ -1006,7 +1025,7 @@ export function ExpensesPanel() {
             ) : null}
 
             {sharedGroupExpenses.length > 0 ? (
-              <section className={cn("rounded-2xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-3.5 shadow-none", isMobile && "rounded-[18px] p-3")}>
+              <section className={cn("rounded-2xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-3.5 shadow-none", isMobile && "rounded-[20px] p-3.5")}>
                 <div className={cn("space-y-1", isMobile && "space-y-0.5")}>
                   <h3 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     Shared Group Expenses
@@ -1026,7 +1045,7 @@ export function ExpensesPanel() {
             ) : null}
 
             {settleNowExpenses.length > 0 ? (
-              <section className={cn("rounded-2xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-3.5 shadow-none", isMobile && "rounded-[18px] p-3")}>
+              <section className={cn("rounded-2xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-3.5 shadow-none", isMobile && "rounded-[20px] p-3.5")}>
                 <div className={cn("space-y-2", isMobile && "space-y-1.5")}>
                   <h3 className="px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     Settle Now Expenses

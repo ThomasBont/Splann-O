@@ -1286,19 +1286,21 @@ export function ChatSidebar({
         className="relative min-h-0 flex-1 overflow-y-auto overflow-x-hidden bg-[hsl(var(--surface-0))]"
         style={{
           WebkitOverflowScrolling: "touch",
+          overscrollBehaviorY: "contain",
+          scrollPaddingBottom: isMobile ? "1rem" : "1.5rem",
           background: `${chatPatternStyle.backgroundImage} 0 0 / 184px 184px repeat, var(--chat-pattern-bg)`,
         }}
       >
         <div
           className={cn(
             "mx-auto flex min-h-full w-full",
-            isMobile ? "py-2" : "py-4 sm:py-6",
+            isMobile ? "py-1.5" : "py-4 sm:py-6",
             isAnyPanelOpen
-              ? (isMobile ? "max-w-full px-2.5" : "max-w-3xl px-6 sm:px-8 lg:px-10")
-              : (isMobile ? "max-w-full px-2.5" : "max-w-[1040px] px-4 sm:px-8"),
+              ? (isMobile ? "max-w-full px-2" : "max-w-3xl px-6 sm:px-8 lg:px-10")
+              : (isMobile ? "max-w-full px-2" : "max-w-[1040px] px-4 sm:px-8"),
           )}
         >
-        <div className={cn("flex min-h-full w-full flex-col justify-end", isMobile ? "gap-1" : "gap-2")}>
+        <div className={cn("flex min-h-full w-full flex-col justify-end", isMobile ? "gap-0.5" : "gap-2")}>
         {hasMoreHistory ? (
           <div className="flex justify-center pb-1">
             <Button
@@ -1506,7 +1508,7 @@ export function ChatSidebar({
                   className="absolute left-0 top-0 w-full"
                   style={{ transform: `translateY(${virtualRow.start}px)` }}
                 >
-                  <div className={cn(isMobile ? "mb-3.5" : "mb-5")}>
+                  <div className={cn(isMobile ? "mb-3" : "mb-5")}>
                     {showDateSeparator ? (
                       <div className={cn("flex justify-center", isMobile ? "my-1.5" : "my-2")}>
                         <span className={cn("self-center rounded-full border border-border/70 bg-muted/60 text-muted-foreground", isMobile ? "px-2.5 py-0.5 text-[11px]" : "px-3 py-1 text-xs")}>
@@ -1514,20 +1516,20 @@ export function ChatSidebar({
                         </span>
                       </div>
                     ) : null}
-                    <div className={cn("flex items-start", isMobile ? "mt-1.5" : "mt-4", mine ? "justify-end" : "justify-start gap-2 sm:gap-3")}>
+                    <div className={cn("flex items-start", isMobile ? "mt-1" : "mt-4", mine ? "justify-end" : "justify-start gap-2 sm:gap-3")}>
                       {!mine ? (
-                        <div className={cn("shrink-0 pt-0.5", isMobile ? "w-6" : "w-8")}>
+                        <div className={cn("shrink-0 pt-0.5", isMobile ? "w-[1.375rem]" : "w-8")}>
                           {senderAvatar ? (
-                            <img src={senderAvatar} alt="" className={cn("rounded-full border border-border/70 object-cover", isMobile ? "h-5.5 w-5.5" : "h-7 w-7")} />
+                            <img src={senderAvatar} alt="" className={cn("rounded-full border border-border/70 object-cover", isMobile ? "h-5 w-5" : "h-7 w-7")} />
                           ) : (
-                            <span className={cn("grid place-items-center rounded-full border border-border/70 bg-card font-semibold text-muted-foreground", isMobile ? "h-5.5 w-5.5 text-[8px]" : "h-7 w-7 text-[10px]")}>
+                            <span className={cn("grid place-items-center rounded-full border border-border/70 bg-card font-semibold text-muted-foreground", isMobile ? "h-5 w-5 text-[8px]" : "h-7 w-7 text-[10px]")}>
                               {getInitials(senderName)}
                             </span>
                           )}
                         </div>
                       ) : null}
-                      <div className={cn("flex flex-col", mine ? (isMobile ? "max-w-[90%] items-end" : "max-w-[88%] items-end sm:max-w-[80%]") : (isMobile ? "max-w-[90%] items-start" : "max-w-[88%] items-start sm:max-w-[80%]"))}>
-                        <div className={cn("mb-1 px-1 text-muted-foreground", isMobile ? "text-[10px]" : "text-xs", mine ? "text-right" : "")}>
+                      <div className={cn("flex flex-col", mine ? (isMobile ? "max-w-[88%] items-end" : "max-w-[88%] items-end sm:max-w-[80%]") : (isMobile ? "max-w-[88%] items-start" : "max-w-[88%] items-start sm:max-w-[80%]"))}>
+                        <div className={cn("mb-0.5 px-1 text-muted-foreground", isMobile ? "text-[10px]" : "text-xs", mine ? "text-right" : "")}>
                           <span className="font-medium text-foreground">{mine ? "You" : senderName}</span>
                           <span className="px-1.5 text-muted-foreground/70">·</span>
                           <span>{formatMessageTime(firstMsg.createdAt)}</span>
@@ -1540,7 +1542,7 @@ export function ChatSidebar({
                                 groupHasOnlyImageAttachments
                                   ? "bg-transparent p-0 shadow-none"
                                   : isMobile
-                                  ? "px-3 py-2"
+                                  ? "px-3 py-2.5"
                                   : "px-4 py-2",
                                 groupHasOnlyImageAttachments
                                   ? "border-0 text-foreground"
@@ -1796,7 +1798,7 @@ export function ChatSidebar({
           }}
           className={cn(
             "absolute left-1/2 z-20 -translate-x-1/2 rounded-full border border-border/60 bg-background/90 text-foreground shadow-md backdrop-blur-md transition hover:bg-background",
-            isMobile ? "bottom-24 px-3 py-1 text-[12px]" : "bottom-24 px-4 py-2 text-sm",
+            isMobile ? "bottom-[5.25rem] px-3 py-1 text-[12px]" : "bottom-24 px-4 py-2 text-sm",
           )}
         >
           {unseenCount > 1 ? `${unseenCount} new messages ↓` : "New messages ↓"}
@@ -1806,11 +1808,11 @@ export function ChatSidebar({
       <div className={cn(
         "shrink-0 border-t border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))]",
         isMobile
-          ? "px-2.5 py-1.5 pb-[max(env(safe-area-inset-bottom),0.5rem)] shadow-[0_-10px_24px_rgba(0,0,0,0.24)]"
+          ? "px-2 py-0.5 pb-[max(env(safe-area-inset-bottom),0.35rem)] shadow-[0_-10px_24px_rgba(0,0,0,0.24)]"
           : "px-6 py-1",
       )}>
         {expenseSuggestion ? (
-          <div className={cn("mb-2 flex gap-2", isMobile ? "flex-col items-start" : "items-center justify-between")}>
+          <div className={cn("mb-2 flex gap-2", isMobile ? "flex-col items-start gap-1.5" : "items-center justify-between")}>
             <div className="flex flex-wrap items-center gap-1.5">
               {expenseSuggestion.amount ? (
                 <span className="rounded-full border border-border/70 bg-muted/60 px-2 py-1 text-xs text-muted-foreground">
@@ -1862,7 +1864,7 @@ export function ChatSidebar({
         {!isLocked && normalizedPlanStatus === "settled" ? (
           <div className={cn(
             "mb-2 rounded-2xl border border-emerald-200/80 bg-emerald-50/80 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-200",
-            isMobile && "mb-1.5",
+            isMobile && "mb-1.5 px-2.5 py-1.5 text-[11px] leading-4",
           )}>
             Plan completed 🎉 All balances are settled. Chat stays open until {wrapUpEndsLabel ?? "soon"}.
           </div>
@@ -1870,7 +1872,7 @@ export function ChatSidebar({
         {isLocked ? (
           <div className={cn(
             "border-t border-border/50 bg-muted/30 px-4 py-4 text-center",
-            isMobile && "px-3 py-3",
+            isMobile && "px-3 py-2.5",
           )}>
             <div className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background px-3 py-1.5">
               <span className="h-2 w-2 rounded-full bg-emerald-500" />
@@ -1896,11 +1898,11 @@ export function ChatSidebar({
             </p>
           </div>
         ) : (
-          <div className={cn("flex items-end gap-2", isMobile ? "pb-0.5" : "items-center")}>
+          <div className={cn("flex items-end gap-2", isMobile ? "gap-2 pb-0" : "items-center")}>
             <div
               className={cn(
-                "flex flex-1 flex-col rounded-2xl border border-border/70 bg-background",
-                isMobile ? "min-h-10 shadow-sm" : "min-h-10",
+                "flex flex-1 flex-col rounded-[1.35rem] border border-border/70 bg-background",
+                isMobile ? "min-h-[2.75rem] shadow-sm" : "min-h-10",
               )}
             >
             {replyingTo ? (
@@ -1977,10 +1979,10 @@ export function ChatSidebar({
                 </button>
               </div>
             ) : null}
-            <div
+              <div
               className={cn(
                 "flex items-center gap-2",
-                isMobile ? "max-h-[132px] px-3 py-1.5" : "max-h-[132px] px-4 py-1.5",
+                isMobile ? "max-h-[132px] px-2.5 py-1.5" : "max-h-[132px] px-4 py-1.5",
               )}
                 onMouseDown={(e) => {
                   e.preventDefault();
@@ -1999,7 +2001,7 @@ export function ChatSidebar({
                           variant="ghost"
                           className={cn(
                             "shrink-0 rounded-full text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground active:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0",
-                            isMobile ? "h-8 w-8" : "h-8 w-8",
+                            isMobile ? "h-11 w-11" : "h-8 w-8",
                           )}
                           aria-label="Add attachment"
                           disabled={!hasEventId}
@@ -2063,7 +2065,7 @@ export function ChatSidebar({
                 placeholder="Message…"
                 className={cn(
                   "pointer-events-auto w-full resize-none overflow-y-auto bg-transparent text-[16px] leading-normal text-foreground caret-primary outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:text-muted-foreground/70",
-                  isMobile ? "min-h-[22px] max-h-[104px] py-0 leading-[1.35]" : "min-h-[20px] max-h-[104px] py-0.5 md:text-sm",
+                  isMobile ? "min-h-[28px] max-h-[104px] py-1 leading-[1.4]" : "min-h-[20px] max-h-[104px] py-0.5 md:text-sm",
                 )}
                 rows={1}
                 onKeyDown={(e) => {
@@ -2080,7 +2082,7 @@ export function ChatSidebar({
               size="icon"
               className={cn(
                 "shrink-0 rounded-full bg-primary text-slate-900 hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground",
-                isMobile ? "h-10 w-10" : "h-10 w-10",
+                isMobile ? "h-11 w-11" : "h-10 w-10",
               )}
               onClick={() => void handleSubmit()}
               disabled={sending || (!draft.trim() && !pendingAttachment) || !eventId}

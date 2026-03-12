@@ -1,0 +1,23 @@
+{
+  "id": "/",
+  "name": "Splann-O",
+  "short_name": "Splann-O",
+  "description": "Plan trips, parties and events with friends. Track shared expenses and settle up easily.",
+  "start_url": "/app/private",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f8f4ea",
+  "theme_color": "#f5cf59",
+  "icons": [
+    {
+      "src": "/branding/splanno-icon-light.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/branding/splanno-icon-light.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

@@ -116,36 +116,36 @@ export function EventHeader({
         className={cnTheme(theme, "strip") + " h-0.5 w-full opacity-50"}
         aria-hidden
       />
-      <div className="px-4 py-3 sm:px-5 sm:py-4">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="px-3 py-2.5 sm:px-5 sm:py-4">
+        <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           {/* Left: theme badge + title + meta */}
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-3">
+            <div className="flex items-start gap-2.5 sm:items-center sm:gap-3">
               {/* Theme badge — accent at ~10–15% opacity */}
               <div
-                className={cnTheme(theme, "badge") + " flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--radius-md)] text-lg transition-smooth"}
+                className={cnTheme(theme, "badge") + " flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-md)] text-base transition-smooth sm:h-9 sm:w-9 sm:text-lg"}
                 aria-hidden
               >
                 {theme.icon}
               </div>
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h1 className="text-base sm:text-lg font-semibold text-foreground truncate">
+                <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                  <h1 className="truncate text-[15px] font-semibold text-foreground sm:text-lg">
                     {title}
                   </h1>
                   <EventCategoryBadge category={themeCategoryKey} compact />
                   {showStatusPill && <StatusPill status={eventStatus} />}
                 </div>
-                <p className="text-xs text-muted-foreground mt-0.5">
+                <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-muted-foreground sm:line-clamp-1 sm:text-xs">
                   {subtitleParts.join(" · ")}
                 </p>
                 {locationDisplay && onOpenInMaps && (
-                  <div className="mt-1.5">
+                  <div className="mt-1">
                     <Button
                       type="button"
                       size="sm"
                       variant="outline"
-                      className="h-7 px-2 text-[11px]"
+                      className="h-[26px] px-2 text-[10px] sm:h-7 sm:text-[11px]"
                       onClick={onOpenInMaps}
                       aria-label="Open location in Maps"
                     >
@@ -158,15 +158,15 @@ export function EventHeader({
             </div>
           </div>
           {/* Right: primary actions + overflow */}
-          <div className="md:hidden flex items-center gap-2 flex-shrink-0 flex-wrap">
+          <div className="flex items-center gap-1.5 md:hidden md:flex-shrink-0 md:flex-wrap">
             {showAddExpenseAction && (
               <Button
                 size="sm"
                 onClick={onAddExpense}
-                className="btn-interact h-8 bg-primary text-primary-foreground text-xs font-medium px-3"
+                className="btn-interact h-[30px] bg-primary px-3 text-[11px] font-medium text-primary-foreground"
                 data-testid="button-add-expense-header-mobile"
               >
-                <Plus className="w-3.5 h-3.5 mr-1.5" />
+                <Plus className="mr-1.5 h-3.5 w-3.5" />
                 {addExpenseLabel}
               </Button>
             )}
@@ -174,16 +174,16 @@ export function EventHeader({
               <Button
                 size="sm"
                 variant="outline"
-                className="h-8 text-xs"
+                className="h-[30px] px-2.5 text-[11px]"
                 onClick={onShare}
               >
-                <Link2 className="w-3.5 h-3.5 mr-1.5" />
+                <Link2 className="mr-1.5 h-3.5 w-3.5" />
                 Share
               </Button>
             )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="outline" className="h-8 w-8 p-0" aria-label="More actions">
+                <Button size="sm" variant="outline" className="h-[30px] w-[30px] p-0" aria-label="More actions">
                   <MoreHorizontal className="w-4 h-4" />
                 </Button>
               </DropdownMenuTrigger>

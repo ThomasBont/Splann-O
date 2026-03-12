@@ -63,8 +63,8 @@ export function PanelHeader({
     : { label: "Overview", panel: { type: "overview" } as const };
 
   return (
-    <div className={cn("rounded-t-[inherit] border-b border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] px-5 py-5", isMobile && "px-4 py-3.5")}>
-      <div className={cn("flex items-center justify-between gap-4", isMobile && "gap-3")}>
+    <div className={cn("rounded-t-[inherit] border-b border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] px-5 py-5", isMobile && "px-3.5 py-2.5")}>
+      <div className={cn("flex items-center justify-between gap-4", isMobile && "gap-2.5")}>
         <div className="min-w-0">
           {showBackButton ? (
             <button
@@ -87,7 +87,7 @@ export function PanelHeader({
             size="icon"
             className={cn(
               "h-9 w-9 shrink-0 rounded-md transition hover:bg-[hsl(var(--surface-2))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              isMobile && "h-8 w-8 rounded-full",
+              isMobile && "h-[30px] w-[30px] rounded-full",
             )}
             onClick={closePanel}
             aria-label="Close panel"
@@ -96,13 +96,13 @@ export function PanelHeader({
           </Button>
         </div>
       </div>
-      <div className={cn("min-w-0", showBackButton ? (isMobile ? "mt-2" : "mt-3") : "mt-0")}>
+      <div className={cn("min-w-0", showBackButton ? (isMobile ? "mt-1.5" : "mt-3") : "mt-0")}>
         {label ? (
           <p className={cn("text-[11px] font-medium uppercase tracking-[0.22em] text-muted-foreground", isMobile && "text-[10px] tracking-[0.18em]")}>{label}</p>
         ) : null}
-        <h2 className={cn("truncate text-xl font-semibold tracking-tight text-foreground", isMobile ? "text-lg" : "text-xl", label ? "mt-1" : "mt-0")}>{title}</h2>
+        <h2 className={cn("truncate text-xl font-semibold tracking-tight text-foreground", isMobile ? "text-[17px]" : "text-xl", label ? "mt-0.5" : "mt-0")}>{title}</h2>
         {meta ? (
-          <div className={cn("mt-3 flex flex-col gap-1.5 text-sm text-muted-foreground", isMobile && "mt-2 gap-1 text-[13px]")}>
+          <div className={cn("mt-3 flex flex-col gap-1.5 text-sm text-muted-foreground", isMobile && "mt-1.5 gap-0.5 text-[12px] leading-[1.15rem]")}>
             {meta}
           </div>
         ) : null}

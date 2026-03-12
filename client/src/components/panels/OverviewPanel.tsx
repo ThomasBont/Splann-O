@@ -597,7 +597,7 @@ export function OverviewPanel() {
 
   return (
     <PanelShell>
-      <div className={cn("flex items-center justify-between gap-4 rounded-t-[inherit] border-b border-neutral-200 bg-neutral-50 px-6 py-4 dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-1))]", isMobile && "px-3.5 py-2.5")}>
+      <div className={cn("flex items-center justify-between gap-4 rounded-t-[inherit] border-b border-neutral-200 bg-neutral-50 px-6 py-4 dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-1))]", isMobile && "px-3 py-2")}>
         <p className={cn("font-semibold tracking-tight text-foreground", isMobile ? "text-lg" : "text-xl")}>Overview</p>
         <Button
           type="button"
@@ -614,7 +614,7 @@ export function OverviewPanel() {
         </Button>
       </div>
 
-      <div className={cn("flex-1 space-y-4 overflow-y-auto px-5 py-5", isMobile && "space-y-3 px-3.5 pb-20 pt-3")}>
+      <div className={cn("flex-1 space-y-4 overflow-y-auto px-5 py-5", isMobile && "space-y-2.5 px-3 pb-[4.5rem] pt-2.5")}>
         {!eventId ? (
           <div className="rounded-2xl border border-dashed border-border/70 bg-card/60 p-4 text-sm text-muted-foreground">
             Open a plan chat to see its overview.

@@ -1094,9 +1094,13 @@ export default function AppRoute() {
 
   useEffect(() => {
     if (typeof document === "undefined") return;
+    if (!isSidebarOpen) {
+      document.body.style.overflow = "";
+      return;
+    }
+
     const prev = document.body.style.overflow;
-    if (isSidebarOpen) document.body.style.overflow = "hidden";
-    else document.body.style.overflow = prev || "";
+    document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = prev;
     };
@@ -1276,7 +1280,10 @@ export default function AppRoute() {
   };
 
   const mainContent = (
-    <div className="h-screen bg-background lg:flex lg:bg-primary/10 overflow-hidden">
+    <div className={section === "event"
+      ? "h-screen overflow-hidden bg-background lg:flex lg:bg-primary/10"
+      : "min-h-screen bg-background lg:flex lg:h-screen lg:overflow-hidden lg:bg-primary/10"}
+    >
         <header className="sticky top-0 z-30 h-12 border-b border-border/60 bg-background/92 shadow-[0_6px_18px_rgba(15,23,42,0.05)] backdrop-blur-md supports-[backdrop-filter]:bg-background/80 md:hidden">
           <div className="flex h-full items-center justify-between gap-2 px-2.5">
             <Button
@@ -1597,7 +1604,7 @@ export default function AppRoute() {
           onOpenAccount={handleOpenAccount}
           onOpenSettings={handleOpenAccountSettings}
         />
-        <main className={`min-w-0 flex-1 ${section === "event" ? "overflow-hidden" : "min-h-0 overflow-y-auto"}`}>
+        <main className={`min-w-0 flex-1 ${section === "event" ? "overflow-hidden" : "min-h-0 overflow-y-auto overscroll-y-contain"}`}>
           {section === "home" && <AppDashboardHome onCreatePlan={handleOpenNewPlan} />}
           {section === "private" && (
             devDisable.homeEffects

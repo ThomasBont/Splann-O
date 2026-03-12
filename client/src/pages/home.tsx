@@ -5696,7 +5696,7 @@ export default function Home({
             </EventThemeProvider>
           );
         })() : appRouteMode === "private" ? (
-          <div className="mx-auto h-full min-h-0 w-full max-w-[1400px] px-4 py-6 sm:px-6 lg:px-10">
+          <div className="mx-auto min-h-full w-full max-w-[1400px] px-4 py-6 pb-10 sm:px-6 lg:px-10">
             <div className="mb-6">
               <div>
                 <h2 className="text-3xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">

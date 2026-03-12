@@ -9,6 +9,7 @@ import { bbqRepo } from "../repositories/bbqRepo";
 import { db } from "../db";
 import { broadcastEventRealtime } from "../lib/eventRealtime";
 import { logPlanActivity } from "../lib/planActivity";
+import { sendPushToUser } from "../lib/webPush";
 import { badRequest, conflict, forbidden, gone, notFound, unauthorized } from "../lib/errors";
 import { assertMembersWritable, asyncHandler, listPendingPlanInvitesForUser } from "./_helpers";
 
@@ -101,6 +102,14 @@ router.post("/plans/invites/:inviteId/accept", requireAuth, asyncHandler(async (
   });
 
   const event = await bbqRepo.getById(invite.eventId);
+  if (event?.creatorUserId && event.creatorUserId !== userId) {
+    await sendPushToUser(
+      event.creatorUserId,
+      "Plan invite accepted",
+      `${me.displayName || me.username} joined ${event.name}.`,
+      `/app/e/${invite.eventId}`,
+    );
+  }
   res.json({
     inviteId: invite.id,
     eventId: invite.eventId,

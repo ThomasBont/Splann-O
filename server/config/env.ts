@@ -47,6 +47,18 @@ export function resolveBaseUrl(fallback = ""): string {
   return `http://localhost:${process.env.PORT || 5001}`;
 }
 
+export function resolveVapidPublicKey(): string {
+  return getOptional("VAPID_PUBLIC_KEY", "");
+}
+
+export function resolveVapidPrivateKey(): string {
+  return getOptional("VAPID_PRIVATE_KEY", "");
+}
+
+export function resolveVapidSubject(): string {
+  return getOptional("VAPID_SUBJECT", "mailto:noreply@splanno.local");
+}
+
 /** Validate and export config. In production, DATABASE_URL and SESSION_SECRET are required. */
 export function loadConfig() {
   const isProd = process.env.NODE_ENV === "production";
@@ -64,6 +76,9 @@ export function loadConfig() {
     freeMaxParticipants: getOptionalInt("FREE_MAX_PARTICIPANTS", 10),
     frontendOrigin: getOptional("FRONTEND_ORIGIN", ""),
     baseUrl: resolveBaseUrl(),
+    vapidPublicKey: resolveVapidPublicKey(),
+    vapidPrivateKey: resolveVapidPrivateKey(),
+    vapidSubject: resolveVapidSubject(),
     adminUsernames: (process.env.ADMIN_USERNAMES ?? "")
       .split(",")
       .map((s) => s.trim().toLowerCase())

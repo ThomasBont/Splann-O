@@ -29,6 +29,7 @@ import { reconcileStripeSettlementCheckout } from "../lib/stripeCheckoutReconcil
 import { createStripeCheckoutSession } from "../lib/stripe";
 import { retrieveStripeCheckoutSession } from "../lib/stripe";
 import { log } from "../lib/logger";
+import { sendPushToUser } from "../lib/webPush";
 import { auditLog, auditSecurity } from "../lib/audit";
 import { badRequest, forbidden, notFound, unauthorized, upgradeRequired } from "../lib/errors";
 import {
@@ -984,6 +985,16 @@ router.post("/barbecues/:id/settle-up", requireAuth, asyncHandler(async (req, re
     }
   }
   await bbqRepo.createEventNotificationsBatch(notifications);
+  await Promise.allSettled(
+    notifications.map((notification) =>
+      sendPushToUser(
+        notification.userId,
+        `${creatorName} started settle up`,
+        `${bbq.name}: you have a new payment request.`,
+        `/app/e/${id}`,
+      ),
+    ),
+  );
   const now = new Date();
   const settleSnapshot = { total, expenseCount: expensesList.length, at: now.toISOString() };
   const currentTemplate = (bbq.templateData as Record<string, unknown>) || {};

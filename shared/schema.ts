@@ -162,6 +162,17 @@ export const eventNotifications = pgTable("event_notifications", {
   readAt: timestamp("read_at"),
 });
 
+export const pushSubscriptions = pgTable("push_subscriptions", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  endpoint: text("endpoint").notNull().unique(),
+  p256dh: text("p256dh").notNull(),
+  auth: text("auth").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (table) => ({
+  userIdIdx: index("push_subscriptions_user_id_idx").on(table.userId),
+}));
+
 export const participants = pgTable("participants", {
   id: serial("id").primaryKey(),
   barbecueId: integer("barbecue_id").references(() => barbecues.id, { onDelete: 'cascade' }).notNull(),
@@ -426,6 +437,7 @@ export type PlanActivity = typeof planActivity.$inferSelect;
 export type EventChatMessageRow = typeof eventChatMessages.$inferSelect;
 export type EventSettlementRound = typeof eventSettlementRounds.$inferSelect;
 export type EventSettlementTransfer = typeof eventSettlementTransfers.$inferSelect;
+export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
 export type Poll = typeof polls.$inferSelect;
 export type PollOption = typeof pollOptions.$inferSelect;
 export type PollVote = typeof pollVotes.$inferSelect;

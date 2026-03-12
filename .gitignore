@@ -31,3 +31,8 @@ vite.config.ts.*
 # Claude worktrees
 .claude/worktrees/
 public/uploads/
+
+*.pem
+*.key
+.replit
+CLAUDE.md

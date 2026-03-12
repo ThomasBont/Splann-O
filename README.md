@@ -1,3 +1,5 @@
+Splann-O is a collaborative planning and expense platform for shared events, trips and group activities.
+
 # Splanno
 
 **Chat-first planning with shared expenses.**

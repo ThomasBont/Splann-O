@@ -6,6 +6,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/use-auth";
 import { useAppToast } from "@/hooks/use-app-toast";
+import { useCheckoutSettlementTransfer } from "@/hooks/use-bbq-data";
 import { usePlan, usePlanCrew, usePlanExpenses } from "@/hooks/use-plan-data";
 import { computeSplit } from "@/lib/split/calc";
 import { usePanel } from "@/state/panel";
@@ -117,6 +118,7 @@ export function SettlementPanel({ settlementId, createMode }: { settlementId?: s
   const { user } = useAuth();
   const { toastError, toastSuccess } = useAppToast();
   const { replacePanel } = usePanel();
+  const checkoutTransfer = useCheckoutSettlementTransfer();
   const [draftMode, setDraftMode] = useState<"direct-split" | "balance-settlement">(createMode ?? "direct-split");
   const [splitTitle, setSplitTitle] = useState("");
   const [splitAmount, setSplitAmount] = useState("");
@@ -247,6 +249,26 @@ export function SettlementPanel({ settlementId, createMode }: { settlementId?: s
     if (paidByParticipantId == null) return;
     setSplitWithParticipantIds((current) => current.filter((id) => id !== paidByParticipantId));
   }, [paidByParticipantId]);
+
+  const handleDirectPay = async (settlementRoundId: string, transferId: string) => {
+    try {
+      if (!eventId) throw new Error("Event not found");
+      const result = await checkoutTransfer.mutateAsync({ eventId, transferId });
+      if (!result.checkoutUrl) throw new Error("Payment URL missing");
+      window.location.assign(result.checkoutUrl);
+    } catch (error) {
+      const err = error as Error & { code?: string };
+      if (err.code === "only_payer_can_pay") {
+        toastError("Only the person who owes can start this payment.");
+        return;
+      }
+      if (err.code === "transfer_paid") {
+        toastError("This payment is already completed.");
+        return;
+      }
+      toastError(err.message || "Unable to start payment");
+    }
+  };
 
   const startManualSettlement = useMutation({
     mutationFn: async ({
@@ -524,6 +546,9 @@ export function SettlementPanel({ settlementId, createMode }: { settlementId?: s
                       const canMarkPaid = selectedSettlement.status === "active"
                         && currentUserId > 0
                         && (currentUserId === transfer.fromUserId || currentUserId === transfer.toUserId);
+                      const canPayDirect = selectedSettlement.status === "active"
+                        && currentUserId > 0
+                        && currentUserId === transfer.fromUserId;
                       return (
                         <div key={`settlement-transfer-${transfer.id}`} className="rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))]/80 px-3 py-3">
                           <div className="flex items-start justify-between gap-3">
@@ -547,6 +572,22 @@ export function SettlementPanel({ settlementId, createMode }: { settlementId?: s
                                 <CheckCircle2 className="h-3.5 w-3.5" />
                                 Paid
                               </span>
+                            ) : selectedSettlement.roundType === "direct_split" ? (
+                              canPayDirect ? (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => void handleDirectPay(transfer.settlementId, transfer.id)}
+                                  disabled={checkoutTransfer.isPending || isSettlementComplete}
+                                >
+                                  Pay
+                                </Button>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">
+                                  {selectedSettlement.status === "active" ? "Waiting for payment from the person who owes." : "Completed rounds are read-only."}
+                                </span>
+                              )
                             ) : canMarkPaid ? (
                               <Button
                                 type="button"

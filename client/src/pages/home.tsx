@@ -13,7 +13,7 @@ import {
 } from "@/hooks/use-participants";
 import { useDeleteExpense, useExpenseShares, useRealtimePlanBalances, useSetExpenseShare } from "@/hooks/use-expenses";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { useBarbecues, useCreateBarbecue, useDeleteBarbecue, useUpdateBarbecue, useEnsureInviteToken, useSettleUp, useCheckoutPublicListing, useDeactivateListing, useExploreEvents, usePublicEventRsvpRequests, useUpdatePublicEventRsvpRequest, useConversations, useConversation, useSendConversationMessage, useUpdateConversationStatus, useUploadEventBanner, useDeleteEventBanner, useNotifications, useAcceptPlanInvite, useDeclinePlanInvite, useAcceptFriendRequestNotification, useDeclineFriendRequestNotification, useLeaveBarbecue, type BarbecueListItem, type ExploreEvent } from "@/hooks/use-bbq-data";
+import { useBarbecues, useCreateBarbecue, useDeleteBarbecue, useUpdateBarbecue, useEnsureInviteToken, useSettleUp, useCheckoutPublicListing, useConfirmCheckoutSession, useDeactivateListing, useExploreEvents, usePublicEventRsvpRequests, useUpdatePublicEventRsvpRequest, useConversations, useConversation, useSendConversationMessage, useUpdateConversationStatus, useUploadEventBanner, useDeleteEventBanner, useNotifications, useAcceptPlanInvite, useDeclinePlanInvite, useAcceptFriendRequestNotification, useDeclineFriendRequestNotification, useLeaveBarbecue, type BarbecueListItem, type ExploreEvent } from "@/hooks/use-bbq-data";
 import { useQueryClient } from "@tanstack/react-query";
 import { useFriends, useFriendRequests, useAllPendingRequests, useAcceptFriendRequest, useRemoveFriend, useSearchUsers, useSendFriendRequest } from "@/hooks/use-friends";
 import { Button } from "@/components/ui/button";
@@ -130,6 +130,8 @@ import {
 } from "@/lib/event-types";
 import { buildWhatsAppShareUrl } from "@/lib/share-message";
 import { buildInviteUrl, generateInviteMessage } from "@/lib/invite-share";
+import { formatFullDate, formatPlanDateRange } from "@/lib/dates";
+import { getPlanWrapUpEndsAt } from "@/lib/plan-lifecycle";
 import type { InviteAuthContext } from "@/lib/invite-context";
 import { copyText } from "@/lib/copy-text";
 import { buildIcs, downloadIcs, inferEventDateRange } from "@/lib/calendar-ics";
@@ -1129,6 +1131,8 @@ export default function Home({
   const [discoverOpen, setDiscoverOpen] = useState(false);
   const prevPendingCountRef = useRef(allPendingRequests.length);
   const queryClient = useQueryClient();
+  const confirmCheckoutSession = useConfirmCheckoutSession();
+  const handledPaymentSessionRef = useRef<string | null>(null);
   const [showSettledConfetti, setShowSettledConfetti] = useState(false);
   const settledCelebrationShownRef = useRef<number | null>(null);
   const publicSplitGuardedEventRef = useRef<number | null>(null);
@@ -1319,6 +1323,81 @@ export default function Home({
     url.searchParams.delete("session_id");
     window.history.replaceState({}, "", url.toString());
   }, [queryClient, toast]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    const payment = url.searchParams.get("payment");
+    const sessionId = url.searchParams.get("session_id");
+    const eventIdParam = Number(url.searchParams.get("eventId"));
+    if (!payment) return;
+
+    const clearPaymentParams = () => {
+      url.searchParams.delete("payment");
+      url.searchParams.delete("session_id");
+      window.history.replaceState({}, "", url.toString());
+    };
+
+    if (payment === "cancel") {
+      toastWarning("Payment cancelled");
+      clearPaymentParams();
+      return;
+    }
+
+    if (payment !== "success" || !sessionId) {
+      clearPaymentParams();
+      return;
+    }
+
+    if (handledPaymentSessionRef.current === sessionId) {
+      clearPaymentParams();
+      return;
+    }
+    handledPaymentSessionRef.current = sessionId;
+    clearPaymentParams();
+
+    let cancelled = false;
+    void confirmCheckoutSession.mutateAsync({ sessionId })
+      .then(async (result) => {
+        if (cancelled) return;
+        const targetEventId = Number.isFinite(eventIdParam) ? eventIdParam : result.eventId;
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] }),
+          Number.isFinite(targetEventId) ? queryClient.invalidateQueries({ queryKey: ["plan", targetEventId] }) : Promise.resolve(),
+          Number.isFinite(targetEventId) ? queryClient.invalidateQueries({ queryKey: ["expenses", targetEventId] }) : Promise.resolve(),
+          Number.isFinite(targetEventId) ? queryClient.invalidateQueries({ queryKey: ["/api/barbecues", targetEventId, "expenses"] }) : Promise.resolve(),
+          Number.isFinite(targetEventId) ? queryClient.invalidateQueries({ queryKey: ["/api/events", targetEventId, "settlements"] }) : Promise.resolve(),
+          Number.isFinite(targetEventId) ? queryClient.invalidateQueries({ queryKey: ["/api/events", targetEventId, "settlement"] }) : Promise.resolve(),
+          Number.isFinite(targetEventId) ? queryClient.invalidateQueries({ queryKey: ["messages", targetEventId] }) : Promise.resolve(),
+        ]);
+        await Promise.all([
+          Number.isFinite(targetEventId) ? queryClient.refetchQueries({ queryKey: ["plan", targetEventId] }) : Promise.resolve(),
+          Number.isFinite(targetEventId) ? queryClient.refetchQueries({ queryKey: ["expenses", targetEventId] }) : Promise.resolve(),
+          Number.isFinite(targetEventId) ? queryClient.refetchQueries({ queryKey: ["/api/barbecues", targetEventId, "expenses"] }) : Promise.resolve(),
+          Number.isFinite(targetEventId) ? queryClient.refetchQueries({ queryKey: ["/api/events", targetEventId, "settlements"] }) : Promise.resolve(),
+          Number.isFinite(targetEventId) ? queryClient.refetchQueries({ queryKey: ["/api/events", targetEventId, "settlement"] }) : Promise.resolve(),
+          Number.isFinite(targetEventId) ? queryClient.refetchQueries({ queryKey: ["messages", targetEventId] }) : Promise.resolve(),
+        ]);
+        toastSuccess(result.paymentStatus === "paid" ? "Payment completed" : "Payment confirmation pending");
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        if (handledPaymentSessionRef.current === sessionId) {
+          handledPaymentSessionRef.current = null;
+        }
+        const err = error as Error;
+        toastWarning(err.message || "Unable to confirm payment");
+      })
+      .finally(() => {
+        if (cancelled && handledPaymentSessionRef.current === sessionId) {
+          handledPaymentSessionRef.current = null;
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [confirmCheckoutSession.mutateAsync, queryClient, toastSuccess, toastWarning]);
 
   useEffect(() => {
     if (isAccountDrawerOpen) return;
@@ -2011,8 +2090,8 @@ export default function Home({
 
   const canLeave = (p: Participant) => {
     if (p.userId !== username) return false;
-    if (!selectedBbq?.date) return false;
-    const bbqDate = new Date(selectedBbq.date);
+    if (!selectedBbq?.startDate && !selectedBbq?.date) return false;
+    const bbqDate = new Date(selectedBbq.startDate ?? selectedBbq.date ?? "");
     const today = new Date(); today.setHours(0, 0, 0, 0);
     return bbqDate >= today;
   };
@@ -2031,8 +2110,8 @@ export default function Home({
 
     getNearbyPublicEvents({
       city: selectedBbq.city ?? null,
-      startAt: selectedBbq.date ?? new Date().toISOString(),
-      endAt: selectedBbq.date ?? null,
+      startAt: selectedBbq.startDate ?? selectedBbq.date ?? new Date().toISOString(),
+      endAt: selectedBbq.endDate ?? selectedBbq.startDate ?? selectedBbq.date ?? null,
       radiusKm: 25,
       sourceEvents,
     }).then((results) => {
@@ -2648,8 +2727,19 @@ export default function Home({
   const isAcceptedMember = !isCreator && !!myParticipant;
 
   const rawEventStatus = String(selectedBbq?.status ?? "active");
-  const eventStatus = rawEventStatus === "settled" ? "settled" : rawEventStatus === "closed" ? "closed" : "active";
+  const eventStatus: "draft" | "active" | "closed" | "settled" | "archived" =
+    rawEventStatus === "draft"
+      ? "draft"
+      : rawEventStatus === "archived"
+        ? "archived"
+      : rawEventStatus === "settled"
+        ? "settled"
+        : rawEventStatus === "closed"
+          ? "closed"
+          : "active";
   const hasLegacySettlingState = rawEventStatus === "settling";
+  const wrapUpEndsAt = getPlanWrapUpEndsAt(selectedBbq?.settledAt ?? null);
+  const wrapUpEndsLabel = formatFullDate(wrapUpEndsAt);
   const showEventStatusPill = isPublicBuilderContext || eventStatus !== "active";
   const publicListingActive = !!(
     selectedBbq?.publicListingStatus === "active" &&
@@ -2702,8 +2792,9 @@ export default function Home({
   const heroMetaLine = useMemo(() => {
     if (!selectedBbq) return "";
     const date = selectedBbq.date ? new Date(selectedBbq.date) : null;
-    const dateLabel = formatHeroDateEnglish(selectedBbq.date);
+    const dateLabel = formatPlanDateRange(selectedBbq.startDate, selectedBbq.endDate, selectedBbq.date);
     const timeLabel = date && Number.isFinite(date.getTime())
+      && (selectedBbq.startDate ?? selectedBbq.date) === (selectedBbq.endDate ?? selectedBbq.startDate ?? selectedBbq.date)
       ? date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
       : "";
     const locationLabel = selectedBbq.locationName ?? selectedBbq.city ?? selectedBbq.countryName ?? "Location TBD";
@@ -4074,6 +4165,7 @@ export default function Home({
                           plan={selectedBbq}
                           saving={updateBbq.isPending}
                           isCreator={isCreator}
+                          canEditDates={selectedBbq?.status === "active" && !selectedBbq?.timelineLocked}
                           deleting={deleteBbq.isPending}
                           leaving={leaveBbq.isPending}
                           onDelete={selectedBbq ? () => handleDeleteBbq(selectedBbq.id) : undefined}
@@ -4086,13 +4178,15 @@ export default function Home({
                               id: number;
                               name: string;
                               locationText: string;
-                              date: string;
+                              startDate: string;
+                              endDate: string;
                               bannerImageUrl: string | null;
                             } = {
                               id: selectedBbq.id,
                               name: updates.name,
                               locationText: updates.locationText,
-                              date: updates.date,
+                              startDate: updates.startDate,
+                              endDate: updates.endDate,
                               bannerImageUrl: updates.bannerUrl,
                             };
                             await updateBbq.mutateAsync(payload);
@@ -4174,7 +4268,7 @@ export default function Home({
               visibilityOrigin: selectedBbq?.visibilityOrigin,
             }),
             title: selectedBbq?.name ?? "",
-            dateStr: selectedBbq?.date ? new Date(selectedBbq.date).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : undefined,
+            dateStr: formatPlanDateRange(selectedBbq?.startDate, selectedBbq?.endDate, selectedBbq?.date) ?? undefined,
             locationDisplay:
               selectedBbq?.locationName ??
               (selectedBbq?.city && selectedBbq?.countryName
@@ -4643,10 +4737,14 @@ export default function Home({
               </div>
 
               {/* Completion banner when event is settled */}
-              {!isPublicBuilderContext && eventStatus === "settled" && (
+              {!isPublicBuilderContext && (eventStatus === "settled" || eventStatus === "archived") && (
                 <div className={`mt-4 rounded-xl border border-green-500/30 bg-green-500/10 px-4 py-2.5 flex items-center gap-2 ${isPrivateContext ? "rounded-2xl bg-gradient-to-r from-emerald-500/12 to-emerald-500/6 ring-1 ring-emerald-500/10" : ""}`}>
                   <CheckCircle2 className="w-5 h-5 text-green-600 dark:text-green-400 flex-shrink-0" />
-                  <p className="text-sm font-medium text-foreground">{isPrivateContext ? "Everyone’s settled up. You’re all in sync." : t.split.allSettledStillFriends}</p>
+                  <p className="text-sm font-medium text-foreground">
+                    {eventStatus === "archived"
+                      ? "Plan archived. Everything is settled and frozen."
+                      : `Plan completed. All balances are settled${wrapUpEndsLabel ? `, and chat stays open until ${wrapUpEndsLabel}` : "."}`}
+                  </p>
                 </div>
               )}
 
@@ -4693,7 +4791,7 @@ export default function Home({
                     <p className="text-xs uppercase tracking-[0.16em] text-white/80">Private plan</p>
                     <h2 className="mt-2 text-2xl sm:text-3xl font-semibold tracking-tight text-white">{selectedBbq.name}</h2>
                     <p className="mt-2 text-sm text-white/85">
-                      {selectedBbq.date ? new Date(selectedBbq.date).toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" }) : "Date TBD"}
+                      {formatPlanDateRange(selectedBbq.startDate, selectedBbq.endDate, selectedBbq.date) ?? "Date TBD"}
                       {" · "}
                       {(selectedBbq.locationName ?? selectedBbq.city ?? selectedBbq.countryName ?? "Location TBD")}
                     </p>

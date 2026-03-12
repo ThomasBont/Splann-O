@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { db } from "../db";
+import { db, ensureCoreSchemaReady } from "../db";
 import { barbecues, participants, eventMembers, eventNotifications, publicEventRsvps } from "@shared/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { desc } from "drizzle-orm";
@@ -7,6 +7,7 @@ import type { Barbecue } from "@shared/schema";
 
 export const bbqRepo = {
   async listAccessible(currentUsername?: string, currentUserId?: number): Promise<Barbecue[]> {
+    await ensureCoreSchemaReady();
     const all = await db.select().from(barbecues);
     if (!currentUserId) return all.filter((b) => b.isPublic);
 
@@ -24,10 +25,12 @@ export const bbqRepo = {
   },
 
   async listPublic(): Promise<Barbecue[]> {
+    await ensureCoreSchemaReady();
     return db.select().from(barbecues).then((rows) => rows.filter((b) => b.isPublic));
   },
 
   async listExploreCandidates(): Promise<Barbecue[]> {
+    await ensureCoreSchemaReady();
     return db
       .select()
       .from(barbecues)
@@ -35,11 +38,13 @@ export const bbqRepo = {
   },
 
   async getByPublicSlug(slug: string): Promise<Barbecue | undefined> {
+    await ensureCoreSchemaReady();
     const [b] = await db.select().from(barbecues).where(eq(barbecues.publicSlug, slug));
     return b;
   },
 
   async getById(id: number): Promise<Barbecue | undefined> {
+    await ensureCoreSchemaReady();
     const [b] = await db.select().from(barbecues).where(eq(barbecues.id, id));
     return b;
   },
@@ -61,6 +66,7 @@ export const bbqRepo = {
   },
 
   async getByInviteToken(token: string): Promise<Barbecue | undefined> {
+    await ensureCoreSchemaReady();
     const [b] = await db.select().from(barbecues).where(eq(barbecues.inviteToken, token));
     return b;
   },
@@ -85,6 +91,8 @@ export const bbqRepo = {
     updates: {
       name?: string;
       date?: Date;
+      startDate?: Date;
+      endDate?: Date;
       allowOptInExpenses?: boolean;
       templateData?: unknown;
       status?: string;
@@ -122,6 +130,8 @@ export const bbqRepo = {
     const set: Record<string, unknown> = {};
     if (updates.name !== undefined) set.name = updates.name;
     if (updates.date !== undefined) set.date = updates.date;
+    if (updates.startDate !== undefined) set.startDate = updates.startDate;
+    if (updates.endDate !== undefined) set.endDate = updates.endDate;
     if (updates.allowOptInExpenses !== undefined) set.allowOptInExpenses = updates.allowOptInExpenses;
     if (updates.templateData !== undefined) set.templateData = updates.templateData;
     if (updates.status !== undefined) set.status = updates.status;

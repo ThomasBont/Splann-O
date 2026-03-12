@@ -14,7 +14,8 @@ import { useEventMembers } from "@/hooks/use-participants";
 import { useDeleteExpense } from "@/hooks/use-expenses";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { resolveAssetUrl } from "@/lib/asset-url";
-import { getClientPlanStatus } from "@/lib/plan-lifecycle";
+import { formatFullDate } from "@/lib/dates";
+import { getClientPlanStatus, getPlanWrapUpEndsAt } from "@/lib/plan-lifecycle";
 import { getChatPatternStyle } from "@/lib/chat-pattern";
 import { markPlanSwitchPerf } from "@/lib/plan-switch-perf";
 import { circularActionButtonClass, cn } from "@/lib/utils";
@@ -112,6 +113,9 @@ function toExpenseMetadata(input: Record<string, unknown> | null | undefined): E
   const amount = typeof amountRaw === "number" ? amountRaw : Number(amountRaw);
   const currency = typeof input.currency === "string" ? input.currency : String(input.currency ?? "").trim();
   const paidBy = typeof input.paidBy === "string" ? input.paidBy : String(input.paidBy ?? "").trim();
+  const resolutionMode = typeof input.resolutionMode === "string" ? input.resolutionMode : String(input.resolutionMode ?? "").trim();
+  const linkedSettlementRoundId = String(input.linkedSettlementRoundId ?? "").trim();
+  const actorName = typeof input.actorName === "string" ? input.actorName : String(input.actorName ?? "").trim();
   return {
     action,
     expenseId,
@@ -119,6 +123,9 @@ function toExpenseMetadata(input: Record<string, unknown> | null | undefined): E
     amount: Number.isFinite(amount) ? amount : 0,
     currency: currency || "€",
     paidBy: paidBy || "Someone",
+    actorName: actorName || paidBy || "Someone",
+    resolutionMode,
+    linkedSettlementRoundId: linkedSettlementRoundId || undefined,
   };
 }
 
@@ -404,6 +411,8 @@ export function ChatSidebar({
   className,
 }: ChatSidebarProps) {
   const normalizedPlanStatus = getClientPlanStatus(planStatus);
+  const wrapUpEndsAt = getPlanWrapUpEndsAt(settledAt);
+  const wrapUpEndsLabel = formatFullDate(wrapUpEndsAt);
   const { toastError, toastInfo } = useAppToast();
   const { openPanel, panel } = usePanel();
   const isMobile = useIsMobile();
@@ -979,12 +988,8 @@ export function ChatSidebar({
     }
   }, [cancelEditingMessage, deleteMessage, editingMessage?.id, toastError]);
   const openExpenseDetail = useCallback((expenseId: number) => {
-    if (isMobile) {
-      openExpenseEditor(expenseId);
-      return;
-    }
     openPanel({ type: "expense", id: String(expenseId) });
-  }, [isMobile, openExpenseEditor, openPanel]);
+  }, [openPanel]);
   const handleLoadOlder = useCallback(async () => {
     if (historyLoadingOlder) return;
     const el = listRef.current;
@@ -1418,7 +1423,9 @@ export function ChatSidebar({
                                 currency: expenseMeta.currency,
                                 paidBy: expenseMeta.paidBy,
                               }}
+                              actorName={expenseMeta.actorName}
                               resolutionMode={expenseMeta.resolutionMode}
+                              settlementId={expenseMeta.linkedSettlementRoundId}
                               optimisticDeleted={optimisticallyDeletedExpenseIds.includes(expenseMeta.expenseId)}
                               onOpenEdit={openExpenseEditor}
                               onOpenDetail={openExpenseDetail}
@@ -1843,7 +1850,7 @@ export function ChatSidebar({
               "inline-flex items-center gap-2 rounded-full border border-border/70 bg-muted/45 text-muted-foreground",
               isMobile ? "px-2 py-0.5 text-[10px]" : "px-3 py-1.5 text-xs",
             )}>
-              <span>Aan het typen...</span>
+              <span>Typing</span>
               <span className="inline-flex items-center gap-1">
                 <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/70 [animation-delay:-0.2s]" />
                 <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/70 [animation-delay:-0.1s]" />
@@ -1852,6 +1859,14 @@ export function ChatSidebar({
             </div>
           ) : null}
         </div>
+        {!isLocked && normalizedPlanStatus === "settled" ? (
+          <div className={cn(
+            "mb-2 rounded-2xl border border-emerald-200/80 bg-emerald-50/80 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-200",
+            isMobile && "mb-1.5",
+          )}>
+            Plan completed 🎉 All balances are settled. Chat stays open until {wrapUpEndsLabel ?? "soon"}.
+          </div>
+        ) : null}
         {isLocked ? (
           <div className={cn(
             "border-t border-border/50 bg-muted/30 px-4 py-4 text-center",
@@ -1860,20 +1875,24 @@ export function ChatSidebar({
             <div className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background px-3 py-1.5">
               <span className="h-2 w-2 rounded-full bg-emerald-500" />
               <span className="text-xs font-medium text-muted-foreground">
-                {normalizedPlanStatus === "settled"
-                  ? "This plan is settled"
-                  : normalizedPlanStatus === "closed"
-                    ? "This plan is closed"
-                    : "This plan has ended"}
+                {normalizedPlanStatus === "archived"
+                  ? "This plan is archived"
+                  : normalizedPlanStatus === "settled"
+                    ? "This plan is settled"
+                    : normalizedPlanStatus === "closed"
+                      ? "This plan is closed"
+                      : "This plan has ended"}
                 {settledAt
-                  ? ` · ${new Date(settledAt).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" })}`
+                  ? ` · ${formatFullDate(settledAt)}`
                   : ""}
               </span>
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
-              {normalizedPlanStatus === "active"
-                ? "Chat history is preserved. Expenses and balances are still viewable."
-                : "Chat history is preserved. This plan is read-only now."}
+              {normalizedPlanStatus === "archived"
+                ? "Chat history is preserved. The wrap-up window is over and the plan is now fully read-only."
+                : normalizedPlanStatus === "closed"
+                  ? "Chat history is preserved. This plan is closed for new planning activity."
+                  : "Chat history is preserved. Expenses and balances are still viewable."}
             </p>
           </div>
         ) : (

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, CheckCircle2, Loader2, Plus, Receipt, Scale } from "lucide-react";
+import type { ExpenseWithParticipant } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -13,13 +14,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { getCategoryDef } from "@/config/expenseCategories";
 import { useAuth } from "@/hooks/use-auth";
 import { useAppToast } from "@/hooks/use-app-toast";
+import { useCheckoutSettlementTransfer } from "@/hooks/use-bbq-data";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { planQueryKey, usePlan, usePlanCrew, usePlanExpenses } from "@/hooks/use-plan-data";
 import { resolveAssetUrl } from "@/lib/asset-url";
-import { getClientPlanStatus } from "@/lib/plan-lifecycle";
+import { formatFullDate } from "@/lib/dates";
+import { getClientPlanStatus, getPlanWrapUpEndsAt } from "@/lib/plan-lifecycle";
 import { computeSplit } from "@/lib/split/calc";
 import { cn } from "@/lib/utils";
 import { usePanel } from "@/state/panel";
@@ -43,13 +45,6 @@ function formatCreated(value?: string | null) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Recently";
   return date.toLocaleDateString(undefined, { day: "numeric", month: "short" });
-}
-
-function formatLongDate(value?: string | Date | null) {
-  if (!value) return null;
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return date.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" });
 }
 
 function initials(value?: string | null) {
@@ -114,6 +109,238 @@ type SettlementDetailResponse = {
   };
 };
 
+type ExpensePaymentStatus = "open" | "settled";
+type PanelExpense = ReturnType<typeof normalizePanelExpense>;
+
+function normalizePanelExpense(
+  expense: ExpenseWithParticipant,
+  paymentStatus: ExpensePaymentStatus,
+) {
+  const resolutionMode = String((expense as { resolutionMode?: string | null }).resolutionMode ?? "later").trim().toLowerCase();
+  const excludedFromFinalSettlement = Boolean((expense as { excludedFromFinalSettlement?: boolean | null }).excludedFromFinalSettlement);
+  const settledAt = (expense as { settledAt?: string | Date | null }).settledAt ?? null;
+  const linkedSettlementRoundId = String((expense as { linkedSettlementRoundId?: string | null }).linkedSettlementRoundId ?? "").trim();
+  return {
+    ...expense,
+    amount: Number(expense.amount || 0),
+    resolutionMode,
+    excludedFromFinalSettlement,
+    settledAt,
+    linkedSettlementRoundId,
+    paymentStatus,
+    isSettled: paymentStatus === "settled",
+  };
+}
+
+function ExpenseListRow({
+  expense,
+  currency,
+  memberByUserId,
+  onOpen,
+  isMobile,
+}: {
+  expense: PanelExpense;
+  currency: string;
+  memberByUserId: Map<number, { avatarUrl?: string | null }>;
+  onOpen: (expenseId: number) => void;
+  isMobile: boolean;
+}) {
+  const payerName = String(expense.participantName || "Unknown").trim() || "Unknown";
+  const member = expense.participantUserId ? memberByUserId.get(Number(expense.participantUserId)) : undefined;
+  const avatarUrl = resolveAssetUrl(member?.avatarUrl ?? null) ?? member?.avatarUrl ?? "";
+
+  return (
+    <button
+      type="button"
+      key={`expenses-panel-${expense.id}`}
+      onClick={() => onOpen(expense.id)}
+      className={cn(
+        "group w-full cursor-pointer rounded-xl border-b border-[hsl(var(--border-subtle))] px-3 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        "bg-transparent hover:bg-muted/30",
+        isMobile && "px-2.5 py-3",
+      )}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="truncate text-[15px] font-medium text-foreground">
+            {expense.item || "Expense"}
+          </p>
+        </div>
+        <span className="shrink-0 text-lg font-semibold text-foreground">
+          {formatCurrency(expense.amount, currency)}
+        </span>
+      </div>
+      <div className="mt-2 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+        <Avatar className="h-5 w-5 shrink-0">
+          {avatarUrl ? <AvatarImage src={avatarUrl} alt={payerName} /> : null}
+          <AvatarFallback className="bg-primary/10 text-[9px] font-semibold text-primary">
+            {initials(payerName)}
+          </AvatarFallback>
+        </Avatar>
+        <span className="truncate">{payerName}</span>
+        <span aria-hidden>·</span>
+        <span className="shrink-0">{formatCreated(expense.createdAt ? String(expense.createdAt) : null)}</span>
+      </div>
+    </button>
+  );
+}
+
+function SettleNowExpenseRow({
+  expense,
+  currency,
+  memberByUserId,
+  onOpen,
+  isMobile,
+}: {
+  expense: PanelExpense;
+  currency: string;
+  memberByUserId: Map<number, { avatarUrl?: string | null }>;
+  onOpen: (expenseId: number) => void;
+  isMobile: boolean;
+}) {
+  const { user } = useAuth();
+  const { toastError } = useAppToast();
+  const checkoutTransfer = useCheckoutSettlementTransfer();
+  const payerName = String(expense.participantName || "Unknown").trim() || "Unknown";
+  const member = expense.participantUserId ? memberByUserId.get(Number(expense.participantUserId)) : undefined;
+  const avatarUrl = resolveAssetUrl(member?.avatarUrl ?? null) ?? member?.avatarUrl ?? "";
+  const settlementId = expense.linkedSettlementRoundId;
+  const settlementQuery = useQuery<SettlementDetailResponse>({
+    queryKey: ["/api/events", expense.barbecueId, "settlement", settlementId || "none"],
+    queryFn: async () => {
+      const res = await fetch(`/api/events/${expense.barbecueId}/settlement/${encodeURIComponent(settlementId)}`, { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load payment details");
+      return res.json() as Promise<SettlementDetailResponse>;
+    },
+    enabled: !!expense.barbecueId && !!settlementId,
+    staleTime: 15_000,
+    refetchInterval: settlementId && expense.paymentStatus === "open" ? 5_000 : false,
+    refetchOnWindowFocus: true,
+  });
+
+  const transfers = settlementQuery.data?.transfers ?? [];
+  const isPaid = expense.paymentStatus === "settled";
+  const handlePay = async (transferId: string) => {
+    try {
+      const result = await checkoutTransfer.mutateAsync({
+        eventId: expense.barbecueId,
+        transferId,
+        expenseId: expense.id,
+      });
+      if (!result.checkoutUrl) throw new Error("Payment URL missing");
+      window.location.assign(result.checkoutUrl);
+    } catch (error) {
+      const err = error as Error & { code?: string };
+      if (err.code === "only_payer_can_pay") {
+        toastError("Only the person who owes can start this payment.");
+        return;
+      }
+      if (err.code === "transfer_paid") {
+        toastError("This payment is already completed.");
+        return;
+      }
+      toastError(err.message || "Unable to start payment");
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(expense.id)}
+      className={cn(
+        "group w-full cursor-pointer rounded-2xl border px-3 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        isPaid
+          ? "border-emerald-200/80 bg-emerald-50/80 hover:bg-emerald-50 dark:border-emerald-500/25 dark:bg-emerald-500/10"
+          : "border-amber-200/80 bg-amber-50/85 hover:bg-amber-50 dark:border-amber-500/25 dark:bg-amber-500/10",
+        isMobile && "px-2.5 py-3",
+      )}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <p className="truncate text-[15px] font-medium text-foreground">{expense.item || "Expense"}</p>
+            <span
+              className={cn(
+                "inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[10px] font-medium",
+                isPaid
+                  ? "border-emerald-200 bg-background/75 text-emerald-700 dark:border-emerald-500/30 dark:bg-background/15 dark:text-emerald-300"
+                  : "border-amber-200 bg-background/75 text-amber-700 dark:border-amber-500/30 dark:bg-background/15 dark:text-amber-300",
+              )}
+            >
+              {isPaid ? "Paid" : "Awaiting payment"}
+            </span>
+          </div>
+          <div className="mt-2 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+            <Avatar className="h-5 w-5 shrink-0">
+              {avatarUrl ? <AvatarImage src={avatarUrl} alt={payerName} /> : null}
+              <AvatarFallback className={cn(
+                "text-[9px] font-semibold",
+                isPaid ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "bg-amber-500/10 text-amber-700 dark:text-amber-300",
+              )}>
+                {initials(payerName)}
+              </AvatarFallback>
+            </Avatar>
+            <span className="truncate">{payerName}</span>
+            <span aria-hidden>·</span>
+            <span className="shrink-0">{formatCreated(expense.createdAt ? String(expense.createdAt) : null)}</span>
+          </div>
+        </div>
+        <span className="shrink-0 text-lg font-semibold text-foreground">
+          {formatCurrency(expense.amount, currency)}
+        </span>
+      </div>
+      {isPaid ? null : (
+        <div className="mt-3 rounded-xl border border-amber-200/80 bg-background/70 px-3 py-2.5 dark:border-amber-500/20 dark:bg-background/10">
+          {transfers.length > 0 ? (
+            <div className="space-y-2">
+              {transfers.map((transfer) => {
+                const canPay = !transfer.paidAt && Number(user?.id ?? 0) === transfer.fromUserId;
+                return (
+                  <div key={`settle-now-transfer-${expense.id}-${transfer.id}`} className="flex items-center justify-between gap-3">
+                    <p className="min-w-0 text-xs text-muted-foreground">
+                      <span className="font-medium text-foreground">{transfer.fromName || "Someone"}</span>
+                      {" owes "}
+                      <span className="font-medium text-foreground">{transfer.toName || "Someone"}</span>
+                      {" "}
+                      <span className="font-semibold text-foreground">
+                        {formatCurrency(Number(transfer.amount || 0), transfer.currency || currency)}
+                      </span>
+                    </p>
+                    {canPay ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-7 border-amber-300 bg-amber-100/70 px-2.5 text-[11px] font-semibold text-amber-900 hover:bg-amber-100 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-100"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void handlePay(transfer.id);
+                        }}
+                        disabled={checkoutTransfer.isPending}
+                      >
+                        Pay
+                      </Button>
+                    ) : (
+                      <span className="shrink-0 text-[11px] text-muted-foreground">Waiting for payment</span>
+                    )}
+                  </div>
+                );
+              })}
+              <p className="text-[11px] text-muted-foreground">
+                Payment still outstanding.
+              </p>
+            </div>
+          ) : settlementQuery.isLoading ? (
+            <p className="text-xs text-muted-foreground">Loading payment details…</p>
+          ) : (
+            <p className="text-xs text-muted-foreground">Payment details unavailable.</p>
+          )}
+        </div>
+      )}
+    </button>
+  );
+}
+
 export function ExpensesPanel() {
   const isMobile = useIsMobile();
   const eventId = useActiveEventId();
@@ -141,10 +368,6 @@ export function ExpensesPanel() {
   const splitExpenses = useMemo(
     () => sharedExpenses.map((expense) => ({ ...expense, amount: Number(expense.amount || 0) })),
     [sharedExpenses],
-  );
-  const sortedExpenses = useMemo(
-    () => [...expenses].sort((a, b) => new Date(String(b.createdAt ?? 0)).getTime() - new Date(String(a.createdAt ?? 0)).getTime()),
-    [expenses],
   );
   const memberByUserId = useMemo(
     () => new Map(members.map((member) => [Number(member.userId), member])),
@@ -183,9 +406,13 @@ export function ExpensesPanel() {
   const allBalancesSettled = sharedExpenses.length > 0 && visibleBalanceRows.length === 0;
   const planStatus = getClientPlanStatus(plan?.status);
   const isPlanClosed = planStatus === "closed";
-  const isPlanCompleted = planStatus === "settled";
-  const planCreatedAt = formatLongDate((plan as { createdAt?: string | Date | null } | null)?.createdAt ?? String(plan?.date ?? ""));
-  const planCompletedAt = formatLongDate((plan as { settledAt?: string | Date | null } | null)?.settledAt ?? null);
+  const isPlanSettled = planStatus === "settled";
+  const isPlanArchived = planStatus === "archived";
+  const isFinanciallyCompleted = isPlanSettled || isPlanArchived;
+  const planCreatedAt = formatFullDate((plan as { createdAt?: string | Date | null } | null)?.createdAt ?? String(plan?.date ?? ""));
+  const planCompletedAt = formatFullDate((plan as { settledAt?: string | Date | null } | null)?.settledAt ?? null);
+  const wrapUpEndsAt = getPlanWrapUpEndsAt((plan as { settledAt?: string | Date | null } | null)?.settledAt ?? null);
+  const wrapUpEndsLabel = formatFullDate(wrapUpEndsAt);
   const isCreator = Number(plan?.creatorUserId) === Number(user?.id);
   const [confirmSettleUpOpen, setConfirmSettleUpOpen] = useState(false);
   const settlementRoundsQueryKey = ["/api/events", eventId, "settlements"] as const;
@@ -214,7 +441,7 @@ export function ExpensesPanel() {
     && !activeFinalSettlementRound
     && sharedExpenses.length > 0
     && visibleBalanceRows.length > 0;
-  const expensesLocked = isPlanClosed || isPlanCompleted || !!activeFinalSettlementRound;
+  const expensesLocked = isPlanClosed || isFinanciallyCompleted || !!activeFinalSettlementRound;
   const latestPastFinalSettlementRound = settlementRoundsQuery.data?.pastFinalSettlementRounds?.[0] ?? null;
   const displayedSettlementId = activeFinalSettlementRound?.id ?? latestPastFinalSettlementRound?.id ?? null;
   const settlementDetailQueryKey = ["/api/events", eventId, "settlement", displayedSettlementId ?? "none"] as const;
@@ -247,6 +474,53 @@ export function ExpensesPanel() {
   };
   const settlementIsComplete = activeSettlement?.status === "completed"
     || (settlementTransfers.length > 0 && settlementTransfers.every((transfer) => !!transfer.paidAt));
+  const quickSettlementStatusById = useMemo(() => {
+    const statusById = new Map<string, ExpensePaymentStatus>();
+    const activeQuickSettleRound = settlementRoundsQuery.data?.activeQuickSettleRound ?? null;
+    if (activeQuickSettleRound?.id) {
+      statusById.set(activeQuickSettleRound.id, activeQuickSettleRound.status === "completed" ? "settled" : "open");
+    }
+    for (const round of settlementRoundsQuery.data?.pastQuickSettleRounds ?? []) {
+      if (!round.id) continue;
+      statusById.set(round.id, round.status === "completed" ? "settled" : "open");
+    }
+    if (activeSettlement?.roundType === "direct_split" && activeSettlement.id) {
+      statusById.set(activeSettlement.id, settlementIsComplete ? "settled" : "open");
+    }
+    return statusById;
+  }, [
+    activeSettlement?.id,
+    activeSettlement?.roundType,
+    settlementIsComplete,
+    settlementRoundsQuery.data?.activeQuickSettleRound,
+    settlementRoundsQuery.data?.pastQuickSettleRounds,
+  ]);
+  const sortedExpenses = useMemo(
+    () => [...expenses]
+      .map((expense) => {
+        const linkedSettlementRoundId = String((expense as { linkedSettlementRoundId?: string | null }).linkedSettlementRoundId ?? "").trim();
+        const settledAt = (expense as { settledAt?: string | Date | null }).settledAt ?? null;
+        const paymentStatus: ExpensePaymentStatus =
+          isFinanciallyCompleted
+            ? "settled"
+            : linkedSettlementRoundId
+              ? (quickSettlementStatusById.get(linkedSettlementRoundId) ?? (settledAt ? "settled" : "open"))
+              : settledAt
+                ? "settled"
+                : "open";
+        return normalizePanelExpense(expense, paymentStatus);
+      })
+      .sort((a, b) => new Date(String(b.createdAt ?? 0)).getTime() - new Date(String(a.createdAt ?? 0)).getTime()),
+    [expenses, isFinanciallyCompleted, quickSettlementStatusById],
+  );
+  const sharedGroupExpenses = useMemo(
+    () => sortedExpenses.filter((expense) => expense.resolutionMode !== "now" && !expense.linkedSettlementRoundId),
+    [sortedExpenses],
+  );
+  const settleNowExpenses = useMemo(
+    () => sortedExpenses.filter((expense) => expense.resolutionMode === "now" || !!expense.linkedSettlementRoundId),
+    [sortedExpenses],
+  );
 
   const createSettlement = useMutation({
     mutationFn: async () => {
@@ -289,7 +563,7 @@ export function ExpensesPanel() {
     },
   });
 
-  const markTransferPaid = useMutation({
+  const markGroupTransferPaid = useMutation({
     mutationFn: async ({ settlementId, transferId }: { settlementId: string; transferId: string }) => {
       if (!eventId) throw new Error("Event not found");
       const res = await fetch(`/api/events/${eventId}/settlement/${settlementId}/transfers/${transferId}/mark-paid`, {
@@ -304,37 +578,6 @@ export function ExpensesPanel() {
       }
       return res.json() as Promise<{ transferId: string; paidAt: string | null }>;
     },
-    onMutate: async ({ transferId }) => {
-      await queryClient.cancelQueries({ queryKey: settlementDetailQueryKey });
-      const previous = queryClient.getQueryData<SettlementDetailResponse>(settlementDetailQueryKey);
-      const paidAt = new Date().toISOString();
-      queryClient.setQueryData<SettlementDetailResponse>(settlementDetailQueryKey, (old) => {
-        if (!old) return old;
-        const nextTransfers = old.transfers.map((transfer) => (
-          transfer.id === transferId
-            ? { ...transfer, paidAt, paidByUserId: transfer.paidByUserId ?? Number(user?.id ?? 0) }
-            : transfer
-        ));
-        const paidCount = nextTransfers.filter((transfer) => !!transfer.paidAt).length;
-        const totalCount = nextTransfers.length;
-        return {
-          ...old,
-          settlement: old.settlement ? {
-            ...old.settlement,
-            status: totalCount > 0 && paidCount >= totalCount ? "completed" : old.settlement.status,
-          } : old.settlement,
-          transfers: nextTransfers,
-          summary: {
-            ...old.summary,
-            paidTransfersCount: paidCount,
-            outstandingAmount: nextTransfers
-              .filter((transfer) => !transfer.paidAt)
-              .reduce((sum, transfer) => sum + Number(transfer.amount || 0), 0),
-          },
-        };
-      });
-      return { previous };
-    },
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: planQueryKey(eventId) }),
@@ -343,10 +586,7 @@ export function ExpensesPanel() {
         queryClient.invalidateQueries({ queryKey: settlementDetailQueryKey }),
       ]);
     },
-    onError: (error, _vars, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(settlementDetailQueryKey, context.previous);
-      }
+    onError: (error) => {
       const err = error as Error & { code?: string };
       if (err.code === "not_transfer_participant") {
         toastError("Only the payer or receiver can mark this as paid.");
@@ -371,7 +611,7 @@ export function ExpensesPanel() {
         title="Shared expenses"
         actions={(
           <div className={cn("items-center gap-2", isMobile ? "hidden" : "flex")}>
-            {!activeFinalSettlementRound && !isPlanCompleted ? (
+            {!activeFinalSettlementRound && !isFinanciallyCompleted ? (
               <Button
                 type="button"
                 size="sm"
@@ -391,7 +631,7 @@ export function ExpensesPanel() {
               className={panelHeaderAddButtonClass()}
               onClick={handleAddExpense}
               disabled={!eventId || expensesLocked}
-              title={isPlanCompleted ? "Plan completed" : isPlanClosed ? "Plan closed" : activeFinalSettlementRound ? "Settlement in progress" : "Add expense"}
+              title={isFinanciallyCompleted ? "Plan completed" : isPlanClosed ? "Plan closed" : activeFinalSettlementRound ? "Settlement in progress" : "Add expense"}
             >
               Add Expense +
             </Button>
@@ -412,14 +652,18 @@ export function ExpensesPanel() {
           </div>
         ) : (
           <>
-            {sharedExpenses.length === 0 ? (
+            {sortedExpenses.length === 0 ? (
               <div className={cn(
                 "rounded-xl border border-dashed border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))]/60 px-4 py-6 text-center",
                 isMobile && "py-5",
               )}>
-                <p className="text-sm font-medium text-foreground">No shared costs yet</p>
+                <p className="text-sm font-medium text-foreground">
+                  {isFinanciallyCompleted ? "Plan completed" : isPlanClosed ? "Plan closed" : "No expenses yet"}
+                </p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Add the first expense when someone pays for the group.
+                  {expensesLocked
+                    ? "New expenses are disabled for this plan."
+                    : "Add the first expense when someone pays for the group or needs direct payback."}
                 </p>
                 <Button
                   type="button"
@@ -437,7 +681,7 @@ export function ExpensesPanel() {
             {isMobile ? (
               <section className="sticky top-0 z-10 -mx-0.5 rounded-2xl border border-primary/20 bg-background/95 p-1 backdrop-blur supports-[backdrop-filter]:bg-background/88">
                 <div className="grid grid-cols-2 gap-1.5">
-                  {!activeFinalSettlementRound && !isPlanCompleted ? (
+                  {!activeFinalSettlementRound && !isFinanciallyCompleted ? (
                     <Button
                       type="button"
                       variant="outline"
@@ -466,17 +710,22 @@ export function ExpensesPanel() {
               </section>
             ) : null}
 
-            {isPlanCompleted && sharedExpenses.length > 0 ? (
+            {isFinanciallyCompleted && sharedExpenses.length > 0 ? (
               <section className={cn("rounded-2xl border border-emerald-200/80 bg-emerald-50/60 p-4 shadow-none dark:border-emerald-500/25 dark:bg-emerald-500/10", isMobile && "rounded-[18px] p-3.5")}>
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="space-y-1">
                     <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-background/80 px-3 py-1 text-xs font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-background/15 dark:text-emerald-300">
                       <CheckCircle2 className="h-3.5 w-3.5" />
-                      Plan completed 🎉
+                      {isPlanArchived ? "Plan archived" : "Plan completed 🎉"}
                     </div>
-                    <h3 className="text-base font-semibold text-foreground">{plan?.name ?? "Plan completed"}</h3>
+                    <h3 className="text-base font-semibold text-foreground">{plan?.name ?? (isPlanArchived ? "Plan archived" : "Plan completed")}</h3>
                     <p className="text-sm text-muted-foreground">
                       {formatCurrency(totalShared, currency)} shared across {sharedExpenses.length} {sharedExpenses.length === 1 ? "expense" : "expenses"} by {participants.length} {participants.length === 1 ? "person" : "people"}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {isPlanArchived
+                        ? "All balances are settled. The wrap-up window has ended and the plan is now fully read-only."
+                        : `All balances are settled. Chat stays open until ${wrapUpEndsLabel ?? "soon"}.`}
                     </p>
                   </div>
                   <div className="rounded-xl border border-emerald-200/70 bg-background/70 px-3 py-2 text-right dark:border-emerald-500/20 dark:bg-background/10">
@@ -532,7 +781,7 @@ export function ExpensesPanel() {
               </section>
             ) : null}
 
-            {sharedExpenses.length > 0 && !isPlanCompleted ? (
+            {sharedExpenses.length > 0 && !isFinanciallyCompleted ? (
               <PanelSection title="Balances" variant="list">
                 {balanceRows.length > 0 && !allBalancesSettled ? (
                   <div className="rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))]/80 px-3 py-3">
@@ -621,7 +870,7 @@ export function ExpensesPanel() {
               </PanelSection>
             ) : null}
 
-            {sharedExpenses.length > 0 && !isPlanCompleted && (visibleBalanceRows.length > 0 || activeSettlement) ? (
+            {sharedExpenses.length > 0 && !isFinanciallyCompleted && (visibleBalanceRows.length > 0 || activeSettlement) ? (
               <section className={cn("rounded-2xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-3.5 shadow-none", isMobile && "rounded-[18px] p-3")}>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -686,8 +935,8 @@ export function ExpensesPanel() {
                                 type="button"
                                 size="sm"
                                 variant="outline"
-                                onClick={() => markTransferPaid.mutate({ settlementId: transfer.settlementId, transferId: transfer.id })}
-                                disabled={markTransferPaid.isPending || settlementIsComplete}
+                                onClick={() => markGroupTransferPaid.mutate({ settlementId: transfer.settlementId, transferId: transfer.id })}
+                                disabled={markGroupTransferPaid.isPending || settlementIsComplete}
                               >
                                 Mark as paid
                               </Button>
@@ -756,65 +1005,41 @@ export function ExpensesPanel() {
               </section>
             ) : null}
 
-            {sortedExpenses.length > 0 ? (
+            {sharedGroupExpenses.length > 0 ? (
               <section className={cn("rounded-2xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-3.5 shadow-none", isMobile && "rounded-[18px] p-3")}>
                 <div className={cn("space-y-1", isMobile && "space-y-0.5")}>
                   <h3 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    All expenses
+                    Shared Group Expenses
                   </h3>
-                  {sortedExpenses.map((expense) => (
-                  (() => {
-                    const categoryLabel = String(expense.category || "Other").trim() || "Other";
-                    const CategoryIcon = getCategoryDef(categoryLabel).icon;
-                    const payerName = String(expense.participantName || "Unknown").trim() || "Unknown";
-                    const member = expense.participantUserId ? memberByUserId.get(Number(expense.participantUserId)) : undefined;
-                    const avatarUrl = resolveAssetUrl(member?.avatarUrl ?? null) ?? member?.avatarUrl ?? "";
-                    const resolutionMode = String((expense as { resolutionMode?: string | null }).resolutionMode ?? "later").trim().toLowerCase();
-                    const isSettledNow = resolutionMode === "now" || Boolean((expense as { excludedFromFinalSettlement?: boolean | null }).excludedFromFinalSettlement);
-                    return (
-                      <button
-                        type="button"
-                        key={`expenses-panel-${expense.id}`}
-                        onClick={() => openExpenseDetail(expense.id)}
-                        className={cn(
-                          "group w-full cursor-pointer rounded-xl border-b border-[hsl(var(--border-subtle))] bg-transparent px-3 py-3 text-left transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                          isMobile && "px-2.5 py-3",
-                        )}
-                      >
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="min-w-0 flex items-center gap-2.5">
-                            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted/70 text-muted-foreground">
-                              <CategoryIcon className="h-4 w-4" />
-                            </span>
-                            <p className="truncate text-[15px] font-medium text-foreground">
-                              {expense.item || "Expense"}
-                            </p>
-                            {isSettledNow ? (
-                              <span className="inline-flex shrink-0 items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
-                                Settled now
-                              </span>
-                            ) : null}
-                          </div>
-                          <span className="shrink-0 text-lg font-semibold text-foreground">
-                            {formatCurrency(Number(expense.amount || 0), currency)}
-                          </span>
-                        </div>
-                        <div className="mt-2 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-                          <Avatar className="h-5 w-5 shrink-0">
-                            {avatarUrl ? <AvatarImage src={avatarUrl} alt={payerName} /> : null}
-                            <AvatarFallback className="bg-primary/10 text-[9px] font-semibold text-primary">
-                              {initials(payerName)}
-                            </AvatarFallback>
-                          </Avatar>
-                          <span className="truncate">{payerName}</span>
-                          <span aria-hidden>·</span>
-                          <span className="truncate">{categoryLabel}</span>
-                          <span aria-hidden>·</span>
-                          <span className="shrink-0">{formatCreated(expense.createdAt ? String(expense.createdAt) : null)}</span>
-                        </div>
-                      </button>
-                    );
-                  })()
+                  {sharedGroupExpenses.map((expense) => (
+                    <ExpenseListRow
+                      key={`expenses-shared-${expense.id}`}
+                      expense={expense}
+                      currency={currency}
+                      memberByUserId={memberByUserId}
+                      onOpen={openExpenseDetail}
+                      isMobile={isMobile}
+                    />
+                  ))}
+                </div>
+              </section>
+            ) : null}
+
+            {settleNowExpenses.length > 0 ? (
+              <section className={cn("rounded-2xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-3.5 shadow-none", isMobile && "rounded-[18px] p-3")}>
+                <div className={cn("space-y-2", isMobile && "space-y-1.5")}>
+                  <h3 className="px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Settle Now Expenses
+                  </h3>
+                  {settleNowExpenses.map((expense) => (
+                    <SettleNowExpenseRow
+                      key={`expenses-settle-now-${expense.id}`}
+                      expense={expense}
+                      currency={currency}
+                      memberByUserId={memberByUserId}
+                      onOpen={openExpenseDetail}
+                      isMobile={isMobile}
+                    />
                   ))}
                 </div>
               </section>

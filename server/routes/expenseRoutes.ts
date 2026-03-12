@@ -99,7 +99,7 @@ router.post(p(api.expenses.create.path), requireAuth, asyncHandler(async (req, r
       includedUserIds: includedUserIds === undefined ? null : includedUserIds,
       resolutionMode,
       excludedFromFinalSettlement: resolutionMode === "now",
-      settledAt: resolutionMode === "now" ? new Date() : null,
+      settledAt: null,
     },
     { optInByDefault },
   );
@@ -179,6 +179,7 @@ router.post(p(api.expenses.create.path), requireAuth, asyncHandler(async (req, r
     amount: Number.isFinite(amount) ? amount : 0,
     currency,
     paidBy: paidByName,
+    actorName,
     resolutionMode,
     linkedSettlementRoundId: createdWithResolution.linkedSettlementRoundId ?? null,
   });

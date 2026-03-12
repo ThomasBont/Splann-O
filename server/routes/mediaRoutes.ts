@@ -9,6 +9,7 @@ import { bbqRepo } from "../repositories/bbqRepo";
 import { requireAuth } from "../middleware/requireAuth";
 import { db } from "../db";
 import { log } from "../lib/logger";
+import { reconcileStripeSettlementCheckout } from "../lib/stripeCheckoutReconciliation";
 import { createStripeCheckoutSession, verifyStripeWebhookSignature } from "../lib/stripe";
 import { badRequest, forbidden, notFound, unauthorized } from "../lib/errors";
 import {
@@ -116,6 +117,10 @@ router.post("/stripe/webhook", asyncHandler(async (req, res) => {
   const eventId = String(event.id ?? "").trim();
   const eventType = String(event.type ?? "").trim();
   if (!eventId || !eventType) badRequest("Invalid Stripe event payload");
+  log("info", "Stripe webhook received", {
+    stripeEventId: eventId,
+    eventType,
+  });
 
   const existingProcessed = await db.select().from(stripeEvents).where(eq(stripeEvents.id, eventId));
   if (existingProcessed.length > 0) {
@@ -123,13 +128,20 @@ router.post("/stripe/webhook", asyncHandler(async (req, res) => {
     return;
   }
 
-  if (eventType === "checkout.session.completed") {
+  if (eventType === "checkout.session.completed" || eventType === "checkout.session.async_payment_succeeded") {
     const object = (event.data?.object ?? {}) as {
       metadata?: Record<string, string | undefined>;
       payment_status?: string;
     };
     const metadata = object.metadata ?? {};
     const action = metadata.action ?? metadata.intendedAction;
+    log("info", "Stripe webhook processing checkout session", {
+      stripeEventId: eventId,
+      eventType,
+      action: action ?? null,
+      paymentStatus: object.payment_status ?? null,
+      metadata,
+    });
     if (action === "activate_public_listing" && metadata.eventId) {
       const eventIdNum = Number(metadata.eventId);
       if (Number.isFinite(eventIdNum)) {
@@ -140,6 +152,17 @@ router.post("/stripe/webhook", asyncHandler(async (req, res) => {
           publicMode,
         });
       }
+    } else if (action === "pay_settlement_transfer") {
+      const result = await reconcileStripeSettlementCheckout({
+        metadata,
+        paymentStatus: object.payment_status,
+      });
+      log("info", "Stripe webhook settle-now reconciliation result", {
+        stripeEventId: eventId,
+        eventType,
+        reconciled: result.reconciled,
+        eventId: result.eventId,
+      });
     }
   }
 

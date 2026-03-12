@@ -34,6 +34,9 @@ export const api = {
       method: 'POST' as const,
       path: '/api/barbecues' as const,
       input: insertBarbecueSchema.extend({
+        date: z.union([z.string(), z.date()]).optional(),
+        startDate: z.union([z.string(), z.date()]).optional(),
+        endDate: z.union([z.string(), z.date()]).optional(),
         planCurrency: z.string().length(3).optional(),
       }),
       responses: {
@@ -55,9 +58,11 @@ export const api = {
       input: z.object({
         name: z.string().min(1).max(120).optional(),
         date: z.union([z.string(), z.date()]).optional(),
+        startDate: z.union([z.string(), z.date()]).optional(),
+        endDate: z.union([z.string(), z.date()]).optional(),
         allowOptInExpenses: z.boolean().optional(),
         templateData: z.unknown().optional(),
-        status: z.enum(["active", "closed", "settled"]).optional(),
+        status: z.enum(["draft", "active", "closed", "settled", "archived"]).optional(),
         locationName: z.string().nullable().optional(),
         city: z.string().nullable().optional(),
         countryCode: optionalCountryCodeSchema.nullable().optional(),

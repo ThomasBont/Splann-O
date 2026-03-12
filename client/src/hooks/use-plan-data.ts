@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Barbecue, ExpenseWithParticipant } from "@shared/schema";
-import { fetchPlan } from "@/hooks/use-bbq-data";
+import type { ExpenseWithParticipant } from "@shared/schema";
+import { fetchPlan, type BarbecueListItem } from "@/hooks/use-bbq-data";
 import { fetchPlanMessages, type PlanMessagesPage } from "@/hooks/use-event-chat";
 import { fetchExpenses } from "@/hooks/use-expenses";
 import { type EventMemberView, fetchEventMembers, fetchParticipants } from "@/hooks/use-participants";
@@ -50,12 +50,12 @@ export async function fetchPlanCrew(planId: number): Promise<PlanCrew> {
 
 export function usePlan(planId: number | null) {
   const queryClient = useQueryClient();
-  return useQuery<Barbecue | null>({
+  return useQuery<BarbecueListItem | null>({
     queryKey: planQueryKey(planId),
     enabled: !!planId,
     queryFn: async () => {
       if (!planId) return null;
-      const cachedAll = queryClient.getQueryData<Barbecue[]>(["/api/barbecues"]);
+      const cachedAll = queryClient.getQueryData<BarbecueListItem[]>(["/api/barbecues"]);
       if (Array.isArray(cachedAll)) {
         const match = cachedAll.find((entry) => Number(entry.id) === planId) ?? null;
         if (match) return match;

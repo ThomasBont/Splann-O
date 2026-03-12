@@ -20,7 +20,7 @@ export function expensesQueryKey(bbqId: number | null) {
   return ['/api/barbecues', bbqId, 'expenses'] as const;
 }
 
-function planExpensesQueryKey(bbqId: number | null) {
+export function planExpensesQueryKey(bbqId: number | null) {
   return ["expenses", bbqId] as const;
 }
 

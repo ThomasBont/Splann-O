@@ -68,6 +68,7 @@ import { usePrefetchPlan } from "@/hooks/use-prefetch-plan";
 import { usePanel } from "@/state/panel";
 import { resolveAssetUrl } from "@/lib/asset-url";
 import { startPlanSwitchPerf } from "@/lib/plan-switch-perf";
+import { formatPlanDateRange } from "@/lib/dates";
 
 type AppSection = "home" | "private" | "event";
 type DevDisableFlags = {
@@ -113,11 +114,8 @@ function getEventCreatedMs(event: Barbecue): number {
   return Number.isFinite(ms) ? ms : 0;
 }
 
-function formatEventDate(date: unknown) {
-  if (!date) return "Date TBA";
-  const d = new Date(date as string);
-  if (Number.isNaN(d.getTime())) return "Date TBA";
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+function formatEventDate(event: Pick<Barbecue, "startDate" | "endDate" | "date">) {
+  return formatPlanDateRange(event.startDate, event.endDate, event.date) ?? "Date TBA";
 }
 
 function formatEventLocation(event: Barbecue) {
@@ -130,9 +128,18 @@ function formatEventLocation(event: Barbecue) {
 
 function getSidebarEventDotClass(event: Pick<Barbecue, "area" | "eventType" | "status">) {
   if (event.status === "settled") return "bg-emerald-400/60";
+  if (event.status === "archived") return "bg-slate-400/70";
   if (event.status === "closed") return "bg-amber-400/70";
   const category = event.area === "trips" ? "trip" : "party";
   return getEventTheme(category, event.eventType ?? null).accent.bg;
+}
+
+function isArchivedPlan(event: Pick<Barbecue, "status">) {
+  return event.status === "archived";
+}
+
+function isRunningPlan(event: Pick<Barbecue, "status">) {
+  return !isArchivedPlan(event);
 }
 
 function toEventId(value: unknown): number | null {
@@ -212,7 +219,7 @@ function EventRow({
             <Badge variant="outline" className="rounded-full shrink-0">Private</Badge>
           </div>
           <p className="mt-0.5 text-xs text-muted-foreground truncate">
-            {formatEventDate(event.date)} · {formatEventLocation(event)}
+            {formatEventDate(event)} · {formatEventLocation(event)}
           </p>
         </a>
       </Link>
@@ -340,6 +347,14 @@ function AppSidebar({
   );
   const eventById = useMemo(() => new Map(privateEvents.map((event) => [event.id, event])), [privateEvents]);
   const allSortedEvents = useMemo(() => [...privateEvents].sort((a, b) => getEventDateMs(b) - getEventDateMs(a)), [privateEvents]);
+  const runningEvents = useMemo(
+    () => allSortedEvents.filter((event) => isRunningPlan(event)),
+    [allSortedEvents],
+  );
+  const archivedEvents = useMemo(
+    () => allSortedEvents.filter((event) => isArchivedPlan(event)),
+    [allSortedEvents],
+  );
 
   const recentOpenedIds = useMemo(() => {
     if (typeof window === "undefined") return [] as number[];
@@ -352,13 +367,13 @@ function AppSidebar({
   }, [recentOpenedKey, privateEvents.length]);
 
   const recentEvents = useMemo(() => {
-    if (recentOpenedIds.length === 0) return allSortedEvents.slice(0, 12);
-    const byId = new Map(allSortedEvents.map((event) => [event.id, event]));
+    if (recentOpenedIds.length === 0) return runningEvents.slice(0, 12);
+    const byId = new Map(runningEvents.map((event) => [event.id, event]));
     const fromHistory = recentOpenedIds.map((id) => byId.get(id)).filter((event): event is BarbecueListItem => !!event);
     if (fromHistory.length >= 8) return fromHistory.slice(0, 12);
     const existingIds = new Set(fromHistory.map((e) => e.id));
-    return [...fromHistory, ...allSortedEvents.filter((e) => !existingIds.has(e.id))].slice(0, 12);
-  }, [allSortedEvents, recentOpenedIds]);
+    return [...fromHistory, ...runningEvents.filter((e) => !existingIds.has(e.id))].slice(0, 12);
+  }, [recentOpenedIds, runningEvents]);
 
   const searchedEvents = recentEvents;
 
@@ -373,12 +388,8 @@ function AppSidebar({
   );
 
   const advancedUnsettled = useMemo(
-    () => allSortedEvents.filter((event) => isPrivateEvent(event) && event.status !== "settled").slice(0, 8),
-    [allSortedEvents],
-  );
-  const settledEvents = useMemo(
-    () => allSortedEvents.filter((event) => isPrivateEvent(event) && event.status === "settled"),
-    [allSortedEvents],
+    () => runningEvents.filter((event) => event.status !== "settled").slice(0, 8),
+    [runningEvents],
   );
   const advancedUpcoming = useMemo(() => {
     const now = new Date();
@@ -538,13 +549,13 @@ function AppSidebar({
                 )}
                 <div className="space-y-1">
                   <div className="flex items-center justify-between px-1">
-                    <p className="text-xs text-muted-foreground">Recent plans</p>
+                    <p className="text-xs text-muted-foreground">Running Plans</p>
                     <div className="flex items-center gap-1">
                       <span className="text-[10px] text-muted-foreground">{searchedEvents.length}</span>
                       <button
                         type="button"
                         className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                        aria-label={recentCollapsed ? "Expand recent plans" : "Collapse recent plans"}
+                        aria-label={recentCollapsed ? "Expand running plans" : "Collapse running plans"}
                         aria-expanded={!recentCollapsed}
                         aria-controls="sidebar-recent-events-list"
                         onClick={() => setRecentCollapsed((v) => !v)}
@@ -594,11 +605,11 @@ function AppSidebar({
                     )}
                   </div>
                 )}
-                {settledEvents.length > 0 && (
+                {archivedEvents.length > 0 && (
                   <div className="space-y-1 pt-1">
                     <div className="flex items-center justify-between px-1">
                       <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                        Archived · {settledEvents.length}
+                        Archived · {archivedEvents.length}
                       </p>
                       <button
                         type="button"
@@ -611,7 +622,7 @@ function AppSidebar({
                     </div>
                     {!archivedCollapsed && (
                       <div className="space-y-1 opacity-60">
-                        {renderEventList(settledEvents, "No archived plans")}
+                        {renderEventList(archivedEvents, "No archived plans")}
                       </div>
                     )}
                   </div>
@@ -851,7 +862,7 @@ function AppDashboardHome({ onCreatePlan }: { onCreatePlan: () => void }) {
                 <div className="min-w-0">
                   <p className="text-sm font-medium truncate">{event.name}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    {event.date ? new Date(event.date).toLocaleDateString() : "Date TBA"}
+                    {formatPlanDateRange(event.startDate, event.endDate, event.date) ?? "Date TBA"}
                   </p>
                 </div>
                 <Badge variant="outline" className="rounded-full">Private</Badge>
@@ -1114,11 +1125,11 @@ export default function AppRoute() {
 
   const mobileQuickSwitchEvents = useMemo(() => {
     const sorted = [...appEvents].filter((event) => isPrivateEvent(event)).sort((a, b) => getEventDateMs(b) - getEventDateMs(a));
-    return sorted.filter((event) => event.status !== "settled").slice(0, 8);
+    return sorted.filter((event) => isRunningPlan(event)).slice(0, 8);
   }, [appEvents]);
   const mobileArchivedEvents = useMemo(
     () => [...appEvents]
-      .filter((event) => isPrivateEvent(event) && event.status === "settled")
+      .filter((event) => isPrivateEvent(event) && isArchivedPlan(event))
       .sort((a, b) => getEventDateMs(b) - getEventDateMs(a)),
     [appEvents],
   );
@@ -1255,7 +1266,7 @@ export default function AppRoute() {
   const formatInviteMeta = (eventId: number) => {
     const event = appEvents.find((candidate) => candidate.id === eventId);
     if (!event) return null;
-    const dateLabel = event.date ? new Date(event.date).toLocaleDateString() : null;
+    const dateLabel = formatPlanDateRange(event.startDate, event.endDate, event.date);
     const locationLabel = formatEventLocation(event);
     if (!dateLabel && !locationLabel) return null;
     if (dateLabel && locationLabel) return `${dateLabel} · ${locationLabel}`;
@@ -1333,11 +1344,11 @@ export default function AppRoute() {
               <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-4">
                 <div className="space-y-3 pr-1">
                   <div className="flex items-center justify-between">
-                    <p className="text-[11px] font-medium uppercase tracking-[0.2em] text-muted-foreground">Recent plans</p>
+                    <p className="text-[11px] font-medium uppercase tracking-[0.2em] text-muted-foreground">Running Plans</p>
                     <button
                       type="button"
                       className="inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground hover:bg-muted/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-                      aria-label={mobileRecentCollapsed ? "Expand recent plans" : "Collapse recent plans"}
+                      aria-label={mobileRecentCollapsed ? "Expand running plans" : "Collapse running plans"}
                       aria-expanded={!mobileRecentCollapsed}
                       aria-controls="mobile-recent-events-list"
                       onClick={() => setMobileRecentCollapsed((v) => !v)}

@@ -99,6 +99,20 @@ async function migrate(): Promise<void> {
       .filter((m): m is { name: string; version: number } => m.version !== null)
       .sort((a, b) => a.version - b.version);
 
+    const duplicates = new Map<number, string[]>();
+    for (const migration of migrations) {
+      const current = duplicates.get(migration.version) ?? [];
+      current.push(migration.name);
+      duplicates.set(migration.version, current);
+    }
+    const duplicateEntries = Array.from(duplicates.entries()).filter(([, names]) => names.length > 1);
+    if (duplicateEntries.length > 0) {
+      console.warn("[db:migrate] Duplicate migration versions detected:");
+      for (const [version, names] of duplicateEntries) {
+        console.warn(`  v${version}: ${names.join(", ")}`);
+      }
+    }
+
     let applied = 0;
     for (const { name, version } of migrations) {
       if (version <= current) continue;

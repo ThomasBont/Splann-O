@@ -148,9 +148,11 @@ export default function NewPlanWizardDrawer() {
   const [locationSearchOpen, setLocationSearchOpen] = useState(false);
   const [isSearchingLocations, setIsSearchingLocations] = useState(false);
   const [locationSearchError, setLocationSearchError] = useState<string | null>(null);
-  const [date, setDate] = useState(todayIso());
+  const [startDate, setStartDate] = useState(todayIso());
+  const [endDate, setEndDate] = useState(todayIso());
   const [time, setTime] = useState("");
-  const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const [startDatePickerOpen, setStartDatePickerOpen] = useState(false);
+  const [endDatePickerOpen, setEndDatePickerOpen] = useState(false);
   const [timePickerOpen, setTimePickerOpen] = useState(false);
   const timePickerRef = useRef<HTMLDivElement | null>(null);
   const [planType, setPlanType] = useState<PlanType | null>(null);
@@ -181,9 +183,12 @@ export default function NewPlanWizardDrawer() {
     setLocationSearchOpen(false);
     setIsSearchingLocations(false);
     setLocationSearchError(null);
-    setDate(todayIso());
+    const today = todayIso();
+    setStartDate(today);
+    setEndDate(today);
     setTime("");
-    setDatePickerOpen(false);
+    setStartDatePickerOpen(false);
+    setEndDatePickerOpen(false);
     setTimePickerOpen(false);
     setPlanType(null);
     setSubcategory(null);
@@ -223,7 +228,7 @@ export default function NewPlanWizardDrawer() {
   const selectedSubcategory = subcategories.find((item) => item.id === subcategory) ?? null;
   const hasLocationSelectionPending = locationQuery.trim().length > 0 && !selectedLocation;
   const canGoNext = !!planType && !!subcategory;
-  const canCreate = name.trim().length > 0 && !!selectedLocation && date.trim().length > 0;
+  const canCreate = name.trim().length > 0 && !!selectedLocation && startDate.trim().length > 0 && endDate.trim().length > 0;
   const basicsValid = canCreate && /^[A-Z]{3}$/.test(planCurrency);
 
   useEffect(() => {
@@ -414,18 +419,20 @@ export default function NewPlanWizardDrawer() {
     if (!basicsValid || !planType || !selectedSubcategory || createBbq.isPending) return;
     const location = selectedLocation;
     if (!location) return;
-    const fallbackDateIso = `${date}T12:00:00.000Z`;
+    const fallbackDateIso = `${startDate}T12:00:00.000Z`;
     const submittedDate = time
-      ? new Date(`${date}T${time}`).toISOString()
+      ? new Date(`${startDate}T${time}`).toISOString()
       : fallbackDateIso;
     createBbq.mutate(
       {
         name: name.trim(),
         date: submittedDate,
+        startDate,
+        endDate,
         currency: planCurrency,
         planCurrency,
         localCurrency: localCurrency.trim() || null,
-        localDate: date,
+        localDate: startDate,
         localTime: time || null,
         creatorUserId: user?.id ?? undefined,
         isPublic: false,
@@ -607,7 +614,7 @@ export default function NewPlanWizardDrawer() {
                         </span>
                       ) : null}
                     </div>
-                    <p className="text-xs text-muted-foreground">Name it, pin the location, and set the date.</p>
+                    <p className="text-xs text-muted-foreground">Name it, pin the location, and set the plan dates.</p>
                   </div>
                   <div className="space-y-2">
                     <Label className="text-muted-foreground text-xs uppercase tracking-wide">Plan name</Label>
@@ -705,13 +712,14 @@ export default function NewPlanWizardDrawer() {
                       />
                     </div>
                   </div>
-                  <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="grid gap-4 sm:grid-cols-3">
                     <div className="space-y-2">
-                      <Label className="text-muted-foreground text-xs uppercase tracking-wide">Date</Label>
+                      <Label className="text-muted-foreground text-xs uppercase tracking-wide">Start date</Label>
                       <Popover
-                        open={datePickerOpen}
+                        open={startDatePickerOpen}
                         onOpenChange={(nextOpen) => {
-                          setDatePickerOpen(nextOpen);
+                          setStartDatePickerOpen(nextOpen);
+                          if (nextOpen) setEndDatePickerOpen(false);
                           if (nextOpen) setTimePickerOpen(false);
                         }}
                       >
@@ -720,14 +728,14 @@ export default function NewPlanWizardDrawer() {
                             type="button"
                             className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 text-sm ring-offset-background transition-colors hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                           >
-                            <span className="truncate text-foreground">{formatDateLabel(date)}</span>
+                            <span className="truncate text-foreground">{formatDateLabel(startDate)}</span>
                             <CalendarDays className="h-4 w-4 text-muted-foreground" />
                           </button>
                         </PopoverTrigger>
                         <PopoverContent align="start" className="z-[130] w-auto rounded-xl p-0">
                           <Calendar
                             mode="single"
-                            selected={parseIsoDateToLocal(date)}
+                            selected={parseIsoDateToLocal(startDate)}
                             classNames={{
                               // Remove parent-cell selected background to avoid corner artifacts in this single-date picker.
                               cell: "h-9 w-9 text-center text-sm p-0 relative focus-within:relative focus-within:z-20",
@@ -738,8 +746,50 @@ export default function NewPlanWizardDrawer() {
                             }}
                             onSelect={(day) => {
                               if (!day) return;
-                              setDate(toIsoDate(day));
-                              setDatePickerOpen(false);
+                              const nextDate = toIsoDate(day);
+                              setStartDate(nextDate);
+                              setEndDate((current) => (current < nextDate ? nextDate : current));
+                              setStartDatePickerOpen(false);
+                            }}
+                            initialFocus
+                          />
+                        </PopoverContent>
+                      </Popover>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-muted-foreground text-xs uppercase tracking-wide">End date</Label>
+                      <Popover
+                        open={endDatePickerOpen}
+                        onOpenChange={(nextOpen) => {
+                          setEndDatePickerOpen(nextOpen);
+                          if (nextOpen) setStartDatePickerOpen(false);
+                          if (nextOpen) setTimePickerOpen(false);
+                        }}
+                      >
+                        <PopoverTrigger asChild>
+                          <button
+                            type="button"
+                            className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 text-sm ring-offset-background transition-colors hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                          >
+                            <span className="truncate text-foreground">{formatDateLabel(endDate)}</span>
+                            <CalendarDays className="h-4 w-4 text-muted-foreground" />
+                          </button>
+                        </PopoverTrigger>
+                        <PopoverContent align="start" className="z-[130] w-auto rounded-xl p-0">
+                          <Calendar
+                            mode="single"
+                            selected={parseIsoDateToLocal(endDate)}
+                            disabled={(day) => toIsoDate(day) < startDate}
+                            classNames={{
+                              cell: "h-9 w-9 text-center text-sm p-0 relative focus-within:relative focus-within:z-20",
+                              day: "h-9 w-9 rounded-md p-0 text-sm font-normal border border-transparent hover:bg-muted/40",
+                              day_selected: "bg-primary text-primary-foreground border-primary hover:bg-primary focus:bg-primary",
+                              day_today: "text-foreground font-semibold",
+                            }}
+                            onSelect={(day) => {
+                              if (!day) return;
+                              setEndDate(toIsoDate(day));
+                              setEndDatePickerOpen(false);
                             }}
                             initialFocus
                           />
@@ -754,7 +804,10 @@ export default function NewPlanWizardDrawer() {
                           onClick={() => {
                             setTimePickerOpen((open) => {
                               const next = !open;
-                              if (next) setDatePickerOpen(false);
+                              if (next) {
+                                setStartDatePickerOpen(false);
+                                setEndDatePickerOpen(false);
+                              }
                               return next;
                             });
                           }}

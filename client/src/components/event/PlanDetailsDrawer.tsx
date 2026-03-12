@@ -20,7 +20,8 @@ import { resolveAssetUrl } from "@/lib/asset-url";
 type PlanDetailsValues = {
   name: string;
   locationText: string;
-  date: string;
+  startDate: string;
+  endDate: string;
   bannerUrl: string | null;
 };
 
@@ -31,6 +32,8 @@ type PlanDetailsDrawerProps = {
     id?: number;
     name: string;
     date: string | Date | null;
+    startDate?: string | Date | null;
+    endDate?: string | Date | null;
     locationText?: string | null;
     locationName?: string | null;
     city?: string | null;
@@ -41,6 +44,7 @@ type PlanDetailsDrawerProps = {
   saving?: boolean;
   onSave: (updates: PlanDetailsValues) => Promise<void>;
   isCreator?: boolean;
+  canEditDates?: boolean;
   deleting?: boolean;
   onDelete?: () => Promise<void> | void;
   leaving?: boolean;
@@ -49,13 +53,14 @@ type PlanDetailsDrawerProps = {
   willDeleteOnLeave?: boolean;
 };
 
-function toDateTimeLocalValue(value: string | Date | null | undefined) {
+function toDateInputValue(value: string | Date | null | undefined) {
   if (!value) return "";
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  const offsetMs = date.getTimezoneOffset() * 60_000;
-  const local = new Date(date.getTime() - offsetMs);
-  return local.toISOString().slice(0, 16);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 export function PlanDetailsDrawer({
@@ -65,6 +70,7 @@ export function PlanDetailsDrawer({
   saving = false,
   onSave,
   isCreator = false,
+  canEditDates = false,
   deleting = false,
   onDelete,
   leaving = false,
@@ -75,7 +81,8 @@ export function PlanDetailsDrawer({
   const { toastError } = useAppToast();
   const [name, setName] = useState("");
   const [locationText, setLocationText] = useState("");
-  const [dateTimeLocal, setDateTimeLocal] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const [bannerMode, setBannerMode] = useState<"upload" | "url">("upload");
   const [bannerUrlDraft, setBannerUrlDraft] = useState<string | null>(null);
   const [bannerUrlInput, setBannerUrlInput] = useState("");
@@ -84,7 +91,7 @@ export function PlanDetailsDrawer({
   const [bannerImageLoading, setBannerImageLoading] = useState(false);
   const [bannerImageFailed, setBannerImageFailed] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [baseline, setBaseline] = useState<{ name: string; locationText: string; dateTimeLocal: string; bannerUrl: string | null } | null>(null);
+  const [baseline, setBaseline] = useState<{ name: string; locationText: string; startDate: string; endDate: string; bannerUrl: string | null } | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
   const initializedPlanIdRef = useRef<number | null>(null);
@@ -101,11 +108,13 @@ export function PlanDetailsDrawer({
       || plan.locationName?.trim()
       || [plan.city, plan.countryName].filter(Boolean).join(", ").trim()
       || "";
-    const nextDateTime = toDateTimeLocalValue(plan.date);
+    const nextStartDate = toDateInputValue(plan.startDate ?? plan.date);
+    const nextEndDate = toDateInputValue(plan.endDate ?? plan.startDate ?? plan.date);
 
     setName(nextName);
     setLocationText(nextLocation);
-    setDateTimeLocal(nextDateTime);
+    setStartDate(nextStartDate);
+    setEndDate(nextEndDate);
     const nextBannerUrl = plan.bannerUrl ?? plan.bannerImageUrl ?? null;
     setBannerMode("upload");
     setBannerUrlDraft(nextBannerUrl);
@@ -117,7 +126,8 @@ export function PlanDetailsDrawer({
     setBaseline({
       name: nextName,
       locationText: nextLocation,
-      dateTimeLocal: nextDateTime,
+      startDate: nextStartDate,
+      endDate: nextEndDate,
       bannerUrl: nextBannerUrl,
     });
   }, [open, plan?.id]);
@@ -148,18 +158,20 @@ export function PlanDetailsDrawer({
       || [plan?.city, plan?.countryName].filter(Boolean).join(", ").trim()
       || ""
     );
-  const initialDate = baseline?.dateTimeLocal ?? toDateTimeLocalValue(plan?.date ?? null);
+  const initialStartDate = baseline?.startDate ?? toDateInputValue(plan?.startDate ?? plan?.date ?? null);
+  const initialEndDate = baseline?.endDate ?? toDateInputValue(plan?.endDate ?? plan?.startDate ?? plan?.date ?? null);
   const initialBanner = baseline?.bannerUrl ?? (plan?.bannerUrl ?? plan?.bannerImageUrl ?? null);
 
-  const isValid = name.trim().length > 0 && locationText.trim().length > 0 && dateTimeLocal.trim().length > 0;
+  const isValid = name.trim().length > 0 && locationText.trim().length > 0 && startDate.trim().length > 0 && endDate.trim().length > 0;
   const isDirty = useMemo(
     () => (
       name.trim() !== initialName.trim()
       || locationText.trim() !== initialLocation.trim()
-      || dateTimeLocal !== initialDate
+      || startDate !== initialStartDate
+      || endDate !== initialEndDate
       || (bannerUrlDraft ?? null) !== (initialBanner ?? null)
     ),
-    [name, locationText, dateTimeLocal, bannerUrlDraft, initialName, initialLocation, initialDate, initialBanner],
+    [name, locationText, startDate, endDate, bannerUrlDraft, initialName, initialLocation, initialStartDate, initialEndDate, initialBanner],
   );
 
   const previewUrl = resolveAssetUrl(bannerUrlDraft);
@@ -243,17 +255,18 @@ export function PlanDetailsDrawer({
   const handleSave = async () => {
     if (!isValid || !isDirty || saving || uploadingBanner) return;
     try {
-      const isoDate = new Date(dateTimeLocal).toISOString();
       await onSave({
         name: name.trim(),
         locationText: locationText.trim(),
-        date: isoDate,
+        startDate,
+        endDate,
         bannerUrl: bannerUrlDraft?.trim() || null,
       });
       setBaseline({
         name: name.trim(),
         locationText: locationText.trim(),
-        dateTimeLocal,
+        startDate,
+        endDate,
         bannerUrl: bannerUrlDraft?.trim() || null,
       });
       onOpenChange(false);
@@ -316,15 +329,38 @@ export function PlanDetailsDrawer({
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="plan-details-datetime">Date & time</Label>
-                  <Input
-                    id="plan-details-datetime"
-                    type="datetime-local"
-                    value={dateTimeLocal}
-                    onChange={(event) => setDateTimeLocal(event.target.value)}
-                  />
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="plan-details-start-date">Start date</Label>
+                    <Input
+                      id="plan-details-start-date"
+                      type="date"
+                      value={startDate}
+                      onChange={(event) => {
+                        const nextValue = event.target.value;
+                        setStartDate(nextValue);
+                        setEndDate((current) => (!current || current < nextValue ? nextValue : current));
+                      }}
+                      disabled={!canEditDates}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="plan-details-end-date">End date</Label>
+                    <Input
+                      id="plan-details-end-date"
+                      type="date"
+                      min={startDate || undefined}
+                      value={endDate}
+                      onChange={(event) => setEndDate(event.target.value)}
+                      disabled={!canEditDates}
+                    />
+                  </div>
                 </div>
+                {!canEditDates ? (
+                  <p className="text-xs text-muted-foreground">
+                    Dates can only be changed before settlement starts.
+                  </p>
+                ) : null}
 
                 <section className="space-y-3 rounded-xl border border-border bg-card p-3">
                   <div className="flex items-center justify-between">

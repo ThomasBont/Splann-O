@@ -55,7 +55,6 @@ router.post("/invites/:token/accept", requireAuth, asyncHandler(async (req, res)
   const eventId = Number(invite.id);
   const event = await bbqRepo.getById(eventId);
   if (!event) notFound("Event not found");
-  await assertMembersWritable(eventId);
 
   const memberExists = await isEventMemberUser(eventId, userId, username);
   const existingMembership = (await participantRepo.getMemberships(userId)).find((membership) => membership.bbqId === eventId);
@@ -68,6 +67,7 @@ router.post("/invites/:token/accept", requireAuth, asyncHandler(async (req, res)
     });
     return;
   }
+  await assertMembersWritable(eventId);
   if (!memberExists) {
     await db.insert(eventMembers).values({
       eventId,

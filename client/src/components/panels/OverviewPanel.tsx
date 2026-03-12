@@ -12,6 +12,7 @@ import { convertCurrency } from "@/hooks/use-language";
 import { usePlan, usePlanCrew, usePlanExpenses } from "@/hooks/use-plan-data";
 import { useUpdateBarbecue, useUploadEventBanner } from "@/hooks/use-bbq-data";
 import { resolveAssetUrl, withCacheBust } from "@/lib/asset-url";
+import { formatFullDate } from "@/lib/dates";
 import { getBannerPresetClass, getBannerPresetTone, getEventBanner } from "@/lib/event-banner";
 import { computeSplit } from "@/lib/split/calc";
 import { circularActionButtonClass, cn } from "@/lib/utils";
@@ -22,7 +23,7 @@ import { getUpNextCandidates } from "@/components/panels/up-next";
 import { useEventGuests } from "@/hooks/use-event-guests";
 import { usePlanActivity } from "@/hooks/use-plan-activity";
 import { formatActivityPreview, formatActivityTime, getActivityIcon } from "@/components/panels/activity-format";
-import { getClientPlanStatus } from "@/lib/plan-lifecycle";
+import { getClientPlanStatus, getPlanWrapUpEndsAt } from "@/lib/plan-lifecycle";
 
 type SettlementRoundSummary = {
   id: string;
@@ -103,24 +104,6 @@ function getInitials(name: string) {
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return `${parts[0][0] ?? ""}${parts[parts.length - 1][0] ?? ""}`.toUpperCase();
 }
-
-function formatLongDate(value?: string | Date | null) {
-  if (!value) return null;
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return date.toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" });
-}
-
-const UP_NEXT_CONFETTI_COLORS = [
-  "bg-yellow-400",
-  "bg-primary",
-  "bg-emerald-400",
-  "bg-pink-400",
-  "bg-blue-400",
-  "bg-orange-400",
-] as const;
-
-const UP_NEXT_CONFETTI_ANGLES = [0, 60, 120, 180, 240, 300] as const;
 
 function countryCodeToFlagEmoji(countryCode: string | null | undefined) {
   const code = String(countryCode ?? "").trim().toUpperCase();
@@ -283,10 +266,12 @@ export function OverviewPanel() {
   const latestPastFinalSettlementRound = pastFinalSettlementRounds[0] ?? null;
   const planStatus = getClientPlanStatus(plan?.status);
   const isPlanClosed = planStatus === "closed";
-  const isPlanCompleted = planStatus === "settled";
-  const invitesLocked = isPlanClosed || isPlanCompleted || !!activeFinalSettlementRound;
+  const isPlanSettled = planStatus === "settled";
+  const isPlanArchived = planStatus === "archived";
+  const isFinanciallyCompleted = isPlanSettled || isPlanArchived;
+  const invitesLocked = isPlanClosed || isFinanciallyCompleted || !!activeFinalSettlementRound;
   const expensesLocked = invitesLocked;
-  const completedSettlementId = isPlanCompleted ? latestPastFinalSettlementRound?.id ?? null : null;
+  const completedSettlementId = isFinanciallyCompleted ? latestPastFinalSettlementRound?.id ?? null : null;
   const completedSettlementDetailQuery = useQuery<SettlementDetailResponse>({
     queryKey: ["/api/events", eventId, "settlement", completedSettlementId ?? "none", "overview-completed"],
     queryFn: async () => {
@@ -319,14 +304,15 @@ export function OverviewPanel() {
   const activityQuery = usePlanActivity(eventId, !!eventId);
   const activityItems = activityQuery.latestItems;
   const isCreator = Number(plan?.creatorUserId) === Number(user?.id);
-  const [showConfetti, setShowConfetti] = useState(false);
-
   const hasAnyExpenses = laterSettleExpenses.length > 0;
   const hasOnlyCreator = participants.length <= 1;
   const allBalancesZero = balances.every((entry) => Math.abs(Number(entry.balance) || 0) < 0.01);
-  const settlementCompleted = isPlanCompleted || (!activeFinalSettlementRound && latestPastFinalSettlementRound?.status === "completed" && allBalancesZero);
+  const settlementCompleted = isFinanciallyCompleted || (!activeFinalSettlementRound && latestPastFinalSettlementRound?.status === "completed" && allBalancesZero);
   const personalStatus = useMemo<HeroStatus>(() => {
-    if (isPlanCompleted) {
+    if (isPlanArchived) {
+      return { label: "Plan archived", tone: "muted", action: null };
+    }
+    if (isPlanSettled) {
       return { label: "Plan completed 🎉", tone: "settled", action: null };
     }
     if (isPlanClosed) {
@@ -346,11 +332,13 @@ export function OverviewPanel() {
     if (Math.abs(amount) < 0.01) return { label: "All settled", tone: "settled", action: null };
     if (amount > 0) return { label: `You are owed ${formatCurrency(amount, currency)}`, tone: "positive", action: null };
     return { label: `You owe ${formatCurrency(Math.abs(amount), currency)}`, tone: "negative", action: null };
-  }, [currency, expensesLocked, hasAnyExpenses, hasOnlyCreator, invitesLocked, isPlanClosed, isPlanCompleted, myBalance, myParticipant, settlementCompleted]);
+  }, [currency, expensesLocked, hasAnyExpenses, hasOnlyCreator, invitesLocked, isFinanciallyCompleted, isPlanArchived, isPlanClosed, isPlanSettled, myBalance, myParticipant, settlementCompleted]);
   const completedTransfers = completedSettlementDetailQuery.data?.transfers ?? [];
   const finalPayment = completedTransfers[0] ?? null;
-  const planCreatedAt = formatLongDate((plan as { createdAt?: string | Date | null } | null)?.createdAt ?? String(plan?.date ?? ""));
-  const planCompletedAt = formatLongDate((plan as { settledAt?: string | Date | null } | null)?.settledAt ?? null);
+  const planCreatedAt = formatFullDate((plan as { createdAt?: string | Date | null } | null)?.createdAt ?? String(plan?.date ?? ""));
+  const planCompletedAt = formatFullDate((plan as { settledAt?: string | Date | null } | null)?.settledAt ?? null);
+  const wrapUpEndsAt = getPlanWrapUpEndsAt((plan as { settledAt?: string | Date | null } | null)?.settledAt ?? null);
+  const wrapUpEndsLabel = formatFullDate(wrapUpEndsAt);
 
   const contributionRows = useMemo(() => {
     return buildCrewContributionRows({ participants, members, expenses: laterSettleExpenses }).map((row, index) => ({
@@ -409,8 +397,8 @@ export function OverviewPanel() {
     participantCount: participants.length,
     expensesCount: expenses.length,
     pendingInvitesCount: pendingInvites.length,
-    canSettle: isPlanCompleted ? false : canSettle,
-    latestSettlementStatus: isPlanCompleted ? "completed" : activeFinalSettlementRound?.status ?? null,
+    canSettle: isFinanciallyCompleted ? false : canSettle,
+    latestSettlementStatus: isFinanciallyCompleted ? "completed" : activeFinalSettlementRound?.status ?? null,
     unpaidTransfers,
     eventDate: plan?.date,
     isCreator,
@@ -425,13 +413,37 @@ export function OverviewPanel() {
     upNextContext.pendingInvitesCount,
     upNextContext.unpaidTransfers,
   ]);
-  const upNextItem = upNextCandidates.find((item) => item.type === "settlement") ?? {
-    type: "done",
-    title: "You're all good 🎉",
-    description: "Nothing left to do — the plan is on track.",
-    ctaLabel: null,
-    action: null,
-  };
+  const upNextItem = activeFinalSettlementRound
+    ? upNextCandidates.find((item) => item.type === "settlement") ?? {
+        type: "settlement",
+        title: "Settlement in progress",
+        description: "Finish the remaining payments to complete the plan.",
+        ctaLabel: "Open settle up",
+        action: "settlement",
+      }
+    : expenses.length === 0
+      ? {
+          type: "expense" as const,
+          title: "Start tracking expenses",
+          description: "No expenses yet.",
+          ctaLabel: expensesLocked ? null : "Add expense",
+          action: expensesLocked ? null : "add-expense",
+        }
+      : allBalancesZero
+        ? {
+            type: "done" as const,
+            title: "All good for now",
+            description: "Expenses are tracked and there are no balances yet.",
+            ctaLabel: null,
+            action: null,
+          }
+        : {
+            type: "settlement" as const,
+            title: "Balances are ready to settle",
+            description: "Open settle up to turn the current balances into payments.",
+            ctaLabel: "Open settle up",
+            action: "settlement",
+          };
   const upNext = {
     ...upNextItem,
     onAction: upNextItem.action === "settlement"
@@ -446,33 +458,6 @@ export function OverviewPanel() {
         ? openPlanDetails
         : null,
   };
-
-  useEffect(() => {
-    const styleId = "splann-o-up-next-confetti";
-    if (document.getElementById(styleId)) return;
-    const style = document.createElement("style");
-    style.id = styleId;
-    style.textContent = `
-      @keyframes confetti-burst {
-        0% { transform: translate(-50%, -50%) rotate(var(--angle)) translateY(0px); opacity: 1; }
-        100% { transform: translate(-50%, -50%) rotate(var(--angle)) translateY(-28px); opacity: 0; }
-      }
-      .animate-confetti-burst {
-        animation: confetti-burst 0.9s ease-out forwards;
-      }
-    `;
-    document.head.appendChild(style);
-  }, []);
-
-  useEffect(() => {
-    if (upNext.type !== "done") {
-      setShowConfetti(false);
-      return;
-    }
-    setShowConfetti(true);
-    const timeout = window.setTimeout(() => setShowConfetti(false), 1200);
-    return () => window.clearTimeout(timeout);
-  }, [upNext.type]);
 
   const eventBanner = useMemo(() => getEventBanner(plan), [plan]);
   const bannerPresetClass = useMemo(
@@ -822,7 +807,7 @@ export function OverviewPanel() {
             </section>
 
             <section className={cn("space-y-4", isMobile && "space-y-3")}>
-            {isPlanCompleted ? (
+            {isFinanciallyCompleted ? (
               <section
                 className={cn(
                   "rounded-[18px] border border-emerald-200/80 bg-emerald-50/70 p-4 dark:border-emerald-500/25 dark:bg-emerald-500/10",
@@ -833,7 +818,7 @@ export function OverviewPanel() {
                   <div>
                     <div className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-background/80 px-3 py-1 text-xs font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-background/15 dark:text-emerald-300">
                       <CheckCircle2 className="h-3.5 w-3.5" />
-                      Plan completed 🎉
+                      {isPlanArchived ? "Plan archived" : "Plan completed 🎉"}
                     </div>
                     <p className="mt-3 text-sm font-semibold tracking-tight text-foreground">All balances settled</p>
                     <p className="mt-1 text-sm text-muted-foreground">
@@ -841,6 +826,11 @@ export function OverviewPanel() {
                     </p>
                     <p className="mt-1 text-sm text-muted-foreground">
                       {participants.length} people participated
+                    </p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {isPlanArchived
+                        ? "The wrap-up window has ended. This plan is now fully read-only."
+                        : `All balances are settled. Chat stays open until ${wrapUpEndsLabel ?? "soon"}.`}
                     </p>
                   </div>
                   {planCompletedAt ? (
@@ -927,31 +917,9 @@ export function OverviewPanel() {
                       {upNext.ctaLabel}
                     </Button>
                   ) : upNext.type === "done" ? (
-                    <div className="relative flex items-center justify-center">
-                      {showConfetti ? (
-                        <div className="pointer-events-none absolute inset-0">
-                          {UP_NEXT_CONFETTI_ANGLES.map((angle, index) => (
-                            <span
-                              key={`up-next-confetti-${angle}`}
-                              className={cn(
-                                "absolute h-2 w-2 rounded-full opacity-0",
-                                UP_NEXT_CONFETTI_COLORS[index],
-                                showConfetti && "animate-confetti-burst",
-                              )}
-                              style={{
-                                top: "50%",
-                                left: "50%",
-                                "--angle": `${angle}deg`,
-                                animationDelay: `${index * 60}ms`,
-                              } as React.CSSProperties}
-                            />
-                          ))}
-                        </div>
-                      ) : null}
-                      <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-300">
-                        All good ✓
-                      </span>
-                    </div>
+                    <span className="rounded-full border border-border/70 bg-background px-3 py-1.5 text-xs font-semibold text-muted-foreground dark:bg-[hsl(var(--surface-2))]/90">
+                      For now
+                    </span>
                   ) : null}
                 </div>
               </section>

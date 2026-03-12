@@ -85,6 +85,10 @@ export const barbecues = pgTable("barbecues", {
   name: text("name").notNull(),
   /** UTC-normalized start timestamp (legacy/current canonical timestamp field). */
   date: timestamp("date").notNull().defaultNow(),
+  /** Canonical plan start date for single-day and multi-day plans. */
+  startDate: timestamp("start_date").notNull().defaultNow(),
+  /** Canonical plan end date for lifecycle closing and range display. */
+  endDate: timestamp("end_date").notNull().defaultNow(),
   /** User local date intent at creation/update, e.g. "2026-03-07". */
   localDate: text("local_date"),
   /** User local time intent, nullable when user leaves time empty. */
@@ -144,6 +148,7 @@ export const barbecues = pgTable("barbecues", {
   status: text("status").notNull().default("active"),
   /** When creator triggered "Settle up" — used for "updated after" badge. */
   settledAt: timestamp("settled_at"),
+  createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 

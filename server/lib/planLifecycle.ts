@@ -1,10 +1,11 @@
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { barbecues, eventSettlementRounds, eventSettlementTransfers, type Barbecue } from "@shared/schema";
-import { db } from "../db";
+import { db, ensureCoreSchemaReady } from "../db";
 
 export const PLAN_CLOSE_GRACE_PERIOD_MS = 2 * 24 * 60 * 60 * 1000;
+export const PLAN_SETTLED_WRAP_UP_MS = 2 * 24 * 60 * 60 * 1000;
 
-export type CanonicalPlanStatus = "active" | "closed" | "settled";
+export type CanonicalPlanStatus = "active" | "closed" | "settled" | "archived";
 
 type SettlementLockState = {
   hasActiveFinalSettlement: boolean;
@@ -20,14 +21,22 @@ export type PlanLifecycleState = {
   status: CanonicalPlanStatus;
   autoClosed: boolean;
   settlementStarted: boolean;
+  timelineLocked: boolean;
   settledAt: Date | null;
   closeAt: Date | null;
+  wrapUpEndsAt: Date | null;
+  socialOpen: boolean;
 };
 
 function normalizeStoredStatus(status: string | null | undefined): CanonicalPlanStatus {
+  if (status === "archived") return "archived";
   if (status === "settled") return "settled";
   if (status === "closed") return "closed";
   return "active";
+}
+
+function resolvePlanEndDate(event: Pick<Barbecue, "endDate" | "date">): Date | string | null | undefined {
+  return event.endDate ?? event.date ?? null;
 }
 
 export function getPlanCloseAt(eventDate: Date | string | null | undefined): Date | null {
@@ -37,10 +46,17 @@ export function getPlanCloseAt(eventDate: Date | string | null | undefined): Dat
   return new Date(parsed.getTime() + PLAN_CLOSE_GRACE_PERIOD_MS);
 }
 
-function isPastCloseGracePeriod(event: Pick<Barbecue, "date">, now = new Date()): boolean {
-  const closeAt = getPlanCloseAt(event.date ?? null);
+function isPastCloseGracePeriod(event: Pick<Barbecue, "endDate" | "date">, now = new Date()): boolean {
+  const closeAt = getPlanCloseAt(resolvePlanEndDate(event));
   if (!closeAt) return false;
   return now.getTime() > closeAt.getTime();
+}
+
+export function getPlanWrapUpEndsAt(settledAt: Date | string | null | undefined): Date | null {
+  if (!settledAt) return null;
+  const parsed = settledAt instanceof Date ? settledAt : new Date(settledAt);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return new Date(parsed.getTime() + PLAN_SETTLED_WRAP_UP_MS);
 }
 
 async function getSettlementLockState(eventIds: number[]): Promise<Map<number, SettlementLockState>> {
@@ -113,14 +129,20 @@ function deriveLifecycleState(
   const normalizedStatus = normalizeStoredStatus(event.status);
   const completedSettlement = settlementState?.latestCompletedFinalSettlement ?? null;
   const completedAt = completedSettlement?.completedAt ?? completedSettlement?.latestPaidAt ?? event.settledAt ?? null;
+  const wrapUpEndsAt = getPlanWrapUpEndsAt(completedAt);
+  const archivedByTime = !!wrapUpEndsAt && now.getTime() > wrapUpEndsAt.getTime();
 
-  if (completedSettlement || normalizedStatus === "settled") {
+  if (completedSettlement || normalizedStatus === "settled" || normalizedStatus === "archived") {
+    const status = archivedByTime || normalizedStatus === "archived" ? "archived" : "settled";
     return {
-      status: "settled",
+      status,
       autoClosed: false,
       settlementStarted: false,
+      timelineLocked: true,
       settledAt: completedAt,
-      closeAt: getPlanCloseAt(event.date ?? null),
+      closeAt: getPlanCloseAt(resolvePlanEndDate(event)),
+      wrapUpEndsAt,
+      socialOpen: status === "settled",
     };
   }
 
@@ -129,12 +151,16 @@ function deriveLifecycleState(
     status: autoClosed ? "closed" : "active",
     autoClosed,
     settlementStarted: settlementState?.hasActiveFinalSettlement ?? false,
+    timelineLocked: autoClosed || (settlementState?.hasActiveFinalSettlement ?? false),
     settledAt: event.settledAt ?? null,
-    closeAt: getPlanCloseAt(event.date ?? null),
+    closeAt: getPlanCloseAt(resolvePlanEndDate(event)),
+    wrapUpEndsAt: null,
+    socialOpen: !autoClosed,
   };
 }
 
 export async function refreshPlanLifecycle(eventId: number, now = new Date()): Promise<PlanLifecycleState | null> {
+  await ensureCoreSchemaReady();
   const [event] = await db.select().from(barbecues).where(eq(barbecues.id, eventId)).limit(1);
   if (!event) return null;
   const settlementState = (await getSettlementLockState([eventId])).get(eventId);
@@ -145,7 +171,7 @@ export async function refreshPlanLifecycle(eventId: number, now = new Date()): P
   if (derived.status === "settled" && derived.settledAt && (!event.settledAt || event.settledAt.getTime() !== derived.settledAt.getTime())) {
     patch.settledAt = derived.settledAt;
   }
-  if (derived.status !== "settled" && event.settledAt && normalizeStoredStatus(event.status) !== "settled") {
+  if (derived.status !== "settled" && derived.status !== "archived" && event.settledAt && normalizeStoredStatus(event.status) !== "settled" && normalizeStoredStatus(event.status) !== "archived") {
     patch.settledAt = null;
   }
 
@@ -160,6 +186,7 @@ export async function refreshPlanLifecycle(eventId: number, now = new Date()): P
 }
 
 export async function refreshPlanLifecycles(eventIds: number[], now = new Date()): Promise<Map<number, PlanLifecycleState>> {
+  await ensureCoreSchemaReady();
   const uniqueIds = Array.from(new Set(eventIds.filter((id) => Number.isInteger(id) && id > 0)));
   const result = new Map<number, PlanLifecycleState>();
   if (uniqueIds.length === 0) return result;
@@ -176,7 +203,7 @@ export async function refreshPlanLifecycles(eventIds: number[], now = new Date()
     if (derived.status === "settled" && derived.settledAt && (!event.settledAt || event.settledAt.getTime() !== derived.settledAt.getTime())) {
       patch.settledAt = derived.settledAt;
     }
-    if (derived.status !== "settled" && event.settledAt && normalizeStoredStatus(event.status) !== "settled") {
+    if (derived.status !== "settled" && derived.status !== "archived" && event.settledAt && normalizeStoredStatus(event.status) !== "settled" && normalizeStoredStatus(event.status) !== "archived") {
       patch.settledAt = null;
     }
 

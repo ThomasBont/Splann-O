@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getApiBase, getEventChatWsUrl } from "@/lib/network";
-import { planBalancesQueryKey, type RealtimePlanBalances } from "@/hooks/use-expenses";
+import { expensesQueryKey, planBalancesQueryKey, planExpensesQueryKey, type RealtimePlanBalances } from "@/hooks/use-expenses";
 import { dedupeExpenseSystemMessages } from "@/lib/chat/dedupe-expense-system-messages";
 import { filterChatMessages } from "@/lib/chat/filter-chat-messages";
 import { PLAN_GC_TIME_MS, PLAN_STALE_TIME_MS } from "@/lib/query-stale";
@@ -273,6 +273,26 @@ export function useEventChat(eventId: number | null, enabled = true) {
       return dedupeAndSort(next);
     });
   }, []);
+
+  const refreshPaymentViews = useCallback(async (planId: number) => {
+    if (!Number.isFinite(planId) || planId <= 0) return;
+    if (import.meta.env.DEV) {
+      console.log("[settle-now:refresh]", { planId });
+    }
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: expensesQueryKey(planId) }),
+      queryClient.invalidateQueries({ queryKey: planExpensesQueryKey(planId) }),
+      queryClient.invalidateQueries({ queryKey: ["/api/events", planId, "settlements"] }),
+      queryClient.invalidateQueries({ queryKey: ["/api/events", planId, "settlement"] }),
+      queryClient.invalidateQueries({ queryKey: planMessagesQueryKey(planId) }),
+    ]);
+    await Promise.all([
+      queryClient.refetchQueries({ queryKey: expensesQueryKey(planId) }),
+      queryClient.refetchQueries({ queryKey: planExpensesQueryKey(planId) }),
+      queryClient.refetchQueries({ queryKey: ["/api/events", planId, "settlements"] }),
+      queryClient.refetchQueries({ queryKey: ["/api/events", planId, "settlement"] }),
+    ]);
+  }, [queryClient]);
 
   const markFailed = useCallback((clientMessageId?: string) => {
     if (!clientMessageId) return;
@@ -629,6 +649,16 @@ export function useEventChat(eventId: number | null, enabled = true) {
         queryClient.setQueryData(planBalancesQueryKey(planId), parsed);
         return;
       }
+      if (
+        payload?.type === "settlement:started"
+        || payload?.type === "settlement:completed"
+        || payload?.type === "settlement_payment"
+      ) {
+        const planId = Number(payload.eventId ?? eventId);
+        if (!Number.isFinite(planId) || planId !== eventId) return;
+        void refreshPaymentViews(planId);
+        return;
+      }
       if (payload?.type === "chat:ack") {
         const incoming = normalizeIncomingMessage(payload.message as IncomingServerMessage);
         if (!incoming) return;
@@ -679,7 +709,7 @@ export function useEventChat(eventId: number | null, enabled = true) {
         wsRef.current = null;
       }
     };
-  }, [applyMessageDelete, applyMessageUpdate, applyReactionUpdate, enabled, eventId, markFailed, mergeMessages, queryClient, reconcileServerMessage, retryTick]);
+  }, [applyMessageDelete, applyMessageUpdate, applyReactionUpdate, enabled, eventId, markFailed, mergeMessages, queryClient, reconcileServerMessage, refreshPaymentViews, retryTick]);
 
   useEffect(() => {
     if (!enabled || !eventId) return;

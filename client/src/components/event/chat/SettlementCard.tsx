@@ -4,6 +4,7 @@ import { CheckCircle2, ChevronDown, ChevronUp, CircleDollarSign } from "lucide-r
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useAppToast } from "@/hooks/use-app-toast";
+import { useCheckoutSettlementTransfer } from "@/hooks/use-bbq-data";
 import { cn } from "@/lib/utils";
 import { usePanel } from "@/state/panel";
 
@@ -64,6 +65,7 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
   const { toastError } = useAppToast();
   const { replacePanel } = usePanel();
   const queryClient = useQueryClient();
+  const checkoutTransfer = useCheckoutSettlementTransfer();
   const queryKey = useMemo(() => ["/api/events", eventId, "settlement", settlementId], [eventId, settlementId]);
 
   const settlementQuery = useQuery<SettlementResponse>({
@@ -154,6 +156,24 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
   const openSettlementPanel = () => {
     replacePanel({ type: "settlement", settlementId });
   };
+  const handleDirectPay = async (transferId: string) => {
+    try {
+      const result = await checkoutTransfer.mutateAsync({ eventId, transferId });
+      if (!result.checkoutUrl) throw new Error("Payment URL missing");
+      window.location.assign(result.checkoutUrl);
+    } catch (error) {
+      const err = error as Error & { code?: string };
+      if (err.code === "only_payer_can_pay") {
+        toastError("Only the person who owes can start this payment.");
+        return;
+      }
+      if (err.code === "transfer_paid") {
+        toastError("This payment is already completed.");
+        return;
+      }
+      toastError(err.message || "Unable to start payment");
+    }
+  };
 
   const hasMoreThanPreview = orderedTransfers.length > 3;
   const visibleTransfers = expanded ? orderedTransfers : orderedTransfers.slice(0, 3);
@@ -242,6 +262,7 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
           {visibleTransfers.map((transfer) => {
             const paid = !!transfer.paidAt;
             const canMarkPaid = !!user && (user.id === transfer.fromUserId || user.id === transfer.toUserId);
+            const canPayDirect = !!user && user.id === transfer.fromUserId;
             return (
               <div key={transfer.id} className="flex items-center justify-between gap-2 px-2 py-1.5 text-xs">
                 <p className="min-w-0 truncate text-muted-foreground">
@@ -256,6 +277,24 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
                     <CheckCircle2 className="h-3.5 w-3.5" />
                     Paid
                   </span>
+                ) : roundType === "direct_split" ? (
+                  canPayDirect ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-6 px-2 text-[11px]"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void handleDirectPay(transfer.id);
+                      }}
+                      disabled={checkoutTransfer.isPending || isSettled}
+                    >
+                      {isSettled ? "Done" : "Pay"}
+                    </Button>
+                  ) : (
+                    <span className="text-[11px] text-muted-foreground">Waiting for payment</span>
+                  )
                 ) : canMarkPaid ? (
                   <Button
                     type="button"

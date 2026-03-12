@@ -113,10 +113,23 @@ async function uploadChatAttachment(
 
 async function isChatLockedForEvent(eventId: number): Promise<boolean> {
   const lifecycle = await getPlanLifecycleState(eventId);
-  if (lifecycle && lifecycle.status !== "active") return true;
+  if (lifecycle) return !lifecycle.socialOpen;
   const [event] = await db.select({ date: barbecues.date }).from(barbecues).where(eq(barbecues.id, eventId)).limit(1);
   if (!event) return false;
   return isEventChatLocked({ date: event.date ?? null });
+}
+
+async function getChatLockPayload(eventId: number) {
+  const lifecycle = await getPlanLifecycleState(eventId);
+  if (lifecycle && !lifecycle.socialOpen) {
+    if (lifecycle.status === "archived") {
+      return { code: "CHAT_LOCKED", message: "This plan is archived. Chat is now read-only." };
+    }
+    if (lifecycle.status === "closed") {
+      return { code: "CHAT_LOCKED", message: "This plan is closed. Chat is read-only." };
+    }
+  }
+  return { code: "CHAT_LOCKED", message: "Chat is read-only for this plan." };
 }
 
 router.get("/events/:eventId/chat", requireAuth, asyncHandler(async (req, res) => {
@@ -146,7 +159,7 @@ router.post("/plans/:planId/chat/attachments", requireAuth, asyncHandler(async (
   if (!Number.isFinite(eventId)) badRequest("Invalid plan id");
   const result = await uploadChatAttachment(req, eventId, req.body);
   if (result.locked) {
-    res.status(423).json({ code: "CHAT_LOCKED", message: "Chat closed after event. History remains visible." });
+    res.status(423).json(await getChatLockPayload(eventId));
     return;
   }
   res.status(201).json(result.attachment);
@@ -164,7 +177,7 @@ router.post("/plans/:planId/chat/messages", requireAuth, asyncHandler(async (req
 
   const locked = await isChatLockedForEvent(eventId);
   if (locked) {
-    res.status(423).json({ code: "CHAT_LOCKED", message: "Chat closed after event. History remains visible." });
+    res.status(423).json(await getChatLockPayload(eventId));
     return;
   }
 
@@ -185,7 +198,7 @@ router.post("/events/:eventId/chat/attachments", requireAuth, asyncHandler(async
   if (!Number.isFinite(eventId)) badRequest("Invalid event id");
   const result = await uploadChatAttachment(req, eventId, req.body);
   if (result.locked) {
-    res.status(423).json({ code: "CHAT_LOCKED", message: "Chat closed after event. History remains visible." });
+    res.status(423).json(await getChatLockPayload(eventId));
     return;
   }
   res.status(201).json(result.attachment);
@@ -203,7 +216,7 @@ router.post("/events/:eventId/chat/messages", requireAuth, asyncHandler(async (r
 
   const locked = await isChatLockedForEvent(eventId);
   if (locked) {
-    res.status(423).json({ code: "CHAT_LOCKED", message: "Chat closed after event. History remains visible." });
+    res.status(423).json(await getChatLockPayload(eventId));
     return;
   }
 
@@ -236,7 +249,7 @@ router.patch("/plans/:planId/chat/messages/:messageId", requireAuth, asyncHandle
 
   const locked = await isChatLockedForEvent(eventId);
   if (locked) {
-    res.status(423).json({ code: "CHAT_LOCKED", message: "Chat closed after event. History remains visible." });
+    res.status(423).json(await getChatLockPayload(eventId));
     return;
   }
 
@@ -259,7 +272,7 @@ router.delete("/plans/:planId/chat/messages/:messageId", requireAuth, asyncHandl
 
   const locked = await isChatLockedForEvent(eventId);
   if (locked) {
-    res.status(423).json({ code: "CHAT_LOCKED", message: "Chat closed after event. History remains visible." });
+    res.status(423).json(await getChatLockPayload(eventId));
     return;
   }
 
@@ -308,7 +321,7 @@ router.patch("/events/:eventId/chat/messages/:messageId", requireAuth, asyncHand
 
   const locked = await isChatLockedForEvent(eventId);
   if (locked) {
-    res.status(423).json({ code: "CHAT_LOCKED", message: "Chat closed after event. History remains visible." });
+    res.status(423).json(await getChatLockPayload(eventId));
     return;
   }
 
@@ -331,7 +344,7 @@ router.delete("/events/:eventId/chat/messages/:messageId", requireAuth, asyncHan
 
   const locked = await isChatLockedForEvent(eventId);
   if (locked) {
-    res.status(423).json({ code: "CHAT_LOCKED", message: "Chat closed after event. History remains visible." });
+    res.status(423).json(await getChatLockPayload(eventId));
     return;
   }
 

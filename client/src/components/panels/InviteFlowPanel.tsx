@@ -239,7 +239,7 @@ export function InviteFlowPanel() {
   }, [debouncedSearch, userSearch.data]);
 
   const ensureTokenAndBuildUrl = async () => {
-    if (!eventId) return null;
+    if (!eventId || invitesLocked) return null;
     try {
       const next = await ensureInviteToken.mutateAsync(eventId);
       return buildInviteUrl(next.inviteToken);
@@ -357,7 +357,7 @@ export function InviteFlowPanel() {
             size="sm"
             className="h-7 rounded-full px-3"
             variant={isHighlighted ? "default" : "outline"}
-            disabled={isInviting}
+            disabled={isInviting || invitesLocked}
             onClick={() => void inviteUserDirectly(result)}
           >
             {isInviting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : copy.invite}

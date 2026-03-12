@@ -12,6 +12,8 @@ export type BarbecueListItem = Barbecue & {
   lastActivityAt: string | null;
   unreadCount: number;
   myBalance: number | null;
+  settlementStarted: boolean;
+  timelineLocked: boolean;
   participantPreview: Array<{ id: number; name: string }>;
 };
 
@@ -193,7 +195,9 @@ export function useCreateBarbecue() {
   return useMutation({
     mutationFn: async (data: {
       name: string;
-      date: string;
+      date?: string;
+      startDate?: string;
+      endDate?: string;
       currency?: string;
       planCurrency?: string;
       localCurrency?: string | null;
@@ -224,7 +228,7 @@ export function useCreateBarbecue() {
       publicListFromAt?: string | null;
       publicListUntilAt?: string | null;
       publicListingExpiresAt?: string | null;
-      status?: "active" | "closed" | "settled";
+      status?: "draft" | "active" | "closed" | "settled" | "archived";
       organizationName?: string | null;
       publicDescription?: string | null;
       bannerImageUrl?: string | null;
@@ -281,9 +285,11 @@ export function useUpdateBarbecue() {
       id: number;
       name?: string;
       date?: string;
+      startDate?: string;
+      endDate?: string;
       allowOptInExpenses?: boolean;
       templateData?: unknown;
-      status?: "active" | "closed" | "settled";
+      status?: "draft" | "active" | "closed" | "settled" | "archived";
       locationName?: string | null;
       city?: string | null;
       countryCode?: string | null;
@@ -316,6 +322,8 @@ export function useUpdateBarbecue() {
       const body: Record<string, unknown> = {};
       if (rest.name !== undefined) body.name = rest.name;
       if (rest.date !== undefined) body.date = rest.date;
+      if (rest.startDate !== undefined) body.startDate = rest.startDate;
+      if (rest.endDate !== undefined) body.endDate = rest.endDate;
       if (rest.allowOptInExpenses !== undefined) body.allowOptInExpenses = rest.allowOptInExpenses;
       if (rest.templateData !== undefined) body.templateData = rest.templateData;
       if (rest.status !== undefined) body.status = rest.status;
@@ -707,6 +715,50 @@ export function useCheckoutPublicListing() {
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error((body as { message?: string }).message || "Failed to start checkout");
       return body as { url: string };
+    },
+  });
+}
+
+export function useCheckoutSettlementTransfer() {
+  return useMutation({
+    mutationFn: async (input: { eventId: number; transferId: string; expenseId?: number }) => {
+      const res = await fetch("/api/payments/create-checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          planId: input.eventId,
+          transferId: input.transferId,
+          ...(typeof input.expenseId === "number" ? { expenseId: input.expenseId } : {}),
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const error = new Error((body as { message?: string }).message || "Unable to start payment") as Error & { code?: string };
+        error.code = (body as { code?: string }).code;
+        throw error;
+      }
+      return body as { checkoutUrl: string; sessionId?: string };
+    },
+  });
+}
+
+export function useConfirmCheckoutSession() {
+  return useMutation({
+    mutationFn: async (input: { sessionId: string }) => {
+      const res = await fetch("/api/payments/confirm-checkout-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(input),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const error = new Error((body as { message?: string }).message || "Unable to confirm payment") as Error & { code?: string };
+        error.code = (body as { code?: string }).code;
+        throw error;
+      }
+      return body as { reconciled: boolean; eventId: number | null; paymentStatus: string | null };
     },
   });
 }

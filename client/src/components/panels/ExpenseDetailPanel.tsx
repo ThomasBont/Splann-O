@@ -1,7 +1,8 @@
-import { Clock3, Receipt, Tag, Users } from "lucide-react";
+import { Clock3, Receipt, Users } from "lucide-react";
 import { useExpenses } from "@/hooks/use-expenses";
 import { usePlan, usePlanCrew } from "@/hooks/use-plan-data";
 import { PanelHeader, PanelSection, PanelShell, formatPanelDate, useActiveEventId } from "@/components/panels/panel-primitives";
+import { formatShortEnglishDate } from "@/lib/dates";
 
 function parseIncludedUserIds(value: unknown): string[] {
   if (Array.isArray(value)) return value.map((entry) => String(entry).trim()).filter(Boolean);
@@ -38,15 +39,10 @@ function formatExpenseOccurredOn(value: string | null | undefined) {
     const [year, month, day] = value.split("-").map(Number);
     const date = new Date(year, month - 1, day, 12, 0, 0);
     if (!Number.isNaN(date.getTime())) {
-      return date.toLocaleDateString(undefined, {
-        weekday: "short",
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-      });
+      return formatShortEnglishDate(date, { weekday: true }) ?? "Date TBD";
     }
   }
-  return formatPanelDate(value);
+  return formatShortEnglishDate(value, { weekday: true }) ?? formatPanelDate(value);
 }
 
 export function ExpenseDetailPanel({ id }: { id: string }) {
@@ -118,13 +114,6 @@ export function ExpenseDetailPanel({ id }: { id: string }) {
             <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/40 px-3 py-2">
               <span className="text-muted-foreground">Payer</span>
               <span className="font-medium text-foreground">{expense.participantName || "Unknown"}</span>
-            </div>
-            <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/40 px-3 py-2">
-              <span className="text-muted-foreground">Category</span>
-              <span className="inline-flex items-center gap-1 font-medium text-foreground">
-                <Tag className="h-3.5 w-3.5" />
-                {expense.category || "Other"}
-              </span>
             </div>
             <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/40 px-3 py-2">
               <span className="text-muted-foreground">Resolution</span>

@@ -41,18 +41,20 @@ export interface EventHeaderProps {
   createWhatsAppGroupLabel?: string;
   utilityPreferences?: EventHeaderPreferences;
   /** Event status for pill */
-  eventStatus?: "active" | "closed" | "settled";
+  eventStatus?: "draft" | "active" | "closed" | "settled" | "archived";
   showStatusPill?: boolean;
   themeCategoryKey?: EventThemeCategory | string | null;
   showAddExpenseAction?: boolean;
 }
 
-function StatusPill({ status }: { status: "active" | "closed" | "settled" }) {
+function StatusPill({ status }: { status: "draft" | "active" | "closed" | "settled" | "archived" }) {
   const { t } = useLanguage();
   const config = {
+    draft: { label: t.settleUp?.statusDraft ?? "Draft", class: "bg-muted text-muted-foreground" },
     active: { label: t.settleUp?.statusActive ?? "Active", class: "bg-blue-500/15 text-blue-600 dark:text-blue-400" },
     closed: { label: "Closed", class: "bg-amber-500/15 text-amber-600 dark:text-amber-400" },
     settled: { label: t.settleUp?.statusSettled ?? "All settled", class: "bg-green-500/15 text-green-600 dark:text-green-400" },
+    archived: { label: "Archived", class: "bg-slate-500/15 text-slate-600 dark:text-slate-300" },
   };
   const c = config[status] ?? config.active;
   return (

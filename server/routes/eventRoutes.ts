@@ -3,7 +3,7 @@ import { Router, type Request } from "express";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { api } from "@shared/routes";
-import { barbecues, eventMembers, participants, planActivity } from "@shared/schema";
+import { barbecues, eventMembers, eventSettlementRounds, eventSettlementTransfers, expenses, participants, planActivity } from "@shared/schema";
 import { optionalCountryCodeSchema } from "@shared/lib/country-code-schema";
 import {
   derivePlanTypeSelection,
@@ -19,11 +19,15 @@ import { userRepo } from "../repositories/userRepo";
 import { requireAuth } from "../middleware/requireAuth";
 import * as bbqService from "../services/bbqService";
 import { db } from "../db";
+import { resolveBaseUrl } from "../config/env";
 import { broadcastEventRealtime } from "../lib/eventRealtime";
 import { getLimits } from "../lib/plan";
 import { listPlanActivity, logPlanActivity } from "../lib/planActivity";
 import { postSystemChatMessage } from "../lib/systemChat";
 import { createDirectSplitRound, ensureSettlementForView, getLatestSettlement, getSettlementById, listSettlementRounds, markSettlementTransferPaid } from "../lib/settlement";
+import { reconcileStripeSettlementCheckout } from "../lib/stripeCheckoutReconciliation";
+import { createStripeCheckoutSession } from "../lib/stripe";
+import { retrieveStripeCheckoutSession } from "../lib/stripe";
 import { log } from "../lib/logger";
 import { auditLog, auditSecurity } from "../lib/audit";
 import { badRequest, forbidden, notFound, unauthorized, upgradeRequired } from "../lib/errors";
@@ -62,7 +66,9 @@ router.get(p(api.barbecues.listPublic.path), asyncHandler(async (_req, res) => {
 
 router.post(p(api.barbecues.create.path), asyncHandler(async (req, res) => {
   const bodySchema = api.barbecues.create.input.extend({
-    date: z.coerce.date(),
+    date: z.coerce.date().optional(),
+    startDate: z.coerce.date().optional(),
+    endDate: z.coerce.date().optional(),
     eventType: z.string().optional(),
     eventVibe: z.string().optional(),
     locationText: z.string().nullable().optional(),
@@ -173,10 +179,10 @@ router.post("/events/:eventId/settlement/ensure", requireAuth, asyncHandler(asyn
   const bbq = await bbqRepo.getById(eventId);
   if (!bbq) notFound("Event not found");
   const lifecycle = await getPlanLifecycleOrThrow(eventId);
-  if (lifecycle.status === "settled") {
+  if (lifecycle.status === "settled" || lifecycle.status === "archived") {
     res.status(409).json({
-      code: "plan_settled",
-      message: "This plan is already settled.",
+      code: lifecycle.status === "archived" ? "plan_archived" : "plan_settled",
+      message: lifecycle.status === "archived" ? "This plan is archived." : "This plan is already settled.",
     });
     return;
   }
@@ -227,10 +233,10 @@ router.post("/events/:eventId/settlement/manual", requireAuth, asyncHandler(asyn
   const bbq = await bbqRepo.getById(eventId);
   if (!bbq) notFound("Event not found");
   const lifecycle = await getPlanLifecycleOrThrow(eventId);
-  if (lifecycle.status === "settled") {
+  if (lifecycle.status === "settled" || lifecycle.status === "archived") {
     res.status(409).json({
-      code: "plan_settled",
-      message: "This plan is already settled.",
+      code: lifecycle.status === "archived" ? "plan_archived" : "plan_settled",
+      message: lifecycle.status === "archived" ? "This plan is archived." : "This plan is already settled.",
     });
     return;
   }
@@ -279,10 +285,10 @@ router.post("/events/:eventId/split-payment", requireAuth, asyncHandler(async (r
   const userId = req.session?.userId;
   if (!userId) unauthorized("Not authenticated");
   const lifecycle = await getPlanLifecycleOrThrow(eventId);
-  if (lifecycle.status === "settled") {
+  if (lifecycle.status === "settled" || lifecycle.status === "archived") {
     res.status(409).json({
-      code: "plan_settled",
-      message: "Settled plans are read-only.",
+      code: lifecycle.status === "archived" ? "plan_archived" : "plan_settled",
+      message: lifecycle.status === "archived" ? "Archived plans are read-only." : "Settled plans are read-only.",
     });
     return;
   }
@@ -359,10 +365,10 @@ router.post("/events/:eventId/settlement/:settlementId/transfers/:transferId/mar
   const userId = req.session?.userId;
   if (!userId) unauthorized("Not authenticated");
   const lifecycle = await getPlanLifecycleOrThrow(eventId);
-  if (lifecycle.status === "settled") {
+  if (lifecycle.status === "settled" || lifecycle.status === "archived") {
     res.status(409).json({
-      code: "plan_settled",
-      message: "Settled plans are read-only.",
+      code: lifecycle.status === "archived" ? "plan_archived" : "plan_settled",
+      message: lifecycle.status === "archived" ? "Archived plans are read-only." : "Settled plans are read-only.",
     });
     return;
   }
@@ -397,6 +403,214 @@ router.post("/events/:eventId/settlement/:settlementId/transfers/:transferId/mar
   res.json({
     transferId: updated.id,
     paidAt: updated.paidAt ? updated.paidAt.toISOString() : null,
+  });
+}));
+
+router.post("/events/:eventId/settlement/:settlementId/transfers/:transferId/checkout", requireAuth, asyncHandler(async (req, res) => {
+  const eventId = Number(req.params.eventId);
+  const settlementId = String(req.params.settlementId ?? "").trim();
+  const transferId = String(req.params.transferId ?? "").trim();
+  if (!Number.isInteger(eventId) || eventId <= 0) badRequest("Invalid event id");
+  if (!settlementId) badRequest("Invalid settlement id");
+  if (!transferId) badRequest("Invalid transfer id");
+  await assertEventAccessOrThrow(req, eventId);
+  const userId = req.session?.userId;
+  if (!userId) unauthorized("Not authenticated");
+  const lifecycle = await getPlanLifecycleOrThrow(eventId);
+  if (lifecycle.status === "settled" || lifecycle.status === "archived") {
+    res.status(409).json({
+      code: lifecycle.status === "archived" ? "plan_archived" : "plan_settled",
+      message: lifecycle.status === "archived" ? "Archived plans are read-only." : "Settled plans are read-only.",
+    });
+    return;
+  }
+
+  const settlement = await getSettlementById(eventId, settlementId);
+  if (!settlement?.settlement) notFound("Settlement not found");
+  if (settlement.settlement.roundType !== "direct_split") {
+    res.status(400).json({
+      code: "invalid_checkout_settlement",
+      message: "Checkout is only available for settle-now payments.",
+    });
+    return;
+  }
+
+  const transfer = settlement.transfers.find((row) => row.id === transferId);
+  if (!transfer) notFound("Transfer not found");
+  if (transfer.paidAt) {
+    res.status(409).json({
+      code: "transfer_paid",
+      message: "This payment is already completed.",
+    });
+    return;
+  }
+  if (transfer.fromUserId !== userId) {
+    res.status(403).json({
+      code: "only_payer_can_pay",
+      message: "Only the person who owes can pay this transfer.",
+    });
+    return;
+  }
+
+  const amountCents = Math.max(0, Math.round(Number(transfer.amount || 0) * 100));
+  if (amountCents <= 0) badRequest("Invalid transfer amount");
+  const appUrl = resolveBaseUrl();
+  const session = await createStripeCheckoutSession({
+    successUrl: `${appUrl}/app?payment=success&eventId=${eventId}&settlementId=${encodeURIComponent(settlementId)}&transferId=${encodeURIComponent(transferId)}&session_id={CHECKOUT_SESSION_ID}`,
+    cancelUrl: `${appUrl}/app?payment=cancel&eventId=${eventId}&settlementId=${encodeURIComponent(settlementId)}&transferId=${encodeURIComponent(transferId)}`,
+    idempotencyKey: `settlement-transfer:${settlementId}:${transferId}:${userId}`,
+    metadata: {
+      action: "pay_settlement_transfer",
+      intendedAction: "pay_settlement_transfer",
+      eventId: String(eventId),
+      settlementId,
+      transferId,
+      userId: String(userId),
+    },
+    lineItem: {
+      amountCents,
+      currency: transfer.currency,
+      productName: settlement.settlement.title?.trim() || "Splann-O payback",
+      productDescription: `${transfer.fromName || "Someone"} pays ${transfer.toName || "someone"}`,
+    },
+  });
+
+  if (!session.url) badRequest("Stripe checkout session did not return a URL");
+  res.json({ url: session.url, sessionId: session.id });
+}));
+
+router.post("/payments/create-checkout", requireAuth, asyncHandler(async (req, res) => {
+  const body = z.object({
+    planId: z.coerce.number().int().positive(),
+    transferId: z.string().trim().min(1),
+    expenseId: z.coerce.number().int().positive().optional(),
+  }).parse(req.body ?? {});
+  const userId = req.session?.userId;
+  if (!userId) unauthorized("Not authenticated");
+  await assertEventAccessOrThrow(req, body.planId);
+  const lifecycle = await getPlanLifecycleOrThrow(body.planId);
+  if (lifecycle.status === "settled" || lifecycle.status === "archived") {
+    res.status(409).json({
+      code: lifecycle.status === "archived" ? "plan_archived" : "plan_settled",
+      message: lifecycle.status === "archived" ? "Archived plans are read-only." : "Settled plans are read-only.",
+    });
+    return;
+  }
+
+  const [transfer] = await db
+    .select()
+    .from(eventSettlementTransfers)
+    .where(eq(eventSettlementTransfers.id, body.transferId))
+    .limit(1);
+  if (!transfer) notFound("Transfer not found");
+
+  const [round] = await db
+    .select()
+    .from(eventSettlementRounds)
+    .where(eq(eventSettlementRounds.id, transfer.settlementRoundId))
+    .limit(1);
+  if (!round || round.eventId !== body.planId) notFound("Settlement not found");
+  if (round.roundType !== "direct_split") {
+    res.status(400).json({
+      code: "invalid_checkout_settlement",
+      message: "Checkout is only available for settle-now payments.",
+    });
+    return;
+  }
+
+  if (body.expenseId) {
+    const [expense] = await db
+      .select()
+      .from(expenses)
+      .where(and(eq(expenses.id, body.expenseId), eq(expenses.barbecueId, body.planId)))
+      .limit(1);
+    if (!expense) notFound("Expense not found");
+    if (expense.linkedSettlementRoundId !== round.id) notFound("Payment link not found");
+  }
+
+  if (transfer.paidAt) {
+    res.status(409).json({
+      code: "transfer_paid",
+      message: "This payment is already completed.",
+    });
+    return;
+  }
+  if (transfer.fromUserId !== userId) {
+    res.status(403).json({
+      code: "only_payer_can_pay",
+      message: "Only the person who owes can pay this transfer.",
+    });
+    return;
+  }
+
+  const settlement = await getSettlementById(body.planId, round.id);
+  if (!settlement?.settlement) notFound("Settlement not found");
+  const transferDetail = settlement.transfers.find((row) => row.id === transfer.id);
+  if (!transferDetail) notFound("Transfer not found");
+
+  const amountCents = Math.max(0, Math.round(Number(transferDetail.amount || 0) * 100));
+  if (amountCents <= 0) badRequest("Invalid transfer amount");
+  const appUrl = resolveBaseUrl();
+  const session = await createStripeCheckoutSession({
+    successUrl: `${appUrl}/app?payment=success&eventId=${body.planId}&settlementId=${encodeURIComponent(round.id)}&transferId=${encodeURIComponent(transfer.id)}&session_id={CHECKOUT_SESSION_ID}`,
+    cancelUrl: `${appUrl}/app?payment=cancel&eventId=${body.planId}&settlementId=${encodeURIComponent(round.id)}&transferId=${encodeURIComponent(transfer.id)}`,
+    idempotencyKey: `settlement-transfer:${round.id}:${transfer.id}:${userId}`,
+    metadata: {
+      action: "pay_settlement_transfer",
+      intendedAction: "pay_settlement_transfer",
+      eventId: String(body.planId),
+      settlementId: round.id,
+      transferId: transfer.id,
+      userId: String(userId),
+      payerUserId: String(transfer.fromUserId),
+      payeeUserId: String(transfer.toUserId),
+      ...(body.expenseId ? { expenseId: String(body.expenseId) } : {}),
+    },
+    lineItem: {
+      amountCents,
+      currency: transfer.currency,
+      productName: settlement.settlement.title?.trim() || "Splann-O payback",
+      productDescription: `${transferDetail.fromName || "Someone"} pays ${transferDetail.toName || "someone"}`,
+    },
+  });
+
+  if (!session.url) badRequest("Stripe checkout session did not return a URL");
+  res.json({ checkoutUrl: session.url, sessionId: session.id });
+}));
+
+router.post("/payments/confirm-checkout-session", requireAuth, asyncHandler(async (req, res) => {
+  const body = z.object({
+    sessionId: z.string().trim().min(1),
+  }).parse(req.body ?? {});
+  const session = await retrieveStripeCheckoutSession(body.sessionId);
+  const metadata = session.metadata ?? {};
+  log("info", "Confirming Stripe checkout session from app return", {
+    sessionId: body.sessionId,
+    paymentStatus: session.payment_status ?? null,
+    metadata,
+  });
+  const eventId = Number(metadata.eventId);
+  if (!Number.isFinite(eventId)) badRequest("Missing checkout event id");
+  await assertEventAccessOrThrow(req, eventId);
+  const currentUserId = req.session?.userId;
+  if (currentUserId && metadata.payerUserId && Number(metadata.payerUserId) !== currentUserId) {
+    forbidden("Payment does not belong to this user");
+  }
+
+  const result = await reconcileStripeSettlementCheckout({
+    metadata,
+    paymentStatus: session.payment_status ?? null,
+  });
+  log("info", "Stripe checkout confirm result", {
+    sessionId: body.sessionId,
+    reconciled: result.reconciled,
+    eventId: result.eventId,
+    paymentStatus: session.payment_status ?? null,
+  });
+  res.json({
+    reconciled: result.reconciled,
+    eventId: result.eventId,
+    paymentStatus: session.payment_status ?? null,
   });
 }));
 
@@ -593,9 +807,11 @@ router.patch(p(api.barbecues.update.path), requireAuth, asyncHandler(async (req,
   const schema = z.object({
     name: z.string().min(1).max(120).optional(),
     date: z.coerce.date().optional(),
+    startDate: z.coerce.date().optional(),
+    endDate: z.coerce.date().optional(),
     allowOptInExpenses: z.boolean().optional(),
     templateData: z.unknown().optional(),
-    status: z.enum(["active", "closed", "settled"]).optional(),
+    status: z.enum(["draft", "active", "closed", "settled", "archived"]).optional(),
     locationName: z.string().nullable().optional(),
     city: z.string().nullable().optional(),
     countryCode: optionalCountryCodeSchema.nullable().optional(),

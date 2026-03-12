@@ -16,7 +16,7 @@ import { resolveLegacyAssetIdToPublicPath } from "../lib/assets";
 import { buildEffectiveExpenseShares } from "../lib/planBalancesRealtime";
 import { fetchCanonicalPlace } from "../lib/googlePlaces";
 import { resolveGoogleTimezoneId } from "../lib/googleTimezone";
-import { refreshPlanLifecycle, refreshPlanLifecycles } from "../lib/planLifecycle";
+import { getPlanLifecycleState, refreshPlanLifecycle, refreshPlanLifecycles } from "../lib/planLifecycle";
 
 const DEFAULT_LISTING_DURATION_DAYS = Number(process.env.PUBLIC_LISTING_DAYS ?? 30);
 const warnedPrivatePollutionIds = new Set<number>();
@@ -59,9 +59,16 @@ function privatePublicFieldChanges(event: Barbecue): Array<string> {
 }
 
 export function normalizeEventForClient(event: Barbecue): Barbecue {
-  const withResolvedBanner: Barbecue = event.bannerImageUrl || !event.bannerAssetId
-    ? event
-    : { ...event, bannerImageUrl: resolveBannerUrlFromAsset(event.bannerAssetId) };
+  const withResolvedDates: Barbecue = {
+    ...event,
+    createdAt: event.createdAt ?? event.updatedAt ?? event.date,
+    startDate: event.startDate ?? event.date,
+    endDate: event.endDate ?? event.startDate ?? event.date,
+    date: event.date ?? event.startDate ?? event.endDate,
+  };
+  const withResolvedBanner: Barbecue = withResolvedDates.bannerImageUrl || !withResolvedDates.bannerAssetId
+    ? withResolvedDates
+    : { ...withResolvedDates, bannerImageUrl: resolveBannerUrlFromAsset(withResolvedDates.bannerAssetId) };
   const suspiciousPollution = shouldTreatAsPollutedPrivate(event);
   if (!suspiciousPollution) return withResolvedBanner;
 
@@ -197,6 +204,53 @@ function localDateTimeToUtc(localDate: string, localTime: string, timeZone: stri
   const result = new Date(utcMs);
   if (!Number.isFinite(result.getTime())) return null;
   return result;
+}
+
+function parseDateBoundaryInput(value: Date | string | null | undefined, fallbackHour: number): Date | null {
+  if (!value) return null;
+  if (value instanceof Date) {
+    return Number.isFinite(value.getTime()) ? value : null;
+  }
+  const trimmed = value.trim();
+  const parts = parseLocalDateParts(trimmed);
+  if (parts) {
+    return new Date(Date.UTC(parts.year, parts.month - 1, parts.day, fallbackHour, 0, 0));
+  }
+  const parsed = new Date(trimmed);
+  return Number.isFinite(parsed.getTime()) ? parsed : null;
+}
+
+function derivePlanDateRange(input: {
+  startDate?: Date | string | null;
+  endDate?: Date | string | null;
+  date?: Date | string | null;
+  localDate?: string | null;
+  localTime?: string | null;
+  timezoneId?: string | null;
+}): { canonicalDate: Date; startDate: Date; endDate: Date } {
+  const localDateParts = parseLocalDateParts(input.localDate);
+  const localTimeParts = parseLocalTimeParts(input.localTime);
+  const normalizedUtcStart =
+    localDateParts && localTimeParts && input.timezoneId
+      ? localDateTimeToUtc(input.localDate!.trim(), input.localTime!.trim(), input.timezoneId)
+      : null;
+  const fallbackDate =
+    localDateParts
+      ? new Date(Date.UTC(localDateParts.year, localDateParts.month - 1, localDateParts.day, 12, 0, 0))
+      : parseDateBoundaryInput(input.date ?? null, 12)
+        ?? new Date();
+  const startDate = parseDateBoundaryInput(input.startDate ?? null, 12)
+    ?? normalizedUtcStart
+    ?? fallbackDate;
+  const endDate = parseDateBoundaryInput(input.endDate ?? null, 12)
+    ?? (localDateParts ? new Date(Date.UTC(localDateParts.year, localDateParts.month - 1, localDateParts.day, 12, 0, 0)) : null)
+    ?? startDate;
+  const normalizedEndDate = endDate.getTime() < startDate.getTime() ? startDate : endDate;
+  return {
+    canonicalDate: startDate,
+    startDate,
+    endDate: normalizedEndDate,
+  };
 }
 
 export type PublicEventListItem = {
@@ -342,12 +396,14 @@ type BarbecueListItem = Barbecue & {
   lastActivityAt: string | null;
   unreadCount: number;
   myBalance: number | null;
+  settlementStarted: boolean;
+  timelineLocked: boolean;
   participantPreview: Array<{ id: number; name: string }>;
 };
 
 export async function listBarbecues(currentUsername?: string, currentUserId?: number): Promise<BarbecueListItem[]> {
   const rows = await bbqRepo.listAccessible(currentUsername, currentUserId);
-  await refreshPlanLifecycles(rows.map((row) => row.id));
+  const lifecycleByEventId = await refreshPlanLifecycles(rows.map((row) => row.id));
   const refreshedRows = await bbqRepo.listAccessible(currentUsername, currentUserId);
   const normalized = refreshedRows.map(normalizeEventForClient);
   const eventIds = normalized.map((row) => row.id).filter((id): id is number => Number.isInteger(id));
@@ -533,6 +589,8 @@ export async function listBarbecues(currentUsername?: string, currentUserId?: nu
       lastActivityAt,
       unreadCount: unreadByEventMap.get(event.id) ?? 0,
       myBalance,
+      settlementStarted: lifecycleByEventId.get(event.id)?.settlementStarted ?? false,
+      timelineLocked: lifecycleByEventId.get(event.id)?.timelineLocked ?? (event.status !== "active"),
       participantPreview: eventParticipants.slice(0, 5).map((participant) => ({
         id: participant.id,
         name: participant.name,
@@ -549,7 +607,9 @@ export async function listPublicBarbecues(): Promise<Barbecue[]> {
 export async function createBarbecue(
   input: {
     name: string;
-    date: Date | string;
+    date?: Date | string;
+    startDate?: Date | string;
+    endDate?: Date | string;
     planCurrency?: string;
     currency?: string;
     localCurrency?: string | null;
@@ -619,7 +679,7 @@ export async function createBarbecue(
       localTimeParts?.minute ?? 0,
       0,
     ) / 1000
-    : Math.floor((typeof input.date === "string" ? new Date(input.date) : input.date).getTime() / 1000) || Math.floor(Date.now() / 1000);
+    : Math.floor((parseDateBoundaryInput(input.startDate ?? input.date ?? null, 12)?.getTime() ?? Date.now()) / 1000);
   const resolvedTimezoneId = (
     (typeof input.timezoneId === "string" ? input.timezoneId.trim() : "")
     || (
@@ -634,14 +694,14 @@ export async function createBarbecue(
     )
     || null
   );
-  const normalizedUtcStart =
-    localDateParts && localTimeParts && resolvedTimezoneId
-      ? localDateTimeToUtc(parsedLocalDate, parsedLocalTime, resolvedTimezoneId)
-      : null;
-  const fallbackDate =
-    localDateParts
-      ? new Date(Date.UTC(localDateParts.year, localDateParts.month - 1, localDateParts.day, 12, 0, 0))
-      : (typeof input.date === "string" ? new Date(input.date) : input.date);
+  const derivedDates = derivePlanDateRange({
+    startDate: input.startDate,
+    endDate: input.endDate,
+    date: input.date ?? null,
+    localDate: parsedLocalDate || null,
+    localTime: parsedLocalTime || null,
+    timezoneId: resolvedTimezoneId,
+  });
 
   const creatorId = input.creatorId?.trim() || sessionUsername;
   const creatorUserIdFromInput = input.creatorUserId ?? null;
@@ -724,7 +784,9 @@ export async function createBarbecue(
   const insertValues = stripPublicOnlyFieldsForPrivateMutation({
     ...input,
     creatorUserId: creatorUser?.id ?? null,
-    date: normalizedUtcStart ?? fallbackDate,
+    date: derivedDates.canonicalDate,
+    startDate: derivedDates.startDate,
+    endDate: derivedDates.endDate,
     localDate: localDateParts ? parsedLocalDate : null,
     localTime: localTimeParts ? parsedLocalTime : null,
     timezoneId: resolvedTimezoneId,
@@ -806,9 +868,11 @@ export async function updateBarbecue(
   updates: {
     name?: string;
     date?: Date | string;
+    startDate?: Date | string;
+    endDate?: Date | string;
     allowOptInExpenses?: boolean;
     templateData?: unknown;
-    status?: "active" | "closed" | "settled";
+    status?: "draft" | "active" | "closed" | "settled" | "archived";
     settledAt?: Date | null;
     locationName?: string | null;
     city?: string | null;
@@ -868,11 +932,35 @@ export async function updateBarbecue(
     bbq,
   );
 
+  const isDateMutation = updates.date !== undefined || updates.startDate !== undefined || updates.endDate !== undefined;
+  if (isDateMutation && bbq.status !== "active") {
+    forbidden("Plan dates can only be changed before settlement starts.");
+  }
+  if (isDateMutation) {
+    const lifecycle = await getPlanLifecycleState(id);
+    if (!lifecycle) return undefined;
+    if (lifecycle.timelineLocked || lifecycle.status !== "active") {
+      forbidden("Plan dates can only be changed before settlement starts.");
+    }
+  }
+
   const targetVisibility = (updates.visibility ?? bbq.visibility) as "private" | "public";
   const normalizedCountryCode = updates.countryCode !== undefined ? normalizeCountryCode(updates.countryCode) : undefined;
+  const derivedDates = isDateMutation
+    ? derivePlanDateRange({
+      startDate: updates.startDate ?? bbq.startDate ?? null,
+      endDate: updates.endDate ?? bbq.endDate ?? null,
+      date: updates.date ?? bbq.date ?? null,
+      localDate: bbq.localDate ?? null,
+      localTime: bbq.localTime ?? null,
+      timezoneId: bbq.timezoneId ?? null,
+    })
+    : null;
   const set: Parameters<typeof bbqRepo.update>[1] = {
     name: updates.name,
-    date: updates.date ? (typeof updates.date === "string" ? new Date(updates.date) : updates.date) : undefined,
+    date: derivedDates?.canonicalDate,
+    startDate: derivedDates?.startDate,
+    endDate: derivedDates?.endDate,
     allowOptInExpenses: targetVisibility === "private" ? updates.allowOptInExpenses : false,
     templateData: updates.templateData,
     status: updates.status,

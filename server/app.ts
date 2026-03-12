@@ -4,7 +4,7 @@ import helmet from "helmet";
 import session from "express-session";
 import ConnectPgSimple from "connect-pg-simple";
 import path from "path";
-import { pool } from "./db";
+import { ensureCoreSchemaReady, pool } from "./db";
 import { requestContext } from "./middleware/requestContext";
 import { errorHandler } from "./middleware/errorHandler";
 import authRoutes from "./routes/authRoutes";
@@ -45,6 +45,11 @@ declare module "http" {
 
 export function createApp() {
   const app = express();
+  void ensureCoreSchemaReady().catch((error) => {
+    log("error", "Core schema repair failed during app bootstrap", {
+      errorMessage: error instanceof Error ? error.message : String(error),
+    });
+  });
   const publicSectionEnabled = process.env.FEATURE_PUBLIC_PLANS === "1" || process.env.ENABLE_PUBLIC_SECTION === "1";
   configurePassport();
 

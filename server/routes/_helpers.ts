@@ -105,6 +105,9 @@ export async function getPlanLifecycleOrThrow(eventId: number) {
 }
 
 export function getLifecycleErrorCode(action: "expenses" | "invites" | "members" | "chat", status: CanonicalPlanStatus, settlementStarted: boolean) {
+  if (status === "archived") {
+    return `${action}_locked_plan_archived`;
+  }
   if (status === "settled") {
     return `${action}_locked_plan_settled`;
   }
@@ -119,6 +122,7 @@ export function getLifecycleErrorCode(action: "expenses" | "invites" | "members"
 
 export async function assertExpensesWritable(eventId: number) {
   const lifecycle = await getPlanLifecycleOrThrow(eventId);
+  if (lifecycle.status === "archived") conflict("Plan is archived. Expenses are read-only.");
   if (lifecycle.status === "settled") conflict("Plan is settled. Expenses are read-only.");
   if (lifecycle.status === "closed") conflict("Plan is closed. New expenses are no longer allowed.");
   if (lifecycle.settlementStarted) conflict("Settlement already started. Expenses are locked.");
@@ -127,6 +131,7 @@ export async function assertExpensesWritable(eventId: number) {
 
 export async function assertInvitesWritable(eventId: number) {
   const lifecycle = await getPlanLifecycleOrThrow(eventId);
+  if (lifecycle.status === "archived") conflict("Plan is archived. Invites are disabled.");
   if (lifecycle.status === "settled") conflict("Plan is settled. Invites are disabled.");
   if (lifecycle.status === "closed") conflict("Plan is closed. Invites are disabled.");
   if (lifecycle.settlementStarted) conflict("Settlement already started. Invites are disabled.");
@@ -135,6 +140,7 @@ export async function assertInvitesWritable(eventId: number) {
 
 export async function assertMembersWritable(eventId: number) {
   const lifecycle = await getPlanLifecycleOrThrow(eventId);
+  if (lifecycle.status === "archived") conflict("Plan is archived. Members are locked.");
   if (lifecycle.status === "settled") conflict("Plan is settled. Members are locked.");
   if (lifecycle.status === "closed") conflict("Plan is closed. Members are locked.");
   if (lifecycle.settlementStarted) conflict("Settlement already started. Members are locked.");

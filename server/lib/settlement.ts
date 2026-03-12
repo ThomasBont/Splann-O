@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { computeSplit } from "@shared/lib/split/calc";
-import { barbecues, eventSettlementRounds, eventSettlementTransfers, users } from "@shared/schema";
+import { barbecues, eventSettlementRounds, eventSettlementTransfers, expenses, users } from "@shared/schema";
 import { db } from "../db";
 import { expenseRepo } from "../repositories/expenseRepo";
 import { participantRepo } from "../repositories/participantRepo";
@@ -810,6 +810,11 @@ export async function markSettlementTransferPaid(input: {
           .update(barbecues)
           .set({ status: "settled", settledAt: new Date(), updatedAt: new Date() })
           .where(eq(barbecues.id, input.eventId));
+      } else if (completedTransitioned && round.roundType === "direct_split") {
+        await tx
+          .update(expenses)
+          .set({ settledAt: new Date() })
+          .where(eq(expenses.linkedSettlementRoundId, input.settlementId));
       }
     }
 

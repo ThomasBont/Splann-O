@@ -2,7 +2,13 @@ import crypto from "crypto";
 import { badRequest } from "./errors";
 
 type CheckoutSessionRequest = {
-  priceId: string;
+  priceId?: string;
+  lineItem?: {
+    amountCents: number;
+    currency: string;
+    productName: string;
+    productDescription?: string;
+  };
   successUrl: string;
   cancelUrl: string;
   metadata: Record<string, string>;
@@ -12,6 +18,13 @@ type CheckoutSessionRequest = {
 type StripeCheckoutSessionResponse = {
   id: string;
   url: string | null;
+};
+
+export type StripeCheckoutSessionDetails = {
+  id: string;
+  url: string | null;
+  payment_status?: string;
+  metadata?: Record<string, string | undefined>;
 };
 
 function requireEnv(name: string): string {
@@ -26,13 +39,28 @@ function formEncode(data: Record<string, string>): string {
 
 export async function createStripeCheckoutSession(input: CheckoutSessionRequest): Promise<StripeCheckoutSessionResponse> {
   const secretKey = requireEnv("STRIPE_SECRET_KEY");
+  const hasPriceId = !!input.priceId?.trim();
+  const lineItem = input.lineItem ?? null;
+  if (!hasPriceId && !lineItem) badRequest("Stripe checkout session requires a price or line item");
   const body: Record<string, string> = {
     mode: "payment",
-    "line_items[0][price]": input.priceId,
-    "line_items[0][quantity]": "1",
     success_url: input.successUrl,
     cancel_url: input.cancelUrl,
   };
+  body["line_items[0][quantity]"] = "1";
+  if (hasPriceId && input.priceId) {
+    body["line_items[0][price]"] = input.priceId;
+  } else if (lineItem) {
+    const currency = lineItem.currency.trim().toLowerCase();
+    if (!/^[a-z]{3}$/.test(currency)) badRequest("Invalid checkout currency");
+    if (!Number.isInteger(lineItem.amountCents) || lineItem.amountCents <= 0) badRequest("Invalid checkout amount");
+    body["line_items[0][price_data][currency]"] = currency;
+    body["line_items[0][price_data][unit_amount]"] = String(lineItem.amountCents);
+    body["line_items[0][price_data][product_data][name]"] = lineItem.productName.trim() || "Splann-O payment";
+    if (lineItem.productDescription?.trim()) {
+      body["line_items[0][price_data][product_data][description]"] = lineItem.productDescription.trim();
+    }
+  }
 
   for (const [k, v] of Object.entries(input.metadata)) {
     body[`metadata[${k}]`] = v;
@@ -54,6 +82,25 @@ export async function createStripeCheckoutSession(input: CheckoutSessionRequest)
     badRequest(message);
   }
   return payload as StripeCheckoutSessionResponse;
+}
+
+export async function retrieveStripeCheckoutSession(sessionId: string): Promise<StripeCheckoutSessionDetails> {
+  const secretKey = requireEnv("STRIPE_SECRET_KEY");
+  const trimmedId = sessionId.trim();
+  if (!trimmedId) badRequest("Invalid checkout session id");
+
+  const res = await fetch(`https://api.stripe.com/v1/checkout/sessions/${encodeURIComponent(trimmedId)}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${secretKey}`,
+    },
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const message = (payload as { error?: { message?: string } }).error?.message ?? "Failed to load Stripe Checkout session";
+    badRequest(message);
+  }
+  return payload as StripeCheckoutSessionDetails;
 }
 
 export function verifyStripeWebhookSignature(rawBody: Buffer, signatureHeader: string | undefined): unknown {

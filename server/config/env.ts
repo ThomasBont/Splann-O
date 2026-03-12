@@ -23,6 +23,15 @@ function getOptionalInt(name: string, fallback: number): number {
   return Math.floor(n);
 }
 
+function getOptionalBool(name: string, fallback: boolean): boolean {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return fallback;
+  const normalized = raw.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return fallback;
+}
+
 function normalizeBaseUrl(value: string): string {
   return value.trim().replace(/\/+$/, "");
 }
@@ -56,7 +65,25 @@ export function resolveVapidPrivateKey(): string {
 }
 
 export function resolveVapidSubject(): string {
-  return getOptional("VAPID_SUBJECT", "mailto:noreply@splanno.local");
+  const explicitSubject = getOptional("VAPID_SUBJECT", "");
+  if (explicitSubject) return explicitSubject;
+  return getOptional("VAPID_CONTACT", "mailto:noreply@splanno.local");
+}
+
+export function resolveDevServerHost(): string {
+  return getOptional("DEV_SERVER_HOST", "");
+}
+
+export function shouldUseDevHttps(): boolean {
+  return getOptionalBool("DEV_HTTPS", false);
+}
+
+export function resolveDevHttpsKeyPath(): string {
+  return getOptional("DEV_HTTPS_KEY_PATH", "");
+}
+
+export function resolveDevHttpsCertPath(): string {
+  return getOptional("DEV_HTTPS_CERT_PATH", "");
 }
 
 /** Validate and export config. In production, DATABASE_URL and SESSION_SECRET are required. */
@@ -79,6 +106,10 @@ export function loadConfig() {
     vapidPublicKey: resolveVapidPublicKey(),
     vapidPrivateKey: resolveVapidPrivateKey(),
     vapidSubject: resolveVapidSubject(),
+    devServerHost: resolveDevServerHost(),
+    devHttps: shouldUseDevHttps(),
+    devHttpsKeyPath: resolveDevHttpsKeyPath(),
+    devHttpsCertPath: resolveDevHttpsCertPath(),
     adminUsernames: (process.env.ADMIN_USERNAMES ?? "")
       .split(",")
       .map((s) => s.trim().toLowerCase())

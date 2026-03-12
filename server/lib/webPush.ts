@@ -8,6 +8,22 @@ import { log } from "./logger";
 let vapidConfigured = false;
 let vapidWarningLogged = false;
 
+export type PushPreferences = {
+  chatMessages: boolean;
+  expenses: boolean;
+  paymentRequests: boolean;
+  planInvites: boolean;
+};
+
+export const DEFAULT_PUSH_PREFERENCES: PushPreferences = {
+  chatMessages: true,
+  expenses: true,
+  paymentRequests: true,
+  planInvites: true,
+};
+
+export type PushPreferenceKey = keyof typeof DEFAULT_PUSH_PREFERENCES;
+
 function ensureVapidConfigured(): boolean {
   if (vapidConfigured) return true;
   const publicKey = resolveVapidPublicKey();
@@ -28,7 +44,24 @@ async function removeSubscription(endpoint: string): Promise<void> {
   await db.delete(pushSubscriptions).where(eq(pushSubscriptions.endpoint, endpoint));
 }
 
-export async function sendPushToUser(userId: number, title: string, body: string, url?: string): Promise<void> {
+function normalizePreferences(value: unknown): PushPreferences {
+  if (!value || typeof value !== "object") return { ...DEFAULT_PUSH_PREFERENCES };
+  const raw = value as Partial<Record<PushPreferenceKey, unknown>>;
+  return {
+    chatMessages: typeof raw.chatMessages === "boolean" ? raw.chatMessages : DEFAULT_PUSH_PREFERENCES.chatMessages,
+    expenses: typeof raw.expenses === "boolean" ? raw.expenses : DEFAULT_PUSH_PREFERENCES.expenses,
+    paymentRequests: typeof raw.paymentRequests === "boolean" ? raw.paymentRequests : DEFAULT_PUSH_PREFERENCES.paymentRequests,
+    planInvites: typeof raw.planInvites === "boolean" ? raw.planInvites : DEFAULT_PUSH_PREFERENCES.planInvites,
+  };
+}
+
+export async function sendPushToUser(
+  userId: number,
+  title: string,
+  body: string,
+  url?: string,
+  preferenceKey: PushPreferenceKey = "expenses",
+): Promise<void> {
   if (!ensureVapidConfigured()) return;
 
   const subscriptions = await db
@@ -45,6 +78,8 @@ export async function sendPushToUser(userId: number, title: string, body: string
   });
 
   await Promise.all(subscriptions.map(async (subscription) => {
+    const preferences = normalizePreferences(subscription.pushPreferences);
+    if (!preferences[preferenceKey]) return;
     try {
       await webpush.sendNotification({
         endpoint: subscription.endpoint,

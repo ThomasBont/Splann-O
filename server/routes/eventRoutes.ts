@@ -992,6 +992,7 @@ router.post("/barbecues/:id/settle-up", requireAuth, asyncHandler(async (req, re
         `${creatorName} started settle up`,
         `${bbq.name}: you have a new payment request.`,
         `/app/e/${id}`,
+        "paymentRequests",
       ),
     ),
   );

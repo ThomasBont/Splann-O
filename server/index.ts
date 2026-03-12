@@ -29,7 +29,8 @@ try {
   }
 }
 
-import { createServer } from "http";
+import { createServer as createHttpServer } from "http";
+import { createServer as createHttpsServer } from "https";
 import { createApp } from "./app";
 import { serveStatic } from "./static";
 import { log } from "./lib/logger";
@@ -41,6 +42,13 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { appendEventChatMessage, toggleEventChatReaction } from "./lib/eventChatStore";
 import { broadcastEventRealtime, registerEventSocket, unregisterEventSocket } from "./lib/eventRealtime";
 import { isEventChatLocked } from "./lib/eventChatPolicy";
+import fs from "node:fs";
+import {
+  resolveDevHttpsCertPath,
+  resolveDevHttpsKeyPath,
+  resolveDevServerHost,
+  shouldUseDevHttps,
+} from "./config/env";
 
 const runtimeBuildId =
   process.env.BUILD_ID
@@ -52,7 +60,20 @@ process.env.BUILD_ID = runtimeBuildId;
 process.env.VITE_BUILD_ID = process.env.VITE_BUILD_ID || runtimeBuildId;
 
 const app = createApp();
-const httpServer = createServer(app);
+const devHttpsEnabled = process.env.NODE_ENV !== "production" && shouldUseDevHttps();
+const devHttpsKeyPath = resolveDevHttpsKeyPath();
+const devHttpsCertPath = resolveDevHttpsCertPath();
+const serverHost = resolveDevServerHost() || "0.0.0.0";
+const httpServer = (() => {
+  if (!devHttpsEnabled) return createHttpServer(app);
+  if (!devHttpsKeyPath || !devHttpsCertPath) {
+    throw new Error("DEV_HTTPS is enabled but DEV_HTTPS_KEY_PATH or DEV_HTTPS_CERT_PATH is missing");
+  }
+  return createHttpsServer({
+    key: fs.readFileSync(devHttpsKeyPath),
+    cert: fs.readFileSync(devHttpsCertPath),
+  }, app);
+})();
 const chatWss = new WebSocketServer({ noServer: true });
 
 type WsClientMeta = {
@@ -359,7 +380,7 @@ httpServer.on("upgrade", async (req, socket, head) => {
     const forwardedProto = (req.headers["x-forwarded-proto"] as string | undefined)?.split(",")[0]?.trim();
     const forwardedHost = (req.headers["x-forwarded-host"] as string | undefined)?.split(",")[0]?.trim();
     const host = forwardedHost || req.headers.host || "0.0.0.0";
-    const protocol = forwardedProto || "http";
+    const protocol = forwardedProto || (devHttpsEnabled ? "https" : "http");
     const url = new URL(req.url ?? "", `${protocol}://${host}`);
     const match = /^\/ws\/events\/(\d+)\/chat$/.exec(url.pathname);
     if (!match) {
@@ -416,9 +437,11 @@ process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
   const port = parseInt(process.env.PORT || "5000", 10);
   httpServer.listen(
-    { port, host: "0.0.0.0", reusePort: true },
+    { port, host: serverHost, reusePort: true },
     () => {
-      log("info", `serving on port ${port}`);
+      const protocol = devHttpsEnabled ? "https" : "http";
+      const visibleHost = serverHost === "0.0.0.0" ? "localhost" : serverHost;
+      log("info", `serving on ${protocol}://${visibleHost}:${port}`);
       if (process.env.RESEND_API_KEY) {
         log("info", "Email: Resend configured", { source: "email" });
       } else {

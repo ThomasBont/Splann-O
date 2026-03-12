@@ -4,6 +4,7 @@ CREATE TABLE push_subscriptions (
   endpoint TEXT NOT NULL UNIQUE,
   p256dh TEXT NOT NULL,
   auth TEXT NOT NULL,
+  push_preferences JSONB NOT NULL DEFAULT '{"chatMessages":true,"expenses":true,"paymentRequests":true,"planInvites":true}'::jsonb,
   created_at TIMESTAMP DEFAULT NOW()
 );
 

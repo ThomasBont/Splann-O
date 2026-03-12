@@ -168,6 +168,17 @@ export const pushSubscriptions = pgTable("push_subscriptions", {
   endpoint: text("endpoint").notNull().unique(),
   p256dh: text("p256dh").notNull(),
   auth: text("auth").notNull(),
+  pushPreferences: json("push_preferences").$type<{
+    chatMessages: boolean;
+    expenses: boolean;
+    paymentRequests: boolean;
+    planInvites: boolean;
+  }>().notNull().default({
+    chatMessages: true,
+    expenses: true,
+    paymentRequests: true,
+    planInvites: true,
+  }),
   createdAt: timestamp("created_at").defaultNow(),
 }, (table) => ({
   userIdIdx: index("push_subscriptions_user_id_idx").on(table.userId),

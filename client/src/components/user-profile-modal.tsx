@@ -17,6 +17,7 @@ import { useTheme } from "@/hooks/use-theme";
 import { resolveAssetUrl } from "@/lib/asset-url";
 import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/hooks/use-toast";
+import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -70,6 +71,7 @@ export function UserProfileModal({ open, onOpenChange, username: usernameProp, o
   const { t, language, setLanguage } = useLanguage();
   const { preference: themePreference, setPreference: setThemePreference } = useTheme();
   const { toast } = useToast();
+  const pushNotifications = usePushNotifications();
   const { user: authUser, updateProfile, deleteAccount, logout } = useAuth();
   const isOwnProfile = !usernameProp || usernameProp === authUser?.username;
   const effectiveUsername = usernameProp ?? authUser?.username ?? null;
@@ -91,8 +93,22 @@ export function UserProfileModal({ open, onOpenChange, username: usernameProp, o
   const [draftDefaultStartPage, setDraftDefaultStartPage] = useState<DefaultStartPage>("home");
   const [draftEmailNotifications, setDraftEmailNotifications] = useState(true);
   const [draftActivityNotifications, setDraftActivityNotifications] = useState(true);
+  const [draftPushChatMessages, setDraftPushChatMessages] = useState(true);
+  const [draftPushExpenses, setDraftPushExpenses] = useState(true);
+  const [draftPushPaymentRequests, setDraftPushPaymentRequests] = useState(true);
+  const [draftPushPlanInvites, setDraftPushPlanInvites] = useState(true);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteConfirmUsername, setDeleteConfirmUsername] = useState("");
+
+  const pushStatusLabel = !pushNotifications.isSupported
+    ? pushNotifications.supportReason === "insecure_context"
+      ? "Push requires HTTPS or localhost"
+      : "Not supported on this device"
+    : pushNotifications.isSubscribed
+      ? "On"
+      : pushNotifications.permission === "denied"
+        ? "Blocked in browser settings"
+        : "Off";
 
   const {
     data: searchResults = [],
@@ -112,6 +128,28 @@ export function UserProfileModal({ open, onOpenChange, username: usernameProp, o
   const displayUser = isOwnProfile ? authUser : profileData?.user;
   const stats = profileData?.stats ?? { eventsCount: 0, friendsCount: 0, totalSpent: 0 };
 
+  const handlePushToggle = async (checked: boolean) => {
+    try {
+      if (checked) {
+        await pushNotifications.subscribe({
+          chatMessages: draftPushChatMessages,
+          expenses: draftPushExpenses,
+          paymentRequests: draftPushPaymentRequests,
+          planInvites: draftPushPlanInvites,
+        });
+        toast({ variant: "success", message: "Push notifications enabled" });
+      } else {
+        await pushNotifications.unsubscribe();
+        toast({ variant: "success", message: "Push notifications disabled" });
+      }
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: error instanceof Error ? error.message : "Unable to update notifications.",
+      });
+    }
+  };
+
   useEffect(() => {
     if (authUser && isOwnProfile) {
       setDraftDisplayName(authUser.displayName || "");
@@ -121,8 +159,24 @@ export function UserProfileModal({ open, onOpenChange, username: usernameProp, o
       setDraftDefaultStartPage(localPrefs.defaultStartPage === "public" ? "private" : localPrefs.defaultStartPage);
       setDraftEmailNotifications(localPrefs.emailNotifications);
       setDraftActivityNotifications(localPrefs.activityNotifications);
+      setDraftPushChatMessages(localPrefs.pushChatMessages);
+      setDraftPushExpenses(localPrefs.pushExpenses);
+      setDraftPushPaymentRequests(localPrefs.pushPaymentRequests);
+      setDraftPushPlanInvites(localPrefs.pushPlanInvites);
     }
   }, [authUser, isOwnProfile]);
+
+  useEffect(() => {
+    setDraftPushChatMessages(pushNotifications.preferences.chatMessages);
+    setDraftPushExpenses(pushNotifications.preferences.expenses);
+    setDraftPushPaymentRequests(pushNotifications.preferences.paymentRequests);
+    setDraftPushPlanInvites(pushNotifications.preferences.planInvites);
+  }, [
+    pushNotifications.preferences.chatMessages,
+    pushNotifications.preferences.expenses,
+    pushNotifications.preferences.paymentRequests,
+    pushNotifications.preferences.planInvites,
+  ]);
 
   useEffect(() => { setEditMode(false); }, [effectiveUsername]);
 
@@ -148,6 +202,10 @@ export function UserProfileModal({ open, onOpenChange, username: usernameProp, o
             defaultStartPage: draftDefaultStartPage,
             emailNotifications: draftEmailNotifications,
             activityNotifications: draftActivityNotifications,
+            pushChatMessages: draftPushChatMessages,
+            pushExpenses: draftPushExpenses,
+            pushPaymentRequests: draftPushPaymentRequests,
+            pushPlanInvites: draftPushPlanInvites,
           });
           toast({ variant: "success", message: t.modals.profileSaved });
           setEditMode(false);
@@ -601,6 +659,94 @@ export function UserProfileModal({ open, onOpenChange, username: usernameProp, o
                     <p className="text-sm font-medium">Notifications</p>
                     <div className="flex items-center justify-between gap-3">
                       <div>
+                        <p className="text-sm">Push notifications</p>
+                        <p className="text-xs text-muted-foreground">Get a notification when there is a new expense or payment request.</p>
+                        <p className="text-[11px] text-muted-foreground mt-1">Status: {pushStatusLabel}</p>
+                      </div>
+                      <Switch
+                        checked={pushNotifications.isSubscribed}
+                        onCheckedChange={handlePushToggle}
+                        disabled={!pushNotifications.isSupported || pushNotifications.isLoading}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm">All chat messages</p>
+                        <p className="text-xs text-muted-foreground">Get a push for every new chat message in your plans.</p>
+                      </div>
+                      <Switch
+                        checked={draftPushChatMessages}
+                        onCheckedChange={async (checked) => {
+                          setDraftPushChatMessages(checked);
+                          if (!pushNotifications.isSubscribed) return;
+                          await pushNotifications.updatePreferences({
+                            chatMessages: checked,
+                            expenses: draftPushExpenses,
+                            paymentRequests: draftPushPaymentRequests,
+                            planInvites: draftPushPlanInvites,
+                          });
+                        }}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm">New expenses</p>
+                        <p className="text-xs text-muted-foreground">Receive push updates when someone adds a new expense.</p>
+                      </div>
+                      <Switch
+                        checked={draftPushExpenses}
+                        onCheckedChange={async (checked) => {
+                          setDraftPushExpenses(checked);
+                          if (!pushNotifications.isSubscribed) return;
+                          await pushNotifications.updatePreferences({
+                            chatMessages: draftPushChatMessages,
+                            expenses: checked,
+                            paymentRequests: draftPushPaymentRequests,
+                            planInvites: draftPushPlanInvites,
+                          });
+                        }}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm">Payment requests</p>
+                        <p className="text-xs text-muted-foreground">Receive push updates when settle-up or direct payback starts.</p>
+                      </div>
+                      <Switch
+                        checked={draftPushPaymentRequests}
+                        onCheckedChange={async (checked) => {
+                          setDraftPushPaymentRequests(checked);
+                          if (!pushNotifications.isSubscribed) return;
+                          await pushNotifications.updatePreferences({
+                            chatMessages: draftPushChatMessages,
+                            expenses: draftPushExpenses,
+                            paymentRequests: checked,
+                            planInvites: draftPushPlanInvites,
+                          });
+                        }}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm">Plan invites</p>
+                        <p className="text-xs text-muted-foreground">Receive push updates for invite activity on your plans.</p>
+                      </div>
+                      <Switch
+                        checked={draftPushPlanInvites}
+                        onCheckedChange={async (checked) => {
+                          setDraftPushPlanInvites(checked);
+                          if (!pushNotifications.isSubscribed) return;
+                          await pushNotifications.updatePreferences({
+                            chatMessages: draftPushChatMessages,
+                            expenses: draftPushExpenses,
+                            paymentRequests: draftPushPaymentRequests,
+                            planInvites: checked,
+                          });
+                        }}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
                         <p className="text-sm">Email notifications</p>
                         <p className="text-xs text-muted-foreground">Get updates by email.</p>
                       </div>
@@ -659,6 +805,10 @@ export function UserProfileModal({ open, onOpenChange, username: usernameProp, o
                         setDraftDefaultStartPage(localPrefs.defaultStartPage === "public" ? "private" : localPrefs.defaultStartPage);
                         setDraftEmailNotifications(localPrefs.emailNotifications);
                         setDraftActivityNotifications(localPrefs.activityNotifications);
+                        setDraftPushChatMessages(localPrefs.pushChatMessages);
+                        setDraftPushExpenses(localPrefs.pushExpenses);
+                        setDraftPushPaymentRequests(localPrefs.pushPaymentRequests);
+                        setDraftPushPlanInvites(localPrefs.pushPlanInvites);
                       }}
                     >
                       Reset

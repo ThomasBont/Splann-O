@@ -5,6 +5,10 @@ export type LocalUserPreferences = {
   defaultStartPage: DefaultStartPage;
   emailNotifications: boolean;
   activityNotifications: boolean;
+  pushChatMessages: boolean;
+  pushExpenses: boolean;
+  pushPaymentRequests: boolean;
+  pushPlanInvites: boolean;
 };
 
 const SCHEMA_VERSION = 1;
@@ -15,6 +19,10 @@ const DEFAULT_PREFERENCES: LocalUserPreferences = {
   defaultStartPage: "home",
   emailNotifications: true,
   activityNotifications: true,
+  pushChatMessages: true,
+  pushExpenses: true,
+  pushPaymentRequests: true,
+  pushPlanInvites: true,
 };
 
 function getStorageKey(userId: number | null | undefined): string | null {
@@ -39,6 +47,10 @@ export function loadLocalUserPreferences(userId: number | null | undefined): Loc
           : DEFAULT_PREFERENCES.defaultStartPage,
       emailNotifications: typeof parsed.emailNotifications === "boolean" ? parsed.emailNotifications : DEFAULT_PREFERENCES.emailNotifications,
       activityNotifications: typeof parsed.activityNotifications === "boolean" ? parsed.activityNotifications : DEFAULT_PREFERENCES.activityNotifications,
+      pushChatMessages: typeof parsed.pushChatMessages === "boolean" ? parsed.pushChatMessages : DEFAULT_PREFERENCES.pushChatMessages,
+      pushExpenses: typeof parsed.pushExpenses === "boolean" ? parsed.pushExpenses : DEFAULT_PREFERENCES.pushExpenses,
+      pushPaymentRequests: typeof parsed.pushPaymentRequests === "boolean" ? parsed.pushPaymentRequests : DEFAULT_PREFERENCES.pushPaymentRequests,
+      pushPlanInvites: typeof parsed.pushPlanInvites === "boolean" ? parsed.pushPlanInvites : DEFAULT_PREFERENCES.pushPlanInvites,
     };
   } catch {
     return DEFAULT_PREFERENCES;
@@ -65,4 +77,3 @@ export function saveLocalUserPreferences(
   }
   return next;
 }
-

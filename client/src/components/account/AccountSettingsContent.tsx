@@ -4,7 +4,9 @@ import { useAuth } from "@/hooks/use-auth";
 import { useLanguage, SELECTABLE_LANGUAGES, type Language } from "@/hooks/use-language";
 import { useTheme, type ThemePreference } from "@/hooks/use-theme";
 import { useToast } from "@/hooks/use-toast";
+import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 
 type AccountSettingsContentProps = {
   compact?: boolean;
@@ -20,6 +22,22 @@ const ACCOUNT_SETTINGS_COPY: Record<Language, {
   dark: string;
   system: string;
   developmentBuild: string;
+  notifications: string;
+  notificationsSubtitle: string;
+  notificationsHint: string;
+  notificationsChatMessages: string;
+  notificationsExpenses: string;
+  notificationsPaymentRequests: string;
+  notificationsPlanInvites: string;
+  notificationsStatus: string;
+  notificationsEnabled: string;
+  notificationsDisabled: string;
+  notificationsUnsupported: string;
+  notificationsSecureContext: string;
+  notificationsBlocked: string;
+  notificationsEnabledToast: string;
+  notificationsDisabledToast: string;
+  notificationsFailed: string;
 }> = {
   en: {
     signIn: "Sign in to manage settings.",
@@ -31,6 +49,22 @@ const ACCOUNT_SETTINGS_COPY: Record<Language, {
     dark: "Dark",
     system: "System",
     developmentBuild: "Development build",
+    notifications: "Notifications",
+    notificationsSubtitle: "Receive a notification when there is a new expense or payment request.",
+    notificationsHint: "Choose exactly which push notifications you want to receive.",
+    notificationsChatMessages: "All chat messages",
+    notificationsExpenses: "New expenses",
+    notificationsPaymentRequests: "Payment requests",
+    notificationsPlanInvites: "Plan invites",
+    notificationsStatus: "Status",
+    notificationsEnabled: "On",
+    notificationsDisabled: "Off",
+    notificationsUnsupported: "Not supported on this device",
+    notificationsSecureContext: "Push requires HTTPS or localhost.",
+    notificationsBlocked: "Blocked in browser settings",
+    notificationsEnabledToast: "Push notifications enabled",
+    notificationsDisabledToast: "Push notifications disabled",
+    notificationsFailed: "Unable to update notifications.",
   },
   es: {
     signIn: "Iniciá sesión para gestionar la configuración.",
@@ -42,6 +76,22 @@ const ACCOUNT_SETTINGS_COPY: Record<Language, {
     dark: "Oscuro",
     system: "Sistema",
     developmentBuild: "Build de desarrollo",
+    notifications: "Notificaciones",
+    notificationsSubtitle: "Recibe una notificación cuando haya un nuevo gasto o una solicitud de pago.",
+    notificationsHint: "Elige exactamente qué notificaciones push quieres recibir.",
+    notificationsChatMessages: "Todos los mensajes del chat",
+    notificationsExpenses: "Nuevos gastos",
+    notificationsPaymentRequests: "Solicitudes de pago",
+    notificationsPlanInvites: "Invitaciones al plan",
+    notificationsStatus: "Estado",
+    notificationsEnabled: "Activadas",
+    notificationsDisabled: "Desactivadas",
+    notificationsUnsupported: "No compatible en este dispositivo",
+    notificationsSecureContext: "Push requiere HTTPS o localhost.",
+    notificationsBlocked: "Bloqueadas en la configuración del navegador",
+    notificationsEnabledToast: "Notificaciones push activadas",
+    notificationsDisabledToast: "Notificaciones push desactivadas",
+    notificationsFailed: "No se pudieron actualizar las notificaciones.",
   },
   it: {
     signIn: "Accedi per gestire le impostazioni.",
@@ -53,6 +103,22 @@ const ACCOUNT_SETTINGS_COPY: Record<Language, {
     dark: "Scuro",
     system: "Sistema",
     developmentBuild: "Build di sviluppo",
+    notifications: "Notifiche",
+    notificationsSubtitle: "Ricevi una notifica quando c'è una nuova spesa o una richiesta di pagamento.",
+    notificationsHint: "Scegli esattamente quali notifiche push vuoi ricevere.",
+    notificationsChatMessages: "Tutti i messaggi della chat",
+    notificationsExpenses: "Nuove spese",
+    notificationsPaymentRequests: "Richieste di pagamento",
+    notificationsPlanInvites: "Inviti al piano",
+    notificationsStatus: "Stato",
+    notificationsEnabled: "Attive",
+    notificationsDisabled: "Disattive",
+    notificationsUnsupported: "Non supportato su questo dispositivo",
+    notificationsSecureContext: "Le notifiche push richiedono HTTPS o localhost.",
+    notificationsBlocked: "Bloccate nelle impostazioni del browser",
+    notificationsEnabledToast: "Notifiche push attivate",
+    notificationsDisabledToast: "Notifiche push disattivate",
+    notificationsFailed: "Impossibile aggiornare le notifiche.",
   },
   nl: {
     signIn: "Log in om instellingen te beheren.",
@@ -64,6 +130,22 @@ const ACCOUNT_SETTINGS_COPY: Record<Language, {
     dark: "Donker",
     system: "Systeem",
     developmentBuild: "Ontwikkelbuild",
+    notifications: "Meldingen",
+    notificationsSubtitle: "Ontvang een melding als er een nieuwe uitgave of betaalverzoek is.",
+    notificationsHint: "Kies precies welke pushmeldingen je wilt ontvangen.",
+    notificationsChatMessages: "Alle chatberichten",
+    notificationsExpenses: "Nieuwe uitgaven",
+    notificationsPaymentRequests: "Betaalverzoeken",
+    notificationsPlanInvites: "Planuitnodigingen",
+    notificationsStatus: "Status",
+    notificationsEnabled: "Aan",
+    notificationsDisabled: "Uit",
+    notificationsUnsupported: "Niet ondersteund op dit apparaat",
+    notificationsSecureContext: "Push vereist HTTPS of localhost.",
+    notificationsBlocked: "Geblokkeerd in browserinstellingen",
+    notificationsEnabledToast: "Pushmeldingen ingeschakeld",
+    notificationsDisabledToast: "Pushmeldingen uitgeschakeld",
+    notificationsFailed: "Meldingen konden niet worden bijgewerkt.",
   },
 };
 
@@ -71,6 +153,8 @@ export function AccountSettingsContent({ compact = false }: AccountSettingsConte
   const { user } = useAuth();
   const { language, setLanguage } = useLanguage();
   const { preference, setPreference } = useTheme();
+  const { toast } = useToast();
+  const pushNotifications = usePushNotifications();
   const buildId = import.meta.env.VITE_BUILD_ID as string | undefined;
   const copy = ACCOUNT_SETTINGS_COPY[language];
 
@@ -83,6 +167,53 @@ export function AccountSettingsContent({ compact = false }: AccountSettingsConte
     { value: "dark", label: copy.dark },
     { value: "system", label: copy.system },
   ];
+  const pushStatusLabel = !pushNotifications.isSupported
+    ? pushNotifications.supportReason === "insecure_context"
+      ? copy.notificationsSecureContext
+      : copy.notificationsUnsupported
+    : pushNotifications.isSubscribed
+      ? copy.notificationsEnabled
+      : pushNotifications.permission === "denied"
+        ? copy.notificationsBlocked
+        : copy.notificationsDisabled;
+
+  const handlePushToggle = async (checked: boolean) => {
+    try {
+      if (checked) {
+        await pushNotifications.subscribe(pushNotifications.preferences);
+        toast({ variant: "success", message: copy.notificationsEnabledToast });
+      } else {
+        await pushNotifications.unsubscribe();
+        toast({ variant: "success", message: copy.notificationsDisabledToast });
+      }
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: error instanceof Error ? error.message : copy.notificationsFailed,
+      });
+    }
+  };
+
+  const handlePreferenceToggle = async (
+    key: keyof typeof pushNotifications.preferences,
+    checked: boolean,
+  ) => {
+    const nextPreferences = {
+      ...pushNotifications.preferences,
+      [key]: checked,
+    };
+    try {
+      if (pushNotifications.isSubscribed) {
+        await pushNotifications.updatePreferences(nextPreferences);
+      }
+    } catch (error) {
+      toast({
+        variant: "destructive",
+        title: error instanceof Error ? error.message : copy.notificationsFailed,
+      });
+      return;
+    }
+  };
 
   return (
     <section className={compact ? "space-y-4" : "space-y-5"}>
@@ -121,6 +252,41 @@ export function AccountSettingsContent({ compact = false }: AccountSettingsConte
             >
               {option.label}
             </Button>
+          ))}
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-border/70 bg-card/70 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="space-y-1">
+            <p className="text-sm font-medium">{copy.notifications}</p>
+            <p className="text-xs text-muted-foreground">{copy.notificationsSubtitle}</p>
+            <p className="text-xs text-muted-foreground">{copy.notificationsStatus}: {pushStatusLabel}</p>
+          </div>
+          <Switch
+            checked={pushNotifications.isSubscribed}
+            onCheckedChange={handlePushToggle}
+            disabled={!pushNotifications.isSupported || pushNotifications.isLoading}
+            aria-label="Toggle push notifications"
+          />
+        </div>
+        <div className="mt-3 space-y-2 border-t border-border/60 pt-3">
+          <p className="text-xs text-muted-foreground">{copy.notificationsHint}</p>
+          {([
+            ["chatMessages", copy.notificationsChatMessages],
+            ["expenses", copy.notificationsExpenses],
+            ["paymentRequests", copy.notificationsPaymentRequests],
+            ["planInvites", copy.notificationsPlanInvites],
+          ] as const).map(([key, label]) => (
+            <div key={key} className="flex items-center justify-between gap-3">
+              <p className="text-sm">{label}</p>
+              <Switch
+                checked={pushNotifications.preferences[key]}
+                onCheckedChange={(checked) => { void handlePreferenceToggle(key, checked); }}
+                disabled={!pushNotifications.isSupported || pushNotifications.isLoading}
+                aria-label={label}
+              />
+            </div>
           ))}
         </div>
       </div>

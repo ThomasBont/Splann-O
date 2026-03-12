@@ -1,7 +1,7 @@
 // Event chat and reactions routes.
 import { Router } from "express";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import path from "path";
 import { randomUUID } from "crypto";
 import { appendEventChatMessage, deleteEventChatMessage, editEventChatMessage, listEventChatMessages, toggleEventChatReaction } from "../lib/eventChatStore";
@@ -11,9 +11,10 @@ import { badRequest } from "../lib/errors";
 import { isEventChatLocked } from "../lib/eventChatPolicy";
 import { assertEventAccessOrThrow, asyncHandler, toPublicUploadsUrl } from "./_helpers";
 import { db } from "../db";
-import { barbecues } from "@shared/schema";
+import { barbecues, eventMembers } from "@shared/schema";
 import { uploadFile } from "../lib/r2";
 import { getPlanLifecycleState } from "../lib/planLifecycle";
+import { sendPushToUser } from "../lib/webPush";
 
 const router = Router();
 const CHAT_UPLOAD_DIR = path.resolve(process.cwd(), "public/uploads/chat");
@@ -119,6 +120,46 @@ async function isChatLockedForEvent(eventId: number): Promise<boolean> {
   return isEventChatLocked({ date: event.date ?? null });
 }
 
+async function pushChatMessageToOtherMembers(eventId: number, authorUserId: number, authorName: string, content: string): Promise<void> {
+  const [event] = await db
+    .select({ name: barbecues.name, creatorUserId: barbecues.creatorUserId })
+    .from(barbecues)
+    .where(eq(barbecues.id, eventId))
+    .limit(1);
+  if (!event) return;
+
+  const memberRows = await db
+    .select({ userId: eventMembers.userId })
+    .from(eventMembers)
+    .where(eq(eventMembers.eventId, eventId));
+
+  const recipientIds = new Set<number>();
+  for (const row of memberRows) {
+    const userId = Number(row.userId);
+    if (Number.isFinite(userId) && userId > 0 && userId !== authorUserId) {
+      recipientIds.add(userId);
+    }
+  }
+
+  const ownerUserId = Number(event.creatorUserId ?? 0);
+  if (Number.isFinite(ownerUserId) && ownerUserId > 0 && ownerUserId !== authorUserId) {
+    recipientIds.add(ownerUserId);
+  }
+
+  const preview = content.length > 120 ? `${content.slice(0, 117)}...` : content;
+  await Promise.allSettled(
+    Array.from(recipientIds).map((userId) =>
+      sendPushToUser(
+        userId,
+        `${authorName} sent a message`,
+        `${event.name}: ${preview}`,
+        `/app/e/${eventId}`,
+        "chatMessages",
+      ),
+    ),
+  );
+}
+
 async function getChatLockPayload(eventId: number) {
   const lifecycle = await getPlanLifecycleState(eventId);
   if (lifecycle && !lifecycle.socialOpen) {
@@ -190,6 +231,9 @@ router.post("/plans/:planId/chat/messages", requireAuth, asyncHandler(async (req
       name: req.session!.username!,
     },
   });
+  if (saved.message && saved.inserted) {
+    await pushChatMessageToOtherMembers(eventId, req.session!.userId!, req.session!.username!, parsed.content);
+  }
   res.status(saved.inserted ? 201 : 200).json({ message: saved.message });
 }));
 
@@ -232,6 +276,7 @@ router.post("/events/:eventId/chat/messages", requireAuth, asyncHandler(async (r
 
   if (saved.message && saved.inserted) {
     broadcastEventRealtime(eventId, { type: "chat:new", eventId, message: saved.message });
+    await pushChatMessageToOtherMembers(eventId, req.session!.userId!, req.session!.username!, parsed.content);
   }
 
   res.status(saved.inserted ? 201 : 200).json({ message: saved.message });

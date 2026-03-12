@@ -4,14 +4,31 @@ import * as React from "react";
 import { apiRequest } from "@/lib/queryClient";
 
 type PushPermission = NotificationPermission;
+export type PushPreferences = {
+  chatMessages: boolean;
+  expenses: boolean;
+  paymentRequests: boolean;
+  planInvites: boolean;
+};
+
+const DEFAULT_PUSH_PREFERENCES: PushPreferences = {
+  chatMessages: true,
+  expenses: true,
+  paymentRequests: true,
+  planInvites: true,
+};
 
 type UsePushNotificationsResult = {
   isSupported: boolean;
+  supportReason: "ok" | "insecure_context" | "unsupported_api";
   permission: PushPermission;
   isSubscribed: boolean;
   isLoading: boolean;
-  subscribe: () => Promise<void>;
+  preferences: PushPreferences;
+  subscribe: (preferences?: PushPreferences) => Promise<void>;
   unsubscribe: () => Promise<void>;
+  updatePreferences: (preferences: PushPreferences) => Promise<void>;
+  refresh: () => Promise<void>;
 };
 
 function isPushSupported(): boolean {
@@ -19,6 +36,13 @@ function isPushSupported(): boolean {
     && "Notification" in window
     && "serviceWorker" in navigator
     && "PushManager" in window;
+}
+
+function getPushSupportReason(): "ok" | "insecure_context" | "unsupported_api" {
+  if (typeof window === "undefined") return "unsupported_api";
+  if (!isPushSupported()) return "unsupported_api";
+  if (!window.isSecureContext) return "insecure_context";
+  return "ok";
 }
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
@@ -41,29 +65,41 @@ async function getCurrentSubscription(): Promise<PushSubscription | null> {
 }
 
 export function usePushNotifications(): UsePushNotificationsResult {
-  const supported = isPushSupported();
+  const supportReason = getPushSupportReason();
+  const supported = supportReason === "ok";
   const [permission, setPermission] = React.useState<PushPermission>(
     supported ? Notification.permission : "default",
   );
   const [isSubscribed, setIsSubscribed] = React.useState(false);
   const [isLoading, setIsLoading] = React.useState(false);
+  const [preferences, setPreferences] = React.useState<PushPreferences>(DEFAULT_PUSH_PREFERENCES);
 
   const refresh = React.useCallback(async () => {
     if (!supported) {
       setPermission("default");
       setIsSubscribed(false);
+      setPreferences(DEFAULT_PUSH_PREFERENCES);
       return;
     }
     setPermission(Notification.permission);
     const subscription = await getCurrentSubscription();
     setIsSubscribed(Boolean(subscription));
+    try {
+      const res = await fetch("/api/push/preferences", { credentials: "include" });
+      if (res.ok) {
+        const body = (await res.json()) as { preferences?: PushPreferences };
+        if (body.preferences) setPreferences(body.preferences);
+      }
+    } catch {
+      // Keep local defaults when the settings endpoint is unavailable.
+    }
   }, [supported]);
 
   React.useEffect(() => {
     void refresh();
   }, [refresh]);
 
-  const subscribe = React.useCallback(async () => {
+  const subscribe = React.useCallback(async (nextPreferences = preferences) => {
     if (!supported) {
       throw new Error("Push notifications are not supported on this device.");
     }
@@ -104,13 +140,15 @@ export function usePushNotifications(): UsePushNotificationsResult {
         endpoint: subscription.endpoint,
         p256dh,
         auth,
+        preferences: nextPreferences,
       });
 
       setIsSubscribed(true);
+      setPreferences(nextPreferences);
     } finally {
       setIsLoading(false);
     }
-  }, [supported]);
+  }, [preferences, supported]);
 
   const unsubscribe = React.useCallback(async () => {
     if (!supported) return;
@@ -132,12 +170,27 @@ export function usePushNotifications(): UsePushNotificationsResult {
     }
   }, [supported]);
 
+  const updatePreferences = React.useCallback(async (nextPreferences: PushPreferences) => {
+    setIsLoading(true);
+    try {
+      setPreferences(nextPreferences);
+      if (!isSubscribed) return;
+      await apiRequest("PATCH", "/api/push/preferences", nextPreferences);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [isSubscribed]);
+
   return {
     isSupported: supported,
+    supportReason,
     permission,
     isSubscribed,
     isLoading,
+    preferences,
     subscribe,
     unsubscribe,
+    updatePreferences,
+    refresh,
   };
 }

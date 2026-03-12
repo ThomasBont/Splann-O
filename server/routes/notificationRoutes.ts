@@ -108,6 +108,7 @@ router.post("/plans/invites/:inviteId/accept", requireAuth, asyncHandler(async (
       "Plan invite accepted",
       `${me.displayName || me.username} joined ${event.name}.`,
       `/app/e/${invite.eventId}`,
+      "planInvites",
     );
   }
   res.json({

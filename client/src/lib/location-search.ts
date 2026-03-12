@@ -97,15 +97,41 @@ export async function searchLocationsGlobal(
     ?? (import.meta.env.VITE_GOOGLE_API_KEY as string | undefined)
     ?? ""
   ).trim();
+  const regionCode = ((import.meta.env.VITE_GOOGLE_PLACES_REGION as string | undefined) || "").trim().toUpperCase() || undefined;
   const cached = CACHE.get(cacheKey);
-  if (cached && (cached.length > 0 || !googleApiKey)) {
+  if (cached) {
     if (import.meta.env.DEV) {
       console.debug("[places] cache hit", { cacheKey, cachedCount: cached.length });
     }
     return cached;
   }
-  if (cached && cached.length === 0 && googleApiKey && import.meta.env.DEV) {
-    console.debug("[places] bypassing stale empty cache because api key is now present", { cacheKey });
+
+  try {
+    const serverRes = await fetch(
+      `/api/places/autocomplete?${new URLSearchParams({
+        q,
+        languageCode: language,
+        ...(regionCode ? { regionCode } : {}),
+      }).toString()}`,
+      {
+        method: "GET",
+        credentials: "include",
+        signal,
+      },
+    );
+    if (serverRes.ok) {
+      const body = await serverRes.json() as { suggestions?: LocationOption[] };
+      const suggestions = Array.isArray(body.suggestions) ? body.suggestions.slice(0, 8) : [];
+      if (suggestions.length > 0) {
+        CACHE.set(cacheKey, suggestions);
+        return suggestions;
+      }
+    }
+  } catch (error) {
+    if ((error as Error | undefined)?.name === "AbortError") throw error;
+    if (import.meta.env.DEV) {
+      console.debug("[places] server autocomplete failed; falling back", { query: q, error });
+    }
   }
 
   if (import.meta.env.DEV) {
@@ -135,8 +161,8 @@ export async function searchLocationsGlobal(
       body: JSON.stringify({
         input: q,
         languageCode: language,
-        includedPrimaryTypes: ["locality", "administrative_area_level_3", "postal_code", "establishment"],
-        regionCode: ((import.meta.env.VITE_GOOGLE_PLACES_REGION as string | undefined) || "").trim().toUpperCase() || undefined,
+        includeQueryPredictions: false,
+        regionCode,
       }),
     });
     if (!res.ok) {

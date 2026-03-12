@@ -522,6 +522,22 @@ export default function NewPlanWizardDrawer() {
     }
   };
 
+  const useTypedLocation = () => {
+    const typed = locationQuery.trim();
+    if (typed.length < 2) return;
+    const segments = typed.split(",").map((part) => part.trim()).filter(Boolean);
+    const city = segments[0] ?? typed;
+    const countryName = segments.length > 1 ? segments[segments.length - 1] : "";
+    setSelectedLocation({
+      locationName: typed,
+      city,
+      countryCode: "",
+      countryName,
+    });
+    setLocationSearchOpen(false);
+    setLocationSearchError(null);
+  };
+
   return (
     <Sheet open={isNewPlanWizardOpen} onOpenChange={handleOpenChange}>
       <SheetContent side="right" className="h-full w-full sm:max-w-[760px] p-0 z-[120]">
@@ -660,7 +676,18 @@ export default function NewPlanWizardDrawer() {
                             ) : locationQuery.trim().length < 2 ? (
                               <div className="px-3 py-2 text-xs text-muted-foreground">Type at least 2 characters</div>
                             ) : showLocationNoResults ? (
-                              <div className="px-3 py-2 text-xs text-muted-foreground">No locations found</div>
+                              <div className="space-y-1 p-1.5">
+                                <div className="px-3 py-2 text-xs text-muted-foreground">No locations found</div>
+                                <button
+                                  type="button"
+                                  className="w-full rounded-lg px-3 py-2 text-left transition hover:bg-muted/60"
+                                  onMouseDown={(event) => event.preventDefault()}
+                                  onClick={useTypedLocation}
+                                >
+                                  <span className="block truncate text-sm font-medium text-foreground">Use typed location</span>
+                                  <span className="block truncate text-xs text-muted-foreground">{locationQuery.trim()}</span>
+                                </button>
+                              </div>
                             ) : (
                               locationSuggestions.map((suggestion) => (
                                 <button
@@ -684,7 +711,7 @@ export default function NewPlanWizardDrawer() {
                       ) : null}
                     </div>
                     {hasLocationSelectionPending ? (
-                      <p className="text-xs text-amber-700">Select a location from the list to continue</p>
+                      <p className="text-xs text-amber-700">Select a suggestion or use the typed location to continue</p>
                     ) : null}
                   </div>
                   <div className="grid gap-4 sm:grid-cols-2">

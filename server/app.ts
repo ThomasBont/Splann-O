@@ -16,6 +16,7 @@ import pollRoutes from "./routes/pollRoutes";
 import friendRoutes from "./routes/friendRoutes";
 import notificationRoutes from "./routes/notificationRoutes";
 import pushRoutes from "./routes/pushRoutes";
+import placesRoutes from "./routes/placesRoutes";
 import inboxRoutes from "./routes/inboxRoutes";
 import noteRoutes from "./routes/noteRoutes";
 import mediaRoutes from "./routes/mediaRoutes";
@@ -244,6 +245,7 @@ export function createApp() {
   app.use("/api", friendRoutes);
   app.use("/api", notificationRoutes);
   app.use("/api/push", pushRoutes);
+  app.use("/api/places", placesRoutes);
   app.use("/api", inboxRoutes);
   app.use("/api", noteRoutes);
   app.use("/api", mediaRoutes);

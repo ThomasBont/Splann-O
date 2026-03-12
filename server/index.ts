@@ -42,6 +42,7 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { appendEventChatMessage, toggleEventChatReaction } from "./lib/eventChatStore";
 import { broadcastEventRealtime, registerEventSocket, unregisterEventSocket } from "./lib/eventRealtime";
 import { isEventChatLocked } from "./lib/eventChatPolicy";
+import { sendPushToUser } from "./lib/webPush";
 import fs from "node:fs";
 import {
   resolveDevHttpsCertPath,
@@ -63,7 +64,7 @@ const app = createApp();
 const devHttpsEnabled = process.env.NODE_ENV !== "production" && shouldUseDevHttps();
 const devHttpsKeyPath = resolveDevHttpsKeyPath();
 const devHttpsCertPath = resolveDevHttpsCertPath();
-const serverHost = resolveDevServerHost() || "0.0.0.0";
+const advertisedServerHost = resolveDevServerHost() || "localhost";
 const httpServer = (() => {
   if (!devHttpsEnabled) return createHttpServer(app);
   if (!devHttpsKeyPath || !devHttpsCertPath) {
@@ -159,6 +160,46 @@ async function isEventChatLockedById(eventId: number): Promise<boolean> {
     .limit(1);
   if (!eventRow) return false;
   return isEventChatLocked({ date: eventRow.date ?? null });
+}
+
+async function pushChatMessageToOtherMembers(eventId: number, authorUserId: number, authorName: string, content: string): Promise<void> {
+  const [event] = await db
+    .select({ name: barbecues.name, creatorUserId: barbecues.creatorUserId })
+    .from(barbecues)
+    .where(eq(barbecues.id, eventId))
+    .limit(1);
+  if (!event) return;
+
+  const memberRows = await db
+    .select({ userId: eventMembers.userId })
+    .from(eventMembers)
+    .where(eq(eventMembers.eventId, eventId));
+
+  const recipientIds = new Set<number>();
+  for (const row of memberRows) {
+    const userId = Number(row.userId);
+    if (Number.isFinite(userId) && userId > 0 && userId !== authorUserId) {
+      recipientIds.add(userId);
+    }
+  }
+
+  const ownerUserId = Number(event.creatorUserId ?? 0);
+  if (Number.isFinite(ownerUserId) && ownerUserId > 0 && ownerUserId !== authorUserId) {
+    recipientIds.add(ownerUserId);
+  }
+
+  const preview = content.length > 120 ? `${content.slice(0, 117)}...` : content;
+  await Promise.allSettled(
+    Array.from(recipientIds).map((userId) =>
+      sendPushToUser(
+        userId,
+        `${authorName} sent a message`,
+        `${event.name}: ${preview}`,
+        `/app/e/${eventId}`,
+        "chatMessages",
+      ),
+    ),
+  );
 }
 
 chatWss.on("connection", (ws, req) => {
@@ -341,6 +382,7 @@ chatWss.on("connection", (ws, req) => {
         }
         if (result.inserted) {
           broadcastEventRealtime(meta.eventId, { type: "chat:new", message: result.message });
+          await pushChatMessageToOtherMembers(meta.eventId, meta.userId, meta.username, text);
         }
         if (process.env.NODE_ENV !== "production") {
           log("info", "[chat-ws] ack", {
@@ -437,10 +479,10 @@ process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
   const port = parseInt(process.env.PORT || "5000", 10);
   httpServer.listen(
-    { port, host: serverHost, reusePort: true },
+    { port, host: "0.0.0.0", reusePort: true },
     () => {
       const protocol = devHttpsEnabled ? "https" : "http";
-      const visibleHost = serverHost === "0.0.0.0" ? "localhost" : serverHost;
+      const visibleHost = advertisedServerHost;
       log("info", `serving on ${protocol}://${visibleHost}:${port}`);
       if (process.env.RESEND_API_KEY) {
         log("info", "Email: Resend configured", { source: "email" });

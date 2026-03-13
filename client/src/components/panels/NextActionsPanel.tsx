@@ -6,6 +6,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { usePlan, usePlanCrew, usePlanExpenses } from "@/hooks/use-plan-data";
 import { useEventGuests } from "@/hooks/use-event-guests";
 import { useLatestRunningPoll } from "@/hooks/use-latest-running-poll";
+import { getClientPlanStatus } from "@/lib/plan-lifecycle";
 import { computeSplit } from "@/lib/split/calc";
 import { cn } from "@/lib/utils";
 import { usePanel } from "@/state/panel";
@@ -37,6 +38,7 @@ export function NextActionPanel() {
   const latestRunningPollQuery = useLatestRunningPoll(eventId, !!eventId);
   const [upNextRotationIndex, setUpNextRotationIndex] = useState(0);
   const plan = planQuery.data;
+  const planStatus = getClientPlanStatus(plan?.status);
   const participants = crewQuery.data?.participants ?? [];
   const expenses = expensesQuery.data ?? [];
   const pendingInvites = guests.invitesPending;
@@ -98,6 +100,11 @@ export function NextActionPanel() {
   }, [upNextCandidates.length, eventId]);
 
   useEffect(() => {
+    if (planStatus !== "archived") return;
+    replacePanel({ type: "overview" });
+  }, [planStatus, replacePanel]);
+
+  useEffect(() => {
     if (upNextCandidates.length <= 1) return;
     const interval = window.setInterval(() => {
       setUpNextRotationIndex((current) => (current + 1) % upNextCandidates.length);
@@ -123,6 +130,10 @@ export function NextActionPanel() {
         : upNext.action === "plan-details"
           ? () => replacePanel({ type: "plan-details" })
           : null;
+
+  if (planStatus === "archived") {
+    return null;
+  }
 
   return (
     <PanelShell>

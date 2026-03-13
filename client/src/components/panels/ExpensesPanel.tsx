@@ -358,6 +358,7 @@ export function ExpensesPanel() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const { toastError, toastSuccess } = useAppToast();
+  const checkoutTransfer = useCheckoutSettlementTransfer();
   const planQuery = usePlan(eventId);
   const crewQuery = usePlanCrew(eventId);
   const expensesQuery = usePlanExpenses(eventId);
@@ -532,6 +533,9 @@ export function ExpensesPanel() {
     () => sortedExpenses.filter((expense) => expense.resolutionMode === "now" || !!expense.linkedSettlementRoundId),
     [sortedExpenses],
   );
+  const totalExpenseCount = sharedGroupExpenses.length + settleNowExpenses.length;
+  const sharedExpenseBreakdownLabel = `${sharedGroupExpenses.length} shared group ${sharedGroupExpenses.length === 1 ? "expense" : "expenses"}`;
+  const settleNowBreakdownLabel = `${settleNowExpenses.length} settle now ${settleNowExpenses.length === 1 ? "expense" : "expenses"}`;
 
   const createSettlement = useMutation({
     mutationFn: async () => {
@@ -606,6 +610,25 @@ export function ExpensesPanel() {
       toastError(err.message || "Couldn’t mark payment as paid.");
     },
   });
+  const handleSettlementStripePay = async (transferId: string) => {
+    try {
+      if (!eventId) throw new Error("Event not found");
+      const result = await checkoutTransfer.mutateAsync({ eventId, transferId });
+      if (!result.checkoutUrl) throw new Error("Payment URL missing");
+      window.location.assign(result.checkoutUrl);
+    } catch (error) {
+      const err = error as Error & { code?: string };
+      if (err.code === "only_payer_can_pay") {
+        toastError("Only the person who owes can start this payment.");
+        return;
+      }
+      if (err.code === "transfer_paid") {
+        toastError("This payment is already completed.");
+        return;
+      }
+      toastError(err.message || "Unable to start payment");
+    }
+  };
 
   const handleAddExpense = () => {
     if (!eventId || expensesLocked) return;
@@ -649,10 +672,17 @@ export function ExpensesPanel() {
           </div>
         )}
         meta={(
-          <span className="inline-flex items-center gap-2">
-            <Receipt className="h-4 w-4" />
-            <span className="font-medium text-foreground">{plan?.name ?? "Current plan"}</span>
-          </span>
+          <div className="space-y-0.5">
+            <span className="inline-flex items-center gap-2">
+              <Receipt className="h-4 w-4" />
+              <span className="font-medium text-foreground">{plan?.name ?? "Current plan"}</span>
+            </span>
+            {totalExpenseCount > 0 ? (
+              <span className="block text-xs text-muted-foreground">
+                {totalExpenseCount} {totalExpenseCount === 1 ? "expense" : "expenses"} total
+              </span>
+            ) : null}
+          </div>
         )}
       />
 
@@ -687,6 +717,20 @@ export function ExpensesPanel() {
                   Add expense
                 </Button>
               </div>
+            ) : null}
+
+            {sortedExpenses.length > 0 ? (
+              <section className={cn(
+                "rounded-2xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))]/75 px-4 py-3 shadow-none",
+                isMobile && "rounded-[18px] px-3.5 py-3",
+              )}>
+                <p className="text-base font-semibold text-foreground">
+                  {totalExpenseCount} {totalExpenseCount === 1 ? "expense" : "expenses"} total
+                </p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {sharedExpenseBreakdownLabel} • {settleNowBreakdownLabel}
+                </p>
+              </section>
             ) : null}
 
             {isMobile ? (
@@ -949,15 +993,26 @@ export function ExpensesPanel() {
                                 Paid
                               </span>
                             ) : isDebtor ? (
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                onClick={() => markGroupTransferPaid.mutate({ settlementId: transfer.settlementId, transferId: transfer.id })}
-                                disabled={markGroupTransferPaid.isPending || settlementIsComplete}
-                              >
-                                Mark as paid
-                              </Button>
+                              <div className="flex flex-wrap gap-2">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => void handleSettlementStripePay(transfer.id)}
+                                  disabled={checkoutTransfer.isPending || settlementIsComplete}
+                                >
+                                  Pay with Stripe
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => markGroupTransferPaid.mutate({ settlementId: transfer.settlementId, transferId: transfer.id })}
+                                  disabled={markGroupTransferPaid.isPending || settlementIsComplete}
+                                >
+                                  Mark as paid
+                                </Button>
+                              </div>
                             ) : isReceiver ? (
                               <span className="text-xs text-muted-foreground">
                                 You will receive {formatCurrency(Number(transfer.amount || 0), transfer.currency || currency)} from {transfer.fromName || "someone"}.
@@ -1034,7 +1089,7 @@ export function ExpensesPanel() {
               <section className={cn("rounded-2xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-3.5 shadow-none", isMobile && "rounded-[20px] p-3.5")}>
                 <div className={cn("space-y-1", isMobile && "space-y-0.5")}>
                   <h3 className="mb-2 px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    Shared Group Expenses
+                    Shared Group Expenses ({sharedGroupExpenses.length})
                   </h3>
                   {sharedGroupExpenses.map((expense) => (
                     <ExpenseListRow
@@ -1054,7 +1109,7 @@ export function ExpensesPanel() {
               <section className={cn("rounded-2xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] p-3.5 shadow-none", isMobile && "rounded-[20px] p-3.5")}>
                 <div className={cn("space-y-2", isMobile && "space-y-1.5")}>
                   <h3 className="px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    Settle Now Expenses
+                    Settle Now Expenses ({settleNowExpenses.length})
                   </h3>
                   {settleNowExpenses.map((expense) => (
                     <SettleNowExpenseRow

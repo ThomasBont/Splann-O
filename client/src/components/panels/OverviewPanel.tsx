@@ -884,7 +884,7 @@ export function OverviewPanel() {
                   </div>
                 </div>
               </section>
-            ) : (
+            ) : isPlanArchived ? null : (
               <section
                 role="button"
                 tabIndex={0}

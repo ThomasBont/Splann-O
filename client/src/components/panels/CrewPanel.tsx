@@ -60,6 +60,16 @@ export function CrewPanel() {
     refetchInterval: eventId ? 5_000 : false,
   });
   const membersLocked = normalizedPlanStatus !== "active" || !!settlementRoundsQuery.data?.activeFinalSettlementRound;
+  const activeSettlementInProgress = !!settlementRoundsQuery.data?.activeFinalSettlementRound;
+  const crewLockMessage = activeSettlementInProgress
+    ? "Settlement is in progress. The crew is frozen until it is finished."
+    : normalizedPlanStatus === "archived"
+      ? "This plan is archived and fully read-only."
+      : normalizedPlanStatus === "settled"
+        ? "Balances are settled. Crew changes are locked during wrap-up."
+        : normalizedPlanStatus === "closed"
+          ? "This plan is closed. Crew changes are locked."
+          : null;
 
   const orderedMembers = useMemo(() => {
     if (members.length === 0) return members;
@@ -139,11 +149,7 @@ export function CrewPanel() {
       <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
         {membersLocked ? (
           <div className="rounded-2xl border border-amber-200/80 bg-amber-50/80 p-4 text-sm text-amber-800 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-200">
-            {normalizedPlanStatus === "settled"
-              ? "This plan is settled. The crew is read-only."
-              : normalizedPlanStatus === "closed"
-                ? "This plan is closed. No new members can be added."
-                : "Settlement already started. The crew is frozen until it is finished."}
+            {crewLockMessage}
           </div>
         ) : null}
         {loading ? (

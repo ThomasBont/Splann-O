@@ -22,6 +22,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { useCheckoutSettlementTransfer } from "@/hooks/use-bbq-data";
 import { useCreateExpense } from "@/hooks/use-expenses";
 import { useDeleteExpense, useUpdateExpense } from "@/hooks/use-expenses";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -142,6 +143,7 @@ export function SharedCostsDrawer({
   const { user } = useAuth();
   const { toastError, toastSuccess } = useAppToast();
   const queryClient = useQueryClient();
+  const checkoutTransfer = useCheckoutSettlementTransfer();
   const createExpense = useCreateExpense(eventId);
   const updateExpense = useUpdateExpense(eventId);
   const deleteExpense = useDeleteExpense(eventId);
@@ -296,6 +298,25 @@ export function SharedCostsDrawer({
       await queryClient.invalidateQueries({ queryKey: settlementQueryKey });
     },
   });
+  const handleStripePay = async (transferId: string) => {
+    try {
+      if (!eventId) throw new Error("Event not found");
+      const result = await checkoutTransfer.mutateAsync({ eventId, transferId });
+      if (!result.checkoutUrl) throw new Error("Payment URL missing");
+      window.location.assign(result.checkoutUrl);
+    } catch (error) {
+      const err = error as Error & { code?: string };
+      if (err.code === "only_payer_can_pay") {
+        toastError("Only the person who owes can start this payment.");
+        return;
+      }
+      if (err.code === "transfer_paid") {
+        toastError("This payment is already completed.");
+        return;
+      }
+      toastError(err.message || "Unable to start payment");
+    }
+  };
   const settlementData = latestSettlementQuery.data ?? { settlement: null, transfers: [] };
   const settlementTransfers = settlementData.transfers;
   const hasActiveSettlement = settlementData.settlement?.status === "active";
@@ -862,18 +883,29 @@ export function SharedCostsDrawer({
                                 Paid
                               </span>
                                 ) : isDebtor ? (
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => markTransferPaid.mutate({
-                                      settlementId: transfer.settlementId,
-                                      transferId: transfer.id,
-                                    })}
-                                    disabled={markTransferPaid.isPending || isSettlementComplete}
-                                  >
-                                    Mark as paid
-                                  </Button>
+                                  <div className="flex flex-wrap gap-2">
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => void handleStripePay(transfer.id)}
+                                      disabled={checkoutTransfer.isPending || isSettlementComplete}
+                                    >
+                                      Pay with Stripe
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => markTransferPaid.mutate({
+                                        settlementId: transfer.settlementId,
+                                        transferId: transfer.id,
+                                      })}
+                                      disabled={markTransferPaid.isPending || isSettlementComplete}
+                                    >
+                                      Mark as paid
+                                    </Button>
+                                  </div>
                                 ) : isReceiver ? (
                                   <span className="text-xs text-slate-500 dark:text-neutral-400">
                                     You will receive {formatMoney(Number(transfer.amount || 0))} from {transfer.fromName || "someone"}.

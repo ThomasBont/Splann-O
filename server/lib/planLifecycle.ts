@@ -4,7 +4,6 @@ import { db, ensureCoreSchemaReady } from "../db";
 
 export const PLAN_CLOSE_GRACE_PERIOD_MS = 2 * 24 * 60 * 60 * 1000;
 export const PLAN_SETTLED_WRAP_UP_MS = 2 * 24 * 60 * 60 * 1000;
-export const PLAN_CLOSED_CHAT_WRAP_UP_MS = 2 * 24 * 60 * 60 * 1000;
 
 export type CanonicalPlanStatus = "active" | "closed" | "settled" | "archived";
 
@@ -52,7 +51,7 @@ export function getClosedChatEndsAt(closeAt: Date | string | null | undefined): 
   if (!closeAt) return null;
   const parsed = closeAt instanceof Date ? closeAt : new Date(closeAt);
   if (Number.isNaN(parsed.getTime())) return null;
-  return new Date(parsed.getTime() + PLAN_CLOSED_CHAT_WRAP_UP_MS);
+  return parsed;
 }
 
 function isPastCloseGracePeriod(event: Pick<Barbecue, "endDate" | "date">, now = new Date()): boolean {
@@ -142,6 +141,9 @@ function deriveLifecycleState(
   const closedChatEndsAt = getClosedChatEndsAt(closeAt);
   const wrapUpEndsAt = getPlanWrapUpEndsAt(completedAt);
   const archivedByTime = !!wrapUpEndsAt && now.getTime() > wrapUpEndsAt.getTime();
+  const socialOpenByPlanEnd = !!closedChatEndsAt
+    ? now.getTime() <= closedChatEndsAt.getTime()
+    : true;
 
   if (completedSettlement || normalizedStatus === "settled" || normalizedStatus === "archived") {
     const status = archivedByTime || normalizedStatus === "archived" ? "archived" : "settled";
@@ -154,12 +156,11 @@ function deriveLifecycleState(
       closeAt,
       closedChatEndsAt,
       wrapUpEndsAt,
-      socialOpen: status === "settled",
+      socialOpen: status === "archived" ? false : socialOpenByPlanEnd,
     };
   }
 
   const autoClosed = isPastCloseGracePeriod(event, now);
-  const closedSocialOpen = autoClosed && !!closedChatEndsAt && now.getTime() <= closedChatEndsAt.getTime();
   return {
     status: autoClosed ? "closed" : "active",
     autoClosed,
@@ -169,7 +170,7 @@ function deriveLifecycleState(
     closeAt,
     closedChatEndsAt,
     wrapUpEndsAt: null,
-    socialOpen: autoClosed ? closedSocialOpen : true,
+    socialOpen: socialOpenByPlanEnd,
   };
 }
 

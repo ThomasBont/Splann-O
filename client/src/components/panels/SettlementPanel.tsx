@@ -8,6 +8,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useAppToast } from "@/hooks/use-app-toast";
 import { useCheckoutSettlementTransfer } from "@/hooks/use-bbq-data";
 import { usePlan, usePlanCrew, usePlanExpenses } from "@/hooks/use-plan-data";
+import { formatSettlementRoundTitle } from "@/lib/settlement-ui";
 import { computeSplit } from "@/lib/split/calc";
 import { usePanel } from "@/state/panel";
 import { PanelHeader, PanelSection, PanelShell, useActiveEventId } from "@/components/panels/panel-primitives";
@@ -227,8 +228,9 @@ export function SettlementPanel({ settlementId, createMode }: { settlementId?: s
   const panelMode = selectedSettlement
     ? (selectedSettlement.roundType === "direct_split" ? "direct-split" : "balance-settlement")
     : draftMode;
-  const panelTitle = selectedSettlement?.title
-    ?? (panelMode === "direct-split" ? "Settle now" : "Settle up");
+  const panelTitle = selectedSettlement
+    ? formatSettlementRoundTitle(selectedSettlement.title, selectedSettlement.roundType)
+    : (panelMode === "direct-split" ? "Settle now" : "Settle up");
   const panelSubtitle = selectedSettlement
     ? null
     : panelMode === "direct-split"
@@ -548,7 +550,7 @@ export function SettlementPanel({ settlementId, createMode }: { settlementId?: s
                       const canMarkPaid = selectedSettlement.status === "active"
                         && currentUserId > 0
                         && isDebtor;
-                      const canPayDirect = selectedSettlement.status === "active"
+                      const canPayWithStripe = selectedSettlement.status === "active"
                         && currentUserId > 0
                         && isDebtor;
                       return (
@@ -574,32 +576,31 @@ export function SettlementPanel({ settlementId, createMode }: { settlementId?: s
                                 <CheckCircle2 className="h-3.5 w-3.5" />
                                 Paid
                               </span>
-                            ) : selectedSettlement.roundType === "direct_split" ? (
-                              canPayDirect ? (
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => void handleDirectPay(transfer.settlementId, transfer.id)}
-                                  disabled={checkoutTransfer.isPending || isSettlementComplete}
-                                >
-                                  Pay
-                                </Button>
-                              ) : (
-                                <span className="text-xs text-muted-foreground">
-                                  {selectedSettlement.status === "active" ? "Waiting for payment from the person who owes." : "Completed rounds are read-only."}
-                                </span>
-                              )
-                            ) : canMarkPaid ? (
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="outline"
-                                onClick={() => markTransferPaid.mutate({ settlementId: transfer.settlementId, transferId: transfer.id })}
-                                disabled={markTransferPaid.isPending || isSettlementComplete}
-                              >
-                                Mark as paid
-                              </Button>
+                            ) : (canPayWithStripe || canMarkPaid) ? (
+                              <div className="flex flex-wrap gap-2">
+                                {canPayWithStripe ? (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => void handleDirectPay(transfer.settlementId, transfer.id)}
+                                    disabled={checkoutTransfer.isPending || isSettlementComplete}
+                                  >
+                                    Pay with Stripe
+                                  </Button>
+                                ) : null}
+                                {canMarkPaid ? (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => markTransferPaid.mutate({ settlementId: transfer.settlementId, transferId: transfer.id })}
+                                    disabled={markTransferPaid.isPending || isSettlementComplete}
+                                  >
+                                    Mark as paid
+                                  </Button>
+                                ) : null}
+                              </div>
                             ) : (
                               <span className="text-xs text-muted-foreground">
                                 {selectedSettlement.status === "active"
@@ -631,7 +632,7 @@ export function SettlementPanel({ settlementId, createMode }: { settlementId?: s
                         <div className="rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))]/80 p-3">
                           <div className="flex items-center justify-between gap-3">
                             <div className="min-w-0">
-                              <p className="text-sm font-medium text-foreground">{activeQuickSettleRound.title}</p>
+                              <p className="text-sm font-medium text-foreground">{formatSettlementRoundTitle(activeQuickSettleRound.title, activeQuickSettleRound.roundType)}</p>
                               <p className="mt-1 text-xs text-muted-foreground">
                                 {activeQuickSettleRound.paidTransfersCount}/{activeQuickSettleRound.transferCount} paid · {formatCurrency(activeQuickSettleRound.outstandingAmount, activeQuickSettleRound.currency || currency)} left
                               </p>
@@ -746,7 +747,7 @@ export function SettlementPanel({ settlementId, createMode }: { settlementId?: s
                               className="flex w-full items-center justify-between gap-3 rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]/70 px-3 py-2.5 text-left transition hover:bg-[hsl(var(--surface-2))]"
                             >
                               <div className="min-w-0">
-                                <p className="truncate text-sm font-medium text-foreground">{round.title}</p>
+                                <p className="truncate text-sm font-medium text-foreground">{formatSettlementRoundTitle(round.title, round.roundType)}</p>
                                 <p className="mt-1 text-xs text-muted-foreground">
                                   {round.completedAt ? formatRoundDate(round.completedAt) : "Past round"} · {round.paidByName ? `Paid by ${round.paidByName}` : "Settled now"}
                                 </p>
@@ -791,7 +792,7 @@ export function SettlementPanel({ settlementId, createMode }: { settlementId?: s
                         <div className="rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))]/80 p-3">
                           <div className="flex items-center justify-between gap-3">
                             <div className="min-w-0">
-                              <p className="text-sm font-medium text-foreground">{activeFinalSettlementRound.title}</p>
+                              <p className="text-sm font-medium text-foreground">{formatSettlementRoundTitle(activeFinalSettlementRound.title, activeFinalSettlementRound.roundType)}</p>
                               <p className="mt-1 text-xs text-muted-foreground">
                                 {activeFinalSettlementRound.paidTransfersCount}/{activeFinalSettlementRound.transferCount} paid · {formatCurrency(activeFinalSettlementRound.outstandingAmount, activeFinalSettlementRound.currency || currency)} left
                               </p>
@@ -845,7 +846,7 @@ export function SettlementPanel({ settlementId, createMode }: { settlementId?: s
                               className="flex w-full items-center justify-between gap-3 rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))]/70 px-3 py-2.5 text-left transition hover:bg-[hsl(var(--surface-2))]"
                             >
                               <div className="min-w-0">
-                                <p className="truncate text-sm font-medium text-foreground">{round.title}</p>
+                                <p className="truncate text-sm font-medium text-foreground">{formatSettlementRoundTitle(round.title, round.roundType)}</p>
                                 <p className="mt-1 text-xs text-muted-foreground">
                                   {round.completedAt ? formatRoundDate(round.completedAt) : "Past round"} · {getScopeLabel(round.scopeType, round.selectedParticipantIds?.length ?? null)}
                                 </p>

@@ -15,7 +15,7 @@ import { useDeleteExpense } from "@/hooks/use-expenses";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { resolveAssetUrl } from "@/lib/asset-url";
 import { formatFullDate } from "@/lib/dates";
-import { getClientPlanStatus, getPlanWrapUpEndsAt } from "@/lib/plan-lifecycle";
+import { getClientPlanStatus, getPlanCloseAt } from "@/lib/plan-lifecycle";
 import { getChatPatternStyle } from "@/lib/chat-pattern";
 import { markPlanSwitchPerf } from "@/lib/plan-switch-perf";
 import { circularActionButtonClass, cn } from "@/lib/utils";
@@ -33,6 +33,7 @@ type ChatSidebarProps = {
   templateData?: unknown;
   planStatus?: string | null;
   settledAt?: string | Date | null;
+  planEndDate?: string | Date | null;
   location?: string | null;
   dateTime?: Date | string | null;
   participantCount?: number;
@@ -400,6 +401,7 @@ export function ChatSidebar({
   templateData,
   planStatus,
   settledAt = null,
+  planEndDate = null,
   location = null,
   dateTime = null,
   participantCount = 0,
@@ -412,8 +414,8 @@ export function ChatSidebar({
   className,
 }: ChatSidebarProps) {
   const normalizedPlanStatus = getClientPlanStatus(planStatus);
-  const wrapUpEndsAt = getPlanWrapUpEndsAt(settledAt);
-  const wrapUpEndsLabel = formatFullDate(wrapUpEndsAt);
+  const chatClosesAt = getPlanCloseAt(planEndDate ?? dateTime);
+  const chatClosesLabel = formatFullDate(chatClosesAt);
   const { toastError, toastInfo } = useAppToast();
   const { openPanel, panel } = usePanel();
   const isMobile = useIsMobile();
@@ -978,15 +980,14 @@ export function ChatSidebar({
   };
   const lockedComposerPlaceholder = normalizedPlanStatus === "archived"
     ? "This plan is archived and read-only"
-    : normalizedPlanStatus === "settled"
-      ? "This plan is settled and chat is read-only"
-      : normalizedPlanStatus === "closed"
-        ? "This plan is closed and chat is read-only"
+    : normalizedPlanStatus === "settled" || normalizedPlanStatus === "closed"
+      ? "This plan is closed. Settlement can still be completed."
         : "Chat is read-only for this plan";
   const isExpensesOpen = panel?.type === "expenses";
   const isCrewOpen = panel?.type === "crew";
   const isPlanDetailsOpen = panel?.type === "plan-details";
   const isAnyPanelOpen = panel !== null;
+  const hasTopHistoryAction = hasMoreHistory;
   const pendingAttachmentSizeLabel = pendingAttachment ? formatAttachmentSize(pendingAttachment.file.size) : "";
   const isImageViewerOpen = !!viewerImage;
   const startEditingMessage = useCallback((message: { id: string; text: string }) => {
@@ -1343,7 +1344,7 @@ export function ChatSidebar({
         <div
           className={cn(
             "mx-auto flex min-h-full w-full",
-            isMobile ? "py-1.5" : "py-4 sm:py-6",
+            isMobile ? (hasTopHistoryAction ? "pt-1.5 pb-1.5" : "pt-0 pb-1.5") : "py-4 sm:py-6",
             isAnyPanelOpen
               ? (isMobile ? "max-w-full px-2" : "max-w-3xl px-6 sm:px-8 lg:px-10")
               : (isMobile ? "max-w-full px-2" : "max-w-[1040px] px-4 sm:px-8"),
@@ -1445,7 +1446,7 @@ export function ChatSidebar({
                           </span>
                         </div>
                       ) : null}
-                      <div className="mt-2 flex justify-start">
+                      <div className={cn("flex justify-start", isMobile && virtualRow.index === 0 && !showDateSeparator ? "mt-0.5" : "mt-2")}>
                         <div className={cn("mr-2 flex flex-col items-center pt-0.5", isMobile ? "w-8" : "w-10")}>
                           <span className={cn(
                             "grid place-items-center rounded-full border border-border/70 bg-muted font-semibold text-muted-foreground",
@@ -1565,7 +1566,7 @@ export function ChatSidebar({
                         </span>
                       </div>
                     ) : null}
-                    <div className={cn("flex items-start", isMobile ? "mt-1" : "mt-4", mine ? "justify-end" : "justify-start gap-2 sm:gap-3")}>
+                    <div className={cn("flex items-start", isMobile ? (virtualRow.index === 0 && !showDateSeparator ? "mt-0.5" : "mt-1") : "mt-4", mine ? "justify-end" : "justify-start gap-2 sm:gap-3")}>
                       {!mine ? (
                         <div className={cn("shrink-0 pt-0.5", isMobile ? "w-[1.375rem]" : "w-8")}>
                           {senderAvatar ? (
@@ -1918,7 +1919,7 @@ export function ChatSidebar({
             "mb-2 rounded-2xl border border-emerald-200/80 bg-emerald-50/80 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-200",
             isMobile && "mb-1.5 px-2.5 py-1.5 text-[11px] leading-4",
           )}>
-            Plan completed 🎉 All balances are settled. Chat stays open until {wrapUpEndsLabel ?? "soon"}.
+            Plan completed 🎉 All balances are settled. Chat stays open until {chatClosesLabel ?? "soon"}.
           </div>
         ) : null}
         <div className={cn("flex items-end gap-2", isMobile ? "gap-2 pb-0" : "items-center")}>
@@ -1933,9 +1934,9 @@ export function ChatSidebar({
                   {normalizedPlanStatus === "archived"
                     ? "This plan is archived"
                     : normalizedPlanStatus === "settled"
-                      ? "This plan is settled"
+                      ? "This plan is closed"
                       : normalizedPlanStatus === "closed"
-                        ? (isLocked ? "This plan is closed" : "This plan is closed · chat still open")
+                        ? "This plan is closed"
                         : "This plan has ended"}
                   {settledAt
                     ? ` · ${formatFullDate(settledAt)}`
@@ -1945,11 +1946,7 @@ export function ChatSidebar({
               <p className="mt-2 text-xs text-muted-foreground">
                 {normalizedPlanStatus === "archived"
                   ? "Chat history is preserved. The wrap-up window is over and the plan is now fully read-only."
-                  : normalizedPlanStatus === "closed"
-                    ? (isLocked
-                        ? "Chat history is preserved. The closed-plan wrap-up window is over and chat is now read-only."
-                        : "Chat history is preserved. The plan is closed, but chat stays open a little longer.")
-                    : "Chat history is preserved. Expenses and balances are still viewable."}
+                  : "Chat history is preserved. This plan is closed. Settlement can still be completed."}
               </p>
             </div>
           ) : null}

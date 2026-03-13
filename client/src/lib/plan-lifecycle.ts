@@ -16,11 +16,18 @@ export function getPlanWrapUpEndsAt(settledAt?: string | Date | null) {
   return new Date(date.getTime() + TWO_DAYS_MS);
 }
 
+export function getPlanCloseAt(endDate?: string | Date | null) {
+  if (!endDate) return null;
+  const date = endDate instanceof Date ? endDate : new Date(endDate);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Date(date.getTime() + TWO_DAYS_MS);
+}
+
 export function getClosedChatEndsAt(closeAt?: string | Date | null) {
   if (!closeAt) return null;
   const date = closeAt instanceof Date ? closeAt : new Date(closeAt);
   if (Number.isNaN(date.getTime())) return null;
-  return new Date(date.getTime() + TWO_DAYS_MS);
+  return date;
 }
 
 export function getPlanSettledAt(settledAt?: string | Date | null) {

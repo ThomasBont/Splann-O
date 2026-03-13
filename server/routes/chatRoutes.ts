@@ -167,7 +167,7 @@ async function getChatLockPayload(eventId: number) {
       return { code: "CHAT_LOCKED", message: "This plan is archived. Chat is now read-only." };
     }
     if (lifecycle.status === "closed") {
-      return { code: "CHAT_LOCKED", message: "This plan is closed. Chat is read-only." };
+      return { code: "CHAT_LOCKED", message: "This plan is closed. Settlement can still be completed." };
     }
   }
   return { code: "CHAT_LOCKED", message: "Chat is read-only for this plan." };
@@ -238,6 +238,7 @@ router.post("/plans/:planId/chat/messages", requireAuth, asyncHandler(async (req
     },
   });
   if (saved.message && saved.inserted) {
+    broadcastEventRealtime(eventId, { type: "chat:new", eventId, message: saved.message });
     await pushChatMessageToOtherMembers(eventId, req.session!.userId!, req.session!.username!, parsed.content);
   }
   res.status(saved.inserted ? 201 : 200).json({ message: saved.message });

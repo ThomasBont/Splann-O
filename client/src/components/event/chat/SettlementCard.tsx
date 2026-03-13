@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useAppToast } from "@/hooks/use-app-toast";
 import { useCheckoutSettlementTransfer } from "@/hooks/use-bbq-data";
+import { formatSettlementRoundTitle } from "@/lib/settlement-ui";
 import { cn } from "@/lib/utils";
 import { usePanel } from "@/state/panel";
 
@@ -141,7 +142,7 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
     || (totalTransfers > 0 && paidTransfers >= totalTransfers);
   const roundType = settlementQuery.data?.settlement?.roundType ?? "balance_settlement";
   const paidByName = settlementQuery.data?.settlement?.paidByName ?? null;
-  const roundTitle = settlementQuery.data?.settlement?.title?.trim() || (roundType === "direct_split" ? "Settle now" : "Settle up");
+  const roundTitle = formatSettlementRoundTitle(settlementQuery.data?.settlement?.title, roundType);
 
   const orderedTransfers = useMemo(() => {
     return [...transfers].sort((a, b) => {
@@ -190,7 +191,7 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
         onClick={openSettlementPanel}
       >
         <span className="text-sm font-medium text-emerald-800 dark:text-emerald-300">
-          ✅ {roundType === "direct_split" ? "Settled now completed" : "Settle up completed"}
+          ✅ {roundType === "direct_split" ? "Settled now completed" : `${roundTitle} completed`}
         </span>
         <span className="inline-flex items-center gap-1 text-xs text-emerald-700/85 dark:text-emerald-300/85">
           View details
@@ -261,9 +262,9 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
         <div className="divide-y divide-border/45 rounded-lg border border-border/55 bg-background dark:bg-neutral-900">
           {visibleTransfers.map((transfer) => {
             const paid = !!transfer.paidAt;
-            const isDebtor = !!user && user.id === transfer.fromUserId;
             const isReceiver = !!user && user.id === transfer.toUserId;
-            const canPayDirect = !!user && user.id === transfer.fromUserId;
+            const canPayWithStripe = !!user && user.id === transfer.fromUserId;
+            const canMarkPaid = !!user && user.id === transfer.fromUserId;
             return (
               <div key={transfer.id} className="flex items-center justify-between gap-2 px-2 py-1.5 text-xs">
                 <p className="min-w-0 truncate text-muted-foreground">
@@ -278,38 +279,39 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
                     <CheckCircle2 className="h-3.5 w-3.5" />
                     Paid
                   </span>
-                ) : roundType === "direct_split" ? (
-                  canPayDirect ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className="h-6 px-2 text-[11px]"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void handleDirectPay(transfer.id);
-                      }}
-                      disabled={checkoutTransfer.isPending || isSettled}
-                    >
-                      {isSettled ? "Done" : "Pay"}
-                    </Button>
-                  ) : (
-                    <span className="text-[11px] text-muted-foreground">Waiting for payment</span>
-                  )
-                ) : isDebtor ? (
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="h-6 px-2 text-[11px]"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      markPaid.mutate(transfer.id);
-                    }}
-                    disabled={markPaid.isPending || isSettled}
-                  >
-                    {isSettled ? "Done" : "Mark paid"}
-                  </Button>
+                ) : (canPayWithStripe || canMarkPaid) ? (
+                  <div className="flex shrink-0 flex-wrap justify-end gap-1">
+                    {canPayWithStripe ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-6 px-2 text-[11px]"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void handleDirectPay(transfer.id);
+                        }}
+                        disabled={checkoutTransfer.isPending || isSettled}
+                      >
+                        Pay with Stripe
+                      </Button>
+                    ) : null}
+                    {canMarkPaid ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="h-6 px-2 text-[11px]"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          markPaid.mutate(transfer.id);
+                        }}
+                        disabled={markPaid.isPending || isSettled}
+                      >
+                        Mark as paid
+                      </Button>
+                    ) : null}
+                  </div>
                 ) : (
                   <span className="text-[11px] text-muted-foreground">
                     {isReceiver

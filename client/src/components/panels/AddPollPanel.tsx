@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { useAppToast } from "@/hooks/use-app-toast";
 import { usePlan, messagesQueryKey } from "@/hooks/use-plan-data";
 import { PanelHeader, PanelSection, PanelShell, useActiveEventId } from "@/components/panels/panel-primitives";
+import { getClientPlanStatus } from "@/lib/plan-lifecycle";
 import type { ChatMessage, PlanMessagesPage } from "@/hooks/use-event-chat";
 
 export function AddPollPanel({
@@ -17,6 +18,7 @@ export function AddPollPanel({
   const queryClient = useQueryClient();
   const { toastError, toastSuccess } = useAppToast();
   const planQuery = usePlan(eventId);
+  const isArchived = getClientPlanStatus(planQuery.data?.status) === "archived";
   const [question, setQuestion] = useState("");
   const [optionFields, setOptionFields] = useState(["", ""]);
   const [optionsError, setOptionsError] = useState<string | null>(null);
@@ -42,6 +44,10 @@ export function AddPollPanel({
   };
 
   const handleCreatePoll = async () => {
+    if (isArchived) {
+      toastError("This plan is archived and read-only. New polls can no longer be created.");
+      return;
+    }
     const trimmedQuestion = question.trim();
     const uniqueOptions = parsedOptions.filter((option, index, list) => (
       list.findIndex((candidate) => candidate.toLowerCase() === option.toLowerCase()) === index
@@ -123,11 +129,17 @@ export function AddPollPanel({
       <div className="flex-1 overflow-y-auto px-5 py-5">
         <PanelSection title="New vote" variant="workflow" className="min-h-fit">
           <div className="space-y-3">
+            {isArchived ? (
+              <div className="rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] px-4 py-3 text-sm text-muted-foreground">
+                This plan is archived and read-only. New polls can no longer be created.
+              </div>
+            ) : null}
             <Input
               value={question}
               onChange={(event) => setQuestion(event.target.value)}
               placeholder="What should we vote on?"
               maxLength={240}
+              disabled={isArchived}
             />
             <div className="space-y-2">
               {optionFields.map((value, index) => (
@@ -137,6 +149,7 @@ export function AddPollPanel({
                     onChange={(event) => updateOptionField(index, event.target.value)}
                     placeholder={`Option ${index + 1}`}
                     maxLength={120}
+                    disabled={isArchived}
                   />
                   {optionFields.length > 2 ? (
                     <button
@@ -144,6 +157,7 @@ export function AddPollPanel({
                       onClick={() => removeOptionField(index)}
                       className="inline-flex h-9 w-9 items-center justify-center rounded-md text-muted-foreground transition hover:bg-neutral-100 hover:text-foreground dark:hover:bg-[hsl(var(--surface-2))]"
                       aria-label={`Remove option ${index + 1}`}
+                      disabled={isArchived}
                     >
                       <X className="h-4 w-4" />
                     </button>
@@ -155,6 +169,7 @@ export function AddPollPanel({
                   type="button"
                   onClick={addOptionField}
                   className="inline-flex text-sm text-muted-foreground transition hover:text-foreground"
+                  disabled={isArchived}
                 >
                   + Add option
                 </button>
@@ -167,7 +182,7 @@ export function AddPollPanel({
               <p className="text-xs text-muted-foreground">
                 {parsedOptions.length} valid option{parsedOptions.length === 1 ? "" : "s"}.
               </p>
-              <Button type="button" onClick={() => void handleCreatePoll()} disabled={submitting}>
+              <Button type="button" onClick={() => void handleCreatePoll()} disabled={submitting || isArchived}>
                 {submitting ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <BarChart3 className="mr-1.5 h-4 w-4" />}
                 Start vote
               </Button>

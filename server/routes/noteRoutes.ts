@@ -9,7 +9,7 @@ import { db } from "../db";
 import { forbidden, notFound } from "../lib/errors";
 import { logPlanActivity } from "../lib/planActivity";
 import { requireAuth } from "../middleware/requireAuth";
-import { assertEventAccessOrThrow, asyncHandler, p } from "./_helpers";
+import { assertArchivedPlanWritable, assertEventAccessOrThrow, asyncHandler, p } from "./_helpers";
 
 const router = Router();
 
@@ -23,6 +23,7 @@ router.get(p(api.notes.list.path), requireAuth, asyncHandler(async (req, res) =>
 router.post(p(api.notes.create.path), requireAuth, asyncHandler(async (req, res) => {
   const eventId = Number(req.params.eventId);
   await assertEventAccessOrThrow(req, eventId);
+  await assertArchivedPlanWritable(eventId, "Plan is archived. Notes are read-only.");
   const input = api.notes.create.input.parse(req.body);
   const participant = await participantRepo.getById(input.participantId);
   if (!participant || participant.barbecueId !== eventId) {
@@ -65,6 +66,7 @@ router.patch(p(api.notes.update.path), requireAuth, asyncHandler(async (req, res
   const participant = await participantRepo.getById(existing[0].participantId);
   if (!participant) notFound("Participant not found");
   await assertEventAccessOrThrow(req, participant.barbecueId);
+  await assertArchivedPlanWritable(participant.barbecueId, "Plan is archived. Notes are read-only.");
   const userId = req.session!.userId!;
   if (participant.userId !== userId) {
     forbidden("Can only edit your own notes");
@@ -81,6 +83,7 @@ router.delete(p(api.notes.delete.path), requireAuth, asyncHandler(async (req, re
   const participant = await participantRepo.getById(existing[0].participantId);
   if (!participant) notFound("Participant not found");
   await assertEventAccessOrThrow(req, participant.barbecueId);
+  await assertArchivedPlanWritable(participant.barbecueId, "Plan is archived. Notes are read-only.");
   const userId = req.session!.userId!;
   if (participant.userId !== userId) {
     forbidden("Can only delete your own notes");

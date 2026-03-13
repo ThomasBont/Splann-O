@@ -199,6 +199,7 @@ export const expenses = pgTable("expenses", {
   id: serial("id").primaryKey(),
   barbecueId: integer("barbecue_id").references(() => barbecues.id, { onDelete: 'cascade' }).notNull(),
   participantId: integer("participant_id").references(() => participants.id, { onDelete: 'cascade' }).notNull(),
+  createdByUserId: integer("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
   category: text("category").notNull(),
   item: text("item").notNull(),
   amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
@@ -421,7 +422,7 @@ export const friendships = pgTable("friendships", {
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
 export const insertBarbecueSchema = createInsertSchema(barbecues).omit({ id: true });
 export const insertParticipantSchema = createInsertSchema(participants).omit({ id: true, createdAt: true });
-export const insertExpenseSchema = createInsertSchema(expenses).omit({ id: true }).extend({
+export const insertExpenseSchema = createInsertSchema(expenses).omit({ id: true, createdByUserId: true, createdAt: true }).extend({
   amount: z.union([z.string(), z.number()]),
   includedUserIds: z.array(z.string()).optional().nullable(),
   resolutionMode: z.enum(["later", "now"]).optional(),

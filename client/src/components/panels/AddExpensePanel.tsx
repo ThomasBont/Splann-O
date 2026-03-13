@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAppToast } from "@/hooks/use-app-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { useCreateExpense } from "@/hooks/use-expenses";
 import { useLanguage } from "@/hooks/use-language";
 import { usePlan, usePlanCrew } from "@/hooks/use-plan-data";
@@ -30,13 +31,21 @@ function formatDetectedReceiptDate(value: string | null) {
 export function AddExpensePanel({
   source = "overview",
   initialResolutionMode = "later",
+  initialPrefill = null,
 }: {
   source?: "overview" | "expenses";
   initialResolutionMode?: "later" | "now";
+  initialPrefill?: {
+    amount?: number | null;
+    item?: string | null;
+    paidBy?: string | null;
+    splitCount?: number | null;
+  } | null;
 }) {
   const eventId = useActiveEventId();
   const { t } = useLanguage();
   const { toastError, toastSuccess } = useAppToast();
+  const { user } = useAuth();
   const { replacePanel } = usePanel();
   const planQuery = usePlan(eventId);
   const crewQuery = usePlanCrew(eventId);
@@ -62,6 +71,49 @@ export function AddExpensePanel({
   const [receiptDetectedDate, setReceiptDetectedDate] = useState<string | null>(null);
   const [receiptAmountConfidence, setReceiptAmountConfidence] = useState<number>(0);
   const receiptInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    if (!participants.length) {
+      if (participantId) setParticipantId("");
+      return;
+    }
+    if (participantId && participants.some((participant) => String(participant.id) === participantId)) return;
+    const currentUserParticipant = participants.find((participant) => participant.userId && participant.userId === user?.id);
+    setParticipantId(String(currentUserParticipant?.id ?? participants[0]?.id ?? ""));
+  }, [participantId, participants, user?.id]);
+
+  useEffect(() => {
+    if (!initialPrefill) return;
+    if (initialPrefill.item && String(initialPrefill.item).trim() && !itemTouchedByUser) {
+      setItem(String(initialPrefill.item).trim());
+    }
+    if (Number.isFinite(Number(initialPrefill.amount)) && Number(initialPrefill.amount) > 0 && !amountTouchedByUser) {
+      setAmount(String(Number(initialPrefill.amount)));
+    }
+    if (initialPrefill.paidBy && String(initialPrefill.paidBy).trim()) {
+      const query = String(initialPrefill.paidBy).trim().toLowerCase();
+      const normalizedQuery = query.replace(/[^a-z0-9_]/g, "");
+      const matchedParticipant = participants.find((participant) => {
+        const name = participant.name.toLowerCase();
+        const normalizedName = name.replace(/[^a-z0-9_]/g, "");
+        return name === query || normalizedName === normalizedQuery || name.includes(query);
+      });
+      if (matchedParticipant) {
+        setParticipantId(String(matchedParticipant.id));
+      }
+    }
+    const splitCount = Number(initialPrefill.splitCount);
+    if (Number.isFinite(splitCount) && splitCount > 0 && participants.length > 0) {
+      const limited = participants.slice(0, Math.max(1, Math.min(participants.length, Math.floor(splitCount))));
+      if (limited.length >= participants.length) {
+        setSplitMode("everyone");
+        setIncludedUserIds(participants.map((participant) => String(participant.id)));
+      } else {
+        setSplitMode("selected");
+        setIncludedUserIds(limited.map((participant) => String(participant.id)));
+      }
+    }
+  }, [amountTouchedByUser, initialPrefill, itemTouchedByUser, participants]);
 
   useEffect(() => {
     if (resolutionMode === "now") {

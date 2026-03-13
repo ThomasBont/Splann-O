@@ -377,11 +377,10 @@ router.post("/events/:eventId/settlement/:settlementId/transfers/:transferId/mar
   if (!settlement?.settlement) notFound("Settlement not found");
   const transfer = settlement.transfers.find((row) => row.id === transferId);
   if (!transfer) notFound("Transfer not found");
-  const isTransferParticipant = transfer.fromUserId === userId || transfer.toUserId === userId;
-  if (!isTransferParticipant) {
+  if (transfer.fromUserId !== userId) {
     res.status(403).json({
-      code: "not_transfer_participant",
-      message: "Only the payer or receiver can mark this transfer as paid.",
+      code: "only_payer_can_pay",
+      message: "Only the person who owes can initiate this payment.",
     });
     return;
   }

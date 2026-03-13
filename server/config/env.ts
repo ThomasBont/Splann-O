@@ -56,6 +56,15 @@ export function resolveBaseUrl(fallback = ""): string {
   return `http://localhost:${process.env.PORT || 5001}`;
 }
 
+export function resolveSessionSecret(): string {
+  const raw = process.env.SESSION_SECRET?.trim();
+  if (raw) return raw;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("SESSION_SECRET must be set");
+  }
+  return "dev-session-secret";
+}
+
 export function resolveVapidPublicKey(): string {
   return getOptional("VAPID_PUBLIC_KEY", "");
 }
@@ -97,7 +106,7 @@ export function loadConfig() {
     nodeEnv: process.env.NODE_ENV || "development",
     port: parseInt(process.env.PORT || "5000", 10),
     databaseUrl: process.env.DATABASE_URL || "",
-    sessionSecret: process.env.SESSION_SECRET || "fallback-secret-change-me",
+    sessionSecret: resolveSessionSecret(),
     betaMode: process.env.BETA_MODE === "1",
     freeMaxEvents: getOptionalInt("FREE_MAX_EVENTS", 3),
     freeMaxParticipants: getOptionalInt("FREE_MAX_PARTICIPANTS", 10),

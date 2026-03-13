@@ -48,6 +48,7 @@ type ChatSidebarProps = {
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
 const QUICK_EMOJIS = ["😀", "😂", "😍", "🙏", "🔥", "🎉", "👍", "❤️"];
 const NEAR_BOTTOM_THRESHOLD_PX = 120;
+const MOBILE_HEADER_COLLAPSE_SCROLL_PX = 28;
 const AMOUNT_PATTERN = /€\s?(\d+(?:[.,]\d{1,2})?)/i;
 const PAID_BY_PATTERN = /(paid by|by)\s+@?(\w+)/i;
 const SPLIT_PATTERN = /(split)\s+(\d+)/i;
@@ -432,6 +433,7 @@ export function ChatSidebar({
   const typingEmitTimerRef = useRef<number | null>(null);
   const typingStopTimerRef = useRef<number | null>(null);
   const [isNearBottom, setIsNearBottom] = useState(true);
+  const [isMobileHeaderCondensed, setIsMobileHeaderCondensed] = useState(false);
   const isNearBottomRef = useRef(true);
   const didInitialScrollRef = useRef(false);
   const prevMessageLengthRef = useRef(0);
@@ -497,6 +499,10 @@ export function ChatSidebar({
         const nearBottom = computeIsNearBottom(el);
         isNearBottomRef.current = nearBottom;
         setIsNearBottom((prev) => (prev === nearBottom ? prev : nearBottom));
+        if (isMobile) {
+          const shouldCondense = el.scrollTop > MOBILE_HEADER_COLLAPSE_SCROLL_PX;
+          setIsMobileHeaderCondensed((prev) => (prev === shouldCondense ? prev : shouldCondense));
+        }
         if (nearBottom) {
           setUnseenCount(0);
           setShowNewPill(false);
@@ -509,7 +515,7 @@ export function ChatSidebar({
       el.removeEventListener("scroll", onScroll);
       if (rafId != null) window.cancelAnimationFrame(rafId);
     };
-  }, [computeIsNearBottom]);
+  }, [computeIsNearBottom, isMobile]);
 
   useEffect(() => {
     const nextLength = messages.length;
@@ -808,7 +814,16 @@ export function ChatSidebar({
     const meId = String(currentUser?.id ?? "");
     return typingUsers.filter((user) => String(user.id) !== meId);
   }, [currentUser?.id, typingUsers]);
-  const expenseSuggestion = useMemo(() => parseExpenseSuggestion(draft), [draft]);
+  const expenseSuggestion = useMemo(() => {
+    const parsed = parseExpenseSuggestion(draft);
+    if (!parsed) return null;
+    const author = currentUser?.id ? membersById.get(String(currentUser.id)) : null;
+    const defaultPaidBy = author?.name || currentUser?.username || undefined;
+    return {
+      ...parsed,
+      paidBy: parsed.paidBy ?? defaultPaidBy,
+    };
+  }, [currentUser?.id, currentUser?.username, draft, membersById]);
 
   const openExpenseEditor = useCallback((expenseId: number) => {
     if (!eventId) return;
@@ -819,6 +834,17 @@ export function ChatSidebar({
 
   const handleDeleteExpenseFromCard = useCallback(async (expenseId: number) => {
     if (!eventId) return;
+    const currentExpenses = queryClient.getQueryData(['/api/barbecues', eventId, 'expenses']);
+    const targetExpense = Array.isArray(currentExpenses)
+      ? currentExpenses.find((item) => Number((item as { id?: number }).id) === expenseId) as { createdByUserId?: number | null } | undefined
+      : undefined;
+    if (Number(targetExpense?.createdByUserId ?? 0) !== Number(currentUser?.id ?? 0)) {
+      toastError("Only the person who created this expense can delete it.");
+      return;
+    }
+    if (!window.confirm("Delete this expense? This will permanently remove it from shared costs.")) {
+      return;
+    }
     setOptimisticallyDeletedExpenseIds((prev) => (prev.includes(expenseId) ? prev : [...prev, expenseId]));
     queryClient.setQueryData(['/api/barbecues', eventId, 'expenses'], (old: unknown) => {
       if (!Array.isArray(old)) return old;
@@ -836,7 +862,7 @@ export function ChatSidebar({
       await queryClient.invalidateQueries({ queryKey: ["expenses", eventId] });
       toastError(error instanceof Error ? error.message : "Couldn’t delete expense. Try again.");
     }
-  }, [deleteExpense, eventId, queryClient, toastError]);
+  }, [currentUser?.id, deleteExpense, eventId, queryClient, toastError]);
 
   const handleCopyAmount = useCallback(async ({ amount, currency }: { amount: number; currency: string }) => {
     const text = `${currency || "€"}${Number.isFinite(amount) ? amount.toFixed(2) : "0.00"}`;
@@ -950,6 +976,13 @@ export function ChatSidebar({
       },
     }));
   };
+  const lockedComposerPlaceholder = normalizedPlanStatus === "archived"
+    ? "This plan is archived and read-only"
+    : normalizedPlanStatus === "settled"
+      ? "This plan is settled and chat is read-only"
+      : normalizedPlanStatus === "closed"
+        ? "This plan is closed and chat is read-only"
+        : "Chat is read-only for this plan";
   const isExpensesOpen = panel?.type === "expenses";
   const isCrewOpen = panel?.type === "crew";
   const isPlanDetailsOpen = panel?.type === "plan-details";
@@ -1122,10 +1155,15 @@ export function ChatSidebar({
       }
     >
       <header className={cn(
-        "shrink-0 border-b border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))]",
-        isMobile ? "px-3 py-2" : "px-6 py-4",
+        "sticky top-0 z-10 shrink-0 border-b border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] transition-[padding,box-shadow,background-color] duration-200 ease-out",
+        isMobile
+          ? cn(
+              "px-3",
+              isMobileHeaderCondensed ? "py-1 shadow-[0_1px_0_hsl(var(--border-subtle))]" : "py-1.5",
+            )
+          : "px-6 py-4",
       )}>
-        <div className="flex items-start justify-between gap-4">
+        <div className={cn("flex justify-between gap-4", isMobile ? "items-center" : "items-start")}>
           <div className="min-w-0 flex-1">
             <button
               type="button"
@@ -1138,18 +1176,26 @@ export function ChatSidebar({
                   : "text-foreground/95 hover:text-foreground",
               )}
             >
-              <span className="block text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              <span className={cn(
+                "block text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground",
+                isMobile && "hidden",
+              )}>
                 Chat
               </span>
-              <span className={cn("mt-1 block truncate font-semibold tracking-tight", isMobile ? "text-lg" : "text-xl")}>
+              <span className={cn(
+                "block truncate font-semibold tracking-tight transition-[font-size,line-height] duration-200 ease-out",
+                isMobile
+                  ? (isMobileHeaderCondensed ? "text-base leading-5" : "text-[1.05rem] leading-6")
+                  : "mt-1 text-xl",
+              )}>
                 {eventName || "Current plan"}
               </span>
             </button>
           </div>
           <div className={cn("flex items-center", isMobile ? "gap-2.5" : "gap-2")}>
             <div className={cn(
-              "inline-flex items-center gap-1.5 rounded-full border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))] text-[10px] text-muted-foreground",
-              isMobile ? "min-h-8 px-2.5 py-1" : "px-2 py-1",
+              "inline-flex items-center gap-1.5 rounded-full border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))] text-[10px] text-muted-foreground transition-[padding,min-height] duration-200 ease-out",
+              isMobile ? (isMobileHeaderCondensed ? "min-h-6 px-2 py-0" : "min-h-7 px-2 py-0.5") : "px-2 py-1",
             )}>
               <span className={`inline-block h-1.5 w-1.5 rounded-full ${liveLabel.cls}`} />
               {liveLabel.text}
@@ -1157,9 +1203,13 @@ export function ChatSidebar({
           </div>
         </div>
         <div className={cn(
-          "mt-3 flex w-full flex-wrap items-center text-muted-foreground",
-          isMobile ? "mt-2 gap-x-1 gap-y-1" : "gap-x-1 gap-y-1.5",
-          isMobile ? "text-[12px]" : "text-sm",
+          "w-full items-center text-muted-foreground transition-[margin,opacity] duration-200 ease-out",
+          isMobile
+            ? cn(
+                "flex overflow-hidden whitespace-nowrap text-[11px] leading-4.5",
+                isMobileHeaderCondensed ? "mt-0.5" : "mt-1",
+              )
+            : "mt-3 flex flex-wrap gap-x-1 gap-y-1.5 text-sm",
         )}>
           <button
             type="button"
@@ -1167,16 +1217,18 @@ export function ChatSidebar({
             onClick={openPlanDetails}
             className={cn(
               "inline-flex items-center gap-1.5 rounded-md text-sm transition active:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-              isMobile ? "min-h-8 px-1.5 py-1" : "px-1.5 py-1",
+              isMobile ? "min-w-0 flex-1 px-0 py-0 text-[11px]" : "px-1.5 py-1",
               isPlanDetailsOpen
                 ? "text-foreground"
                 : "text-muted-foreground hover:text-foreground",
             )}
           >
-            <MapPin className="h-3.5 w-3.5" />
-            <span className="truncate">{locationLabel}</span>
+            <MapPin className={cn("h-3.5 w-3.5", isMobile && "h-3 w-3 shrink-0")} />
+            <span className={cn("truncate", isMobile && "text-foreground/80")}>{locationLabel}</span>
           </button>
-          {isMobile ? null : <span className="text-muted-foreground/45">•</span>}
+          {isMobileHeaderCondensed ? null : (
+            <>
+          <span className="shrink-0 text-muted-foreground/45">•</span>
           {!isMobile ? (
             <button
               type="button"
@@ -1193,42 +1245,40 @@ export function ChatSidebar({
               <Users className="h-3.5 w-3.5" />
               <span>{peopleLabel}</span>
             </button>
-          ) : null}
-          <span className="text-muted-foreground/45">•</span>
+          ) : (
+            <button
+              type="button"
+              aria-label="Open crew drawer"
+              onClick={openCrew}
+              className={cn(
+                "inline-flex shrink-0 items-center gap-1 rounded-md px-1 py-0 text-[11px] transition active:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                isCrewOpen
+                  ? "text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <Users className="h-3 w-3" />
+              <span className="text-foreground/80">{peopleLabel}</span>
+            </button>
+          )}
+            </>
+          )}
+          <span className="shrink-0 text-muted-foreground/45">•</span>
           <button
             type="button"
             aria-label="Open plan date details"
             onClick={openPlanDetails}
             className={cn(
               "inline-flex items-center gap-1.5 rounded-md text-sm transition active:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-              isMobile ? "min-h-8 px-1.5 py-1" : "px-1.5 py-1",
+              isMobile ? "shrink-0 px-1 py-0 text-[11px]" : "px-1.5 py-1",
               isPlanDetailsOpen
                 ? "text-foreground"
                 : "text-muted-foreground hover:text-foreground",
             )}
           >
-            <Calendar className="h-3.5 w-3.5" />
-            <span>{dateLabel}</span>
+            <Calendar className={cn("h-3.5 w-3.5", isMobile && "h-3 w-3")} />
+            <span className={cn(isMobile && "text-foreground/80")}>{dateLabel}</span>
           </button>
-          {isMobile ? (
-            <>
-              <span className="text-muted-foreground/45">•</span>
-              <button
-                type="button"
-                aria-label="Open crew drawer"
-                onClick={openCrew}
-                className={cn(
-                  "inline-flex min-h-8 items-center gap-1.5 rounded-md px-1.5 py-1 text-sm transition active:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                  isCrewOpen
-                    ? "text-foreground"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                <Users className="h-3.5 w-3.5" />
-                <span>{peopleLabel}</span>
-              </button>
-            </>
-          ) : null}
           {!isMobile ? (
             <>
               <span className="text-muted-foreground/45">•</span>
@@ -1253,31 +1303,30 @@ export function ChatSidebar({
                 <span>{expensesLabel}</span>
               </span>
             </>
-          ) : null}
-          {isMobile ? (
+          ) : isMobileHeaderCondensed ? null : (
             <>
-              <span className="text-muted-foreground/45">•</span>
-              <span className="inline-flex min-h-8 items-center gap-1.5 rounded-md px-1.5 py-1 text-sm text-muted-foreground">
-                <Receipt className="h-3.5 w-3.5" />
-                <span>{expensesLabel}</span>
-              </span>
-              <span className="text-muted-foreground/45">•</span>
+              <span className="shrink-0 text-muted-foreground/45">•</span>
               <button
                 type="button"
                 aria-label="Open shared costs drawer"
                 onClick={openExpenses}
                 className={cn(
-                  "inline-flex min-h-8 items-center gap-1.5 rounded-md px-1.5 py-1 text-sm transition active:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                  "inline-flex shrink-0 items-center gap-1 rounded-md px-1 py-0 text-[10px] transition active:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                   isExpensesOpen
                     ? "text-foreground"
-                    : "text-muted-foreground hover:text-foreground",
+                    : "text-muted-foreground/80 hover:text-foreground",
                 )}
               >
-                <CreditCard className="h-3.5 w-3.5" />
-                <span className={cn("font-medium", isExpensesOpen ? "text-foreground" : "")}>{sharedLabel}</span>
+                <CreditCard className="h-2.5 w-2.5" />
+                <span className={cn("font-medium", isExpensesOpen ? "text-foreground/85" : "")}>{sharedLabel}</span>
               </button>
+              <span className="shrink-0 text-muted-foreground/45">•</span>
+              <span className="inline-flex shrink-0 items-center gap-1 px-1 py-0 text-[10px] text-muted-foreground/80">
+                <Receipt className="h-2.5 w-2.5" />
+                <span>{expensesLabel}</span>
+              </span>
             </>
-          ) : null}
+          )}
         </div>
       </header>
 
@@ -1814,6 +1863,9 @@ export function ChatSidebar({
         {expenseSuggestion ? (
           <div className={cn("mb-2 flex gap-2", isMobile ? "flex-col items-start gap-1.5" : "items-center justify-between")}>
             <div className="flex flex-wrap items-center gap-1.5">
+              <span className="rounded-full border border-border/70 bg-muted/60 px-2 py-1 text-xs font-medium text-foreground">
+                Detected expense
+              </span>
               {expenseSuggestion.amount ? (
                 <span className="rounded-full border border-border/70 bg-muted/60 px-2 py-1 text-xs text-muted-foreground">
                   €{expenseSuggestion.amount.toFixed(2)}
@@ -1821,7 +1873,7 @@ export function ChatSidebar({
               ) : null}
               {expenseSuggestion.paidBy ? (
                 <span className="rounded-full border border-border/70 bg-muted/60 px-2 py-1 text-xs text-muted-foreground">
-                  paid by @{expenseSuggestion.paidBy}
+                  paid by {expenseSuggestion.paidBy}
                 </span>
               ) : null}
               {!isMobile && expenseSuggestion.splitCount ? (
@@ -1842,7 +1894,7 @@ export function ChatSidebar({
               className={cn("shrink-0", isMobile ? "h-8 rounded-full px-3" : "h-7")}
               onClick={openCreateExpenseFromSuggestion}
             >
-              Create expense
+              Add Expense
             </Button>
           </div>
         ) : null}
@@ -1869,40 +1921,43 @@ export function ChatSidebar({
             Plan completed 🎉 All balances are settled. Chat stays open until {wrapUpEndsLabel ?? "soon"}.
           </div>
         ) : null}
-        {isLocked ? (
-          <div className={cn(
-            "border-t border-border/50 bg-muted/30 px-4 py-4 text-center",
-            isMobile && "px-3 py-2.5",
-          )}>
-            <div className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background px-3 py-1.5">
-              <span className="h-2 w-2 rounded-full bg-emerald-500" />
-              <span className="text-xs font-medium text-muted-foreground">
+        <div className={cn("flex items-end gap-2", isMobile ? "gap-2 pb-0" : "items-center")}>
+          {isLocked ? (
+            <div className={cn(
+              "absolute inset-x-0 -top-[4.1rem] z-10 rounded-2xl border border-border/60 bg-background/95 px-4 py-3 text-center shadow-sm backdrop-blur",
+              isMobile && "px-3 py-2.5",
+            )}>
+              <div className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background px-3 py-1.5">
+                <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                <span className="text-xs font-medium text-muted-foreground">
+                  {normalizedPlanStatus === "archived"
+                    ? "This plan is archived"
+                    : normalizedPlanStatus === "settled"
+                      ? "This plan is settled"
+                      : normalizedPlanStatus === "closed"
+                        ? (isLocked ? "This plan is closed" : "This plan is closed · chat still open")
+                        : "This plan has ended"}
+                  {settledAt
+                    ? ` · ${formatFullDate(settledAt)}`
+                    : ""}
+                </span>
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground">
                 {normalizedPlanStatus === "archived"
-                  ? "This plan is archived"
-                  : normalizedPlanStatus === "settled"
-                    ? "This plan is settled"
-                    : normalizedPlanStatus === "closed"
-                      ? "This plan is closed"
-                      : "This plan has ended"}
-                {settledAt
-                  ? ` · ${formatFullDate(settledAt)}`
-                  : ""}
-              </span>
+                  ? "Chat history is preserved. The wrap-up window is over and the plan is now fully read-only."
+                  : normalizedPlanStatus === "closed"
+                    ? (isLocked
+                        ? "Chat history is preserved. The closed-plan wrap-up window is over and chat is now read-only."
+                        : "Chat history is preserved. The plan is closed, but chat stays open a little longer.")
+                    : "Chat history is preserved. Expenses and balances are still viewable."}
+              </p>
             </div>
-            <p className="mt-2 text-xs text-muted-foreground">
-              {normalizedPlanStatus === "archived"
-                ? "Chat history is preserved. The wrap-up window is over and the plan is now fully read-only."
-                : normalizedPlanStatus === "closed"
-                  ? "Chat history is preserved. This plan is closed for new planning activity."
-                  : "Chat history is preserved. Expenses and balances are still viewable."}
-            </p>
-          </div>
-        ) : (
-          <div className={cn("flex items-end gap-2", isMobile ? "gap-2 pb-0" : "items-center")}>
+          ) : null}
             <div
               className={cn(
                 "flex flex-1 flex-col rounded-[1.35rem] border border-border/70 bg-background",
                 isMobile ? "min-h-[2.75rem] shadow-sm" : "min-h-10",
+                isLocked && "bg-muted/30 opacity-90",
               )}
             >
             {replyingTo ? (
@@ -2004,7 +2059,7 @@ export function ChatSidebar({
                             isMobile ? "h-11 w-11" : "h-8 w-8",
                           )}
                           aria-label="Add attachment"
-                          disabled={!hasEventId}
+                          disabled={!hasEventId || isLocked}
                           onClick={(event) => {
                             event.stopPropagation();
                           }}
@@ -2062,12 +2117,13 @@ export function ChatSidebar({
                 value={draft}
                 onChange={(e) => handleDraftChange(e.target.value)}
                 onBlur={() => emitTypingStop()}
-                placeholder="Message…"
+                placeholder={isLocked ? lockedComposerPlaceholder : "Message…"}
                 className={cn(
                   "pointer-events-auto w-full resize-none overflow-y-auto bg-transparent text-[16px] leading-normal text-foreground caret-primary outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:text-muted-foreground/70",
                   isMobile ? "min-h-[28px] max-h-[104px] py-1 leading-[1.4]" : "min-h-[20px] max-h-[104px] py-0.5 md:text-sm",
                 )}
                 rows={1}
+                disabled={isLocked}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
@@ -2085,13 +2141,12 @@ export function ChatSidebar({
                 isMobile ? "h-11 w-11" : "h-10 w-10",
               )}
               onClick={() => void handleSubmit()}
-              disabled={sending || (!draft.trim() && !pendingAttachment) || !eventId}
+              disabled={isLocked || sending || (!draft.trim() && !pendingAttachment) || !eventId}
               aria-label="Send message"
             >
               {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <SendHorizontal className="h-4 w-4" />}
             </Button>
           </div>
-        )}
       </div>
     </aside>
     <Dialog open={isImageViewerOpen} onOpenChange={(open) => { if (!open) setViewerImage(null); }}>

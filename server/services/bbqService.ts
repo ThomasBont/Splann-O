@@ -61,7 +61,7 @@ function privatePublicFieldChanges(event: Barbecue): Array<string> {
 export function normalizeEventForClient(event: Barbecue): Barbecue {
   const withResolvedDates: Barbecue = {
     ...event,
-    createdAt: event.createdAt ?? event.updatedAt ?? event.date,
+    createdAt: event.createdAt ?? null,
     startDate: event.startDate ?? event.date,
     endDate: event.endDate ?? event.startDate ?? event.date,
     date: event.date ?? event.startDate ?? event.endDate,

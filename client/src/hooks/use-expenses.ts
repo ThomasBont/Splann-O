@@ -101,7 +101,10 @@ export function useUpdateExpense(bbqId: number | null) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updates),
       });
-      if (!res.ok) throw new Error("Failed to update expense");
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({} as { message?: string }));
+        throw new Error(body.message || "Failed to update expense");
+      }
       return res.json();
     },
     onSuccess: (updatedExpense) => {
@@ -122,7 +125,10 @@ export function useDeleteExpense(bbqId: number | null) {
     mutationFn: async (id: number) => {
       const url = buildUrl(api.expenses.delete.path, { id });
       const res = await fetch(url, { method: "DELETE" });
-      if (!res.ok) throw new Error("Failed to delete expense");
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({} as { message?: string }));
+        throw new Error(body.message || "Failed to delete expense");
+      }
     },
     onSuccess: (_result, deletedId) => {
       updateExpenseCaches(queryClient, bbqId, (old) => {

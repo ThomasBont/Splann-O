@@ -123,8 +123,8 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
         queryClient.setQueryData(queryKey, context.previous);
       }
       const err = error as Error & { code?: string };
-      if (err.code === "not_transfer_participant") {
-        toastError("Only the payer or receiver can mark this as paid.");
+      if (err.code === "only_payer_can_pay") {
+        toastError("Only the person who owes can initiate this payment.");
         return;
       }
       toastError(err.message || "Couldn’t mark transfer as paid.");
@@ -261,7 +261,8 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
         <div className="divide-y divide-border/45 rounded-lg border border-border/55 bg-background dark:bg-neutral-900">
           {visibleTransfers.map((transfer) => {
             const paid = !!transfer.paidAt;
-            const canMarkPaid = !!user && (user.id === transfer.fromUserId || user.id === transfer.toUserId);
+            const isDebtor = !!user && user.id === transfer.fromUserId;
+            const isReceiver = !!user && user.id === transfer.toUserId;
             const canPayDirect = !!user && user.id === transfer.fromUserId;
             return (
               <div key={transfer.id} className="flex items-center justify-between gap-2 px-2 py-1.5 text-xs">
@@ -295,7 +296,7 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
                   ) : (
                     <span className="text-[11px] text-muted-foreground">Waiting for payment</span>
                   )
-                ) : canMarkPaid ? (
+                ) : isDebtor ? (
                   <Button
                     type="button"
                     size="sm"
@@ -310,7 +311,11 @@ export function SettlementCard({ eventId, settlementId, currency, className }: S
                     {isSettled ? "Done" : "Mark paid"}
                   </Button>
                 ) : (
-                  <span className="text-[11px] text-muted-foreground">Only payer/receiver</span>
+                  <span className="text-[11px] text-muted-foreground">
+                    {isReceiver
+                      ? `You will receive ${formatMoney(transfer.amount, displayCurrency)}`
+                      : "Only the payer can complete this payment"}
+                  </span>
                 )}
               </div>
             );

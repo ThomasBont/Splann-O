@@ -181,7 +181,10 @@ router.get("/events/:eventId/chat", requireAuth, asyncHandler(async (req, res) =
   const limit = Number(req.query.limit ?? 50);
   const before = typeof req.query.before === "string" ? req.query.before : undefined;
   const result = await listEventChatMessages(eventId, { limit, before });
-  res.json(result);
+  res.json({
+    ...result,
+    locked: await isChatLockedForEvent(eventId),
+  });
 }));
 
 router.get("/plans/:planId/chat/messages", requireAuth, asyncHandler(async (req, res) => {
@@ -192,7 +195,10 @@ router.get("/plans/:planId/chat/messages", requireAuth, asyncHandler(async (req,
   const limit = Number(req.query.limit ?? 50);
   const before = typeof req.query.before === "string" ? req.query.before : undefined;
   const result = await listEventChatMessages(eventId, { limit, before });
-  res.json(result);
+  res.json({
+    ...result,
+    locked: await isChatLockedForEvent(eventId),
+  });
 }));
 
 router.post("/plans/:planId/chat/attachments", requireAuth, asyncHandler(async (req, res) => {
@@ -200,7 +206,7 @@ router.post("/plans/:planId/chat/attachments", requireAuth, asyncHandler(async (
   if (!Number.isFinite(eventId)) badRequest("Invalid plan id");
   const result = await uploadChatAttachment(req, eventId, req.body);
   if (result.locked) {
-    res.status(423).json(await getChatLockPayload(eventId));
+    res.status(403).json(await getChatLockPayload(eventId));
     return;
   }
   res.status(201).json(result.attachment);
@@ -218,7 +224,7 @@ router.post("/plans/:planId/chat/messages", requireAuth, asyncHandler(async (req
 
   const locked = await isChatLockedForEvent(eventId);
   if (locked) {
-    res.status(423).json(await getChatLockPayload(eventId));
+    res.status(403).json(await getChatLockPayload(eventId));
     return;
   }
 
@@ -242,7 +248,7 @@ router.post("/events/:eventId/chat/attachments", requireAuth, asyncHandler(async
   if (!Number.isFinite(eventId)) badRequest("Invalid event id");
   const result = await uploadChatAttachment(req, eventId, req.body);
   if (result.locked) {
-    res.status(423).json(await getChatLockPayload(eventId));
+    res.status(403).json(await getChatLockPayload(eventId));
     return;
   }
   res.status(201).json(result.attachment);
@@ -260,7 +266,7 @@ router.post("/events/:eventId/chat/messages", requireAuth, asyncHandler(async (r
 
   const locked = await isChatLockedForEvent(eventId);
   if (locked) {
-    res.status(423).json(await getChatLockPayload(eventId));
+    res.status(403).json(await getChatLockPayload(eventId));
     return;
   }
 
@@ -294,7 +300,7 @@ router.patch("/plans/:planId/chat/messages/:messageId", requireAuth, asyncHandle
 
   const locked = await isChatLockedForEvent(eventId);
   if (locked) {
-    res.status(423).json(await getChatLockPayload(eventId));
+    res.status(403).json(await getChatLockPayload(eventId));
     return;
   }
 
@@ -317,7 +323,7 @@ router.delete("/plans/:planId/chat/messages/:messageId", requireAuth, asyncHandl
 
   const locked = await isChatLockedForEvent(eventId);
   if (locked) {
-    res.status(423).json(await getChatLockPayload(eventId));
+    res.status(403).json(await getChatLockPayload(eventId));
     return;
   }
 

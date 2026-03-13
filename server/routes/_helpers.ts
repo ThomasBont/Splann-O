@@ -147,6 +147,17 @@ export async function assertMembersWritable(eventId: number) {
   return lifecycle;
 }
 
+export async function assertArchivedPlanWritable(
+  eventId: number,
+  lockedMessage = "Plan is archived. This section is read-only.",
+) {
+  const lifecycle = await getPlanLifecycleOrThrow(eventId);
+  if (lifecycle.status === "archived") {
+    forbidden(lockedMessage);
+  }
+  return lifecycle;
+}
+
 export async function ensurePrivateEventParticipantOrCreator(req: Request, bbqId: number) {
   const bbq = await getBarbecueOr404(req, bbqId);
   if (bbq.visibility !== "private") forbidden("Receipt uploads are only available for private events");

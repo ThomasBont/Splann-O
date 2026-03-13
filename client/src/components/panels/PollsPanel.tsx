@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { PollMessage, type PollResponse } from "@/components/event/chat/PollMessage";
 import { usePlan, usePlanMessages } from "@/hooks/use-plan-data";
 import { PanelHeader, PanelSection, PanelShell, panelHeaderAddButtonClass, useActiveEventId } from "@/components/panels/panel-primitives";
+import { getClientPlanStatus } from "@/lib/plan-lifecycle";
 import { usePanel } from "@/state/panel";
 
 const DEFAULT_RUNNING_VISIBLE_COUNT = 2;
@@ -29,6 +30,7 @@ export function PollsPanel() {
   const eventId = useActiveEventId();
   const { openPanel } = usePanel();
   const planQuery = usePlan(eventId);
+  const isArchived = getClientPlanStatus(planQuery.data?.status) === "archived";
   const messagesQuery = usePlanMessages(eventId);
   const [showAllRunning, setShowAllRunning] = useState(false);
   const [showAllClosed, setShowAllClosed] = useState(false);
@@ -110,12 +112,18 @@ export function PollsPanel() {
             type="button"
             className={panelHeaderAddButtonClass()}
             onClick={() => openPanel({ type: "add-poll", source: "polls" })}
+            disabled={isArchived}
           >
             Add Vote +
           </Button>
         )}
       />
       <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
+        {isArchived ? (
+          <div className="rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] px-4 py-3 text-sm text-muted-foreground">
+            This plan is archived and read-only. Polls are preserved, but voting is disabled.
+          </div>
+        ) : null}
         <PanelSection title={`Running polls (${activePollIds.length})`} variant="default">
           {recentVotesLoading ? (
             <div className="inline-flex items-center gap-2 text-sm text-muted-foreground">
@@ -132,6 +140,7 @@ export function PollsPanel() {
                 <PollMessage
                   key={`panel-active-poll-${pollId}`}
                   pollId={pollId}
+                  readOnly={isArchived}
                   collapsible
                   collapsed={isPollCollapsed(pollId, "running", index)}
                   onCollapsedChange={(nextCollapsed) => setPollCollapsed(pollId, nextCollapsed)}
@@ -167,6 +176,7 @@ export function PollsPanel() {
                 <PollMessage
                   key={`panel-poll-${pollId}`}
                   pollId={pollId}
+                  readOnly={isArchived}
                   collapsible
                   collapsed={isPollCollapsed(pollId, "closed", index)}
                   onCollapsedChange={(nextCollapsed) => setPollCollapsed(pollId, nextCollapsed)}

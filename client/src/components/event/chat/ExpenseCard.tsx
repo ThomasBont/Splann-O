@@ -207,6 +207,18 @@ export function ExpenseCard({
       notLoaded: true,
     };
   }, [action, fallback.amount, fallback.currency, fallback.item, fallback.paidBy, liveExpense, optimisticDeleted, resolutionMode]);
+  const canDeleteExpense = useMemo(() => {
+    if (!liveExpense || resolved.deleted) return false;
+    return Number((liveExpense as { createdByUserId?: number | null }).createdByUserId ?? 0) === Number(user?.id ?? 0);
+  }, [liveExpense, resolved.deleted, user?.id]);
+  const canEditExpense = useMemo(() => {
+    if (!liveExpense || resolved.deleted) return false;
+    const linkedSettlementRoundId = String((liveExpense as { linkedSettlementRoundId?: string | null }).linkedSettlementRoundId ?? "").trim();
+    const settledAt = (liveExpense as { settledAt?: string | Date | null }).settledAt ?? null;
+    const resolutionModeValue = String((liveExpense as { resolutionMode?: string | null }).resolutionMode ?? "").trim().toLowerCase();
+    const excludedFromFinalSettlement = Boolean((liveExpense as { excludedFromFinalSettlement?: boolean | null }).excludedFromFinalSettlement);
+    return !linkedSettlementRoundId && !settledAt && !excludedFromFinalSettlement && resolutionModeValue !== "now";
+  }, [liveExpense, resolved.deleted]);
 
   const handleEdit = () => {
     if (onOpenEdit) {
@@ -401,12 +413,16 @@ export function ExpenseCard({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-36" onClick={(event) => event.stopPropagation()}>
-              <DropdownMenuItem onClick={handleEdit}>
-                Edit expense
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onDelete?.(expenseId)} className="text-destructive focus:text-destructive">
-                Delete expense
-              </DropdownMenuItem>
+              {canEditExpense ? (
+                <DropdownMenuItem onClick={handleEdit}>
+                  Edit expense
+                </DropdownMenuItem>
+              ) : null}
+              {canDeleteExpense ? (
+                <DropdownMenuItem onClick={() => onDelete?.(expenseId)} className="text-destructive focus:text-destructive">
+                  Delete expense
+                </DropdownMenuItem>
+              ) : null}
               <DropdownMenuItem onClick={() => onCopyAmount?.({ amount: resolved.amount, currency: resolved.currency })}>
                 {`Copy ${formattedAmount}`}
               </DropdownMenuItem>

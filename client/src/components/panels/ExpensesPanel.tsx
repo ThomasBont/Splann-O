@@ -21,7 +21,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { planQueryKey, usePlan, usePlanCrew, usePlanExpenses } from "@/hooks/use-plan-data";
 import { resolveAssetUrl } from "@/lib/asset-url";
 import { formatFullDate } from "@/lib/dates";
-import { getClientPlanStatus, getPlanWrapUpEndsAt } from "@/lib/plan-lifecycle";
+import { getClientPlanStatus, getPlanFinalState, getPlanWrapUpEndsAt } from "@/lib/plan-lifecycle";
 import { computeSplit } from "@/lib/split/calc";
 import { cn } from "@/lib/utils";
 import { usePanel } from "@/state/panel";
@@ -419,8 +419,9 @@ export function ExpensesPanel() {
   const isPlanSettled = planStatus === "settled";
   const isPlanArchived = planStatus === "archived";
   const isFinanciallyCompleted = isPlanSettled || isPlanArchived;
-  const planCreatedAt = formatFullDate((plan as { createdAt?: string | Date | null } | null)?.createdAt ?? String(plan?.date ?? ""));
-  const planCompletedAt = formatFullDate((plan as { settledAt?: string | Date | null } | null)?.settledAt ?? null);
+  const planCreatedAt = formatFullDate((plan as { createdAt?: string | Date | null } | null)?.createdAt ?? null);
+  const finalPlanState = getPlanFinalState(plan?.status, (plan as { settledAt?: string | Date | null } | null)?.settledAt ?? null);
+  const planCompletedAt = formatFullDate(finalPlanState?.at ?? null);
   const wrapUpEndsAt = getPlanWrapUpEndsAt((plan as { settledAt?: string | Date | null } | null)?.settledAt ?? null);
   const wrapUpEndsLabel = formatFullDate(wrapUpEndsAt);
   const isCreator = Number(plan?.creatorUserId) === Number(user?.id);
@@ -598,8 +599,8 @@ export function ExpensesPanel() {
     },
     onError: (error) => {
       const err = error as Error & { code?: string };
-      if (err.code === "not_transfer_participant") {
-        toastError("Only the payer or receiver can mark this as paid.");
+      if (err.code === "only_payer_can_pay") {
+        toastError("Only the person who owes can initiate this payment.");
         return;
       }
       toastError(err.message || "Couldn’t mark payment as paid.");
@@ -742,7 +743,7 @@ export function ExpensesPanel() {
                     </p>
                   </div>
                   <div className="rounded-xl border border-emerald-200/70 bg-background/70 px-3 py-2 text-right dark:border-emerald-500/20 dark:bg-background/10">
-                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Completed</p>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{finalPlanState?.label ?? "Completed"}</p>
                     <p className="mt-1 text-sm font-medium text-foreground">{planCompletedAt ?? "Just now"}</p>
                   </div>
                 </div>
@@ -750,7 +751,7 @@ export function ExpensesPanel() {
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
                   <div className="rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))]/70 px-3 py-3">
                     <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Created</p>
-                    <p className="mt-1 text-sm font-medium text-foreground">{planCreatedAt ?? "Date unavailable"}</p>
+                    <p className="mt-1 text-sm font-medium text-foreground">{planCreatedAt ?? "Unavailable"}</p>
                   </div>
                   <div className="rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))]/70 px-3 py-3">
                     <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Final settlement result</p>
@@ -917,8 +918,9 @@ export function ExpensesPanel() {
                   {(activeSettlement ? settlementTransfers : visibleBalanceRows).map((entry) => {
                     if (activeSettlement) {
                       const transfer = entry as SettlementDetailResponse["transfers"][number];
-                      const canMarkPaid = !transfer.paidAt && Number(user?.id ?? 0) > 0
-                        && (Number(user?.id) === transfer.fromUserId || Number(user?.id) === transfer.toUserId);
+                      const currentUserId = Number(user?.id ?? 0);
+                      const isDebtor = !transfer.paidAt && currentUserId > 0 && currentUserId === transfer.fromUserId;
+                      const isReceiver = currentUserId > 0 && currentUserId === transfer.toUserId;
                       return (
                         <div
                           key={`expenses-settlement-transfer-${transfer.id}`}
@@ -946,7 +948,7 @@ export function ExpensesPanel() {
                                 <CheckCircle2 className="h-3.5 w-3.5" />
                                 Paid
                               </span>
-                            ) : canMarkPaid ? (
+                            ) : isDebtor ? (
                               <Button
                                 type="button"
                                 size="sm"
@@ -956,9 +958,13 @@ export function ExpensesPanel() {
                               >
                                 Mark as paid
                               </Button>
+                            ) : isReceiver ? (
+                              <span className="text-xs text-muted-foreground">
+                                You will receive {formatCurrency(Number(transfer.amount || 0), transfer.currency || currency)} from {transfer.fromName || "someone"}.
+                              </span>
                             ) : (
                               <span className="text-xs text-muted-foreground">
-                                Waiting for payer or receiver to confirm.
+                                Only the person who owes can complete this payment.
                               </span>
                             )}
                           </div>

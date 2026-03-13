@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 type PollMessageProps = {
   pollId: string;
   className?: string;
+  readOnly?: boolean;
   collapsible?: boolean;
   collapsed?: boolean;
   onCollapsedChange?: ((collapsed: boolean) => void) | undefined;
@@ -78,6 +79,7 @@ function initials(name: string) {
 export function PollMessage({
   pollId,
   className,
+  readOnly = false,
   collapsible = false,
   collapsed = false,
   onCollapsedChange,
@@ -196,7 +198,7 @@ export function PollMessage({
   }
 
   const poll = normalizePollResponse(pollQuery.data);
-  const disabled = poll.poll.isClosed || voteMutation.isPending;
+  const disabled = readOnly || poll.poll.isClosed || voteMutation.isPending;
   const totalVotes = poll.totalVotes;
   const leadingOption = poll.options.find((option) => option.isLeading) ?? null;
   const winningOption = poll.options.find((option) => option.isWinner) ?? null;
@@ -234,6 +236,8 @@ export function PollMessage({
                   ? summaryText
                   : poll.poll.isClosed
                   ? "Final results"
+                  : readOnly
+                  ? "Archived · Voting disabled"
                   : "Tap to vote"}
               </p>
               {!effectiveCollapsed && poll.totalEligibleVoters ? (
@@ -265,7 +269,7 @@ export function PollMessage({
               <ChevronDown className={cn("h-4 w-4 transition-transform", effectiveCollapsed ? "rotate-0" : "rotate-180")} />
             </button>
           ) : null}
-          {poll.permissions.canClose && !poll.poll.isClosed && !effectiveCollapsed ? (
+          {poll.permissions.canClose && !poll.poll.isClosed && !effectiveCollapsed && !readOnly ? (
             <Popover open={confirmCloseOpen} onOpenChange={setConfirmCloseOpen}>
               <PopoverTrigger asChild>
                 <Button
@@ -395,6 +399,11 @@ export function PollMessage({
               );
             })}
           </div>
+          {readOnly ? (
+            <p className="mt-3 text-xs text-muted-foreground">
+              This plan is archived. Polls are preserved, but voting is disabled.
+            </p>
+          ) : null}
         </div>
       ) : null}
     </div>

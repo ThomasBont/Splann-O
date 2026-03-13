@@ -4,7 +4,7 @@ import { broadcastEventRealtime } from "../lib/eventRealtime";
 import { badRequest, forbidden, notFound, unauthorized } from "../lib/errors";
 import { logPlanActivity } from "../lib/planActivity";
 import { requireAuth } from "../middleware/requireAuth";
-import { assertEventAccessOrThrow, asyncHandler } from "./_helpers";
+import { assertArchivedPlanWritable, assertEventAccessOrThrow, asyncHandler } from "./_helpers";
 import { closePoll, createPoll, getPollById, getPollEventContext, voteOnPoll } from "../lib/polls";
 
 const router = Router();
@@ -19,6 +19,7 @@ async function handleCreatePoll(req: any, res: any) {
   const eventId = Number(rawEventId);
   if (!Number.isInteger(eventId) || eventId <= 0) badRequest("Invalid event id");
   await assertEventAccessOrThrow(req, eventId);
+  await assertArchivedPlanWritable(eventId, "Plan is archived. Polls are read-only.");
   const userId = req.session?.userId;
   const username = req.session?.username;
   if (!userId || !username) unauthorized("Not authenticated");
@@ -69,6 +70,7 @@ router.get("/polls/:pollId", requireAuth, asyncHandler(async (req, res) => {
   const context = await getPollEventContext(pollId);
   if (!context) notFound("Poll not found");
   await assertEventAccessOrThrow(req, context.eventId);
+  await assertArchivedPlanWritable(context.eventId, "Plan is archived. Voting is disabled.");
   const userId = req.session?.userId;
   if (!userId) unauthorized("Not authenticated");
   const poll = await getPollById(pollId, userId);
@@ -82,6 +84,7 @@ router.post("/polls/:pollId/vote", requireAuth, asyncHandler(async (req, res) =>
   const context = await getPollEventContext(pollId);
   if (!context) notFound("Poll not found");
   await assertEventAccessOrThrow(req, context.eventId);
+  await assertArchivedPlanWritable(context.eventId, "Plan is archived. Polls are read-only.");
   const userId = req.session?.userId;
   if (!userId) unauthorized("Not authenticated");
   if (context.isClosed) {

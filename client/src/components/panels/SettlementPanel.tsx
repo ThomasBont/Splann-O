@@ -412,8 +412,8 @@ export function SettlementPanel({ settlementId, createMode }: { settlementId?: s
     onError: (error, _vars, context) => {
       if (context?.previous) queryClient.setQueryData(detailQueryKey, context.previous);
       const err = error as Error & { code?: string };
-      if (err.code === "not_transfer_participant") {
-        toastError("Only the payer or receiver can mark this as paid.");
+      if (err.code === "only_payer_can_pay") {
+        toastError("Only the person who owes can initiate this payment.");
         return;
       }
       toastError(err.message || "Couldn’t mark transfer as paid.");
@@ -543,12 +543,14 @@ export function SettlementPanel({ settlementId, createMode }: { settlementId?: s
                     {settlementTransfers.map((transfer) => {
                       const paid = !!transfer.paidAt;
                       const currentUserId = Number(user?.id ?? 0);
+                      const isDebtor = currentUserId > 0 && currentUserId === transfer.fromUserId;
+                      const isReceiver = currentUserId > 0 && currentUserId === transfer.toUserId;
                       const canMarkPaid = selectedSettlement.status === "active"
                         && currentUserId > 0
-                        && (currentUserId === transfer.fromUserId || currentUserId === transfer.toUserId);
+                        && isDebtor;
                       const canPayDirect = selectedSettlement.status === "active"
                         && currentUserId > 0
-                        && currentUserId === transfer.fromUserId;
+                        && isDebtor;
                       return (
                         <div key={`settlement-transfer-${transfer.id}`} className="rounded-xl border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))]/80 px-3 py-3">
                           <div className="flex items-start justify-between gap-3">
@@ -600,7 +602,11 @@ export function SettlementPanel({ settlementId, createMode }: { settlementId?: s
                               </Button>
                             ) : (
                               <span className="text-xs text-muted-foreground">
-                                {selectedSettlement.status === "active" ? "Only payer or receiver can mark this as paid." : "Completed rounds are read-only."}
+                                {selectedSettlement.status === "active"
+                                  ? (isReceiver
+                                    ? `You will receive ${formatCurrency(Number(transfer.amount || 0), transfer.currency || currency)} from ${transfer.fromName || "someone"}.`
+                                    : "Only the person who owes can complete this payment.")
+                                  : "Completed rounds are read-only."}
                               </span>
                             )}
                           </div>

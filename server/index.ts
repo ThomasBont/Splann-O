@@ -1,25 +1,9 @@
-console.log("=== ENV DEBUG START ===");
-console.log("[env] NODE_ENV:", process.env.NODE_ENV);
-console.log("[env] RESEND_API_KEY present:", Boolean(process.env.RESEND_API_KEY));
-console.log("[env] EMAIL_FROM present:", Boolean(process.env.EMAIL_FROM));
-console.log("[env] BASE_URL:", process.env.BASE_URL || process.env.PUBLIC_BASE_URL || process.env.APP_BASE_URL || process.env.APP_URL);
-if (!process.env.RESEND_API_KEY) {
-  console.warn("[env-warning] RESEND_API_KEY missing at runtime");
-}
-console.log("=== ENV DEBUG END ===");
-
 import dotenv from "dotenv";
 if (process.env.NODE_ENV !== "production") {
-  dotenv.config({ debug: true });
+  dotenv.config();
 }
 
-console.log("[env] RESEND_API_KEY present (post-dotenv):", Boolean(process.env.RESEND_API_KEY));
-console.log("[env] EMAIL_FROM present (post-dotenv):", Boolean(process.env.EMAIL_FROM));
-if (!process.env.RESEND_API_KEY) {
-  console.warn("[env-warning] RESEND_API_KEY still missing after dotenv");
-}
-
-import { loadConfig } from "./config/env";
+import { loadConfig, resolveSessionSecret } from "./config/env";
 try {
   loadConfig();
 } catch (e) {
@@ -41,7 +25,7 @@ import { barbecues, eventMembers, session as sessionTable } from "@shared/schema
 import { createHmac, timingSafeEqual } from "crypto";
 import { appendEventChatMessage, toggleEventChatReaction } from "./lib/eventChatStore";
 import { broadcastEventRealtime, registerEventSocket, unregisterEventSocket } from "./lib/eventRealtime";
-import { isEventChatLocked } from "./lib/eventChatPolicy";
+import { getPlanLifecycleState } from "./lib/planLifecycle";
 import { sendPushToUser } from "./lib/webPush";
 import fs from "node:fs";
 import {
@@ -65,6 +49,8 @@ const devHttpsEnabled = process.env.NODE_ENV !== "production" && shouldUseDevHtt
 const devHttpsKeyPath = resolveDevHttpsKeyPath();
 const devHttpsCertPath = resolveDevHttpsCertPath();
 const advertisedServerHost = resolveDevServerHost() || "localhost";
+const devHttpsKeyExists = !!devHttpsKeyPath && fs.existsSync(devHttpsKeyPath);
+const devHttpsCertExists = !!devHttpsCertPath && fs.existsSync(devHttpsCertPath);
 const httpServer = (() => {
   if (!devHttpsEnabled) return createHttpServer(app);
   if (!devHttpsKeyPath || !devHttpsCertPath) {
@@ -110,7 +96,7 @@ function unsignSessionIdCookie(value: string, secret: string): string | null {
 }
 
 async function resolveUserFromRequest(req: import("http").IncomingMessage): Promise<{ id: number; username: string } | null> {
-  const sessionSecret = process.env.SESSION_SECRET || "fallback-secret-change-me";
+  const sessionSecret = resolveSessionSecret();
   const cookies = parseCookieHeader(req.headers.cookie ?? "");
   const rawCookie = cookies["splanno.sid"];
   if (!rawCookie) return null;
@@ -153,13 +139,9 @@ async function canAccessEventChat(eventId: number, user: { id: number; username:
 }
 
 async function isEventChatLockedById(eventId: number): Promise<boolean> {
-  const [eventRow] = await db
-    .select({ date: barbecues.date })
-    .from(barbecues)
-    .where(eq(barbecues.id, eventId))
-    .limit(1);
-  if (!eventRow) return false;
-  return isEventChatLocked({ date: eventRow.date ?? null });
+  const lifecycle = await getPlanLifecycleState(eventId);
+  if (lifecycle) return !lifecycle.socialOpen;
+  return false;
 }
 
 async function pushChatMessageToOtherMembers(eventId: number, authorUserId: number, authorName: string, content: string): Promise<void> {
@@ -484,6 +466,21 @@ process.on("SIGINT", () => gracefulShutdown("SIGINT"));
       const protocol = devHttpsEnabled ? "https" : "http";
       const visibleHost = advertisedServerHost;
       log("info", `serving on ${protocol}://${visibleHost}:${port}`);
+      if (process.env.NODE_ENV !== "production") {
+        log("info", "dev server config", {
+          protocol,
+          port,
+          bindHost: "0.0.0.0",
+          advertisedHost: visibleHost,
+          localhostUrl: `${protocol}://localhost:${port}`,
+          lanUrl: `${protocol}://${visibleHost}:${port}`,
+          devHttpsEnabled,
+          devHttpsCertPath: devHttpsCertPath ?? null,
+          devHttpsCertExists,
+          devHttpsKeyPath: devHttpsKeyPath ?? null,
+          devHttpsKeyExists,
+        });
+      }
       if (process.env.RESEND_API_KEY) {
         log("info", "Email: Resend configured", { source: "email" });
       } else {

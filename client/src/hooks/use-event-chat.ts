@@ -441,6 +441,12 @@ export function useEventChat(eventId: number | null, enabled = true) {
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
+      const code = (body as { code?: string }).code;
+      if (res.status === 403 && code === "CHAT_LOCKED") {
+        setIsLocked(true);
+        isLockedRef.current = true;
+        setConnectionStatus("locked");
+      }
       if (import.meta.env.DEV) {
         console.error("[chat-send-http] failed", {
           eventId,

@@ -5,7 +5,17 @@ export type PanelState =
   | { type: "expense"; id: string }
   | { type: "expenses" }
   | { type: "notes" }
-  | { type: "add-expense"; source?: "overview" | "expenses"; initialResolutionMode?: "later" | "now" }
+  | {
+    type: "add-expense";
+    source?: "overview" | "expenses";
+    initialResolutionMode?: "later" | "now";
+    prefill?: {
+      amount?: number | null;
+      item?: string | null;
+      paidBy?: string | null;
+      splitCount?: number | null;
+    } | null;
+  }
   | { type: "settlement"; settlementId?: string; createMode?: "direct-split" | "balance-settlement" }
   | { type: "polls" }
   | { type: "add-poll"; source?: "polls" | "overview" }

@@ -26,6 +26,8 @@ import { useCreateExpense } from "@/hooks/use-expenses";
 import { useDeleteExpense, useUpdateExpense } from "@/hooks/use-expenses";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAppToast } from "@/hooks/use-app-toast";
+import { useAuth } from "@/hooks/use-auth";
+import { cn } from "@/lib/utils";
 import type { ExpenseWithParticipant } from "@shared/schema";
 import type { Balance, Settlement } from "@/lib/split/calc";
 
@@ -108,6 +110,15 @@ function parseIncludedUserIds(value: unknown): string[] {
   return [];
 }
 
+function isExpenseFinanciallyEditable(expense: ExpenseWithParticipant | null | undefined): boolean {
+  if (!expense) return false;
+  const linkedSettlementRoundId = String((expense as { linkedSettlementRoundId?: string | null }).linkedSettlementRoundId ?? "").trim();
+  const settledAt = (expense as { settledAt?: string | Date | null }).settledAt ?? null;
+  const resolutionMode = String((expense as { resolutionMode?: string | null }).resolutionMode ?? "").trim().toLowerCase();
+  const excludedFromFinalSettlement = Boolean((expense as { excludedFromFinalSettlement?: boolean | null }).excludedFromFinalSettlement);
+  return !linkedSettlementRoundId && !settledAt && !excludedFromFinalSettlement && resolutionMode !== "now";
+}
+
 export function SharedCostsDrawer({
   eventId,
   currentUserId = null,
@@ -128,6 +139,7 @@ export function SharedCostsDrawer({
   settlements,
   formatMoney,
 }: SharedCostsDrawerProps) {
+  const { user } = useAuth();
   const { toastError, toastSuccess } = useAppToast();
   const queryClient = useQueryClient();
   const createExpense = useCreateExpense(eventId);
@@ -271,8 +283,8 @@ export function SharedCostsDrawer({
       if (context?.previous) queryClient.setQueryData(settlementQueryKey, context.previous);
       const err = error as Error & { code?: string };
       const message = err.message || "Couldn’t mark transfer as paid.";
-      if (err.code === "not_transfer_participant") {
-        toastError("Only the payer or receiver can mark this as paid.");
+      if (err.code === "only_payer_can_pay") {
+        toastError("Only the person who owes can initiate this payment.");
         return;
       }
       toastError(message);
@@ -298,12 +310,12 @@ export function SharedCostsDrawer({
     [participants, currentUserId],
   );
   const myParticipantId = myParticipant?.id ?? null;
-  const canEditPayer = isCreator;
+  const canEditPayer = !editingExpense || isCreator;
   const canSubmitExpenseForm = isCreator || !!myParticipantId;
 
   const resetAddForm = () => {
     setEditingExpenseId(null);
-    if (!isCreator && myParticipantId) {
+    if (myParticipantId) {
       setParticipantId(String(myParticipantId));
     } else {
       setParticipantId(participants[0] ? String(participants[0].id) : "");
@@ -343,7 +355,7 @@ export function SharedCostsDrawer({
         setIncludedUserIds(limited.map((participant) => String(participant.id)));
       }
     }
-    if (prefill.paidBy && String(prefill.paidBy).trim() && canEditPayer) {
+    if (prefill.paidBy && String(prefill.paidBy).trim()) {
       const query = String(prefill.paidBy).trim().toLowerCase();
       const normalizedQuery = query.replace(/[^a-z0-9_]/g, "");
       const matchedParticipant = participants.find((participant) => {
@@ -431,6 +443,10 @@ export function SharedCostsDrawer({
     setConfirmDeleteOpen(false);
     setView("expense-form");
   };
+  const canDeleteEditingExpense = Boolean(
+    editingExpense
+    && Number((editingExpense as { createdByUserId?: number | null }).createdByUserId ?? 0) === Number(user?.id ?? 0),
+  );
 
   const handleCreateExpense = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -463,7 +479,7 @@ export function SharedCostsDrawer({
           ...updatePayload,
         });
       } else {
-        const createParticipantId = isCreator ? Number(participantId) : myParticipantId;
+        const createParticipantId = Number(participantId);
         if (!createParticipantId) {
           toastError("Couldn’t determine payer for your account.");
           return;
@@ -605,7 +621,7 @@ export function SharedCostsDrawer({
                       <h3 className="text-sm font-semibold text-slate-900 dark:text-neutral-100">
                         {editingExpense ? "Edit expense" : "Add expense"}
                       </h3>
-                      {editingExpense ? (
+                      {editingExpense && canDeleteEditingExpense ? (
                         <Button
                           type="button"
                           variant="outline"
@@ -826,6 +842,8 @@ export function SharedCostsDrawer({
                       <div className="mt-3 space-y-2">
                         {settlementTransfers.map((transfer) => {
                           const paid = !!transfer.paidAt;
+                          const isDebtor = !!currentUserId && currentUserId === transfer.fromUserId;
+                          const isReceiver = !!currentUserId && currentUserId === transfer.toUserId;
                           return (
                             <div
                               key={`settle-up-row-${transfer.id}`}
@@ -840,10 +858,10 @@ export function SharedCostsDrawer({
                               <div className="mt-2">
                                 {paid ? (
                                   <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-300">
-                                    <span aria-hidden>✓</span>
-                                    Paid
-                                  </span>
-                                ) : currentUserId && (currentUserId === transfer.fromUserId || currentUserId === transfer.toUserId) ? (
+                                <span aria-hidden>✓</span>
+                                Paid
+                              </span>
+                                ) : isDebtor ? (
                                   <Button
                                     type="button"
                                     size="sm"
@@ -856,9 +874,13 @@ export function SharedCostsDrawer({
                                   >
                                     Mark as paid
                                   </Button>
+                                ) : isReceiver ? (
+                                  <span className="text-xs text-slate-500 dark:text-neutral-400">
+                                    You will receive {formatMoney(Number(transfer.amount || 0))} from {transfer.fromName || "someone"}.
+                                  </span>
                                 ) : (
                                   <span className="text-xs text-slate-500 dark:text-neutral-400">
-                                    Only payer/receiver can mark paid
+                                    Only the person who owes can complete this payment.
                                   </span>
                                 )}
                               </div>
@@ -932,14 +954,23 @@ export function SharedCostsDrawer({
                 </button>
                 {!expensesCollapsed ? (sortedExpenses.length > 0 ? (
                   <div id="shared-costs-section-expenses" className="mt-3 space-y-2">
-                    {sortedExpenses.slice(0, 6).map((expense) => (
+                    {sortedExpenses.slice(0, 6).map((expense) => {
+                      const canEditExpense = isExpenseFinanciallyEditable(expense);
+                      return (
                       <button
                         type="button"
                         key={`shared-cost-expense-${expense.id}`}
-                        className="flex w-full items-center justify-between gap-2 rounded-xl border border-slate-200/80 px-3 py-2 text-left transition-colors hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 dark:border-neutral-700 dark:hover:border-neutral-600 dark:hover:bg-neutral-800/70"
+                        className={cn(
+                          "flex w-full items-center justify-between gap-2 rounded-xl border border-slate-200/80 px-3 py-2 text-left transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 dark:border-neutral-700",
+                          canEditExpense
+                            ? "hover:border-slate-300 hover:bg-slate-50 dark:hover:border-neutral-600 dark:hover:bg-neutral-800/70"
+                            : "cursor-default opacity-80",
+                        )}
                         onClick={() => {
+                          if (!canEditExpense) return;
                           openEditExpenseView(expense);
                         }}
+                        disabled={!canEditExpense}
                       >
                         <div className="min-w-0">
                           <p className="truncate text-sm text-slate-800 dark:text-neutral-100">{expense.item}</p>
@@ -957,7 +988,8 @@ export function SharedCostsDrawer({
                           {formatMoney(Number(expense.amount))}
                         </p>
                       </button>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
                   <p id="shared-costs-section-expenses" className="mt-2 text-sm text-slate-500 dark:text-neutral-400">

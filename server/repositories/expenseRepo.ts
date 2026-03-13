@@ -2,8 +2,11 @@ import { db } from "../db";
 import { expenses, expenseShares, notes, barbecues } from "@shared/schema";
 import { eq, and, inArray } from "drizzle-orm";
 import { desc } from "drizzle-orm";
-import type { Expense, InsertExpense, ExpenseWithParticipant, NoteWithAuthor, InsertNote } from "@shared/schema";
+import type { Expense, ExpenseWithParticipant, NoteWithAuthor, InsertNote } from "@shared/schema";
 import { participantRepo } from "./participantRepo";
+
+type ExpenseInsertRow = Omit<typeof expenses.$inferInsert, "amount"> & { amount: string | number };
+type ExpenseUpdateRow = Partial<Omit<typeof expenses.$inferInsert, "amount">> & { amount?: string | number };
 
 export const expenseRepo = {
   async listByBbq(bbqId: number): Promise<ExpenseWithParticipant[]> {
@@ -15,7 +18,7 @@ export const expenseRepo = {
     });
   },
 
-  async create(e: InsertExpense, options?: { optInByDefault?: boolean }): Promise<Expense> {
+  async create(e: ExpenseInsertRow, options?: { optInByDefault?: boolean }): Promise<Expense> {
     const [expense] = await db.insert(expenses).values({ ...e, amount: e.amount.toString() }).returning();
     const [bbqData] = await db.select().from(barbecues).where(eq(barbecues.id, e.barbecueId));
     if (bbqData?.allowOptInExpenses && options?.optInByDefault !== true) {
@@ -27,7 +30,7 @@ export const expenseRepo = {
     return expense;
   },
 
-  async update(id: number, updates: Partial<InsertExpense>): Promise<Expense | undefined> {
+  async update(id: number, updates: ExpenseUpdateRow): Promise<Expense | undefined> {
     const updateData: Record<string, unknown> = { ...updates };
     if (updateData.amount !== undefined) updateData.amount = String(updateData.amount);
     const [updated] = await db.update(expenses).set(updateData as Record<string, unknown>).where(eq(expenses.id, id)).returning();

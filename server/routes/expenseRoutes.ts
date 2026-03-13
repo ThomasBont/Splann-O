@@ -48,6 +48,13 @@ function normalizeIncludedUserIds(input: unknown): string[] | null | undefined {
   return cleaned;
 }
 
+function parseParticipantIdList(input: string[] | null | undefined) {
+  if (input == null) return input;
+  return input
+    .map((value) => Number(value))
+    .filter((value) => Number.isInteger(value) && value > 0);
+}
+
 function parseReceiptDataUrl(dataUrl: string) {
   const match = dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
   if (!match) badRequest("Invalid receipt image");
@@ -73,7 +80,6 @@ router.post(p(api.expenses.create.path), requireAuth, asyncHandler(async (req, r
   await assertExpensesWritable(bbqId);
   const sessionUserId = req.session?.userId;
   if (!sessionUserId) unauthorized("Not authenticated");
-  const isCreator = bbq.creatorUserId === sessionUserId;
   const bodySchema = api.expenses.create.input.extend({
     amount: z.coerce.number(),
     participantId: z.coerce.number(),
@@ -84,18 +90,23 @@ router.post(p(api.expenses.create.path), requireAuth, asyncHandler(async (req, r
   });
   const input = bodySchema.parse(req.body);
   const acceptedParticipants = await participantRepo.listByBbq(bbqId, "accepted");
+  const acceptedParticipantIds = new Set(acceptedParticipants.map((participant) => participant.id));
+  const creatorParticipant = acceptedParticipants.find((participant) => participant.userId === sessionUserId);
+  if (!creatorParticipant) forbidden("Only accepted event participants can create expenses");
   const payerParticipant = acceptedParticipants.find((participant) => participant.id === input.participantId);
   if (!payerParticipant) badRequest("Paid by must be a plan member");
-  if (!isCreator && payerParticipant.userId !== sessionUserId) {
-    forbidden("Only the plan creator can change who paid");
-  }
   const { optInByDefault, ...expenseData } = input;
   const includedUserIds = normalizeIncludedUserIds(expenseData.includedUserIds);
+  const includedParticipantIds = parseParticipantIdList(includedUserIds);
+  if (includedParticipantIds && includedParticipantIds.some((participantId) => !acceptedParticipantIds.has(participantId))) {
+    badRequest("Split members must be accepted plan participants");
+  }
   const resolutionMode = input.resolutionMode === "now" ? "now" : "later";
   const created = await expenseRepo.create(
     {
       ...expenseData,
       barbecueId: bbqId,
+      createdByUserId: sessionUserId,
       includedUserIds: includedUserIds === undefined ? null : includedUserIds,
       resolutionMode,
       excludedFromFinalSettlement: resolutionMode === "now",
@@ -103,11 +114,12 @@ router.post(p(api.expenses.create.path), requireAuth, asyncHandler(async (req, r
     },
     { optInByDefault },
   );
-  const actorName = payerParticipant.name || req.session?.username || "Someone";
+  const actorName = creatorParticipant.name || req.session?.username || "Someone";
   const paidByName = payerParticipant.name || req.session?.username || "Someone";
   const currency = bbq.currency ?? "€";
   const amount = Number(created.amount);
   let createdWithResolution = created;
+  const paidBySuffix = payerParticipant.userId !== sessionUserId ? `, paid by ${paidByName}` : "";
 
   if (resolutionMode === "now") {
     const selectedParticipantIds = includedUserIds && includedUserIds.length > 0
@@ -155,8 +167,8 @@ router.post(p(api.expenses.create.path), requireAuth, asyncHandler(async (req, r
     actorUserId: req.session?.userId ?? null,
     actorName,
     message: resolutionMode === "now"
-      ? `${actorName} added ${created.item} and settled it now (${currency}${Number(created.amount).toFixed(2)})`
-      : `${actorName} added ${created.item} (${currency}${Number(created.amount).toFixed(2)})`,
+      ? `${actorName} added ${created.item}${paidBySuffix} and settled it now (${currency}${Number(created.amount).toFixed(2)})`
+      : `${actorName} added ${created.item}${paidBySuffix} (${currency}${Number(created.amount).toFixed(2)})`,
     meta: {
       expenseId: created.id,
       title: created.item,
@@ -164,13 +176,15 @@ router.post(p(api.expenses.create.path), requireAuth, asyncHandler(async (req, r
       currency: bbq.currency ?? null,
       resolutionMode,
       linkedSettlementRoundId: createdWithResolution.linkedSettlementRoundId ?? null,
+      createdByUserId: sessionUserId,
+      payerUserId: payerParticipant.userId ?? null,
     },
   });
   await postSystemChatMessage(
     bbqId,
     resolutionMode === "now"
-      ? `${actorName} added ${created.item} and settled it now (${currency}${Number.isFinite(amount) ? amount.toFixed(2) : "0.00"})`
-      : `${actorName} added ${created.item} (${currency}${Number.isFinite(amount) ? amount.toFixed(2) : "0.00"})`,
+      ? `${actorName} added ${created.item}${paidBySuffix} and settled it now (${currency}${Number.isFinite(amount) ? amount.toFixed(2) : "0.00"})`
+      : `${actorName} added ${created.item}${paidBySuffix} (${currency}${Number.isFinite(amount) ? amount.toFixed(2) : "0.00"})`,
     {
     type: "expense",
     action: "added",
@@ -182,6 +196,8 @@ router.post(p(api.expenses.create.path), requireAuth, asyncHandler(async (req, r
     actorName,
     resolutionMode,
     linkedSettlementRoundId: createdWithResolution.linkedSettlementRoundId ?? null,
+    createdByUserId: sessionUserId,
+    payerUserId: payerParticipant.userId ?? null,
   });
   await broadcastPlanBalancesUpdated(bbqId);
   res.status(201).json(createdWithResolution);
@@ -200,10 +216,32 @@ router.put(p(api.expenses.update.path), requireAuth, asyncHandler(async (req, re
   const input = bodySchema.parse(req.body);
   const [before] = await db.select().from(expenses).where(eq(expenses.id, expenseId)).limit(1);
   if (!before) notFound("Expense not found");
-  await assertExpensesWritable(before.barbecueId);
+  try {
+    await assertExpensesWritable(before.barbecueId);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "This expense cannot be edited in the current plan state.";
+    res.status(403).json({
+      code: "expense_not_editable_in_current_state",
+      message,
+    });
+    return;
+  }
+  if (
+    before.linkedSettlementRoundId
+    || before.settledAt
+    || before.excludedFromFinalSettlement
+    || before.resolutionMode === "now"
+  ) {
+    res.status(409).json({
+      code: "expense_not_editable_in_current_state",
+      message: "This expense is already tied to settlement progress and can no longer be edited.",
+    });
+    return;
+  }
   const bbq = await getBarbecueOr404(req, before.barbecueId);
   const isCreator = bbq.creatorUserId === sessionUserId;
   const acceptedParticipants = await participantRepo.listByBbq(before.barbecueId, "accepted");
+  const acceptedParticipantIds = new Set(acceptedParticipants.map((participant) => participant.id));
   const nextParticipantId = input.participantId !== undefined ? Number(input.participantId) : Number(before.participantId);
   const payerParticipant = acceptedParticipants.find((participant) => participant.id === nextParticipantId);
   if (!payerParticipant) badRequest("Paid by must be a plan member");
@@ -211,6 +249,10 @@ router.put(p(api.expenses.update.path), requireAuth, asyncHandler(async (req, re
     forbidden("Only the plan creator can change who paid");
   }
   const includedUserIds = normalizeIncludedUserIds(input.includedUserIds);
+  const includedParticipantIds = parseParticipantIdList(includedUserIds);
+  if (includedParticipantIds && includedParticipantIds.some((participantId) => !acceptedParticipantIds.has(participantId))) {
+    badRequest("Split members must be accepted plan participants");
+  }
   const updated = await expenseRepo.update(expenseId, {
     ...input,
     ...(includedUserIds !== undefined ? { includedUserIds } : {}),
@@ -263,12 +305,39 @@ router.delete(p(api.expenses.delete.path), requireAuth, asyncHandler(async (req,
   const expenseId = Number(req.params.id);
   if (!Number.isInteger(expenseId) || expenseId <= 0) badRequest("Invalid expense id");
   const username = req.session?.username;
-  if (!username) unauthorized("Not authenticated");
+  const sessionUserId = req.session?.userId;
+  if (!username || !sessionUserId) unauthorized("Not authenticated");
 
   const [expense] = await db.select().from(expenses).where(eq(expenses.id, expenseId)).limit(1);
   if (!expense) notFound("Expense not found");
-  await assertExpensesWritable(expense.barbecueId);
   await assertEventAccessOrThrow(req, expense.barbecueId);
+
+  if (expense.createdByUserId == null || Number(expense.createdByUserId) !== Number(sessionUserId)) {
+    res.status(403).json({
+      code: "only_creator_can_delete_expense",
+      message: "Only the person who created this expense can delete it.",
+    });
+    return;
+  }
+
+  try {
+    await assertExpensesWritable(expense.barbecueId);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Expenses are not writable in the current plan state.";
+    res.status(403).json({
+      code: "expense_not_writable_in_current_plan_state",
+      message,
+    });
+    return;
+  }
+
+  if (expense.linkedSettlementRoundId || expense.settledAt || expense.excludedFromFinalSettlement || expense.resolutionMode === "now") {
+    res.status(409).json({
+      code: "expense_not_deletable_after_settlement",
+      message: "This expense is already tied to settlement progress and can no longer be deleted.",
+    });
+    return;
+  }
 
   const [bbq] = await db.select().from(barbecues).where(eq(barbecues.id, expense.barbecueId)).limit(1);
   if (!bbq) notFound("Event not found");

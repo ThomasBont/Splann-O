@@ -1034,13 +1034,19 @@ export default function Home({
       const custom = event as CustomEvent<{
         eventId?: number;
         initialView?: "overview" | "expense-form";
+        prefill?: {
+          amount?: number | null;
+          item?: string | null;
+          paidBy?: string | null;
+          splitCount?: number | null;
+        };
       }>;
       const targetEventId = Number(custom.detail?.eventId);
       if (!Number.isFinite(targetEventId) || targetEventId <= 0) return;
       if (selectedBbqId && Number(selectedBbqId) !== targetEventId) return;
       if (!selectedBbqId) setSelectedBbqId(targetEventId);
       if (custom.detail?.initialView === "expense-form") {
-        openPanel({ type: "add-expense", source: "overview" });
+        openPanel({ type: "add-expense", source: "overview", prefill: custom.detail?.prefill ?? null });
       }
     };
     window.addEventListener("splanno:open-expenses", onOpenExpenses as EventListener);
@@ -5409,16 +5415,28 @@ export default function Home({
                               <div className="font-bold text-primary">{formatMoney(Number(exp.amount))}</div>
                             </div>
                             <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <Button size="icon" variant="ghost" className="w-7 h-7 text-muted-foreground hover:text-foreground"
-                                onClick={() => { setEditingExpense(exp); setIsAddExpenseOpen(true); }}
-                                data-testid={`button-edit-expense-${exp.id}`}>
-                                <Edit2 className="w-3.5 h-3.5" />
-                              </Button>
-                              <Button size="icon" variant="ghost" className="w-7 h-7 text-muted-foreground hover:text-destructive"
-                                onClick={() => deleteExpense.mutate(exp.id)}
-                                data-testid={`button-delete-expense-${exp.id}`}>
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </Button>
+                              {(
+                                !String((exp as { linkedSettlementRoundId?: string | null }).linkedSettlementRoundId ?? "").trim()
+                                && !(exp as { settledAt?: string | Date | null }).settledAt
+                                && !(exp as { excludedFromFinalSettlement?: boolean | null }).excludedFromFinalSettlement
+                                && String((exp as { resolutionMode?: string | null }).resolutionMode ?? "").trim().toLowerCase() !== "now"
+                              ) ? (
+                                <Button size="icon" variant="ghost" className="w-7 h-7 text-muted-foreground hover:text-foreground"
+                                  onClick={() => { setEditingExpense(exp); setIsAddExpenseOpen(true); }}
+                                  data-testid={`button-edit-expense-${exp.id}`}>
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                </Button>
+                              ) : null}
+                              {Number((exp as { createdByUserId?: number | null }).createdByUserId ?? 0) === Number(user?.id ?? 0) ? (
+                                <Button size="icon" variant="ghost" className="w-7 h-7 text-muted-foreground hover:text-destructive"
+                                  onClick={() => {
+                                    if (!window.confirm("Delete this expense? This will permanently remove it from shared costs.")) return;
+                                    deleteExpense.mutate(exp.id);
+                                  }}
+                                  data-testid={`button-delete-expense-${exp.id}`}>
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </Button>
+                              ) : null}
                             </div>
                           </div>
                           <ExpenseReactionBar

@@ -4,6 +4,7 @@ import { db, ensureCoreSchemaReady } from "../db";
 
 export const PLAN_CLOSE_GRACE_PERIOD_MS = 2 * 24 * 60 * 60 * 1000;
 export const PLAN_SETTLED_WRAP_UP_MS = 2 * 24 * 60 * 60 * 1000;
+export const PLAN_CLOSED_CHAT_WRAP_UP_MS = 2 * 24 * 60 * 60 * 1000;
 
 export type CanonicalPlanStatus = "active" | "closed" | "settled" | "archived";
 
@@ -24,6 +25,7 @@ export type PlanLifecycleState = {
   timelineLocked: boolean;
   settledAt: Date | null;
   closeAt: Date | null;
+  closedChatEndsAt: Date | null;
   wrapUpEndsAt: Date | null;
   socialOpen: boolean;
 };
@@ -44,6 +46,13 @@ export function getPlanCloseAt(eventDate: Date | string | null | undefined): Dat
   const parsed = eventDate instanceof Date ? eventDate : new Date(eventDate);
   if (Number.isNaN(parsed.getTime())) return null;
   return new Date(parsed.getTime() + PLAN_CLOSE_GRACE_PERIOD_MS);
+}
+
+export function getClosedChatEndsAt(closeAt: Date | string | null | undefined): Date | null {
+  if (!closeAt) return null;
+  const parsed = closeAt instanceof Date ? closeAt : new Date(closeAt);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return new Date(parsed.getTime() + PLAN_CLOSED_CHAT_WRAP_UP_MS);
 }
 
 function isPastCloseGracePeriod(event: Pick<Barbecue, "endDate" | "date">, now = new Date()): boolean {
@@ -129,6 +138,8 @@ function deriveLifecycleState(
   const normalizedStatus = normalizeStoredStatus(event.status);
   const completedSettlement = settlementState?.latestCompletedFinalSettlement ?? null;
   const completedAt = completedSettlement?.completedAt ?? completedSettlement?.latestPaidAt ?? event.settledAt ?? null;
+  const closeAt = getPlanCloseAt(resolvePlanEndDate(event));
+  const closedChatEndsAt = getClosedChatEndsAt(closeAt);
   const wrapUpEndsAt = getPlanWrapUpEndsAt(completedAt);
   const archivedByTime = !!wrapUpEndsAt && now.getTime() > wrapUpEndsAt.getTime();
 
@@ -140,22 +151,25 @@ function deriveLifecycleState(
       settlementStarted: false,
       timelineLocked: true,
       settledAt: completedAt,
-      closeAt: getPlanCloseAt(resolvePlanEndDate(event)),
+      closeAt,
+      closedChatEndsAt,
       wrapUpEndsAt,
       socialOpen: status === "settled",
     };
   }
 
   const autoClosed = isPastCloseGracePeriod(event, now);
+  const closedSocialOpen = autoClosed && !!closedChatEndsAt && now.getTime() <= closedChatEndsAt.getTime();
   return {
     status: autoClosed ? "closed" : "active",
     autoClosed,
     settlementStarted: settlementState?.hasActiveFinalSettlement ?? false,
     timelineLocked: autoClosed || (settlementState?.hasActiveFinalSettlement ?? false),
     settledAt: event.settledAt ?? null,
-    closeAt: getPlanCloseAt(resolvePlanEndDate(event)),
+    closeAt,
+    closedChatEndsAt,
     wrapUpEndsAt: null,
-    socialOpen: !autoClosed,
+    socialOpen: autoClosed ? closedSocialOpen : true,
   };
 }
 

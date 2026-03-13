@@ -49,7 +49,7 @@ export function ContextPanelHost({
       content = <NotesPanel />;
       break;
     case "add-expense":
-      content = <AddExpensePanel source={panel.source} initialResolutionMode={panel.initialResolutionMode} />;
+      content = <AddExpensePanel source={panel.source} initialResolutionMode={panel.initialResolutionMode} initialPrefill={panel.prefill ?? null} />;
       break;
     case "settlement":
       content = <ExpensesPanel />;
@@ -90,6 +90,7 @@ export function ContextPanelHost({
     panel.type === "member-profile" ? panel.username : "",
     panel.type === "invite" || panel.type === "add-expense" || panel.type === "add-poll" ? (panel.source ?? "") : "",
     panel.type === "add-expense" ? (panel.initialResolutionMode ?? "") : "",
+    panel.type === "add-expense" ? JSON.stringify(panel.prefill ?? null) : "",
   ].join(":");
 
   return (

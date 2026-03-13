@@ -19,6 +19,7 @@ import pushRoutes from "./routes/pushRoutes";
 import placesRoutes from "./routes/placesRoutes";
 import inboxRoutes from "./routes/inboxRoutes";
 import noteRoutes from "./routes/noteRoutes";
+import stripeRoutes from "./routes/stripeRoutes";
 import mediaRoutes from "./routes/mediaRoutes";
 import publicEventRoutes from "./routes/publicEventRoutes";
 import eventsRoutes from "./routes/eventsRoutes";
@@ -26,7 +27,7 @@ import healthRoutes from "./routes/healthRoutes";
 import { bbqRepo } from "./repositories/bbqRepo";
 import { participantRepo } from "./repositories/participantRepo";
 import { userRepo } from "./repositories/userRepo";
-import { resolveBaseUrl } from "./config/env";
+import { resolveBaseUrl, resolveSessionSecret } from "./config/env";
 import { loadJoinPreviewTemplate, renderJoinPreviewHtml } from "./lib/joinPreview";
 import { log } from "./lib/logger";
 import passport, { configurePassport } from "./lib/passport";
@@ -36,12 +37,6 @@ declare module "express-session" {
     userId: number;
     username: string;
     oauthRedirectTo?: string;
-  }
-}
-
-declare module "http" {
-  interface IncomingMessage {
-    rawBody: unknown;
   }
 }
 
@@ -55,12 +50,11 @@ export function createApp() {
   const publicSectionEnabled = process.env.FEATURE_PUBLIC_PLANS === "1" || process.env.ENABLE_PUBLIC_SECTION === "1";
   configurePassport();
 
+  app.use("/api/stripe", stripeRoutes);
+
   app.use(
     express.json({
       limit: "8mb",
-      verify: (req, _res, buf) => {
-        (req as express.Request & { rawBody?: unknown }).rawBody = buf;
-      },
     })
   );
   app.use(express.urlencoded({ extended: false }));
@@ -81,16 +75,13 @@ export function createApp() {
     app.use(cors({ origin: true, credentials: true }));
   }
 
-  const sessionSecret = process.env.SESSION_SECRET;
-  if (isProd && (!sessionSecret || !sessionSecret.trim())) {
-    throw new Error("SESSION_SECRET must be set in production");
-  }
+  const sessionSecret = resolveSessionSecret();
 
   const PgStore = ConnectPgSimple(session);
   app.use(
     session({
       store: new PgStore({ pool, createTableIfMissing: true }),
-      secret: sessionSecret || "fallback-secret-change-me",
+      secret: sessionSecret,
       resave: false,
       saveUninitialized: false,
       name: "splanno.sid",

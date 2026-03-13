@@ -37,9 +37,18 @@ export interface NotesTabProps {
   myParticipantId: number | null;
   canAddNote: boolean;
   emptySubtitleOverride?: string;
+  readOnly?: boolean;
+  readOnlyMessage?: string;
 }
 
-export function NotesTab({ eventId, myParticipantId, canAddNote, emptySubtitleOverride }: NotesTabProps) {
+export function NotesTab({
+  eventId,
+  myParticipantId,
+  canAddNote,
+  emptySubtitleOverride,
+  readOnly = false,
+  readOnlyMessage = "This plan is archived and read-only. Notes can no longer be changed.",
+}: NotesTabProps) {
   const { t } = useLanguage();
   const { toast } = useToast();
   const { data: notes = [], isLoading } = useNotes(eventId);
@@ -64,11 +73,13 @@ export function NotesTab({ eventId, myParticipantId, canAddNote, emptySubtitleOv
   };
 
   const openAdd = () => {
+    if (readOnly) return;
     resetForm();
     setModalOpen(true);
   };
 
   const openEdit = (note: NoteWithAuthor) => {
+    if (readOnly) return;
     setEditingNote(note);
     setTitle(note.title || "");
     setBody(note.body);
@@ -77,6 +88,7 @@ export function NotesTab({ eventId, myParticipantId, canAddNote, emptySubtitleOv
   };
 
   const handleSave = async () => {
+    if (readOnly) return;
     const trimmedBody = body.trim();
     if (!trimmedBody) {
       toast({ title: t.modals.noteBodyRequired, variant: "warning" });
@@ -112,6 +124,7 @@ export function NotesTab({ eventId, myParticipantId, canAddNote, emptySubtitleOv
   };
 
   const handleDelete = async (id: number) => {
+    if (readOnly) return;
     if (!confirm(t.notes.deleteConfirm)) return;
     await deleteNote.mutateAsync(id, {
       onSuccess: () => toast({ title: t.modals.noteDeleted }),
@@ -119,6 +132,7 @@ export function NotesTab({ eventId, myParticipantId, canAddNote, emptySubtitleOv
   };
 
   const togglePin = async (note: NoteWithAuthor) => {
+    if (readOnly) return;
     await updateNote.mutateAsync({ id: note.id, pinned: !note.pinned });
   };
 
@@ -137,6 +151,11 @@ export function NotesTab({ eventId, myParticipantId, canAddNote, emptySubtitleOv
 
   return (
     <div className="space-y-4">
+      {readOnly ? (
+        <div className="rounded-[var(--radius-lg)] border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))] px-4 py-3 text-sm text-muted-foreground">
+          {readOnlyMessage}
+        </div>
+      ) : null}
       {/* Pinned note area */}
       {pinnedNotes.length > 0 && (
         <div className="space-y-2">
@@ -149,7 +168,8 @@ export function NotesTab({ eventId, myParticipantId, canAddNote, emptySubtitleOv
               <NoteCard
                 key={note.id}
                 note={note}
-                canEdit={isAuthor(note)}
+                canEdit={isAuthor(note) && !readOnly}
+                canTogglePin={!readOnly}
                 onEdit={() => openEdit(note)}
                 onDelete={() => handleDelete(note.id)}
                 onTogglePin={() => togglePin(note)}
@@ -192,7 +212,8 @@ export function NotesTab({ eventId, myParticipantId, canAddNote, emptySubtitleOv
                 >
                   <NoteCard
                     note={note}
-                    canEdit={isAuthor(note)}
+                    canEdit={isAuthor(note) && !readOnly}
+                    canTogglePin={!readOnly}
                     onEdit={() => openEdit(note)}
                     onDelete={() => handleDelete(note.id)}
                     onTogglePin={() => togglePin(note)}
@@ -227,7 +248,7 @@ export function NotesTab({ eventId, myParticipantId, canAddNote, emptySubtitleOv
             </Button>
             <Button
               onClick={handleSave}
-              disabled={createNote.isPending || updateNote.isPending || !body.trim()}
+              disabled={readOnly || createNote.isPending || updateNote.isPending || !body.trim()}
             >
               {editingNote ? t.modals.save : t.modals.add}
             </Button>
@@ -243,6 +264,7 @@ export function NotesTab({ eventId, myParticipantId, canAddNote, emptySubtitleOv
               onChange={(e) => setTitle(e.target.value)}
               placeholder={t.modals.noteTitlePlaceholder}
               maxLength={200}
+              disabled={readOnly}
               className="bg-secondary/50"
             />
           </div>
@@ -254,12 +276,13 @@ export function NotesTab({ eventId, myParticipantId, canAddNote, emptySubtitleOv
               onChange={(e) => setBody(e.target.value)}
               placeholder={t.modals.noteBodyPlaceholder}
               rows={4}
+              disabled={readOnly}
               className="w-full rounded-md border border-input bg-secondary/50 px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 min-h-[100px] resize-y"
             />
           </div>
           <div className="flex items-center justify-between">
             <Label htmlFor="note-pinned" className="flex items-center gap-2 cursor-pointer">
-              <Switch id="note-pinned" checked={pinned} onCheckedChange={setPinned} />
+              <Switch id="note-pinned" checked={pinned} onCheckedChange={setPinned} disabled={readOnly} />
               {t.modals.pinNote}
             </Label>
           </div>
@@ -272,6 +295,7 @@ export function NotesTab({ eventId, myParticipantId, canAddNote, emptySubtitleOv
 function NoteCard({
   note,
   canEdit,
+  canTogglePin,
   onEdit,
   onDelete,
   onTogglePin,
@@ -280,6 +304,7 @@ function NoteCard({
 }: {
   note: NoteWithAuthor;
   canEdit: boolean;
+  canTogglePin: boolean;
   onEdit: () => void;
   onDelete: () => void;
   onTogglePin: () => void;
@@ -306,8 +331,9 @@ function NoteCard({
           <button
             type="button"
             onClick={onTogglePin}
-            className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+            className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
             aria-label={note.pinned ? "Unpin" : "Pin"}
+            disabled={!canTogglePin}
           >
             <Pin className={cn("h-4 w-4", note.pinned && "fill-amber-400 text-amber-500")} />
           </button>

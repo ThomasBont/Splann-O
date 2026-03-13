@@ -23,7 +23,7 @@ import { getUpNextCandidates } from "@/components/panels/up-next";
 import { useEventGuests } from "@/hooks/use-event-guests";
 import { usePlanActivity } from "@/hooks/use-plan-activity";
 import { formatActivityPreview, formatActivityTime, getActivityIcon } from "@/components/panels/activity-format";
-import { getClientPlanStatus, getPlanWrapUpEndsAt } from "@/lib/plan-lifecycle";
+import { getClientPlanStatus, getPlanFinalState, getPlanWrapUpEndsAt } from "@/lib/plan-lifecycle";
 
 type SettlementRoundSummary = {
   id: string;
@@ -335,8 +335,9 @@ export function OverviewPanel() {
   }, [currency, expensesLocked, hasAnyExpenses, hasOnlyCreator, invitesLocked, isFinanciallyCompleted, isPlanArchived, isPlanClosed, isPlanSettled, myBalance, myParticipant, settlementCompleted]);
   const completedTransfers = completedSettlementDetailQuery.data?.transfers ?? [];
   const finalPayment = completedTransfers[0] ?? null;
-  const planCreatedAt = formatFullDate((plan as { createdAt?: string | Date | null } | null)?.createdAt ?? String(plan?.date ?? ""));
-  const planCompletedAt = formatFullDate((plan as { settledAt?: string | Date | null } | null)?.settledAt ?? null);
+  const planCreatedAt = formatFullDate((plan as { createdAt?: string | Date | null } | null)?.createdAt ?? null);
+  const finalPlanState = getPlanFinalState(plan?.status, (plan as { settledAt?: string | Date | null } | null)?.settledAt ?? null);
+  const planCompletedAt = formatFullDate(finalPlanState?.at ?? null);
   const wrapUpEndsAt = getPlanWrapUpEndsAt((plan as { settledAt?: string | Date | null } | null)?.settledAt ?? null);
   const wrapUpEndsLabel = formatFullDate(wrapUpEndsAt);
 
@@ -835,7 +836,7 @@ export function OverviewPanel() {
                   </div>
                   {planCompletedAt ? (
                     <div className="rounded-xl border border-emerald-200/70 bg-background/70 px-3 py-2 text-right dark:border-emerald-500/20 dark:bg-background/10">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Completed</p>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{finalPlanState?.label ?? "Completed"}</p>
                       <p className="mt-1 text-sm font-medium text-foreground">{planCompletedAt}</p>
                     </div>
                   ) : null}
@@ -843,7 +844,7 @@ export function OverviewPanel() {
                 <div className="mt-4 grid gap-3 sm:grid-cols-2">
                   <div className="rounded-xl border border-[hsl(var(--border-subtle))] bg-background/60 px-3 py-3 dark:bg-[hsl(var(--surface-2))]/65">
                     <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Created</p>
-                    <p className="mt-1 text-sm font-medium text-foreground">{planCreatedAt ?? "Date unavailable"}</p>
+                    <p className="mt-1 text-sm font-medium text-foreground">{planCreatedAt ?? "Unavailable"}</p>
                   </div>
                   <div className="rounded-xl border border-[hsl(var(--border-subtle))] bg-background/60 px-3 py-3 dark:bg-[hsl(var(--surface-2))]/65">
                     <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Final payment</p>

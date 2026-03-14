@@ -1,4 +1,6 @@
 import { S3Client, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import path from "node:path";
+import { log } from "./logger";
 
 const R2_ENABLED =
   !!process.env.R2_ACCOUNT_ID &&
@@ -19,6 +21,15 @@ export const r2 = R2_ENABLED
 
 export const R2_BUCKET = process.env.R2_BUCKET_NAME ?? "splanno-uploads";
 export const R2_PUBLIC_URL = (process.env.R2_PUBLIC_URL ?? "").replace(/\/$/, "");
+
+export function resolveStoredFileUrl(key: string | null | undefined): string | null {
+  if (!key) return null;
+  const normalizedKey = key.replace(/^\/+/, "");
+  if (r2) {
+    return R2_PUBLIC_URL ? `${R2_PUBLIC_URL}/${normalizedKey}` : `/${normalizedKey}`;
+  }
+  return `/uploads/${normalizedKey}`;
+}
 
 export async function uploadFile(opts: {
   key: string;
@@ -50,12 +61,42 @@ export async function deleteFile(urlOrPath: string | null | undefined): Promise<
 
   if (r2 && R2_PUBLIC_URL && urlOrPath.startsWith(R2_PUBLIC_URL)) {
     const key = urlOrPath.slice(R2_PUBLIC_URL.length + 1);
-    await r2.send(new DeleteObjectCommand({ Bucket: R2_BUCKET, Key: key })).catch(() => undefined);
+    await r2.send(new DeleteObjectCommand({ Bucket: R2_BUCKET, Key: key }));
     return;
   }
 
   const { promises: fs } = await import("fs");
-  const path = await import("path");
   const localPath = path.resolve(process.cwd(), "public", urlOrPath.replace(/^\//, ""));
-  await fs.unlink(localPath).catch(() => undefined);
+  try {
+    await fs.unlink(localPath);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException | undefined)?.code;
+    if (code === "ENOENT") return;
+    throw error;
+  }
+}
+
+export async function deleteStoredFileByKey(key: string | null | undefined): Promise<void> {
+  if (!key) return;
+  const normalizedKey = key.replace(/^\/+/, "");
+
+  if (r2) {
+    await r2.send(new DeleteObjectCommand({ Bucket: R2_BUCKET, Key: normalizedKey }));
+    return;
+  }
+
+  const { promises: fs } = await import("fs");
+  const localPath = path.resolve(process.cwd(), "public/uploads", normalizedKey);
+  try {
+    await fs.unlink(localPath);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException | undefined)?.code;
+    if (code === "ENOENT") return;
+    log("warn", "stored_file_delete_failed", {
+      key: normalizedKey,
+      code,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
 }

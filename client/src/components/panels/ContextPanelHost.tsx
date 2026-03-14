@@ -6,6 +6,7 @@ import { useActiveEventId } from "@/components/panels/panel-primitives";
 import OverviewPanel from "@/components/panels/OverviewPanel";
 import ExpenseDetailPanel from "@/components/panels/ExpenseDetailPanel";
 import ExpensesPanel from "@/components/panels/ExpensesPanel";
+import PhotosPanel from "@/components/panels/PhotosPanel";
 import NotesPanel from "@/components/panels/NotesPanel";
 import AddExpensePanel from "@/components/panels/AddExpensePanel";
 import PollsPanel from "@/components/panels/PollsPanel";
@@ -44,6 +45,9 @@ export function ContextPanelHost({
       break;
     case "expenses":
       content = <ExpensesPanel />;
+      break;
+    case "photos":
+      content = <PhotosPanel />;
       break;
     case "notes":
       content = <NotesPanel />;

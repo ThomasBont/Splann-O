@@ -338,6 +338,24 @@ export const eventChatMessageReactions = pgTable("event_chat_message_reactions",
   uniqueUserReactionPerEmoji: unique("event_chat_message_reactions_message_user_emoji_unique").on(table.messageId, table.userId, table.emoji),
 }));
 
+export const eventPhotos = pgTable("event_photos", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  eventId: integer("event_id").references(() => barbecues.id, { onDelete: "cascade" }).notNull(),
+  uploadedByUserId: integer("uploaded_by_user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  storageKeyOriginal: text("storage_key_original").notNull(),
+  storageKeyThumb: text("storage_key_thumb"),
+  caption: text("caption"),
+  mimeType: text("mime_type").notNull(),
+  fileSize: integer("file_size").notNull(),
+  width: integer("width"),
+  height: integer("height"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+}, (table) => ({
+  eventCreatedIdx: index("event_photos_event_created_idx").on(table.eventId, table.createdAt),
+  uploaderIdx: index("event_photos_uploader_idx").on(table.uploadedByUserId, table.createdAt),
+}));
+
 export const eventSettlementRounds = pgTable("event_settlement_rounds", {
   id: uuid("id").defaultRandom().primaryKey(),
   eventId: integer("event_id").references(() => barbecues.id, { onDelete: "cascade" }).notNull(),
@@ -447,6 +465,7 @@ export type EventMember = typeof eventMembers.$inferSelect;
 export type EventInvite = typeof eventInvites.$inferSelect;
 export type PlanActivity = typeof planActivity.$inferSelect;
 export type EventChatMessageRow = typeof eventChatMessages.$inferSelect;
+export type EventPhoto = typeof eventPhotos.$inferSelect;
 export type EventSettlementRound = typeof eventSettlementRounds.$inferSelect;
 export type EventSettlementTransfer = typeof eventSettlementTransfers.$inferSelect;
 export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
@@ -464,6 +483,17 @@ export type InsertNote = z.infer<typeof insertNoteSchema>;
 
 export type NoteWithAuthor = Note & {
   authorName: string;
+};
+
+export type EventPhotoWithUploader = EventPhoto & {
+  uploader: {
+    id: number | null;
+    username: string | null;
+    displayName: string | null;
+    avatarUrl: string | null;
+  } | null;
+  imageUrl: string;
+  thumbUrl: string | null;
 };
 
 export type PublicEventRsvp = typeof publicEventRsvps.$inferSelect;

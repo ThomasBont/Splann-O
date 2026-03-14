@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { insertBarbecueSchema, insertParticipantSchema, insertExpenseSchema } from './schema';
-import type { Barbecue, Participant, ExpenseWithParticipant, NoteWithAuthor, Membership } from './schema';
+import type { Barbecue, Participant, ExpenseWithParticipant, NoteWithAuthor, Membership, EventPhotoWithUploader } from './schema';
 import { optionalCountryCodeSchema } from './lib/country-code-schema';
 
 const publicImagePathOrUrlSchema = z
@@ -272,6 +272,36 @@ export const api = {
     delete: {
       method: 'DELETE' as const,
       path: '/api/notes/:noteId' as const,
+      responses: {
+        204: z.void(),
+        403: errorSchemas.validation,
+        404: errorSchemas.notFound,
+      },
+    },
+  },
+  photos: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/plans/:planId/photos' as const,
+      responses: {
+        200: z.object({
+          items: z.array(z.custom<EventPhotoWithUploader>()),
+          nextCursor: z.string().nullable(),
+        }),
+      },
+    },
+    upload: {
+      method: 'POST' as const,
+      path: '/api/plans/:planId/photos' as const,
+      responses: {
+        201: z.custom<EventPhotoWithUploader>(),
+        400: errorSchemas.validation,
+        403: errorSchemas.validation,
+      },
+    },
+    delete: {
+      method: 'DELETE' as const,
+      path: '/api/plans/:planId/photos/:photoId' as const,
       responses: {
         204: z.void(),
         403: errorSchemas.validation,

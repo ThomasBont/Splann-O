@@ -77,6 +77,7 @@ import {
   UserCheck, UserX, LogOut, Crown, Clock, UserCircle, ChevronDown, ChevronRight, Users,
   Lock, Globe, UserPlus, X, Eye, EyeOff, Compass,
   Bell, UserPlus2, Search, Heart, MessageCircle, Star, Plane, PartyPopper, Settings, LayoutGrid,
+  ImageIcon,
   type LucideIcon,
 } from "lucide-react";
 import { useEventHeaderPreferences } from "@/hooks/use-event-header-preferences";
@@ -830,9 +831,11 @@ export default function Home({
   const activeEventId = isManagedAppRoute && appRouteMode === "event"
     ? (routeEventId ?? null)
     : selectedBbqId;
-  const mobilePrimaryTab: "chat" | "expenses" | "crew" | "overview" = panel == null
+  const mobilePrimaryTab: "chat" | "photos" | "expenses" | "crew" | "overview" = panel == null
     ? "chat"
-    : (panel.type === "expenses" || panel.type === "expense" || panel.type === "add-expense" || panel.type === "settlement")
+    : panel.type === "photos"
+      ? "photos"
+      : (panel.type === "expenses" || panel.type === "expense" || panel.type === "add-expense" || panel.type === "settlement")
       ? "expenses"
       : (panel.type === "crew"
         || (panel.type === "member-profile" && panel.source === "crew")
@@ -4068,9 +4071,10 @@ export default function Home({
                     </div>
                   </div>
                   <nav className="sticky bottom-0 z-20 border-t border-border/60 bg-background/98 px-2 pb-[max(env(safe-area-inset-bottom),0.35rem)] pt-1 backdrop-blur-md lg:hidden">
-                    <div className="grid grid-cols-4 gap-1 rounded-[20px] border border-border/60 bg-[hsl(var(--surface-1))]/98 p-1.5 shadow-[0_-10px_26px_rgba(15,23,42,0.08)] dark:shadow-[0_-10px_24px_rgba(0,0,0,0.18)]">
+                    <div className="grid grid-cols-5 gap-1 rounded-[20px] border border-border/60 bg-[hsl(var(--surface-1))]/98 p-1.5 shadow-[0_-10px_26px_rgba(15,23,42,0.08)] dark:shadow-[0_-10px_24px_rgba(0,0,0,0.18)]">
                       {[
                         { key: "chat", label: "Chat", icon: MessageCircle, onClick: () => closePanel() },
+                        { key: "photos", label: "Photos", icon: ImageIcon, onClick: () => openPanel({ type: "photos" }) },
                         { key: "expenses", label: "Expenses", icon: Receipt, onClick: () => openPanel({ type: "expenses" }) },
                         { key: "crew", label: "Crew", icon: Users, onClick: () => openPanel({ type: "crew" }) },
                         { key: "overview", label: "Overview", icon: LayoutGrid, onClick: () => openPanel({ type: "overview" }) },

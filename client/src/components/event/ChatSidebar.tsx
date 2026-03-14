@@ -905,6 +905,10 @@ export function ChatSidebar({
     }
     openPanel({ type: "expenses" });
   };
+  const openPhotos = () => {
+    if (!hasEventId) return;
+    openPanel({ type: "photos" });
+  };
   const clearPendingAttachment = useCallback(() => {
     setPendingAttachment((current) => {
       if (current?.previewUrl) {
@@ -984,6 +988,7 @@ export function ChatSidebar({
       ? "This plan is closed. Settlement can still be completed."
         : "Chat is read-only for this plan";
   const isExpensesOpen = panel?.type === "expenses";
+  const isPhotosOpen = panel?.type === "photos";
   const isCrewOpen = panel?.type === "crew";
   const isPlanDetailsOpen = panel?.type === "plan-details";
   const isAnyPanelOpen = panel !== null;
@@ -1282,6 +1287,21 @@ export function ChatSidebar({
           </button>
           {!isMobile ? (
             <>
+              <span className="text-muted-foreground/45">•</span>
+              <button
+                type="button"
+                aria-label="Open photos panel"
+                onClick={openPhotos}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-sm transition active:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                  isPhotosOpen
+                    ? "text-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <ImageIcon className="h-3.5 w-3.5" />
+                <span>Photos</span>
+              </button>
               <span className="text-muted-foreground/45">•</span>
               <button
                 type="button"

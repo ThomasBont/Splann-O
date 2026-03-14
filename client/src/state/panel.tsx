@@ -4,6 +4,7 @@ export type PanelState =
   | { type: "overview" }
   | { type: "expense"; id: string }
   | { type: "expenses" }
+  | { type: "photos" }
   | { type: "notes" }
   | {
     type: "add-expense";

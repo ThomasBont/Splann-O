@@ -21,6 +21,7 @@ import inboxRoutes from "./routes/inboxRoutes";
 import noteRoutes from "./routes/noteRoutes";
 import stripeRoutes from "./routes/stripeRoutes";
 import mediaRoutes from "./routes/mediaRoutes";
+import photoRoutes from "./routes/photoRoutes";
 import publicEventRoutes from "./routes/publicEventRoutes";
 import eventsRoutes from "./routes/eventsRoutes";
 import healthRoutes from "./routes/healthRoutes";
@@ -240,6 +241,7 @@ export function createApp() {
   app.use("/api", inboxRoutes);
   app.use("/api", noteRoutes);
   app.use("/api", mediaRoutes);
+  app.use("/api", photoRoutes);
   app.use("/api", publicEventRoutes);
   app.use("/api", healthRoutes);
 

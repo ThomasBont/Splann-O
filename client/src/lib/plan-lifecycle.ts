@@ -30,6 +30,17 @@ export function getClosedChatEndsAt(closeAt?: string | Date | null) {
   return date;
 }
 
+export function isPlanSociallyOpen(
+  status?: string | null,
+  endDate?: string | Date | null,
+  now = new Date(),
+) {
+  if (getClientPlanStatus(status) === "archived") return false;
+  const closeAt = getPlanCloseAt(endDate);
+  if (!closeAt) return true;
+  return now.getTime() <= closeAt.getTime();
+}
+
 export function getPlanSettledAt(settledAt?: string | Date | null) {
   if (!settledAt) return null;
   const date = settledAt instanceof Date ? settledAt : new Date(settledAt);

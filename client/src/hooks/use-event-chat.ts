@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { getApiBase, getEventChatWsUrl } from "@/lib/network";
 import { expensesQueryKey, planBalancesQueryKey, planExpensesQueryKey, type RealtimePlanBalances } from "@/hooks/use-expenses";
+import { planPhotosQueryKey } from "@/hooks/use-plan-photos";
 import { dedupeExpenseSystemMessages } from "@/lib/chat/dedupe-expense-system-messages";
 import { filterChatMessages } from "@/lib/chat/filter-chat-messages";
 import { PLAN_GC_TIME_MS, PLAN_STALE_TIME_MS } from "@/lib/query-stale";
@@ -663,6 +664,12 @@ export function useEventChat(eventId: number | null, enabled = true) {
         const planId = Number(payload.eventId ?? eventId);
         if (!Number.isFinite(planId) || planId !== eventId) return;
         void refreshPaymentViews(planId);
+        return;
+      }
+      if (payload?.type === "photos:updated") {
+        const planId = Number(payload.eventId ?? eventId);
+        if (!Number.isFinite(planId) || planId !== eventId) return;
+        void queryClient.invalidateQueries({ queryKey: planPhotosQueryKey(planId) });
         return;
       }
       if (payload?.type === "chat:ack") {

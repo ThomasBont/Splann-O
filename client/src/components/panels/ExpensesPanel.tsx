@@ -19,6 +19,7 @@ import { useAppToast } from "@/hooks/use-app-toast";
 import { useCheckoutSettlementTransfer } from "@/hooks/use-bbq-data";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { planQueryKey, usePlan, usePlanCrew, usePlanExpenses } from "@/hooks/use-plan-data";
+import { apiFetch, apiRequest } from "@/lib/api";
 import { resolveAssetUrl } from "@/lib/asset-url";
 import { formatFullDate } from "@/lib/dates";
 import { getClientPlanStatus, getPlanFinalState, getPlanWrapUpEndsAt } from "@/lib/plan-lifecycle";
@@ -210,11 +211,9 @@ function SettleNowExpenseRow({
   const avatarUrl = resolveAssetUrl(member?.avatarUrl ?? null) ?? member?.avatarUrl ?? "";
   const settlementId = expense.linkedSettlementRoundId;
   const settlementQuery = useQuery<SettlementDetailResponse>({
-    queryKey: ["/api/events", expense.barbecueId, "settlement", settlementId || "none"],
+    queryKey: queryKeys.plans.settlementDetail(expense.barbecueId, settlementId || null),
     queryFn: async () => {
-      const res = await fetch(`/api/events/${expense.barbecueId}/settlement/${encodeURIComponent(settlementId)}`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to load payment details");
-      return res.json() as Promise<SettlementDetailResponse>;
+      return apiRequest<SettlementDetailResponse>(`/api/events/${expense.barbecueId}/settlement/${encodeURIComponent(settlementId)}`);
     },
     enabled: !!expense.barbecueId && !!settlementId,
     staleTime: 15_000,
@@ -440,9 +439,7 @@ export function ExpensesPanel() {
           pastQuickSettleRounds: [],
         };
       }
-      const res = await fetch(`/api/events/${eventId}/settlements`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to load settlements");
-      return res.json() as Promise<SettlementRoundsResponse>;
+      return apiRequest<SettlementRoundsResponse>(`/api/events/${eventId}/settlements`);
     },
     enabled: !!eventId,
     staleTime: 15_000,
@@ -468,9 +465,7 @@ export function ExpensesPanel() {
           summary: { transferCount: 0, paidTransfersCount: 0, totalAmount: 0, outstandingAmount: 0 },
         };
       }
-      const res = await fetch(`/api/events/${eventId}/settlement/${encodeURIComponent(displayedSettlementId)}`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to load settlement");
-      return res.json() as Promise<SettlementDetailResponse>;
+      return apiRequest<SettlementDetailResponse>(`/api/events/${eventId}/settlement/${encodeURIComponent(displayedSettlementId)}`);
     },
     enabled: !!eventId && !!displayedSettlementId,
     staleTime: 15_000,
@@ -541,11 +536,9 @@ export function ExpensesPanel() {
   const createSettlement = useMutation({
     mutationFn: async () => {
       if (!eventId) throw new Error("Event not found");
-      const res = await fetch(`/api/events/${eventId}/settlement/manual`, {
+      const res = await apiFetch(`/api/events/${eventId}/settlement/manual`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ scopeType: "everyone", selectedParticipantIds: null }),
+        body: { scopeType: "everyone", selectedParticipantIds: null },
       });
       const body = await res.json().catch(() => ({} as { code?: string; message?: string }));
       if (!res.ok) {
@@ -559,7 +552,7 @@ export function ExpensesPanel() {
       setConfirmSettleUpOpen(false);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: planQueryKey(eventId) }),
-        queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.plans.list() }),
         queryClient.invalidateQueries({ queryKey: settlementRoundsQueryKey }),
         queryClient.invalidateQueries({ queryKey: settlementDetailQueryKey }),
       ]);
@@ -582,9 +575,8 @@ export function ExpensesPanel() {
   const markGroupTransferPaid = useMutation({
     mutationFn: async ({ settlementId, transferId }: { settlementId: string; transferId: string }) => {
       if (!eventId) throw new Error("Event not found");
-      const res = await fetch(`/api/events/${eventId}/settlement/${settlementId}/transfers/${transferId}/mark-paid`, {
+      const res = await apiFetch(`/api/events/${eventId}/settlement/${settlementId}/transfers/${transferId}/mark-paid`, {
         method: "POST",
-        credentials: "include",
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({} as { code?: string; message?: string }));
@@ -597,7 +589,7 @@ export function ExpensesPanel() {
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: planQueryKey(eventId) }),
-        queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.plans.list() }),
         queryClient.invalidateQueries({ queryKey: settlementRoundsQueryKey }),
         queryClient.invalidateQueries({ queryKey: settlementDetailQueryKey }),
       ]);

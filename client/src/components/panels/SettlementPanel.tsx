@@ -8,6 +8,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useAppToast } from "@/hooks/use-app-toast";
 import { useCheckoutSettlementTransfer } from "@/hooks/use-bbq-data";
 import { usePlan, usePlanCrew, usePlanExpenses } from "@/hooks/use-plan-data";
+import { apiFetch, apiRequest } from "@/lib/api";
 import { formatSettlementRoundTitle } from "@/lib/settlement-ui";
 import { computeSplit } from "@/lib/split/calc";
 import { queryKeys } from "@/lib/query-keys";
@@ -164,9 +165,7 @@ export function SettlementPanel({ settlementId, createMode }: { settlementId?: s
           pastQuickSettleRounds: [],
         };
       }
-      const res = await fetch(`/api/events/${eventId}/settlements`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to load settlements");
-      return res.json() as Promise<SettlementRoundsResponse>;
+      return apiRequest<SettlementRoundsResponse>(`/api/events/${eventId}/settlements`);
     },
     enabled: !!eventId,
     staleTime: 15_000,
@@ -186,9 +185,7 @@ export function SettlementPanel({ settlementId, createMode }: { settlementId?: s
     queryKey: detailQueryKey,
     queryFn: async () => {
       if (!eventId || !selectedRoundId) return { settlement: null, transfers: [], summary: { transferCount: 0, paidTransfersCount: 0, totalAmount: 0, outstandingAmount: 0 } };
-      const res = await fetch(`/api/events/${eventId}/settlement/${encodeURIComponent(selectedRoundId)}`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to load settlement");
-      return res.json() as Promise<SettlementDetailResponse>;
+      return apiRequest<SettlementDetailResponse>(`/api/events/${eventId}/settlement/${encodeURIComponent(selectedRoundId)}`);
     },
     enabled: !!eventId && !!selectedRoundId,
     staleTime: 15_000,
@@ -282,14 +279,12 @@ export function SettlementPanel({ settlementId, createMode }: { settlementId?: s
       selectedIds: number[] | null;
     }) => {
       if (!eventId) throw new Error("Event not found");
-      const res = await fetch(`/api/events/${eventId}/settlement/manual`, {
+      const res = await apiFetch(`/api/events/${eventId}/settlement/manual`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
+        body: {
           scopeType,
           selectedParticipantIds: selectedIds,
-        }),
+        },
       });
       const body = await res.json().catch(() => ({} as { message?: string; code?: string; latest?: SettlementDetailResponse }));
       if (!res.ok) {
@@ -328,16 +323,14 @@ export function SettlementPanel({ settlementId, createMode }: { settlementId?: s
   const startDirectSplit = useMutation({
     mutationFn: async () => {
       if (!eventId) throw new Error("Event not found");
-      const res = await fetch(`/api/events/${eventId}/split-payment`, {
+      const res = await apiFetch(`/api/events/${eventId}/split-payment`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
+        body: {
           title: splitTitle.trim(),
           amount: Number(splitAmount),
           paidByParticipantId,
           splitWithParticipantIds,
-        }),
+        },
       });
       const body = await res.json().catch(() => ({} as { message?: string; code?: string; latest?: SettlementDetailResponse }));
       if (!res.ok) {
@@ -374,9 +367,8 @@ export function SettlementPanel({ settlementId, createMode }: { settlementId?: s
   const markTransferPaid = useMutation({
     mutationFn: async ({ settlementId: activeSettlementId, transferId }: { settlementId: string; transferId: string }) => {
       if (!eventId) throw new Error("Event not found");
-      const res = await fetch(`/api/events/${eventId}/settlement/${activeSettlementId}/transfers/${transferId}/mark-paid`, {
+      const res = await apiFetch(`/api/events/${eventId}/settlement/${activeSettlementId}/transfers/${transferId}/mark-paid`, {
         method: "POST",
-        credentials: "include",
       });
       const body = await res.json().catch(() => ({} as { message?: string; code?: string }));
       if (!res.ok) {

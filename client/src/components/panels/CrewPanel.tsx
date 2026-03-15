@@ -8,6 +8,8 @@ import { useAppToast } from "@/hooks/use-app-toast";
 import { useEventGuests } from "@/hooks/use-event-guests";
 import { type FriendRelationshipStatus, useFriendStatuses, useSendFriendRequestByUserId } from "@/hooks/use-friends";
 import { usePlan, usePlanCrew, usePlanExpenses } from "@/hooks/use-plan-data";
+import { apiRequest } from "@/lib/api";
+import { queryKeys } from "@/lib/query-keys";
 import { resolveAssetUrl } from "@/lib/asset-url";
 import { getClientPlanStatus } from "@/lib/plan-lifecycle";
 import { cn } from "@/lib/utils";
@@ -48,13 +50,11 @@ export function CrewPanel() {
   const planQuery = usePlan(eventId);
   const normalizedPlanStatus = getClientPlanStatus(planQuery.data?.status);
   const settlementRoundsQuery = useQuery<{ activeFinalSettlementRound: { id: string } | null }>({
-    queryKey: ["/api/events", eventId, "settlements", "crew-lock"],
+    queryKey: queryKeys.plans.settlements(eventId),
     enabled: !!eventId,
     queryFn: async () => {
       if (!eventId) return { activeFinalSettlementRound: null };
-      const res = await fetch(`/api/events/${eventId}/settlements`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to load settlement lock");
-      return res.json() as Promise<{ activeFinalSettlementRound: { id: string } | null }>;
+      return apiRequest<{ activeFinalSettlementRound: { id: string } | null }>(`/api/events/${eventId}/settlements`);
     },
     staleTime: 15_000,
     refetchInterval: eventId ? 5_000 : false,

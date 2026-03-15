@@ -9,6 +9,7 @@ import { dedupeExpenseSystemMessages } from "@/lib/chat/dedupe-expense-system-me
 import { filterChatMessages } from "@/lib/chat/filter-chat-messages";
 import { PLAN_GC_TIME_MS, PLAN_STALE_TIME_MS } from "@/lib/query-stale";
 import { markPlanSwitchPerf } from "@/lib/plan-switch-perf";
+import { queryKeys } from "@/lib/query-keys";
 
 export type ChatMessage = {
   id: string;
@@ -65,7 +66,7 @@ export type PlanMessagesPage = {
 };
 
 export function planMessagesQueryKey(planId: number | null) {
-  return ["messages", planId] as const;
+  return queryKeys.plans.messages(planId);
 }
 
 export async function fetchPlanMessages(planId: number, before?: string | null): Promise<PlanMessagesPage> {
@@ -245,6 +246,7 @@ export function useEventChat(eventId: number | null, enabled = true) {
   const pendingAckTimersRef = useRef(new Map<string, number>());
   const typingExpiryTimersRef = useRef(new Map<string, number>());
   const lastConnectedVersionRef = useRef(0);
+  const lastResyncAtRef = useRef(0);
 
   const clearPendingAck = useCallback((clientMessageId?: string | null) => {
     const id = typeof clientMessageId === "string" ? clientMessageId.trim() : "";
@@ -272,15 +274,15 @@ export function useEventChat(eventId: number | null, enabled = true) {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: expensesQueryKey(planId) }),
       queryClient.invalidateQueries({ queryKey: planExpensesQueryKey(planId) }),
-      queryClient.invalidateQueries({ queryKey: ["/api/events", planId, "settlements"] }),
-      queryClient.invalidateQueries({ queryKey: ["/api/events", planId, "settlement"] }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.plans.settlements(planId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.plans.settlementLatest(planId) }),
       queryClient.invalidateQueries({ queryKey: planMessagesQueryKey(planId) }),
     ]);
     await Promise.all([
       queryClient.refetchQueries({ queryKey: expensesQueryKey(planId) }),
       queryClient.refetchQueries({ queryKey: planExpensesQueryKey(planId) }),
-      queryClient.refetchQueries({ queryKey: ["/api/events", planId, "settlements"] }),
-      queryClient.refetchQueries({ queryKey: ["/api/events", planId, "settlement"] }),
+      queryClient.refetchQueries({ queryKey: queryKeys.plans.settlements(planId) }),
+      queryClient.refetchQueries({ queryKey: queryKeys.plans.settlementLatest(planId) }),
     ]);
   }, [queryClient]);
 
@@ -500,6 +502,21 @@ export function useEventChat(eventId: number | null, enabled = true) {
     }
   }, [enabled, eventId, fetchHistoryPage, queryClient]);
 
+  const resyncAfterReconnect = useCallback(async (planId: number) => {
+    const now = Date.now();
+    if (now - lastResyncAtRef.current < 1500) return;
+    lastResyncAtRef.current = now;
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: planMessagesQueryKey(planId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.plans.activity(planId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.plans.settlements(planId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.plans.settlementLatest(planId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.plans.expenses(planId) }),
+    ]);
+    await fetchInitialHistory();
+    await refreshPaymentViews(planId);
+  }, [fetchInitialHistory, queryClient, refreshPaymentViews]);
+
   const loadOlder = useCallback(async () => {
     if (!eventId || !enabled || !nextCursor || historyLoadingOlder) return;
     setHistoryLoadingOlder(true);
@@ -582,10 +599,9 @@ export function useEventChat(eventId: number | null, enabled = true) {
     }
     if (realtime.connectedVersion !== lastConnectedVersionRef.current) {
       lastConnectedVersionRef.current = realtime.connectedVersion;
-      void fetchInitialHistory();
-      void refreshPaymentViews(eventId);
+      void resyncAfterReconnect(eventId);
     }
-  }, [enabled, eventId, fetchInitialHistory, realtime.connectedVersion, refreshPaymentViews]);
+  }, [enabled, eventId, realtime.connectedVersion, resyncAfterReconnect]);
 
   useEffect(() => {
     if (!enabled || !eventId) return;

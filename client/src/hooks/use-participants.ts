@@ -1,7 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, buildUrl } from "@shared/routes";
 import type { InsertParticipant } from "@shared/routes";
-import type { Membership } from "@shared/schema";
+import type { Membership, Participant, PendingRequestWithBbq } from "@shared/schema";
+import { apiFetch, apiRequest } from "@/lib/api";
 import { UpgradeRequiredError } from "@/lib/upgrade";
 import { PLAN_STALE_TIME_MS } from "@/lib/query-stale";
 import { queryKeys } from "@/lib/query-keys";
@@ -12,18 +13,16 @@ type ApiRequestError = Error & {
 };
 
 export function participantsQueryKey(bbqId: number | null) {
-  return ['/api/barbecues', bbqId, 'participants'] as const;
+  return queryKeys.plans.participants(bbqId);
 }
 
-export async function fetchParticipants(bbqId: number) {
+export async function fetchParticipants(bbqId: number): Promise<Participant[]> {
   const url = buildUrl(api.participants.list.path, { bbqId });
-  const res = await fetch(url);
-  if (!res.ok) throw new Error("Failed to fetch participants");
-  return res.json();
+  return apiRequest<Participant[]>(url);
 }
 
 export function useParticipants(bbqId: number | null) {
-  return useQuery({
+  return useQuery<Participant[]>({
     queryKey: participantsQueryKey(bbqId),
     queryFn: async () => {
       if (!bbqId) return [];
@@ -35,27 +34,23 @@ export function useParticipants(bbqId: number | null) {
 }
 
 export function usePendingRequests(bbqId: number | null) {
-  return useQuery({
-    queryKey: ['/api/barbecues', bbqId, 'pending'],
+  return useQuery<PendingRequestWithBbq[]>({
+    queryKey: queryKeys.plans.pendingRequests(bbqId),
     queryFn: async () => {
       if (!bbqId) return [];
       const url = buildUrl(api.participants.pending.path, { bbqId });
-      const res = await fetch(url);
-      if (!res.ok) return [];
-      return res.json();
+      return apiRequest<PendingRequestWithBbq[]>(url).catch(() => []);
     },
     enabled: !!bbqId,
   });
 }
 
 export function useInvitedParticipants(bbqId: number | null) {
-  return useQuery({
-    queryKey: ['/api/barbecues', bbqId, 'invited'],
+  return useQuery<Participant[]>({
+    queryKey: queryKeys.plans.invited(bbqId),
     queryFn: async () => {
       if (!bbqId) return [];
-      const res = await fetch(`/api/barbecues/${bbqId}/invited`);
-      if (!res.ok) return [];
-      return res.json();
+      return apiRequest<Participant[]>(`/api/barbecues/${bbqId}/invited`).catch(() => []);
     },
     enabled: !!bbqId,
   });
@@ -63,12 +58,10 @@ export function useInvitedParticipants(bbqId: number | null) {
 
 export function useMemberships(userId: string | null) {
   return useQuery<Membership[]>({
-    queryKey: ['/api/memberships', userId],
+    queryKey: queryKeys.user.memberships(userId),
     queryFn: async () => {
       if (!userId) return [];
-      const res = await fetch(`/api/memberships?userId=${encodeURIComponent(userId)}`);
-      if (!res.ok) return [];
-      return res.json();
+      return apiRequest<Membership[]>(`/api/memberships?userId=${encodeURIComponent(userId)}`).catch(() => []);
     },
     enabled: !!userId,
   });
@@ -80,18 +73,17 @@ export function useCreateParticipant(bbqId: number | null) {
     mutationFn: async (data: InsertParticipant) => {
       if (!bbqId) throw new Error("No BBQ selected");
       const url = buildUrl(api.participants.create.path, { bbqId });
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
+        body: data,
       });
-      const resBody = await res.json().catch(() => ({}));
-      if (res.status === 402 && resBody?.code === "UPGRADE_REQUIRED") throw new UpgradeRequiredError(resBody);
-      if (!res.ok) throw new Error(resBody?.message || "Failed to create participant");
-      return resBody;
+      const body = await res.json().catch(() => ({}));
+      if (res.status === 402 && (body as { code?: string }).code === "UPGRADE_REQUIRED") throw new UpgradeRequiredError(body as never);
+      if (!res.ok) throw new Error((body as { message?: string }).message || "Failed to create participant");
+      return body;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/barbecues', bbqId, 'participants'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.plans.participants(bbqId) });
     },
   });
 }
@@ -101,19 +93,18 @@ export function useJoinBarbecue() {
   return useMutation({
     mutationFn: async ({ bbqId, name, userId }: { bbqId: number; name: string; userId: number }) => {
       const url = buildUrl(api.participants.join.path, { bbqId });
-      const res = await fetch(url, {
+      const res = await apiFetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, userId }),
+        body: { name, userId },
       });
-      const data = await res.json();
-      if (res.status === 402 && data?.code === "UPGRADE_REQUIRED") throw new UpgradeRequiredError(data);
-      if (!res.ok) throw new Error(data.message || "Failed to join");
-      return data;
+      const body = await res.json().catch(() => ({}));
+      if (res.status === 402 && (body as { code?: string }).code === "UPGRADE_REQUIRED") throw new UpgradeRequiredError(body as never);
+      if (!res.ok) throw new Error((body as { message?: string }).message || "Failed to join");
+      return body;
     },
     onSuccess: (_, { bbqId }) => {
-      queryClient.invalidateQueries({ queryKey: ['/api/memberships'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/barbecues', bbqId, 'pending'] });
+      queryClient.invalidateQueries({ queryKey: ["user", "memberships"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.plans.pendingRequests(bbqId) });
     },
   });
 }
@@ -123,18 +114,17 @@ export function useInviteParticipant(bbqId: number | null) {
   return useMutation({
     mutationFn: async (username: string) => {
       if (!bbqId) throw new Error("No BBQ selected");
-      const res = await fetch(`/api/barbecues/${bbqId}/invite`, {
+      const res = await apiFetch(`/api/barbecues/${bbqId}/invite`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username }),
+        body: { username },
       });
-      const data = await res.json();
-      if (res.status === 402 && data?.code === "UPGRADE_REQUIRED") throw new UpgradeRequiredError(data);
-      if (!res.ok) throw new Error(data.message || "Failed to invite");
-      return data;
+      const body = await res.json().catch(() => ({}));
+      if (res.status === 402 && (body as { code?: string }).code === "UPGRADE_REQUIRED") throw new UpgradeRequiredError(body as never);
+      if (!res.ok) throw new Error((body as { message?: string }).message || "Failed to invite");
+      return body;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/barbecues', bbqId, 'invited'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.plans.invited(bbqId) });
     },
   });
 }
@@ -144,14 +134,12 @@ export function useAcceptParticipant(bbqId: number | null) {
   return useMutation({
     mutationFn: async (id: number) => {
       const url = buildUrl(api.participants.accept.path, { id });
-      const res = await fetch(url, { method: "PATCH" });
-      if (!res.ok) throw new Error("Failed to accept");
-      return res.json();
+      return apiRequest(url, { method: "PATCH" });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/barbecues', bbqId, 'participants'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/barbecues', bbqId, 'pending'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/memberships'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.plans.participants(bbqId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.plans.pendingRequests(bbqId) });
+      queryClient.invalidateQueries({ queryKey: ["user", "memberships"] });
     },
   });
 }
@@ -161,14 +149,12 @@ export function useAcceptInvite() {
   return useMutation({
     mutationFn: async ({ id }: { id: number; bbqId: number }) => {
       const url = buildUrl(api.participants.accept.path, { id });
-      const res = await fetch(url, { method: "PATCH" });
-      if (!res.ok) throw new Error("Failed to accept invite");
-      return res.json();
+      return apiRequest(url, { method: "PATCH" });
     },
     onSuccess: (_, { bbqId }) => {
-      queryClient.invalidateQueries({ queryKey: ['/api/barbecues', bbqId, 'participants'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/memberships'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/barbecues'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.plans.participants(bbqId) });
+      queryClient.invalidateQueries({ queryKey: ["user", "memberships"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.plans.list() });
     },
   });
 }
@@ -178,12 +164,11 @@ export function useDeclineInvite() {
   return useMutation({
     mutationFn: async ({ id }: { id: number; bbqId: number }) => {
       const url = buildUrl(api.participants.delete.path, { id });
-      const res = await fetch(url, { method: "DELETE" });
-      if (!res.ok) throw new Error("Failed to decline");
+      await apiRequest(url, { method: "DELETE" });
     },
     onSuccess: (_, { bbqId }) => {
-      queryClient.invalidateQueries({ queryKey: ['/api/memberships'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/barbecues'] });
+      queryClient.invalidateQueries({ queryKey: ["user", "memberships"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.plans.list() });
     },
   });
 }
@@ -193,13 +178,12 @@ export function useRejectParticipant(bbqId: number | null) {
   return useMutation({
     mutationFn: async (id: number) => {
       const url = buildUrl(api.participants.delete.path, { id });
-      const res = await fetch(url, { method: "DELETE" });
-      if (!res.ok) throw new Error("Failed to reject");
+      await apiRequest(url, { method: "DELETE" });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/barbecues', bbqId, 'participants'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/barbecues', bbqId, 'pending'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/memberships'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.plans.participants(bbqId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.plans.pendingRequests(bbqId) });
+      queryClient.invalidateQueries({ queryKey: ["user", "memberships"] });
     },
   });
 }
@@ -209,19 +193,14 @@ export function useUpdateParticipantName(bbqId: number | null) {
   return useMutation({
     mutationFn: async ({ id, name }: { id: number; name: string }) => {
       const url = buildUrl(api.participants.update.path, { id });
-      const res = await fetch(url, {
+      return apiRequest(url, {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
-        credentials: "include",
+        body: { name },
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Failed to update name");
-      return data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/barbecues', bbqId, 'participants'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/barbecues', bbqId, 'expenses'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.plans.participants(bbqId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.plans.expenses(bbqId) });
     },
   });
 }
@@ -231,15 +210,14 @@ export function useDeleteParticipant(bbqId: number | null) {
   return useMutation({
     mutationFn: async (id: number) => {
       const url = buildUrl(api.participants.delete.path, { id });
-      const res = await fetch(url, { method: "DELETE" });
-      if (!res.ok) throw new Error("Failed to delete participant");
+      await apiRequest(url, { method: "DELETE" });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/barbecues', bbqId, 'participants'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/barbecues', bbqId, 'expenses'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/memberships'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/barbecues'] });
-      queryClient.refetchQueries({ queryKey: ['/api/barbecues'] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.plans.participants(bbqId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.plans.expenses(bbqId) });
+      queryClient.invalidateQueries({ queryKey: ["user", "memberships"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.plans.list() });
+      queryClient.refetchQueries({ queryKey: queryKeys.plans.list() });
     },
   });
 }
@@ -275,9 +253,7 @@ export function eventMembersQueryKey(eventId: number | null) {
 }
 
 export async function fetchEventMembers(eventId: number) {
-  const res = await fetch(`/api/events/${eventId}/members`, { credentials: "include" });
-  if (!res.ok) throw new Error("Failed to fetch members");
-  return (await res.json()) as EventMemberView[];
+  return apiRequest<EventMemberView[]>(`/api/events/${eventId}/members`);
 }
 
 export function useEventMembers(eventId: number | null) {
@@ -297,9 +273,7 @@ export function usePendingEventInvites(eventId: number | null) {
     queryKey: queryKeys.plans.invitesPending(eventId),
     queryFn: async () => {
       if (!eventId) return [];
-      const res = await fetch(`/api/events/${eventId}/invites?status=pending`, { credentials: "include" });
-      if (!res.ok) return [];
-      return (await res.json()) as EventInviteView[];
+      return apiRequest<EventInviteView[]>(`/api/events/${eventId}/invites?status=pending`).catch(() => []);
     },
     enabled: !!eventId,
     staleTime: PLAN_STALE_TIME_MS,
@@ -313,21 +287,10 @@ export function useCreateEventInvite(eventId: number | null) {
   return useMutation({
     mutationFn: async (payload: { userId: number }) => {
       if (!eventId) throw new Error("No event selected");
-      const res = await fetch(`/api/events/${eventId}/invites`, {
+      return apiRequest(`/api/events/${eventId}/invites`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-        credentials: "include",
+        body: payload,
       });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error((body as { message?: string }).message || "Failed to create invite");
-      return body as {
-        inviteId: string;
-        inviteeUserId?: number | null;
-        status?: string;
-        createdAt?: string | null;
-        expiresAt?: string | null;
-      };
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.plans.invitesPending(eventId) });
@@ -340,19 +303,10 @@ export function useAddEventMember(eventId: number | null) {
   return useMutation({
     mutationFn: async ({ userId }: { userId: number }) => {
       if (!eventId) throw new Error("No event selected");
-      const res = await fetch(`/api/events/${eventId}/members`, {
+      const body = await apiRequest(`/api/events/${eventId}/members`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId }),
-        credentials: "include",
+        body: { userId },
       });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        const err = new Error((body as { message?: string }).message || "Failed to add member") as ApiRequestError;
-        err.status = res.status;
-        err.code = (body as { code?: string }).code;
-        throw err;
-      }
       return body as EventMemberView;
     },
     onSuccess: () => {
@@ -366,13 +320,9 @@ export function useRevokeEventInvite(eventId: number | null) {
   return useMutation({
     mutationFn: async ({ inviteId }: { inviteId: string }) => {
       if (!eventId) throw new Error("No event selected");
-      const res = await fetch(`/api/events/${eventId}/invites/${inviteId}/revoke`, {
+      return apiRequest(`/api/events/${eventId}/invites/${inviteId}/revoke`, {
         method: "POST",
-        credentials: "include",
       });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error((body as { message?: string }).message || "Failed to revoke invite");
-      return body as { id: string; status: string };
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.plans.invitesPending(eventId) });

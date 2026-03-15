@@ -21,6 +21,19 @@ type PlanActivityResponse = {
   unreadCount: number;
 };
 
+function dedupeActivityItems(items: PlanActivityItem[]) {
+  const byId = new Map<number, PlanActivityItem>();
+  for (const item of items) {
+    byId.set(item.id, item);
+  }
+  return Array.from(byId.values()).sort((a, b) => {
+    const aTime = new Date(a.createdAt ?? 0).getTime();
+    const bTime = new Date(b.createdAt ?? 0).getTime();
+    if (aTime !== bTime) return bTime - aTime;
+    return b.id - a.id;
+  });
+}
+
 function planActivityQueryKey(eventId: number | null) {
   return queryKeys.plans.activity(eventId ?? 0);
 }
@@ -31,7 +44,7 @@ async function fetchPlanActivity(eventId: number): Promise<PlanActivityResponse>
     return { items: body as PlanActivityItem[], unreadCount: 0 };
   }
   return {
-    items: Array.isArray(body.items) ? body.items : [],
+    items: dedupeActivityItems(Array.isArray(body.items) ? body.items : []),
     unreadCount: Number.isFinite(Number(body.unreadCount)) ? Number(body.unreadCount) : 0,
   };
 }
@@ -50,7 +63,7 @@ export function usePlanActivity(eventId: number | null, enabled = true) {
     queryClient.setQueryData<PlanActivityResponse>(planActivityQueryKey(eventId), (prev) => {
       const currentItems = Array.isArray(prev?.items) ? prev.items : [];
       const currentUnread = Number.isFinite(Number(prev?.unreadCount)) ? Number(prev?.unreadCount) : 0;
-      const items = [next, ...currentItems.filter((item) => item.id !== next.id)].slice(0, 50);
+      const items = dedupeActivityItems([next, ...currentItems]).slice(0, 50);
       const unreadCount = currentUnread + 1;
       patchSidebarUnread(eventId!, unreadCount);
       return { items, unreadCount };
@@ -93,7 +106,7 @@ export function usePlanActivity(eventId: number | null, enabled = true) {
 
   useEffect(() => {
     if (!enabled || !eventId || realtime.connectedVersion <= 0) return;
-    void queryClient.invalidateQueries({ queryKey: planActivityQueryKey(eventId) });
+    void queryClient.refetchQueries({ queryKey: planActivityQueryKey(eventId) });
   }, [enabled, eventId, queryClient, realtime.connectedVersion]);
 
   const markAllAsRead = useCallback(async () => {

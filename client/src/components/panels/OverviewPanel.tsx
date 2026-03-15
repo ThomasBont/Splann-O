@@ -11,6 +11,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { convertCurrency } from "@/hooks/use-language";
 import { usePlan, usePlanCrew, usePlanExpenses } from "@/hooks/use-plan-data";
 import { useUpdateBarbecue, useUploadEventBanner } from "@/hooks/use-bbq-data";
+import { apiRequest } from "@/lib/api";
 import { resolveAssetUrl, withCacheBust } from "@/lib/asset-url";
 import { formatFullDate } from "@/lib/dates";
 import { getBannerPresetClass, getBannerPresetTone, getEventBanner } from "@/lib/event-banner";
@@ -204,9 +205,7 @@ export function OverviewPanel() {
           pastQuickSettleRounds: [],
         };
       }
-      const res = await fetch(`/api/events/${eventId}/settlements`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to load money rounds");
-      return res.json() as Promise<SettlementRoundsResponse>;
+      return apiRequest<SettlementRoundsResponse>(`/api/events/${eventId}/settlements`);
     },
     enabled: !!eventId,
     staleTime: 15_000,
@@ -274,7 +273,7 @@ export function OverviewPanel() {
   const expensesLocked = invitesLocked;
   const completedSettlementId = isFinanciallyCompleted ? latestPastFinalSettlementRound?.id ?? null : null;
   const completedSettlementDetailQuery = useQuery<SettlementDetailResponse>({
-    queryKey: [...queryKeys.plans.settlementDetail(eventId, completedSettlementId), "overview-completed"],
+    queryKey: queryKeys.plans.settlementDetail(eventId, completedSettlementId),
     queryFn: async () => {
       if (!eventId || !completedSettlementId) {
         return {
@@ -283,9 +282,7 @@ export function OverviewPanel() {
           summary: { transferCount: 0, paidTransfersCount: 0, totalAmount: 0, outstandingAmount: 0 },
         };
       }
-      const res = await fetch(`/api/events/${eventId}/settlement/${encodeURIComponent(completedSettlementId)}`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to load completed settlement");
-      return res.json() as Promise<SettlementDetailResponse>;
+      return apiRequest<SettlementDetailResponse>(`/api/events/${eventId}/settlement/${encodeURIComponent(completedSettlementId)}`);
     },
     enabled: !!eventId && !!completedSettlementId,
     staleTime: 15_000,
@@ -529,7 +526,7 @@ export function OverviewPanel() {
 
   const syncBannerLocally = (nextBannerUrl: string | null) => {
     if (!eventId) return;
-    queryClient.setQueryData(["plan", eventId], (current: typeof plan | undefined) => (
+    queryClient.setQueryData(queryKeys.plans.detail(eventId), (current: typeof plan | undefined) => (
       current ? { ...current, bannerImageUrl: nextBannerUrl } : current
     ));
     queryClient.setQueryData(queryKeys.plans.list(), (current: Array<Record<string, unknown>> | undefined) => (

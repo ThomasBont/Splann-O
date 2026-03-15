@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, buildUrl } from "@shared/routes";
 import type { Barbecue } from "@shared/schema";
 import { normalizeCountryCode } from "@shared/lib/country-code";
+import { apiFetch, apiRequest } from "@/lib/api";
 import { UpgradeRequiredError, type UpgradeRequiredPayload } from "@/lib/upgrade";
 import { resolveAssetUrl } from "@/lib/asset-url";
 import { PLAN_STALE_TIME_MS } from "@/lib/query-stale";
@@ -141,9 +142,7 @@ export type PublicProfilePayload = {
 };
 
 export async function fetchBarbecues() {
-  const res = await fetch(api.barbecues.list.path, { credentials: "include" });
-  if (!res.ok) throw new Error("Failed to fetch barbecues");
-  return res.json() as Promise<BarbecueListItem[]>;
+  return apiRequest<BarbecueListItem[]>(api.barbecues.list.path);
 }
 
 export async function fetchPlan(planId: number) {
@@ -414,7 +413,7 @@ export function useUploadEventBanner(bbqId: number | null) {
       return payload as { bbqId: number; bannerImageUrl: string | null };
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.plans.list() });
     },
   });
 }
@@ -433,7 +432,7 @@ export function useDeleteEventBanner(bbqId: number | null) {
       return payload as { bbqId: number; bannerImageUrl: null };
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.plans.list() });
     },
   });
 }
@@ -680,7 +679,7 @@ export function useActivateListing() {
       return body as Partial<Barbecue>;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.plans.list() });
       queryClient.invalidateQueries({ queryKey: ["/api/explore/events"] });
     },
   });
@@ -696,7 +695,7 @@ export function useDeactivateListing() {
       return body as Barbecue;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.plans.list() });
       queryClient.invalidateQueries({ queryKey: ["/api/explore/events"] });
     },
   });
@@ -723,15 +722,13 @@ export function useCheckoutPublicListing() {
 export function useCheckoutSettlementTransfer() {
   return useMutation({
     mutationFn: async (input: { eventId: number; transferId: string; expenseId?: number }) => {
-      const res = await fetch("/api/payments/create-checkout", {
+      const res = await apiFetch("/api/payments/create-checkout", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
+        body: {
           planId: input.eventId,
           transferId: input.transferId,
           ...(typeof input.expenseId === "number" ? { expenseId: input.expenseId } : {}),
-        }),
+        },
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -747,11 +744,9 @@ export function useCheckoutSettlementTransfer() {
 export function useConfirmCheckoutSession() {
   return useMutation({
     mutationFn: async (input: { sessionId: string }) => {
-      const res = await fetch("/api/payments/confirm-checkout-session", {
+      const res = await apiFetch("/api/payments/confirm-checkout-session", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(input),
+        body: input,
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -921,7 +916,7 @@ export function useAcceptPlanInvite() {
         };
       });
       queryClient.invalidateQueries({ queryKey: ["/api/plans/invites/pending"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.plans.list() });
       queryClient.invalidateQueries({ queryKey: ["/api/memberships"] });
       queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
     },
@@ -949,7 +944,7 @@ export function useDeclinePlanInvite() {
         };
       });
       queryClient.invalidateQueries({ queryKey: ["/api/plans/invites/pending"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.plans.list() });
       queryClient.invalidateQueries({ queryKey: ["/api/memberships"] });
       queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
     },

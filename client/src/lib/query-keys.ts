@@ -6,6 +6,9 @@ export const queryKeys = {
     expenses: (planId: number | null) => ["plans", "detail", planId, "expenses"] as const,
     expenseShares: (planId: number | null) => ["plans", "detail", planId, "expense-shares"] as const,
     crew: (planId: number | null) => ["plans", "detail", planId, "crew"] as const,
+    participants: (planId: number | null) => ["plans", "detail", planId, "participants"] as const,
+    pendingRequests: (planId: number | null) => ["plans", "detail", planId, "participants", "pending"] as const,
+    invited: (planId: number | null) => ["plans", "detail", planId, "participants", "invited"] as const,
     activity: (planId: number | null) => ["plans", "detail", planId, "activity"] as const,
     photos: (planId: number | null) => ["plans", "detail", planId, "photos"] as const,
     balances: (planId: number | null) => ["plans", "detail", planId, "balances"] as const,
@@ -17,5 +20,7 @@ export const queryKeys = {
     members: (planId: number | null) => ["plans", "detail", planId, "members"] as const,
     invitesPending: (planId: number | null) => ["plans", "detail", planId, "invites", "pending"] as const,
   },
+  user: {
+    memberships: (userId: string | null) => ["user", "memberships", userId] as const,
+  },
 } as const;
-

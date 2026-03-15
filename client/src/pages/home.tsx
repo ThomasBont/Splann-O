@@ -2159,7 +2159,7 @@ export default function Home({
   const suggestionVoterLabel = ((): string => {
     if (user?.id) {
       const participant = participants.find((p: Participant) => p.userId === user.id);
-      return participant?.name || user?.displayName || username;
+      return participant?.name || user?.displayName || username || "You";
     }
     return user?.displayName || "You";
   })();

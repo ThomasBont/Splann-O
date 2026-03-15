@@ -34,6 +34,8 @@ class EventRealtimeClient {
   private manuallyClosed = false;
   private onlineHandler: (() => void) | null = null;
   private offlineHandler: (() => void) | null = null;
+  private visibilityHandler: (() => void) | null = null;
+  private hiddenAt: number | null = null;
   private snapshot: EventRealtimeSnapshot = {
     status: "idle",
     isSubscribed: false,
@@ -102,7 +104,7 @@ class EventRealtimeClient {
   }
 
   private attachWindowListeners() {
-    if (typeof window === "undefined" || this.onlineHandler || this.offlineHandler) return;
+    if (typeof window === "undefined" || this.onlineHandler || this.offlineHandler || this.visibilityHandler) return;
     this.onlineHandler = () => {
       if (this.retainCount <= 0) return;
       this.reconnectNow();
@@ -115,16 +117,41 @@ class EventRealtimeClient {
       });
       this.disconnect(false);
     };
+    this.visibilityHandler = () => {
+      if (this.retainCount <= 0 || typeof document === "undefined") return;
+      if (document.hidden) {
+        this.hiddenAt = Date.now();
+        return;
+      }
+      const hiddenDuration = this.hiddenAt ? Date.now() - this.hiddenAt : 0;
+      this.hiddenAt = null;
+      const shouldReconnect =
+        hiddenDuration > 20_000
+        || this.snapshot.status === "offline"
+        || this.snapshot.status === "error"
+        || !this.snapshot.isSubscribed
+        || !this.ws
+        || this.ws.readyState !== WebSocket.OPEN;
+      if (shouldReconnect) {
+        this.reconnectNow();
+      }
+    };
     window.addEventListener("online", this.onlineHandler);
     window.addEventListener("offline", this.offlineHandler);
+    document.addEventListener("visibilitychange", this.visibilityHandler);
   }
 
   private detachWindowListeners() {
     if (typeof window === "undefined") return;
     if (this.onlineHandler) window.removeEventListener("online", this.onlineHandler);
     if (this.offlineHandler) window.removeEventListener("offline", this.offlineHandler);
+    if (typeof document !== "undefined" && this.visibilityHandler) {
+      document.removeEventListener("visibilitychange", this.visibilityHandler);
+    }
     this.onlineHandler = null;
     this.offlineHandler = null;
+    this.visibilityHandler = null;
+    this.hiddenAt = null;
   }
 
   private connect() {

@@ -6,6 +6,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { usePlan, usePlanCrew, usePlanExpenses } from "@/hooks/use-plan-data";
 import { useEventGuests } from "@/hooks/use-event-guests";
 import { useLatestRunningPoll } from "@/hooks/use-latest-running-poll";
+import { apiRequest } from "@/lib/api";
 import { getClientPlanStatus } from "@/lib/plan-lifecycle";
 import { queryKeys } from "@/lib/query-keys";
 import { computeSplit } from "@/lib/split/calc";
@@ -47,9 +48,7 @@ export function NextActionPanel() {
     queryKey: queryKeys.plans.settlementLatest(eventId),
     queryFn: async () => {
       if (!eventId) return { settlement: null, transfers: [] };
-      const res = await fetch(`/api/events/${eventId}/settlement/latest`, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to load settlement");
-      return res.json() as Promise<SettlementResponse>;
+      return apiRequest<SettlementResponse>(`/api/events/${eventId}/settlement/latest`);
     },
     enabled: !!eventId,
     staleTime: 15_000,

@@ -28,6 +28,7 @@ import { useDeleteExpense, useUpdateExpense } from "@/hooks/use-expenses";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAppToast } from "@/hooks/use-app-toast";
 import { useAuth } from "@/hooks/use-auth";
+import { queryKeys } from "@/lib/query-keys";
 import { cn } from "@/lib/utils";
 import type { ExpenseWithParticipant } from "@shared/schema";
 import type { Balance, Settlement } from "@/lib/split/calc";
@@ -195,7 +196,7 @@ export function SharedCostsDrawer({
     return categories;
   }, [categories, category]);
   const canSettle = useMemo(() => balances.some((balance) => Math.abs(balance.balance) > 0.01), [balances]);
-  const settlementQueryKey = useMemo(() => ["/api/events", eventId, "settlement", "latest"], [eventId]);
+  const settlementQueryKey = useMemo(() => queryKeys.plans.settlementLatest(eventId), [eventId]);
   const startManualSettlement = useMutation({
     mutationFn: async () => {
       if (!eventId) throw new Error("Event not found");

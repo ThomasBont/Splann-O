@@ -22,6 +22,7 @@ import { planQueryKey, usePlan, usePlanCrew, usePlanExpenses } from "@/hooks/use
 import { resolveAssetUrl } from "@/lib/asset-url";
 import { formatFullDate } from "@/lib/dates";
 import { getClientPlanStatus, getPlanFinalState, getPlanWrapUpEndsAt } from "@/lib/plan-lifecycle";
+import { queryKeys } from "@/lib/query-keys";
 import { computeSplit } from "@/lib/split/calc";
 import { cn } from "@/lib/utils";
 import { usePanel } from "@/state/panel";
@@ -427,7 +428,7 @@ export function ExpensesPanel() {
   const wrapUpEndsLabel = formatFullDate(wrapUpEndsAt);
   const isCreator = Number(plan?.creatorUserId) === Number(user?.id);
   const [confirmSettleUpOpen, setConfirmSettleUpOpen] = useState(false);
-  const settlementRoundsQueryKey = ["/api/events", eventId, "settlements"] as const;
+  const settlementRoundsQueryKey = queryKeys.plans.settlements(eventId);
   const settlementRoundsQuery = useQuery<SettlementRoundsResponse>({
     queryKey: settlementRoundsQueryKey,
     queryFn: async () => {
@@ -456,7 +457,7 @@ export function ExpensesPanel() {
   const expensesLocked = isPlanClosed || isFinanciallyCompleted || !!activeFinalSettlementRound;
   const latestPastFinalSettlementRound = settlementRoundsQuery.data?.pastFinalSettlementRounds?.[0] ?? null;
   const displayedSettlementId = activeFinalSettlementRound?.id ?? latestPastFinalSettlementRound?.id ?? null;
-  const settlementDetailQueryKey = ["/api/events", eventId, "settlement", displayedSettlementId ?? "none"] as const;
+  const settlementDetailQueryKey = queryKeys.plans.settlementDetail(eventId, displayedSettlementId);
   const settlementDetailQuery = useQuery<SettlementDetailResponse>({
     queryKey: settlementDetailQueryKey,
     queryFn: async () => {

@@ -104,6 +104,49 @@ export async function getPlanLifecycleOrThrow(eventId: number) {
   return lifecycle;
 }
 
+type LifecycleMutationGuardConfig = {
+  codePrefix: string;
+  statusCode?: number;
+  blockStatuses?: CanonicalPlanStatus[];
+  archivedMessage?: string;
+  settledMessage?: string;
+  closedMessage?: string;
+  blockIfSettlementStarted?: boolean;
+  settlementStartedMessage?: string;
+  requireSocialOpen?: boolean;
+  socialClosedCode?: string;
+  socialClosedMessage?: string | ((status: CanonicalPlanStatus) => string);
+};
+
+export async function assertPlanMutationAllowed(eventId: number, config: LifecycleMutationGuardConfig) {
+  const lifecycle = await getPlanLifecycleOrThrow(eventId);
+  const statusCode = config.statusCode ?? 409;
+  const blockStatuses = new Set(config.blockStatuses ?? []);
+
+  if (config.requireSocialOpen && !lifecycle.socialOpen) {
+    const socialClosedCode = config.socialClosedCode ?? `${config.codePrefix}_social_closed`;
+    const socialClosedMessage = typeof config.socialClosedMessage === "function"
+      ? config.socialClosedMessage(lifecycle.status)
+      : (config.socialClosedMessage ?? "This action is no longer available for this plan.");
+    throw new AppError(socialClosedCode, socialClosedMessage, 403);
+  }
+
+  if (blockStatuses.has("archived") && lifecycle.status === "archived") {
+    throw new AppError(`${config.codePrefix}_plan_archived`, config.archivedMessage ?? "Plan is archived.", statusCode);
+  }
+  if (blockStatuses.has("settled") && lifecycle.status === "settled") {
+    throw new AppError(`${config.codePrefix}_plan_settled`, config.settledMessage ?? "Plan is settled.", statusCode);
+  }
+  if (blockStatuses.has("closed") && lifecycle.status === "closed") {
+    throw new AppError(`${config.codePrefix}_plan_closed`, config.closedMessage ?? "Plan is closed.", statusCode);
+  }
+  if (config.blockIfSettlementStarted && lifecycle.settlementStarted) {
+    throw new AppError(`${config.codePrefix}_settlement_started`, config.settlementStartedMessage ?? "Settlement already started.", statusCode);
+  }
+
+  return lifecycle;
+}
+
 export function getLifecycleErrorCode(action: "expenses" | "invites" | "members" | "chat", status: CanonicalPlanStatus, settlementStarted: boolean) {
   if (status === "archived") {
     return `${action}_locked_plan_archived`;
@@ -121,41 +164,97 @@ export function getLifecycleErrorCode(action: "expenses" | "invites" | "members"
 }
 
 export async function assertExpensesWritable(eventId: number) {
-  const lifecycle = await getPlanLifecycleOrThrow(eventId);
-  if (lifecycle.status === "archived") conflict("Plan is archived. Expenses are read-only.");
-  if (lifecycle.status === "settled") conflict("Plan is settled. Expenses are read-only.");
-  if (lifecycle.status === "closed") conflict("Plan is closed. New expenses are no longer allowed.");
-  if (lifecycle.settlementStarted) conflict("Settlement already started. Expenses are locked.");
-  return lifecycle;
+  try {
+    return await assertPlanMutationAllowed(eventId, {
+      codePrefix: "expenses_locked",
+      blockStatuses: ["archived", "settled", "closed"],
+      archivedMessage: "Plan is archived. Expenses are read-only.",
+      settledMessage: "Plan is settled. Expenses are read-only.",
+      closedMessage: "Plan is closed. New expenses are no longer allowed.",
+      blockIfSettlementStarted: true,
+      settlementStartedMessage: "Settlement already started. Expenses are locked.",
+    });
+  } catch (error) {
+    if (error instanceof AppError) conflict(error.message);
+    throw error;
+  }
 }
 
 export async function assertInvitesWritable(eventId: number) {
-  const lifecycle = await getPlanLifecycleOrThrow(eventId);
-  if (lifecycle.status === "archived") conflict("Plan is archived. Invites are disabled.");
-  if (lifecycle.status === "settled") conflict("Plan is settled. Invites are disabled.");
-  if (lifecycle.status === "closed") conflict("Plan is closed. Invites are disabled.");
-  if (lifecycle.settlementStarted) conflict("Settlement already started. Invites are disabled.");
-  return lifecycle;
+  try {
+    return await assertPlanMutationAllowed(eventId, {
+      codePrefix: "invites_locked",
+      blockStatuses: ["archived", "settled", "closed"],
+      archivedMessage: "Plan is archived. Invites are disabled.",
+      settledMessage: "Plan is settled. Invites are disabled.",
+      closedMessage: "Plan is closed. Invites are disabled.",
+      blockIfSettlementStarted: true,
+      settlementStartedMessage: "Settlement already started. Invites are disabled.",
+    });
+  } catch (error) {
+    if (error instanceof AppError) conflict(error.message);
+    throw error;
+  }
 }
 
 export async function assertMembersWritable(eventId: number) {
-  const lifecycle = await getPlanLifecycleOrThrow(eventId);
-  if (lifecycle.status === "archived") conflict("Plan is archived. Members are locked.");
-  if (lifecycle.status === "settled") conflict("Plan is settled. Members are locked.");
-  if (lifecycle.status === "closed") conflict("Plan is closed. Members are locked.");
-  if (lifecycle.settlementStarted) conflict("Settlement already started. Members are locked.");
-  return lifecycle;
+  try {
+    return await assertPlanMutationAllowed(eventId, {
+      codePrefix: "members_locked",
+      blockStatuses: ["archived", "settled", "closed"],
+      archivedMessage: "Plan is archived. Members are locked.",
+      settledMessage: "Plan is settled. Members are locked.",
+      closedMessage: "Plan is closed. Members are locked.",
+      blockIfSettlementStarted: true,
+      settlementStartedMessage: "Settlement already started. Members are locked.",
+    });
+  } catch (error) {
+    if (error instanceof AppError) conflict(error.message);
+    throw error;
+  }
 }
 
 export async function assertArchivedPlanWritable(
   eventId: number,
   lockedMessage = "Plan is archived. This section is read-only.",
 ) {
-  const lifecycle = await getPlanLifecycleOrThrow(eventId);
-  if (lifecycle.status === "archived") {
-    forbidden(lockedMessage);
-  }
-  return lifecycle;
+  return assertPlanMutationAllowed(eventId, {
+    codePrefix: "plan_locked",
+    statusCode: 403,
+    blockStatuses: ["archived"],
+    archivedMessage: lockedMessage,
+  });
+}
+
+export async function assertSettlementStartAllowed(eventId: number) {
+  return assertPlanMutationAllowed(eventId, {
+    codePrefix: "plan",
+    blockStatuses: ["settled", "archived"],
+    settledMessage: "This plan is already settled.",
+    archivedMessage: "This plan is archived.",
+  });
+}
+
+export async function assertSettlementWritable(eventId: number) {
+  return assertPlanMutationAllowed(eventId, {
+    codePrefix: "plan",
+    blockStatuses: ["settled", "archived"],
+    settledMessage: "Settled plans are read-only.",
+    archivedMessage: "Archived plans are read-only.",
+  });
+}
+
+export async function assertSocialMutationWritable(
+  eventId: number,
+  code = "SOCIAL_ACTIONS_CLOSED",
+  message = "This action is no longer available for this plan.",
+) {
+  return assertPlanMutationAllowed(eventId, {
+    codePrefix: "social",
+    requireSocialOpen: true,
+    socialClosedCode: code,
+    socialClosedMessage: message,
+  });
 }
 
 export async function ensurePrivateEventParticipantOrCreator(req: Request, bbqId: number) {

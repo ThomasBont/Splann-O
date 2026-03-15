@@ -87,6 +87,8 @@ type SettlementRoundDetail = {
   };
 };
 
+type DbExecutor = Pick<typeof db, "select" | "insert" | "update" | "delete">;
+
 function toCents(amount: number): number {
   return Math.round((Number.isFinite(amount) ? amount : 0) * 100);
 }
@@ -616,8 +618,69 @@ export async function createDirectSplitRound(input: {
     return { code: "active_settlement_exists" as const, detail: activeRound };
   }
 
+  const persisted = await createDirectSplitRoundRecord(db, input);
+  if (persisted.code !== "created") {
+    return { code: persisted.code, detail: persisted.detail };
+  }
+
+  const detail = await getSettlementById(input.eventId, persisted.settlementId);
+  const actorName = input.actorName?.trim() || "Someone";
+  const amount = fromCents(persisted.amountCents);
+  await logPlanActivity({
+    eventId: input.eventId,
+    type: "SETTLEMENT_STARTED",
+    actorUserId: input.createdByUserId,
+    actorName,
+    message: `${actorName} paid for ${persisted.title}`,
+    meta: {
+      settlementRoundId: persisted.settlementId,
+      title: persisted.title,
+      roundType: "direct_split",
+      amount,
+      currency: persisted.currency,
+      paidByUserId: persisted.paidByUserId,
+      paidByName: persisted.paidByName,
+      selectedParticipantIds: persisted.selectedParticipantIds,
+    },
+  });
+  await postSystemChatMessage(input.eventId, `${actorName} paid for ${persisted.title}`, {
+    type: "settlement",
+    action: "started",
+    settlementRoundId: persisted.settlementId,
+    title: persisted.title,
+    roundType: "direct_split",
+    amount,
+    currency: persisted.currency,
+    paidByUserId: persisted.paidByUserId,
+    paidByName: persisted.paidByName,
+    selectedParticipantIds: persisted.selectedParticipantIds,
+  });
+  broadcastEventRealtime(input.eventId, {
+    type: "settlement:started",
+    eventId: input.eventId,
+    settlementRoundId: persisted.settlementId,
+  });
+  return { code: "created" as const, detail };
+}
+
+export async function createDirectSplitRoundRecord(
+  executor: DbExecutor,
+  input: {
+    eventId: number;
+    createdByUserId: number;
+    title: string;
+    amount: number;
+    paidByParticipantId: number;
+    splitWithParticipantIds: number[];
+  },
+) {
+  const activeRound = await getActiveSettlement(input.eventId, "direct_split");
+  if (activeRound?.settlement) {
+    return { code: "active_settlement_exists" as const, detail: activeRound };
+  }
+
   const [bbq, participants] = await Promise.all([
-    db.select().from(barbecues).where(eq(barbecues.id, input.eventId)).limit(1).then((rows) => rows[0] ?? null),
+    executor.select().from(barbecues).where(eq(barbecues.id, input.eventId)).limit(1).then((rows) => rows[0] ?? null),
     participantRepo.listByBbq(input.eventId, "accepted"),
   ]);
   if (!bbq) return { code: "event_not_found" as const, detail: null };
@@ -661,7 +724,7 @@ export async function createDirectSplitRound(input: {
   }
 
   const involvedParticipantIds = [payerParticipant.id, ...recipients.map((participant) => participant.id)];
-  const [createdRound] = await db
+  const [createdRound] = await executor
     .insert(eventSettlementRounds)
     .values({
       eventId: input.eventId,
@@ -679,51 +742,24 @@ export async function createDirectSplitRound(input: {
     return { code: "create_failed" as const, detail: null };
   }
 
-  await db.insert(eventSettlementTransfers).values(
+  await executor.insert(eventSettlementTransfers).values(
     transfers.map((transfer) => ({
       ...transfer,
       settlementRoundId: createdRound.id,
     })),
   );
 
-  const detail = await getSettlementById(input.eventId, createdRound.id);
-  const actorName = input.actorName?.trim() || "Someone";
-  const amount = fromCents(amountCents);
-  await logPlanActivity({
-    eventId: input.eventId,
-    type: "SETTLEMENT_STARTED",
-    actorUserId: input.createdByUserId,
-    actorName,
-    message: `${actorName} paid for ${title}`,
-    meta: {
-      settlementRoundId: createdRound.id,
-      title,
-      roundType: "direct_split",
-      amount,
-      currency: bbq.currency,
-      paidByUserId: payerParticipant.userId,
-      paidByName: payerParticipant.name,
-      selectedParticipantIds: involvedParticipantIds,
-    },
-  });
-  await postSystemChatMessage(input.eventId, `${actorName} paid for ${title}`, {
-    type: "settlement",
-    action: "started",
-    settlementRoundId: createdRound.id,
+  return {
+    code: "created" as const,
+    detail: null,
+    settlementId: createdRound.id,
     title,
-    roundType: "direct_split",
-    amount,
+    amountCents,
     currency: bbq.currency,
     paidByUserId: payerParticipant.userId,
     paidByName: payerParticipant.name,
     selectedParticipantIds: involvedParticipantIds,
-  });
-  broadcastEventRealtime(input.eventId, {
-    type: "settlement:started",
-    eventId: input.eventId,
-    settlementRoundId: createdRound.id,
-  });
-  return { code: "created" as const, detail };
+  };
 }
 
 export async function ensureAutoSettlement(_eventId: number): Promise<void> {

@@ -10,6 +10,7 @@ import { useCheckoutSettlementTransfer } from "@/hooks/use-bbq-data";
 import { usePlan, usePlanCrew, usePlanExpenses } from "@/hooks/use-plan-data";
 import { formatSettlementRoundTitle } from "@/lib/settlement-ui";
 import { computeSplit } from "@/lib/split/calc";
+import { queryKeys } from "@/lib/query-keys";
 import { usePanel } from "@/state/panel";
 import { PanelHeader, PanelSection, PanelShell, useActiveEventId } from "@/components/panels/panel-primitives";
 
@@ -151,7 +152,7 @@ export function SettlementPanel({ settlementId, createMode }: { settlementId?: s
   const canSettle = settlements.length > 0;
   const isCreator = Number(plan?.creatorUserId) === Number(user?.id);
 
-  const roundsQueryKey = ["/api/events", eventId, "settlements"] as const;
+  const roundsQueryKey = queryKeys.plans.settlements(eventId);
   const roundsQuery = useQuery<SettlementRoundsResponse>({
     queryKey: roundsQueryKey,
     queryFn: async () => {
@@ -180,7 +181,7 @@ export function SettlementPanel({ settlementId, createMode }: { settlementId?: s
     ?? roundsQuery.data?.activeQuickSettleRound?.id
     ?? roundsQuery.data?.activeFinalSettlementRound?.id
     ?? null;
-  const detailQueryKey = ["/api/events", eventId, "settlement", selectedRoundId ?? "none"] as const;
+  const detailQueryKey = queryKeys.plans.settlementDetail(eventId, selectedRoundId);
   const detailQuery = useQuery<SettlementDetailResponse>({
     queryKey: detailQueryKey,
     queryFn: async () => {

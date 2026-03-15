@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { getEventChatWsUrl } from "@/lib/network";
+import { useEventRealtime } from "@/lib/event-realtime";
+import { queryKeys } from "@/lib/query-keys";
 import {
   type EventInviteView,
   type EventMemberView,
@@ -34,62 +35,55 @@ export function useEventGuests(eventId: number | null) {
   const pendingInvitesQuery = usePendingEventInvites(eventId);
   const createInviteMutation = useCreateEventInvite(eventId);
   const revokeInviteMutation = useRevokeEventInvite(eventId);
+  const realtime = useEventRealtime(eventId, !!eventId, (rawPayload) => {
+    const payload = rawPayload as MemberJoinedPayload | InviteCreatedPayload | InviteRevokedPayload;
+    if (!payload || payload.eventId !== eventId || typeof payload.type !== "string") return;
+    if (payload.type === "event:member_joined") {
+      const member = (payload as MemberJoinedPayload).member;
+      if (!member) return;
+      queryClient.setQueryData<EventMemberView[]>(queryKeys.plans.members(eventId!), (prev = []) => {
+        if (prev.some((m) => m.userId === member.userId)) return prev;
+        return [member, ...prev];
+      });
+      queryClient.setQueryData<EventInviteView[]>(queryKeys.plans.invitesPending(eventId!), (prev = []) =>
+        prev.filter((invite) => {
+          const inviteeUserId = Number(invite.inviteeUserId ?? invite.invitee?.userId ?? 0);
+          return !Number.isFinite(inviteeUserId) || inviteeUserId <= 0 || inviteeUserId !== Number(member.userId);
+        }),
+      );
+      return;
+    }
+    if (payload.type === "event:invite_created") {
+      const invite = (payload as InviteCreatedPayload).invite;
+      if (!invite) return;
+      queryClient.setQueryData<EventInviteView[]>(queryKeys.plans.invitesPending(eventId!), (prev = []) => {
+        if (prev.some((inv) => inv.id === invite.id)) return prev;
+        return [invite, ...prev];
+      });
+      return;
+    }
+    if (payload.type === "event:invite_revoked") {
+      const inviteId = (payload as InviteRevokedPayload).inviteId;
+      if (!inviteId) return;
+      queryClient.setQueryData<EventInviteView[]>(queryKeys.plans.invitesPending(eventId!), (prev = []) =>
+        prev.filter((inv) => inv.id !== inviteId),
+      );
+    }
+  });
 
   useEffect(() => {
-    if (!eventId) return;
-    const ws = new WebSocket(getEventChatWsUrl(eventId));
-    ws.onopen = () => {
-      ws.send(JSON.stringify({ type: "event:subscribe", eventId }));
-    };
-    ws.onmessage = (ev) => {
-      try {
-        const payload = JSON.parse(String(ev.data)) as MemberJoinedPayload | InviteCreatedPayload | InviteRevokedPayload;
-        if (!payload || payload.eventId !== eventId || typeof payload.type !== "string") return;
-        if (payload.type === "event:member_joined") {
-          const member = (payload as MemberJoinedPayload).member;
-          if (!member) return;
-          queryClient.setQueryData<EventMemberView[]>(["/api/events", eventId, "members"], (prev = []) => {
-            if (prev.some((m) => m.userId === member.userId)) return prev;
-            return [member, ...prev];
-          });
-          queryClient.setQueryData<EventInviteView[]>(["/api/events", eventId, "invites", "pending"], (prev = []) =>
-            prev.filter((invite) => {
-              const inviteeUserId = Number(invite.inviteeUserId ?? invite.invitee?.userId ?? 0);
-              return !Number.isFinite(inviteeUserId) || inviteeUserId <= 0 || inviteeUserId !== Number(member.userId);
-            }),
-          );
-          return;
-        }
-        if (payload.type === "event:invite_created") {
-          const invite = (payload as InviteCreatedPayload).invite;
-          if (!invite) return;
-          queryClient.setQueryData<EventInviteView[]>(["/api/events", eventId, "invites", "pending"], (prev = []) => {
-            if (prev.some((inv) => inv.id === invite.id)) return prev;
-            return [invite, ...prev];
-          });
-          return;
-        }
-        if (payload.type === "event:invite_revoked") {
-          const inviteId = (payload as InviteRevokedPayload).inviteId;
-          if (!inviteId) return;
-          queryClient.setQueryData<EventInviteView[]>(["/api/events", eventId, "invites", "pending"], (prev = []) =>
-            prev.filter((inv) => inv.id !== inviteId),
-          );
-        }
-      } catch {
-        // Ignore websocket payload parse errors.
-      }
-    };
-    return () => {
-      ws.close();
-    };
-  }, [eventId, queryClient]);
+    if (!eventId || realtime.connectedVersion <= 0) return;
+    void Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.plans.members(eventId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.plans.invitesPending(eventId) }),
+    ]);
+  }, [eventId, queryClient, realtime.connectedVersion]);
 
   const refresh = useCallback(async () => {
     if (!eventId) return;
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["/api/events", eventId, "members"] }),
-      queryClient.invalidateQueries({ queryKey: ["/api/events", eventId, "invites", "pending"] }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.plans.members(eventId) }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.plans.invitesPending(eventId) }),
     ]);
   }, [eventId, queryClient]);
 

@@ -15,6 +15,7 @@ import { resolveAssetUrl, withCacheBust } from "@/lib/asset-url";
 import { formatFullDate } from "@/lib/dates";
 import { getBannerPresetClass, getBannerPresetTone, getEventBanner } from "@/lib/event-banner";
 import { computeSplit } from "@/lib/split/calc";
+import { queryKeys } from "@/lib/query-keys";
 import { circularActionButtonClass, cn } from "@/lib/utils";
 import { usePanel } from "@/state/panel";
 import { PanelShell, useActiveEventId } from "@/components/panels/panel-primitives";
@@ -193,7 +194,7 @@ export function OverviewPanel() {
   const crewQuery = usePlanCrew(eventId);
   const expensesQuery = usePlanExpenses(eventId);
   const settlementRoundsQuery = useQuery<SettlementRoundsResponse>({
-    queryKey: ["/api/events", eventId, "settlements"],
+    queryKey: queryKeys.plans.settlements(eventId),
     queryFn: async () => {
       if (!eventId) {
         return {
@@ -273,7 +274,7 @@ export function OverviewPanel() {
   const expensesLocked = invitesLocked;
   const completedSettlementId = isFinanciallyCompleted ? latestPastFinalSettlementRound?.id ?? null : null;
   const completedSettlementDetailQuery = useQuery<SettlementDetailResponse>({
-    queryKey: ["/api/events", eventId, "settlement", completedSettlementId ?? "none", "overview-completed"],
+    queryKey: [...queryKeys.plans.settlementDetail(eventId, completedSettlementId), "overview-completed"],
     queryFn: async () => {
       if (!eventId || !completedSettlementId) {
         return {
@@ -531,7 +532,7 @@ export function OverviewPanel() {
     queryClient.setQueryData(["plan", eventId], (current: typeof plan | undefined) => (
       current ? { ...current, bannerImageUrl: nextBannerUrl } : current
     ));
-    queryClient.setQueryData(["/api/barbecues"], (current: Array<Record<string, unknown>> | undefined) => (
+    queryClient.setQueryData(queryKeys.plans.list(), (current: Array<Record<string, unknown>> | undefined) => (
       Array.isArray(current)
         ? current.map((entry) => (Number(entry.id) === eventId ? { ...entry, bannerImageUrl: nextBannerUrl } : entry))
         : current

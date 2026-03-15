@@ -32,10 +32,12 @@ import { log } from "../lib/logger";
 import { sendPushToUser } from "../lib/webPush";
 import { auditLog, auditSecurity } from "../lib/audit";
 import { badRequest, forbidden, notFound, unauthorized, upgradeRequired } from "../lib/errors";
+import { checkoutLimiter, settlementActionLimiter } from "../middleware/rate-limit";
 import {
   assertEventAccessOrThrow,
   assertMembersWritable,
-  getPlanLifecycleOrThrow,
+  assertSettlementStartAllowed,
+  assertSettlementWritable,
   asyncHandler,
   currencyCodeSchema,
   getBarbecueOr404,
@@ -52,6 +54,10 @@ import {
 } from "./_helpers";
 
 const router = Router();
+
+function getReqId(req: Request) {
+  return (req as Request & { requestId?: string }).requestId;
+}
 
 router.get(p(api.barbecues.list.path), asyncHandler(async (req, res) => {
   const currentUsername = (req.session?.username as string) || (req.query.userId as string | undefined);
@@ -171,7 +177,7 @@ router.get("/events/:eventId/settlement/latest", requireAuth, asyncHandler(async
   res.json(latest);
 }));
 
-router.post("/events/:eventId/settlement/ensure", requireAuth, asyncHandler(async (req, res) => {
+router.post("/events/:eventId/settlement/ensure", requireAuth, settlementActionLimiter, asyncHandler(async (req, res) => {
   const eventId = Number(req.params.eventId);
   if (!Number.isInteger(eventId) || eventId <= 0) badRequest("Invalid event id");
   await assertEventAccessOrThrow(req, eventId);
@@ -179,14 +185,7 @@ router.post("/events/:eventId/settlement/ensure", requireAuth, asyncHandler(asyn
   if (!userId) unauthorized("Not authenticated");
   const bbq = await bbqRepo.getById(eventId);
   if (!bbq) notFound("Event not found");
-  const lifecycle = await getPlanLifecycleOrThrow(eventId);
-  if (lifecycle.status === "settled" || lifecycle.status === "archived") {
-    res.status(409).json({
-      code: lifecycle.status === "archived" ? "plan_archived" : "plan_settled",
-      message: lifecycle.status === "archived" ? "This plan is archived." : "This plan is already settled.",
-    });
-    return;
-  }
+  await assertSettlementStartAllowed(eventId);
   if (bbq.creatorUserId !== userId) {
     res.status(403).json({
       code: "only_creator_can_start_settlement",
@@ -200,15 +199,38 @@ router.post("/events/:eventId/settlement/ensure", requireAuth, asyncHandler(asyn
     selectedParticipantIds: z.array(z.coerce.number().int().positive()).optional().nullable(),
   }).optional().parse(req.body ?? {});
 
-  const result = await ensureSettlementForView({
+  log("info", "settlement_ensure_requested", {
+    reqId: getReqId(req),
     eventId,
-    createdByUserId: userId,
-    actorName: req.session?.username ?? null,
-    requireFinished: false,
-    scopeType: body?.scopeType,
-    selectedParticipantIds: body?.selectedParticipantIds ?? null,
+    userId,
+    scopeType: body?.scopeType ?? "everyone",
+    selectedCount: body?.selectedParticipantIds?.length ?? 0,
   });
+  let result;
+  try {
+    result = await ensureSettlementForView({
+      eventId,
+      createdByUserId: userId,
+      actorName: req.session?.username ?? null,
+      requireFinished: false,
+      scopeType: body?.scopeType,
+      selectedParticipantIds: body?.selectedParticipantIds ?? null,
+    });
+  } catch (error) {
+    log("error", "settlement_ensure_failed", {
+      reqId: getReqId(req),
+      eventId,
+      userId,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
   if (result.code === "active_settlement_exists") {
+    log("warn", "settlement_ensure_blocked_active_exists", {
+      reqId: getReqId(req),
+      eventId,
+      userId,
+    });
     res.status(409).json({
       code: "active_settlement_exists",
       message: "Finish the active final settlement before starting a new one.",
@@ -217,6 +239,13 @@ router.post("/events/:eventId/settlement/ensure", requireAuth, asyncHandler(asyn
     return;
   }
   const latest = result.code === "created" ? result.detail : await getLatestSettlement(eventId);
+  log("info", "settlement_ensure_succeeded", {
+    reqId: getReqId(req),
+    eventId,
+    userId,
+    resultCode: result.code,
+    settlementId: latest?.settlement?.id ?? null,
+  });
   res.json({
     ensured: true,
     hasSettlement: !!latest?.settlement,
@@ -225,7 +254,7 @@ router.post("/events/:eventId/settlement/ensure", requireAuth, asyncHandler(asyn
   });
 }));
 
-router.post("/events/:eventId/settlement/manual", requireAuth, asyncHandler(async (req, res) => {
+router.post("/events/:eventId/settlement/manual", requireAuth, settlementActionLimiter, asyncHandler(async (req, res) => {
   const eventId = Number(req.params.eventId);
   if (!Number.isInteger(eventId) || eventId <= 0) badRequest("Invalid event id");
   await assertEventAccessOrThrow(req, eventId);
@@ -233,14 +262,7 @@ router.post("/events/:eventId/settlement/manual", requireAuth, asyncHandler(asyn
   if (!userId) unauthorized("Not authenticated");
   const bbq = await bbqRepo.getById(eventId);
   if (!bbq) notFound("Event not found");
-  const lifecycle = await getPlanLifecycleOrThrow(eventId);
-  if (lifecycle.status === "settled" || lifecycle.status === "archived") {
-    res.status(409).json({
-      code: lifecycle.status === "archived" ? "plan_archived" : "plan_settled",
-      message: lifecycle.status === "archived" ? "This plan is archived." : "This plan is already settled.",
-    });
-    return;
-  }
+  await assertSettlementStartAllowed(eventId);
   if (bbq.creatorUserId !== userId) {
     res.status(403).json({
       code: "only_creator_can_start_settlement",
@@ -254,15 +276,38 @@ router.post("/events/:eventId/settlement/manual", requireAuth, asyncHandler(asyn
     selectedParticipantIds: z.array(z.coerce.number().int().positive()).optional().nullable(),
   }).optional().parse(req.body ?? {});
 
-  const result = await ensureSettlementForView({
+  log("info", "settlement_manual_requested", {
+    reqId: getReqId(req),
     eventId,
-    createdByUserId: userId,
-    actorName: req.session?.username ?? null,
-    requireFinished: false,
-    scopeType: body?.scopeType,
-    selectedParticipantIds: body?.selectedParticipantIds ?? null,
+    userId,
+    scopeType: body?.scopeType ?? "everyone",
+    selectedCount: body?.selectedParticipantIds?.length ?? 0,
   });
+  let result;
+  try {
+    result = await ensureSettlementForView({
+      eventId,
+      createdByUserId: userId,
+      actorName: req.session?.username ?? null,
+      requireFinished: false,
+      scopeType: body?.scopeType,
+      selectedParticipantIds: body?.selectedParticipantIds ?? null,
+    });
+  } catch (error) {
+    log("error", "settlement_manual_failed", {
+      reqId: getReqId(req),
+      eventId,
+      userId,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
   if (result.code === "active_settlement_exists") {
+    log("warn", "settlement_manual_blocked_active_exists", {
+      reqId: getReqId(req),
+      eventId,
+      userId,
+    });
     res.status(409).json({
       code: "active_settlement_exists",
       message: "Finish the active final settlement before starting a new one.",
@@ -271,6 +316,13 @@ router.post("/events/:eventId/settlement/manual", requireAuth, asyncHandler(asyn
     return;
   }
   const latest = result.code === "created" ? result.detail : await getLatestSettlement(eventId);
+  log("info", "settlement_manual_succeeded", {
+    reqId: getReqId(req),
+    eventId,
+    userId,
+    resultCode: result.code,
+    settlementId: latest?.settlement?.id ?? null,
+  });
   res.json({
     ensured: true,
     hasSettlement: !!latest?.settlement,
@@ -279,20 +331,13 @@ router.post("/events/:eventId/settlement/manual", requireAuth, asyncHandler(asyn
   });
 }));
 
-router.post("/events/:eventId/split-payment", requireAuth, asyncHandler(async (req, res) => {
+router.post("/events/:eventId/split-payment", requireAuth, settlementActionLimiter, asyncHandler(async (req, res) => {
   const eventId = Number(req.params.eventId);
   if (!Number.isInteger(eventId) || eventId <= 0) badRequest("Invalid event id");
   await assertEventAccessOrThrow(req, eventId);
   const userId = req.session?.userId;
   if (!userId) unauthorized("Not authenticated");
-  const lifecycle = await getPlanLifecycleOrThrow(eventId);
-  if (lifecycle.status === "settled" || lifecycle.status === "archived") {
-    res.status(409).json({
-      code: lifecycle.status === "archived" ? "plan_archived" : "plan_settled",
-      message: lifecycle.status === "archived" ? "Archived plans are read-only." : "Settled plans are read-only.",
-    });
-    return;
-  }
+  await assertSettlementWritable(eventId);
 
   const body = z.object({
     title: z.string().trim().min(1).max(120),
@@ -301,17 +346,41 @@ router.post("/events/:eventId/split-payment", requireAuth, asyncHandler(async (r
     splitWithParticipantIds: z.array(z.coerce.number().int().positive()).min(1),
   }).parse(req.body ?? {});
 
-  const result = await createDirectSplitRound({
+  log("info", "split_payment_requested", {
+    reqId: getReqId(req),
     eventId,
-    createdByUserId: userId,
-    actorName: req.session?.username ?? null,
+    userId,
     title: body.title,
-    amount: body.amount,
-    paidByParticipantId: body.paidByParticipantId,
-    splitWithParticipantIds: body.splitWithParticipantIds,
+    splitCount: body.splitWithParticipantIds.length,
   });
+  let result;
+  try {
+    result = await createDirectSplitRound({
+      eventId,
+      createdByUserId: userId,
+      actorName: req.session?.username ?? null,
+      title: body.title,
+      amount: body.amount,
+      paidByParticipantId: body.paidByParticipantId,
+      splitWithParticipantIds: body.splitWithParticipantIds,
+    });
+  } catch (error) {
+    log("error", "split_payment_failed", {
+      reqId: getReqId(req),
+      eventId,
+      userId,
+      title: body.title,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
 
   if (result.code === "active_settlement_exists") {
+    log("warn", "split_payment_blocked_active_exists", {
+      reqId: getReqId(req),
+      eventId,
+      userId,
+    });
     res.status(409).json({
       code: "active_settlement_exists",
       message: "Finish the active quick settle before starting a new one.",
@@ -327,6 +396,12 @@ router.post("/events/:eventId/split-payment", requireAuth, asyncHandler(async (r
     return;
   }
   if (result.code !== "created" || !result.detail) {
+    log("warn", "split_payment_rejected_invalid", {
+      reqId: getReqId(req),
+      eventId,
+      userId,
+      resultCode: result.code,
+    });
     res.status(500).json({
       code: "split_payment_failed",
       message: "Could not create split payment.",
@@ -334,6 +409,12 @@ router.post("/events/:eventId/split-payment", requireAuth, asyncHandler(async (r
     return;
   }
 
+  log("info", "split_payment_succeeded", {
+    reqId: getReqId(req),
+    eventId,
+    userId,
+    settlementId: result.detail.settlement?.id ?? null,
+  });
   res.json({
     created: true,
     settlementId: result.detail.settlement?.id ?? null,
@@ -355,7 +436,7 @@ router.get("/events/:eventId/settlement/:settlementId", requireAuth, asyncHandle
   res.json(settlement);
 }));
 
-router.post("/events/:eventId/settlement/:settlementId/transfers/:transferId/mark-paid", requireAuth, asyncHandler(async (req, res) => {
+router.post("/events/:eventId/settlement/:settlementId/transfers/:transferId/mark-paid", requireAuth, settlementActionLimiter, asyncHandler(async (req, res) => {
   const eventId = Number(req.params.eventId);
   const settlementId = String(req.params.settlementId ?? "").trim();
   const transferId = String(req.params.transferId ?? "").trim();
@@ -365,14 +446,7 @@ router.post("/events/:eventId/settlement/:settlementId/transfers/:transferId/mar
   await assertEventAccessOrThrow(req, eventId);
   const userId = req.session?.userId;
   if (!userId) unauthorized("Not authenticated");
-  const lifecycle = await getPlanLifecycleOrThrow(eventId);
-  if (lifecycle.status === "settled" || lifecycle.status === "archived") {
-    res.status(409).json({
-      code: lifecycle.status === "archived" ? "plan_archived" : "plan_settled",
-      message: lifecycle.status === "archived" ? "Archived plans are read-only." : "Settled plans are read-only.",
-    });
-    return;
-  }
+  await assertSettlementWritable(eventId);
   const settlement = await getSettlementById(eventId, settlementId);
   if (!settlement?.settlement) notFound("Settlement not found");
   const transfer = settlement.transfers.find((row) => row.id === transferId);
@@ -400,13 +474,20 @@ router.post("/events/:eventId/settlement/:settlementId/transfers/:transferId/mar
     paidByUserId: userId,
   });
   if (!updated) notFound("Transfer not found");
+  log("info", "settlement_transfer_mark_paid_succeeded", {
+    reqId: getReqId(req),
+    eventId,
+    settlementId,
+    transferId,
+    userId,
+  });
   res.json({
     transferId: updated.id,
     paidAt: updated.paidAt ? updated.paidAt.toISOString() : null,
   });
 }));
 
-router.post("/events/:eventId/settlement/:settlementId/transfers/:transferId/checkout", requireAuth, asyncHandler(async (req, res) => {
+router.post("/events/:eventId/settlement/:settlementId/transfers/:transferId/checkout", requireAuth, checkoutLimiter, asyncHandler(async (req, res) => {
   const eventId = Number(req.params.eventId);
   const settlementId = String(req.params.settlementId ?? "").trim();
   const transferId = String(req.params.transferId ?? "").trim();
@@ -416,14 +497,7 @@ router.post("/events/:eventId/settlement/:settlementId/transfers/:transferId/che
   await assertEventAccessOrThrow(req, eventId);
   const userId = req.session?.userId;
   if (!userId) unauthorized("Not authenticated");
-  const lifecycle = await getPlanLifecycleOrThrow(eventId);
-  if (lifecycle.status === "settled" || lifecycle.status === "archived") {
-    res.status(409).json({
-      code: lifecycle.status === "archived" ? "plan_archived" : "plan_settled",
-      message: lifecycle.status === "archived" ? "Archived plans are read-only." : "Settled plans are read-only.",
-    });
-    return;
-  }
+  await assertSettlementWritable(eventId);
 
   const settlement = await getSettlementById(eventId, settlementId);
   if (!settlement?.settlement) notFound("Settlement not found");
@@ -455,31 +529,61 @@ router.post("/events/:eventId/settlement/:settlementId/transfers/:transferId/che
   const amountCents = Math.max(0, Math.round(Number(transfer.amount || 0) * 100));
   if (amountCents <= 0) badRequest("Invalid transfer amount");
   const appUrl = resolveBaseUrl();
-  const session = await createStripeCheckoutSession({
-    successUrl: `${appUrl}/app?payment=success&eventId=${eventId}&settlementId=${encodeURIComponent(settlementId)}&transferId=${encodeURIComponent(transferId)}&session_id={CHECKOUT_SESSION_ID}`,
-    cancelUrl: `${appUrl}/app?payment=cancel&eventId=${eventId}&settlementId=${encodeURIComponent(settlementId)}&transferId=${encodeURIComponent(transferId)}`,
-    idempotencyKey: `settlement-transfer:${settlementId}:${transferId}:${userId}`,
-    metadata: {
-      action: "pay_settlement_transfer",
-      intendedAction: "pay_settlement_transfer",
-      eventId: String(eventId),
+  log("info", "settlement_checkout_requested", {
+    reqId: getReqId(req),
+    eventId,
+    settlementId,
+    transferId,
+    userId,
+    amountCents,
+  });
+  let session;
+  try {
+    session = await createStripeCheckoutSession({
+      successUrl: `${appUrl}/app?payment=success&eventId=${eventId}&settlementId=${encodeURIComponent(settlementId)}&transferId=${encodeURIComponent(transferId)}&session_id={CHECKOUT_SESSION_ID}`,
+      cancelUrl: `${appUrl}/app?payment=cancel&eventId=${eventId}&settlementId=${encodeURIComponent(settlementId)}&transferId=${encodeURIComponent(transferId)}`,
+      idempotencyKey: `settlement-transfer:${settlementId}:${transferId}:${userId}`,
+      metadata: {
+        action: "pay_settlement_transfer",
+        intendedAction: "pay_settlement_transfer",
+        eventId: String(eventId),
+        settlementId,
+        transferId,
+        userId: String(userId),
+      },
+      lineItem: {
+        amountCents,
+        currency: transfer.currency,
+        productName: settlement.settlement.title?.trim() || "Splann-O payback",
+        productDescription: `${transfer.fromName || "Someone"} pays ${transfer.toName || "someone"}`,
+      },
+    });
+  } catch (error) {
+    log("error", "settlement_checkout_failed", {
+      reqId: getReqId(req),
+      eventId,
       settlementId,
       transferId,
-      userId: String(userId),
-    },
-    lineItem: {
+      userId,
       amountCents,
-      currency: transfer.currency,
-      productName: settlement.settlement.title?.trim() || "Splann-O payback",
-      productDescription: `${transfer.fromName || "Someone"} pays ${transfer.toName || "someone"}`,
-    },
-  });
+      message: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
 
   if (!session.url) badRequest("Stripe checkout session did not return a URL");
+  log("info", "settlement_checkout_created", {
+    reqId: getReqId(req),
+    eventId,
+    settlementId,
+    transferId,
+    userId,
+    sessionId: session.id,
+  });
   res.json({ url: session.url, sessionId: session.id });
 }));
 
-router.post("/payments/create-checkout", requireAuth, asyncHandler(async (req, res) => {
+router.post("/payments/create-checkout", requireAuth, checkoutLimiter, asyncHandler(async (req, res) => {
   const body = z.object({
     planId: z.coerce.number().int().positive(),
     transferId: z.string().trim().min(1),
@@ -488,14 +592,7 @@ router.post("/payments/create-checkout", requireAuth, asyncHandler(async (req, r
   const userId = req.session?.userId;
   if (!userId) unauthorized("Not authenticated");
   await assertEventAccessOrThrow(req, body.planId);
-  const lifecycle = await getPlanLifecycleOrThrow(body.planId);
-  if (lifecycle.status === "settled" || lifecycle.status === "archived") {
-    res.status(409).json({
-      code: lifecycle.status === "archived" ? "plan_archived" : "plan_settled",
-      message: lifecycle.status === "archived" ? "Archived plans are read-only." : "Settled plans are read-only.",
-    });
-    return;
-  }
+  await assertSettlementWritable(body.planId);
 
   const [transfer] = await db
     .select()
@@ -551,30 +648,62 @@ router.post("/payments/create-checkout", requireAuth, asyncHandler(async (req, r
   const amountCents = Math.max(0, Math.round(Number(transferDetail.amount || 0) * 100));
   if (amountCents <= 0) badRequest("Invalid transfer amount");
   const appUrl = resolveBaseUrl();
-  const session = await createStripeCheckoutSession({
-    successUrl: `${appUrl}/app?payment=success&eventId=${body.planId}&settlementId=${encodeURIComponent(round.id)}&transferId=${encodeURIComponent(transfer.id)}&session_id={CHECKOUT_SESSION_ID}`,
-    cancelUrl: `${appUrl}/app?payment=cancel&eventId=${body.planId}&settlementId=${encodeURIComponent(round.id)}&transferId=${encodeURIComponent(transfer.id)}`,
-    idempotencyKey: `settlement-transfer:${round.id}:${transfer.id}:${userId}`,
-    metadata: {
-      action: "pay_settlement_transfer",
-      intendedAction: "pay_settlement_transfer",
-      eventId: String(body.planId),
+  log("info", "payments_create_checkout_requested", {
+    reqId: getReqId(req),
+    eventId: body.planId,
+    settlementId: round.id,
+    transferId: transfer.id,
+    userId,
+    expenseId: body.expenseId ?? null,
+    amountCents,
+  });
+  let session;
+  try {
+    session = await createStripeCheckoutSession({
+      successUrl: `${appUrl}/app?payment=success&eventId=${body.planId}&settlementId=${encodeURIComponent(round.id)}&transferId=${encodeURIComponent(transfer.id)}&session_id={CHECKOUT_SESSION_ID}`,
+      cancelUrl: `${appUrl}/app?payment=cancel&eventId=${body.planId}&settlementId=${encodeURIComponent(round.id)}&transferId=${encodeURIComponent(transfer.id)}`,
+      idempotencyKey: `settlement-transfer:${round.id}:${transfer.id}:${userId}`,
+      metadata: {
+        action: "pay_settlement_transfer",
+        intendedAction: "pay_settlement_transfer",
+        eventId: String(body.planId),
+        settlementId: round.id,
+        transferId: transfer.id,
+        userId: String(userId),
+        payerUserId: String(transfer.fromUserId),
+        payeeUserId: String(transfer.toUserId),
+        ...(body.expenseId ? { expenseId: String(body.expenseId) } : {}),
+      },
+      lineItem: {
+        amountCents,
+        currency: transfer.currency,
+        productName: settlement.settlement.title?.trim() || "Splann-O payback",
+        productDescription: `${transferDetail.fromName || "Someone"} pays ${transferDetail.toName || "someone"}`,
+      },
+    });
+  } catch (error) {
+    log("error", "payments_create_checkout_failed", {
+      reqId: getReqId(req),
+      eventId: body.planId,
       settlementId: round.id,
       transferId: transfer.id,
-      userId: String(userId),
-      payerUserId: String(transfer.fromUserId),
-      payeeUserId: String(transfer.toUserId),
-      ...(body.expenseId ? { expenseId: String(body.expenseId) } : {}),
-    },
-    lineItem: {
+      userId,
+      expenseId: body.expenseId ?? null,
       amountCents,
-      currency: transfer.currency,
-      productName: settlement.settlement.title?.trim() || "Splann-O payback",
-      productDescription: `${transferDetail.fromName || "Someone"} pays ${transferDetail.toName || "someone"}`,
-    },
-  });
+      message: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
 
   if (!session.url) badRequest("Stripe checkout session did not return a URL");
+  log("info", "payments_create_checkout_succeeded", {
+    reqId: getReqId(req),
+    eventId: body.planId,
+    settlementId: round.id,
+    transferId: transfer.id,
+    userId,
+    sessionId: session.id,
+  });
   res.json({ checkoutUrl: session.url, sessionId: session.id });
 }));
 

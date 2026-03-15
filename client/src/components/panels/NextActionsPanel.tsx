@@ -7,6 +7,7 @@ import { usePlan, usePlanCrew, usePlanExpenses } from "@/hooks/use-plan-data";
 import { useEventGuests } from "@/hooks/use-event-guests";
 import { useLatestRunningPoll } from "@/hooks/use-latest-running-poll";
 import { getClientPlanStatus } from "@/lib/plan-lifecycle";
+import { queryKeys } from "@/lib/query-keys";
 import { computeSplit } from "@/lib/split/calc";
 import { cn } from "@/lib/utils";
 import { usePanel } from "@/state/panel";
@@ -43,7 +44,7 @@ export function NextActionPanel() {
   const expenses = expensesQuery.data ?? [];
   const pendingInvites = guests.invitesPending;
   const latestSettlementQuery = useQuery<SettlementResponse>({
-    queryKey: ["/api/events", eventId, "settlement", "latest"],
+    queryKey: queryKeys.plans.settlementLatest(eventId),
     queryFn: async () => {
       if (!eventId) return { settlement: null, transfers: [] };
       const res = await fetch(`/api/events/${eventId}/settlement/latest`, { credentials: "include" });

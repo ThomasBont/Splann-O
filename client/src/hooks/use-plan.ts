@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { apiRequestOrNull } from "@/lib/api";
 
 export interface PlanInfo {
   plan: "free" | "pro";
@@ -12,9 +13,7 @@ export function usePlan(enabled = true) {
   return useQuery<PlanInfo | null>({
     queryKey: ["/api/me/plan"],
     queryFn: async () => {
-      const res = await fetch("/api/me/plan", { credentials: "include" });
-      if (!res.ok) return null;
-      return res.json();
+      return apiRequestOrNull<PlanInfo>("/api/me/plan");
     },
     enabled,
     staleTime: 2 * 60 * 1000,

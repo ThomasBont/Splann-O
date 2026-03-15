@@ -4,6 +4,7 @@ import type { InsertParticipant } from "@shared/routes";
 import type { Membership } from "@shared/schema";
 import { UpgradeRequiredError } from "@/lib/upgrade";
 import { PLAN_STALE_TIME_MS } from "@/lib/query-stale";
+import { queryKeys } from "@/lib/query-keys";
 
 type ApiRequestError = Error & {
   status?: number;
@@ -270,7 +271,7 @@ export type EventInviteView = {
 };
 
 export function eventMembersQueryKey(eventId: number | null) {
-  return ["/api/events", eventId, "members"] as const;
+  return queryKeys.plans.members(eventId);
 }
 
 export async function fetchEventMembers(eventId: number) {
@@ -293,7 +294,7 @@ export function useEventMembers(eventId: number | null) {
 
 export function usePendingEventInvites(eventId: number | null) {
   return useQuery<EventInviteView[]>({
-    queryKey: ["/api/events", eventId, "invites", "pending"],
+    queryKey: queryKeys.plans.invitesPending(eventId),
     queryFn: async () => {
       if (!eventId) return [];
       const res = await fetch(`/api/events/${eventId}/invites?status=pending`, { credentials: "include" });
@@ -329,7 +330,7 @@ export function useCreateEventInvite(eventId: number | null) {
       };
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/events", eventId, "invites", "pending"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.plans.invitesPending(eventId) });
     },
   });
 }
@@ -355,7 +356,7 @@ export function useAddEventMember(eventId: number | null) {
       return body as EventMemberView;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/events", eventId, "members"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.plans.members(eventId) });
     },
   });
 }
@@ -374,7 +375,7 @@ export function useRevokeEventInvite(eventId: number | null) {
       return body as { id: string; status: string };
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/events", eventId, "invites", "pending"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.plans.invitesPending(eventId) });
     },
   });
 }

@@ -67,6 +67,7 @@ import { generateSettleCardData, generateRecapCardData } from "@/utils/shareCard
 import { DiscoverModal } from "@/components/discover-modal";
 import { SplannoLogo } from "@/components/splanno-logo";
 import { resolveAssetUrl, withCacheBust } from "@/lib/asset-url";
+import { queryKeys } from "@/lib/query-keys";
 import { getPlanIcons } from "@/lib/planIcons";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import {
@@ -1371,21 +1372,19 @@ export default function Home({
         if (cancelled) return;
         const targetEventId = Number.isFinite(eventIdParam) ? eventIdParam : result.eventId;
         await Promise.all([
-          queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] }),
-          Number.isFinite(targetEventId) ? queryClient.invalidateQueries({ queryKey: ["plan", targetEventId] }) : Promise.resolve(),
-          Number.isFinite(targetEventId) ? queryClient.invalidateQueries({ queryKey: ["expenses", targetEventId] }) : Promise.resolve(),
-          Number.isFinite(targetEventId) ? queryClient.invalidateQueries({ queryKey: ["/api/barbecues", targetEventId, "expenses"] }) : Promise.resolve(),
-          Number.isFinite(targetEventId) ? queryClient.invalidateQueries({ queryKey: ["/api/events", targetEventId, "settlements"] }) : Promise.resolve(),
-          Number.isFinite(targetEventId) ? queryClient.invalidateQueries({ queryKey: ["/api/events", targetEventId, "settlement"] }) : Promise.resolve(),
-          Number.isFinite(targetEventId) ? queryClient.invalidateQueries({ queryKey: ["messages", targetEventId] }) : Promise.resolve(),
+          queryClient.invalidateQueries({ queryKey: queryKeys.plans.list() }),
+          Number.isFinite(targetEventId) ? queryClient.invalidateQueries({ queryKey: queryKeys.plans.detail(targetEventId) }) : Promise.resolve(),
+          Number.isFinite(targetEventId) ? queryClient.invalidateQueries({ queryKey: queryKeys.plans.expenses(targetEventId) }) : Promise.resolve(),
+          Number.isFinite(targetEventId) ? queryClient.invalidateQueries({ queryKey: queryKeys.plans.settlements(targetEventId) }) : Promise.resolve(),
+          Number.isFinite(targetEventId) ? queryClient.invalidateQueries({ queryKey: queryKeys.plans.settlementLatest(targetEventId) }) : Promise.resolve(),
+          Number.isFinite(targetEventId) ? queryClient.invalidateQueries({ queryKey: queryKeys.plans.messages(targetEventId) }) : Promise.resolve(),
         ]);
         await Promise.all([
-          Number.isFinite(targetEventId) ? queryClient.refetchQueries({ queryKey: ["plan", targetEventId] }) : Promise.resolve(),
-          Number.isFinite(targetEventId) ? queryClient.refetchQueries({ queryKey: ["expenses", targetEventId] }) : Promise.resolve(),
-          Number.isFinite(targetEventId) ? queryClient.refetchQueries({ queryKey: ["/api/barbecues", targetEventId, "expenses"] }) : Promise.resolve(),
-          Number.isFinite(targetEventId) ? queryClient.refetchQueries({ queryKey: ["/api/events", targetEventId, "settlements"] }) : Promise.resolve(),
-          Number.isFinite(targetEventId) ? queryClient.refetchQueries({ queryKey: ["/api/events", targetEventId, "settlement"] }) : Promise.resolve(),
-          Number.isFinite(targetEventId) ? queryClient.refetchQueries({ queryKey: ["messages", targetEventId] }) : Promise.resolve(),
+          Number.isFinite(targetEventId) ? queryClient.refetchQueries({ queryKey: queryKeys.plans.detail(targetEventId) }) : Promise.resolve(),
+          Number.isFinite(targetEventId) ? queryClient.refetchQueries({ queryKey: queryKeys.plans.expenses(targetEventId) }) : Promise.resolve(),
+          Number.isFinite(targetEventId) ? queryClient.refetchQueries({ queryKey: queryKeys.plans.settlements(targetEventId) }) : Promise.resolve(),
+          Number.isFinite(targetEventId) ? queryClient.refetchQueries({ queryKey: queryKeys.plans.settlementLatest(targetEventId) }) : Promise.resolve(),
+          Number.isFinite(targetEventId) ? queryClient.refetchQueries({ queryKey: queryKeys.plans.messages(targetEventId) }) : Promise.resolve(),
         ]);
         toastSuccess(result.paymentStatus === "paid" ? "Payment completed" : "Payment confirmation pending");
       })
@@ -1914,7 +1913,7 @@ export default function Home({
     if (appRouteMode !== "event" || !selectedBbqId || !isPrivateContext) return;
     if (lastActivityReadEventRef.current === selectedBbqId) return;
     lastActivityReadEventRef.current = selectedBbqId;
-    queryClient.setQueryData(["/api/barbecues"], (prev: unknown) => {
+    queryClient.setQueryData(queryKeys.plans.list(), (prev: unknown) => {
       if (!Array.isArray(prev)) return prev;
       return prev.map((plan) => {
         if (!plan || typeof plan !== "object") return plan;
@@ -1923,14 +1922,7 @@ export default function Home({
         return { ...(plan as Record<string, unknown>), unreadCount: 0 };
       });
     });
-    void fetch(`/api/plans/${selectedBbqId}/activity/read`, {
-      method: "POST",
-      credentials: "include",
-    }).finally(() => {
-      void markAllAsRead().finally(() => {
-        void queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] });
-      });
-    });
+    void markAllAsRead();
   }, [appRouteMode, isPrivateContext, markAllAsRead, queryClient, selectedBbqId]);
 
   useEffect(() => {
@@ -1941,9 +1933,7 @@ export default function Home({
       activityReadDebounceRef.current = null;
     }
     activityReadDebounceRef.current = window.setTimeout(() => {
-      void markAllAsRead().finally(() => {
-        void queryClient.invalidateQueries({ queryKey: ["/api/barbecues"] });
-      });
+      void markAllAsRead();
       activityReadDebounceRef.current = null;
     }, 700);
     return () => {

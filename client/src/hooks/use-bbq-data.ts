@@ -5,6 +5,7 @@ import { normalizeCountryCode } from "@shared/lib/country-code";
 import { UpgradeRequiredError, type UpgradeRequiredPayload } from "@/lib/upgrade";
 import { resolveAssetUrl } from "@/lib/asset-url";
 import { PLAN_STALE_TIME_MS } from "@/lib/query-stale";
+import { queryKeys } from "@/lib/query-keys";
 
 export type BarbecueListItem = Barbecue & {
   participantCount: number;
@@ -152,7 +153,7 @@ export async function fetchPlan(planId: number) {
 
 export function useBarbecues() {
   return useQuery({
-    queryKey: ['/api/barbecues'],
+    queryKey: queryKeys.plans.list(),
     queryFn: fetchBarbecues,
   });
 }
@@ -160,18 +161,18 @@ export function useBarbecues() {
 export function usePlanById(planId: number | null, enabled = true) {
   const queryClient = useQueryClient();
   return useQuery<BarbecueListItem | null>({
-    queryKey: ["plan", planId],
+    queryKey: queryKeys.plans.detail(planId),
     enabled: !!planId && enabled,
     staleTime: PLAN_STALE_TIME_MS,
     queryFn: async () => {
       if (!planId) return null;
-      const cached = queryClient.getQueryData<BarbecueListItem[]>(['/api/barbecues']);
+      const cached = queryClient.getQueryData<BarbecueListItem[]>(queryKeys.plans.list());
       if (Array.isArray(cached)) {
         const plan = cached.find((item) => Number(item.id) === planId) ?? null;
         if (plan) return plan;
       }
       const all = await queryClient.fetchQuery({
-        queryKey: ['/api/barbecues'],
+        queryKey: queryKeys.plans.list(),
         queryFn: fetchBarbecues,
       });
       return all.find((item) => Number(item.id) === planId) ?? null;

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { getApiBase, getEventChatWsUrl } from "@/lib/network";
+import { apiFetch, apiRequest, type ApiRequestOptions } from "@/lib/api";
+import { useEventRealtime, type RealtimeConnectionStatus } from "@/lib/event-realtime";
+import { getApiBase } from "@/lib/network";
 import { expensesQueryKey, planBalancesQueryKey, planExpensesQueryKey, type RealtimePlanBalances } from "@/hooks/use-expenses";
 import { planPhotosQueryKey } from "@/hooks/use-plan-photos";
 import { dedupeExpenseSystemMessages } from "@/lib/chat/dedupe-expense-system-messages";
@@ -75,7 +77,7 @@ export async function fetchPlanMessages(planId: number, before?: string | null):
     : `/api/events/${planId}/chat?limit=50`;
 
   const load = async (url: string) => {
-    const res = await fetch(url, { credentials: "include" });
+    const res = await apiFetch(url);
     const body = await res.json().catch(() => ({}));
     return { res, body };
   };
@@ -103,7 +105,7 @@ export async function fetchPlanMessages(planId: number, before?: string | null):
 async function fetchChatMutationWithFallback(
   planId: number,
   messageId: string,
-  init: RequestInit,
+  init: ApiRequestOptions,
 ) {
   const rawMessageId = messageId.trim();
   const normalizedMessageId = rawMessageId.startsWith("optimistic:")
@@ -111,10 +113,7 @@ async function fetchChatMutationWithFallback(
     : rawMessageId;
   const candidateIds = Array.from(new Set([rawMessageId, normalizedMessageId].filter(Boolean)));
   const tryRequest = async (url: string) => {
-    const res = await fetch(url, {
-      credentials: "include",
-      ...init,
-    });
+    const res = await apiFetch(url, init);
     const body = await res.json().catch(() => ({}));
     return { res, body };
   };
@@ -230,12 +229,6 @@ function dedupeAndSort(messages: ChatMessage[]): ChatMessage[] {
   return filterChatMessages(deduped);
 }
 
-function randomBackoffMs(attempt: number): number {
-  const base = Math.min(10000, Math.max(1000, 1000 * 2 ** (attempt - 1)));
-  const jitter = Math.floor(Math.random() * 250);
-  return base + jitter;
-}
-
 export function useEventChat(eventId: number | null, enabled = true) {
   const queryClient = useQueryClient();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -245,17 +238,13 @@ export function useEventChat(eventId: number | null, enabled = true) {
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("idle");
   const [isLocked, setIsLocked] = useState(false);
   const [isSubscribed, setIsSubscribed] = useState(false);
-  const [retryTick, setRetryTick] = useState(0);
   const [typingUsers, setTypingUsers] = useState<TypingUser[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
-
-  const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimerRef = useRef<number | null>(null);
-  const reconnectAttemptRef = useRef(0);
   const isLockedRef = useRef(false);
   const loggedTransportRef = useRef(false);
   const pendingAckTimersRef = useRef(new Map<string, number>());
   const typingExpiryTimersRef = useRef(new Map<string, number>());
+  const lastConnectedVersionRef = useRef(0);
 
   const clearPendingAck = useCallback((clientMessageId?: string | null) => {
     const id = typeof clientMessageId === "string" ? clientMessageId.trim() : "";
@@ -341,22 +330,115 @@ export function useEventChat(eventId: number | null, enabled = true) {
     setMessages((prev) => prev.filter((message) => message.id !== messageId));
   }, []);
 
+  const realtime = useEventRealtime(eventId, enabled, (rawPayload) => {
+    const payload = rawPayload as any;
+    if (payload?.type === "event:chat_locked" || (payload?.type === "event:error" && payload.code === "CHAT_LOCKED")) {
+      setIsLocked(true);
+      isLockedRef.current = true;
+      setConnectionStatus("locked");
+      return;
+    }
+    if (payload?.type === "chat:system" && payload.text) {
+      mergeMessages({
+        id: `system-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        eventId: String(payload.eventId ?? eventId ?? ""),
+        type: "system",
+        text: payload.text,
+        createdAt: new Date().toISOString(),
+        serverCreatedAt: new Date().toISOString(),
+        status: "sent",
+        optimistic: false,
+      });
+      return;
+    }
+    if (((payload?.type === "chat:typing") || payload?.type === "typing" || payload?.type === "chat:typing_start" || payload?.type === "typing:start") && payload.user?.id) {
+      const nextUser = { id: String(payload.user.id), name: payload.user.name || "Someone" };
+      setTypingUsers((prev) => [...prev.filter((u) => u.id !== nextUser.id), nextUser]);
+      const existingTimer = typingExpiryTimersRef.current.get(nextUser.id);
+      if (existingTimer != null) window.clearTimeout(existingTimer);
+      const timer = window.setTimeout(() => {
+        typingExpiryTimersRef.current.delete(nextUser.id);
+        setTypingUsers((prev) => prev.filter((u) => u.id !== nextUser.id));
+      }, 3000);
+      typingExpiryTimersRef.current.set(nextUser.id, timer);
+      return;
+    }
+    if ((payload?.type === "chat:typing_stop" || payload?.type === "typing:stop") && payload.user?.id) {
+      const targetId = String(payload.user.id);
+      const existingTimer = typingExpiryTimersRef.current.get(targetId);
+      if (existingTimer != null) {
+        window.clearTimeout(existingTimer);
+        typingExpiryTimersRef.current.delete(targetId);
+      }
+      setTypingUsers((prev) => prev.filter((u) => u.id !== targetId));
+      return;
+    }
+    if (payload?.type === "chat:error") {
+      markFailed(payload.clientMessageId);
+      return;
+    }
+    if (payload?.type === "chat:reaction_update" && typeof payload.messageId === "string") {
+      const reactions = Array.isArray(payload.reactions)
+        ? payload.reactions
+          .map((reaction: any) => {
+            const emoji = typeof reaction?.emoji === "string" ? reaction.emoji : "";
+            const count = Number(reaction?.count ?? 0);
+            if (!emoji || !Number.isFinite(count) || count <= 0) return null;
+            return { emoji, count, me: reaction?.me === true };
+          })
+          .filter((reaction: { emoji: string; count: number; me: boolean } | null): reaction is { emoji: string; count: number; me: boolean } => !!reaction)
+        : [];
+      applyReactionUpdate(payload.messageId, reactions);
+      return;
+    }
+    if (payload?.type === "chat:update") {
+      const incoming = normalizeIncomingMessage(payload.message as IncomingServerMessage);
+      if (incoming) applyMessageUpdate(incoming);
+      return;
+    }
+    if (payload?.type === "chat:delete" && typeof payload.messageId === "string") {
+      applyMessageDelete(payload.messageId);
+      return;
+    }
+    if (payload?.type === "plan:balancesUpdated") {
+      const planId = Number(payload.planId);
+      if (!Number.isFinite(planId) || planId !== eventId) return;
+      queryClient.setQueryData(planBalancesQueryKey(planId), {
+        type: "plan:balancesUpdated",
+        planId,
+        balances: Array.isArray(payload.balances) ? payload.balances : [],
+        suggestedPaybacks: Array.isArray(payload.suggestedPaybacks) ? payload.suggestedPaybacks : [],
+        updatedAt: typeof payload.updatedAt === "string" ? payload.updatedAt : new Date().toISOString(),
+        version: typeof payload.version === "number" ? payload.version : Date.now(),
+      } satisfies RealtimePlanBalances);
+      return;
+    }
+    if (payload?.type === "settlement:started" || payload?.type === "settlement:completed" || payload?.type === "settlement_payment") {
+      const planId = Number(payload.eventId ?? eventId);
+      if (!Number.isFinite(planId) || planId !== eventId) return;
+      void refreshPaymentViews(planId);
+      return;
+    }
+    if (payload?.type === "photos:updated") {
+      const planId = Number(payload.eventId ?? eventId);
+      if (!Number.isFinite(planId) || planId !== eventId) return;
+      void queryClient.invalidateQueries({ queryKey: planPhotosQueryKey(planId) });
+      return;
+    }
+    if (payload?.type === "chat:ack") {
+      const incoming = normalizeIncomingMessage(payload.message as IncomingServerMessage);
+      if (incoming) reconcileServerMessage(incoming, typeof payload.clientMessageId === "string" ? payload.clientMessageId : incoming.clientMessageId);
+      return;
+    }
+    if (payload?.type === "chat:new") {
+      const incoming = normalizeIncomingMessage(payload.message as IncomingServerMessage);
+      if (incoming) reconcileServerMessage(incoming, incoming.clientMessageId);
+    }
+  });
+
   const fetchHistoryPage = useCallback(async (before?: string | null) => {
     if (!eventId || !enabled) return { messages: [] as ChatMessage[], nextCursor: null as string | null, locked: false };
-    if (import.meta.env.DEV) {
-      console.log("[chat-history] fetch", { eventId, before: before ?? null });
-    }
     const page = await fetchPlanMessages(eventId, before);
-    if (import.meta.env.DEV) {
-      console.log("[chat-history] loaded", {
-        eventId,
-        count: page.messages.length,
-        nextCursor: page.nextCursor,
-      });
-      if (page.messages.length === 0) {
-        console.warn("[chat-history] empty result; if messages are expected, verify DB persistence and eventId wiring", { eventId });
-      }
-    }
     return page;
   }, [enabled, eventId]);
 
@@ -375,6 +457,7 @@ export function useEventChat(eventId: number | null, enabled = true) {
     pendingAckTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
     pendingAckTimersRef.current.clear();
     isLockedRef.current = false;
+    lastConnectedVersionRef.current = 0;
   }, [enabled, eventId]);
 
   const fetchInitialHistory = useCallback(async () => {
@@ -434,44 +517,35 @@ export function useEventChat(eventId: number | null, enabled = true) {
   const sendViaHttp = useCallback(async (clientMessageId: string, text: string, metadata?: OutgoingMessageMetadata) => {
     if (!eventId) throw new Error("No event id");
     const endpoint = `/api/plans/${eventId}/chat/messages`;
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ content: text, clientMessageId, metadata: metadata ?? null }),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      const code = (body as { code?: string }).code;
-      if (res.status === 403 && code === "CHAT_LOCKED") {
+    try {
+      const body = await apiRequest<{ message?: IncomingServerMessage }>(endpoint, {
+        method: "POST",
+        body: { content: text, clientMessageId, metadata: metadata ?? null },
+      });
+      const raw = body.message;
+      const normalized = raw ? normalizeIncomingMessage(raw) : null;
+      if (!normalized) throw new Error("Invalid message response");
+      reconcileServerMessage(normalized, clientMessageId);
+    } catch (error) {
+      const status = typeof error === "object" && error !== null && "status" in error ? Number((error as { status?: unknown }).status) : null;
+      const code = typeof error === "object" && error !== null && "data" in error && typeof (error as { data?: unknown }).data === "object"
+        ? ((error as { data?: { code?: string } }).data?.code ?? null)
+        : null;
+      if (status === 403 && code === "CHAT_LOCKED") {
         setIsLocked(true);
         isLockedRef.current = true;
         setConnectionStatus("locked");
       }
-      if (import.meta.env.DEV) {
-        console.error("[chat-send-http] failed", {
-          eventId,
-          endpoint,
-          status: res.status,
-          statusText: res.statusText,
-          body,
-        });
-      }
-      throw new Error((body as { message?: string }).message || `${res.status}: Failed to send message`);
+      throw new Error(error instanceof Error ? error.message : "Failed to send message");
     }
-    const raw = (body as { message?: IncomingServerMessage }).message;
-    const normalized = raw ? normalizeIncomingMessage(raw) : null;
-    if (!normalized) throw new Error("Invalid message response");
-    reconcileServerMessage(normalized, clientMessageId);
   }, [eventId, reconcileServerMessage]);
 
   useEffect(() => {
     void fetchInitialHistory();
-  }, [fetchInitialHistory, retryTick]);
+  }, [fetchInitialHistory]);
 
   useEffect(() => {
-    if (!import.meta.env.DEV || !eventId || historyLoading) return;
-    if (historyError) return;
+    if (!import.meta.env.DEV || !eventId || historyLoading || historyError) return;
     markPlanSwitchPerf(eventId, "messages ready", { count: messages.length });
   }, [eventId, historyError, historyLoading, messages.length]);
 
@@ -491,238 +565,27 @@ export function useEventChat(eventId: number | null, enabled = true) {
   useEffect(() => {
     if (!enabled || !eventId) {
       setConnectionStatus("idle");
-      setIsLocked(false);
       setIsSubscribed(false);
-      setTypingUsers([]);
-      typingExpiryTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
-      typingExpiryTimersRef.current.clear();
-      pendingAckTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
-      pendingAckTimersRef.current.clear();
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
-      if (reconnectTimerRef.current != null) {
-        window.clearTimeout(reconnectTimerRef.current);
-        reconnectTimerRef.current = null;
-      }
-      isLockedRef.current = false;
       return;
     }
+    setIsSubscribed(realtime.isSubscribed);
+    if (!isLockedRef.current) {
+      setConnectionStatus(realtime.status === "offline" ? "disconnected" : realtime.status);
+    }
+  }, [enabled, eventId, realtime.isSubscribed, realtime.status]);
 
-    let closedByCleanup = false;
-    isLockedRef.current = false;
-    setIsSubscribed(false);
-    setConnectionStatus(reconnectAttemptRef.current > 0 ? "reconnecting" : "connecting");
-
-    const ws = new WebSocket(getEventChatWsUrl(eventId));
-    wsRef.current = ws;
-
-    ws.onopen = () => {
-      reconnectAttemptRef.current = 0;
-      ws.send(JSON.stringify({ type: "event:subscribe", eventId }));
-    };
-
-    ws.onmessage = (ev) => {
-      let payload: any = null;
-      try {
-        payload = JSON.parse(ev.data as string);
-      } catch {
-        return;
-      }
-      if (import.meta.env.DEV) {
-        console.log("[chat-ws:in]", {
-          eventId,
-          type: payload?.type ?? null,
-          messageId: payload?.message?.id ?? null,
-          clientMessageId: payload?.clientMessageId ?? payload?.message?.clientMessageId ?? null,
-        });
-      }
-      if (payload?.type === "event:subscribed") {
-        setIsSubscribed(true);
-        if (!isLockedRef.current) setConnectionStatus("connected");
-        return;
-      }
-      if (payload?.type === "event:chat_locked" || (payload?.type === "event:error" && payload.code === "CHAT_LOCKED")) {
-        setIsLocked(true);
-        isLockedRef.current = true;
-        setConnectionStatus("locked");
-        return;
-      }
-      if (payload?.type === "chat:system" && payload.text) {
-        const systemMessage: ChatMessage = {
-          id: `system-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-          eventId: String(payload.eventId ?? eventId ?? ""),
-          type: "system",
-          text: payload.text,
-          createdAt: new Date().toISOString(),
-          serverCreatedAt: new Date().toISOString(),
-          status: "sent",
-          optimistic: false,
-        };
-        mergeMessages(systemMessage);
-        return;
-      }
-      if (
-        (
-          payload?.type === "chat:typing"
-          || payload?.type === "typing"
-          || payload?.type === "chat:typing_start"
-          || payload?.type === "typing:start"
-        )
-        && payload.user?.id
-      ) {
-        const nextUser = { id: String(payload.user.id), name: payload.user.name || "Someone" };
-        setTypingUsers((prev) => {
-          const existing = prev.filter((u) => u.id !== nextUser.id);
-          return [...existing, nextUser];
-        });
-        const existingTimer = typingExpiryTimersRef.current.get(nextUser.id);
-        if (existingTimer != null) {
-          window.clearTimeout(existingTimer);
-        }
-        const timer = window.setTimeout(() => {
-          typingExpiryTimersRef.current.delete(nextUser.id);
-          setTypingUsers((prev) => prev.filter((u) => u.id !== nextUser.id));
-        }, 3000);
-        typingExpiryTimersRef.current.set(nextUser.id, timer);
-        return;
-      }
-      if ((payload?.type === "chat:typing_stop" || payload?.type === "typing:stop") && payload.user?.id) {
-        const targetId = String(payload.user.id);
-        const existingTimer = typingExpiryTimersRef.current.get(targetId);
-        if (existingTimer != null) {
-          window.clearTimeout(existingTimer);
-          typingExpiryTimersRef.current.delete(targetId);
-        }
-        setTypingUsers((prev) => prev.filter((u) => u.id !== targetId));
-        return;
-      }
-      if (payload?.type === "chat:error") {
-        if (import.meta.env.DEV) {
-          console.error("[chat-send:error]", {
-            eventId,
-            clientMessageId: payload?.clientMessageId ?? null,
-            code: payload?.code ?? null,
-            message: payload?.message ?? null,
-          });
-        }
-        markFailed(payload.clientMessageId);
-        return;
-      }
-      if (payload?.type === "chat:reaction_update" && typeof payload.messageId === "string") {
-        const reactions = Array.isArray(payload.reactions)
-          ? payload.reactions
-            .map((reaction: any) => {
-              const emoji = typeof reaction?.emoji === "string" ? reaction.emoji : "";
-              const count = Number(reaction?.count ?? 0);
-              if (!emoji || !Number.isFinite(count) || count <= 0) return null;
-              return { emoji, count, me: reaction?.me === true };
-            })
-            .filter((reaction: { emoji: string; count: number; me: boolean } | null): reaction is { emoji: string; count: number; me: boolean } => !!reaction)
-          : [];
-        applyReactionUpdate(payload.messageId, reactions);
-        return;
-      }
-      if (payload?.type === "chat:update") {
-        const incoming = normalizeIncomingMessage(payload.message as IncomingServerMessage);
-        if (!incoming) return;
-        applyMessageUpdate(incoming);
-        return;
-      }
-      if (payload?.type === "chat:delete" && typeof payload.messageId === "string") {
-        applyMessageDelete(payload.messageId);
-        return;
-      }
-      if (payload?.type === "plan:balancesUpdated") {
-        const planId = Number(payload.planId);
-        if (!Number.isFinite(planId) || planId !== eventId) return;
-        const parsed: RealtimePlanBalances = {
-          type: "plan:balancesUpdated",
-          planId,
-          balances: Array.isArray(payload.balances) ? payload.balances : [],
-          suggestedPaybacks: Array.isArray(payload.suggestedPaybacks) ? payload.suggestedPaybacks : [],
-          updatedAt: typeof payload.updatedAt === "string" ? payload.updatedAt : new Date().toISOString(),
-          version: typeof payload.version === "number" ? payload.version : Date.now(),
-        };
-        if (import.meta.env.DEV) {
-          console.log("[realtime:balances:received]", {
-            planId,
-            balances: parsed.balances.length,
-            suggestedPaybacks: parsed.suggestedPaybacks.length,
-            version: parsed.version,
-          });
-        }
-        queryClient.setQueryData(planBalancesQueryKey(planId), parsed);
-        return;
-      }
-      if (
-        payload?.type === "settlement:started"
-        || payload?.type === "settlement:completed"
-        || payload?.type === "settlement_payment"
-      ) {
-        const planId = Number(payload.eventId ?? eventId);
-        if (!Number.isFinite(planId) || planId !== eventId) return;
-        void refreshPaymentViews(planId);
-        return;
-      }
-      if (payload?.type === "photos:updated") {
-        const planId = Number(payload.eventId ?? eventId);
-        if (!Number.isFinite(planId) || planId !== eventId) return;
-        void queryClient.invalidateQueries({ queryKey: planPhotosQueryKey(planId) });
-        return;
-      }
-      if (payload?.type === "chat:ack") {
-        const incoming = normalizeIncomingMessage(payload.message as IncomingServerMessage);
-        if (!incoming) return;
-        reconcileServerMessage(incoming, typeof payload.clientMessageId === "string" ? payload.clientMessageId : incoming.clientMessageId);
-        return;
-      }
-      if (payload?.type === "chat:new") {
-        const incoming = normalizeIncomingMessage(payload.message as IncomingServerMessage);
-        if (!incoming) return;
-        reconcileServerMessage(incoming, incoming.clientMessageId);
-      }
-    };
-
-    ws.onclose = (event) => {
-      if (import.meta.env.DEV) {
-        console.warn("[chat-ws] closed", { eventId, code: event.code, reason: event.reason || null, wasClean: event.wasClean });
-      }
-      if (closedByCleanup) return;
-      setIsSubscribed(false);
-      if (isLockedRef.current) return;
-      setConnectionStatus("reconnecting");
-      reconnectAttemptRef.current += 1;
-      const delay = randomBackoffMs(reconnectAttemptRef.current);
-      reconnectTimerRef.current = window.setTimeout(() => {
-        setRetryTick((n) => n + 1);
-      }, delay);
-    };
-
-    ws.onerror = () => {
-      if (import.meta.env.DEV) {
-        console.error("[chat-ws] error", { eventId });
-      }
-      setConnectionStatus("error");
-    };
-
-    return () => {
-      closedByCleanup = true;
-      typingExpiryTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
-      typingExpiryTimersRef.current.clear();
-      pendingAckTimersRef.current.forEach((timerId) => window.clearTimeout(timerId));
-      pendingAckTimersRef.current.clear();
-      if (reconnectTimerRef.current != null) {
-        window.clearTimeout(reconnectTimerRef.current);
-        reconnectTimerRef.current = null;
-      }
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
-    };
-  }, [applyMessageDelete, applyMessageUpdate, applyReactionUpdate, enabled, eventId, markFailed, mergeMessages, queryClient, reconcileServerMessage, refreshPaymentViews, retryTick]);
+  useEffect(() => {
+    if (!enabled || !eventId || realtime.connectedVersion <= 0) return;
+    if (lastConnectedVersionRef.current === 0) {
+      lastConnectedVersionRef.current = realtime.connectedVersion;
+      return;
+    }
+    if (realtime.connectedVersion !== lastConnectedVersionRef.current) {
+      lastConnectedVersionRef.current = realtime.connectedVersion;
+      void fetchInitialHistory();
+      void refreshPaymentViews(eventId);
+    }
+  }, [enabled, eventId, fetchInitialHistory, realtime.connectedVersion, refreshPaymentViews]);
 
   useEffect(() => {
     if (!enabled || !eventId) return;
@@ -747,15 +610,16 @@ export function useEventChat(eventId: number | null, enabled = true) {
     metadata?: OutgoingMessageMetadata,
   ): Promise<SendMessageResult> => {
     const trimmed = text.trim();
-    const ws = wsRef.current;
-    const wsReadyState = ws?.readyState ?? -1;
+    const wsReadyState = realtime.readyState ?? -1;
     if (!trimmed) return { ok: false, reason: "empty", wsReadyState, isSubscribed };
     if (!eventId) return { ok: false, reason: "no-eventId", wsReadyState, isSubscribed };
     if (isLocked) return { ok: false, reason: "locked", wsReadyState, isSubscribed };
 
     if (import.meta.env.DEV && !loggedTransportRef.current) {
       const apiUrl = `${getApiBase()}/api/plans/${eventId}/chat/messages`;
-      const wsUrl = getEventChatWsUrl(eventId);
+      const wsUrl = typeof window !== "undefined"
+        ? `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/ws/events/${eventId}/chat`
+        : "";
       console.log("[chat-transport]", { apiUrl, wsUrl });
       loggedTransportRef.current = true;
     }
@@ -779,19 +643,17 @@ export function useEventChat(eventId: number | null, enabled = true) {
     };
     mergeMessages(optimistic);
 
-    const sendViaSocket = ws && ws.readyState === WebSocket.OPEN && isSubscribed;
+    const sendViaSocket = realtime.send({ type: "chat:send", eventId, content: trimmed, clientMessageId, metadata: metadata ?? null });
     if (sendViaSocket) {
       try {
-        const frame = { type: "chat:send", eventId, content: trimmed, clientMessageId, metadata: metadata ?? null };
         if (import.meta.env.DEV) {
           console.log("[chat-ws:out]", {
             eventId,
-            frame,
-            wsReadyState: ws.readyState,
+            clientMessageId,
+            wsReadyState,
             isSubscribed,
           });
         }
-        ws.send(JSON.stringify(frame));
         const timeoutId = window.setTimeout(() => {
           if (import.meta.env.DEV) {
             console.error("[chat-send:timeout]", {
@@ -804,7 +666,7 @@ export function useEventChat(eventId: number | null, enabled = true) {
           pendingAckTimersRef.current.delete(clientMessageId);
         }, 8000);
         pendingAckTimersRef.current.set(clientMessageId, timeoutId);
-        return { ok: true, wsReadyState: ws.readyState, isSubscribed };
+        return { ok: true, wsReadyState, isSubscribed };
       } catch {
         // Fall through to HTTP fallback.
       }
@@ -824,7 +686,7 @@ export function useEventChat(eventId: number | null, enabled = true) {
       markFailed(clientMessageId);
       return { ok: true, wsReadyState, isSubscribed };
     }
-  }, [eventId, isLocked, isSubscribed, markFailed, mergeMessages, sendViaHttp]);
+  }, [eventId, isLocked, isSubscribed, markFailed, mergeMessages, realtime, sendViaHttp]);
 
   const sendMessage = useCallback(async (
     text: string,
@@ -848,32 +710,31 @@ export function useEventChat(eventId: number | null, enabled = true) {
     actor?: { id?: string | number | null; name?: string | null },
     typing: boolean = true,
   ) => {
-    const ws = wsRef.current;
-    if (!eventId || isLocked || !isSubscribed || !ws || ws.readyState !== WebSocket.OPEN) return;
+    if (!eventId || isLocked || !isSubscribed) return;
     try {
-      ws.send(JSON.stringify({
+      const sent = realtime.send({
         type: typing ? "typing:start" : "typing:stop",
         eventId,
         user: {
           id: String(actor?.id ?? "unknown"),
           name: actor?.name ?? "Someone",
         },
-      }));
+      });
+      if (!sent) return;
       if (typing) {
-        // Backward compatibility for older servers/clients still listening to chat:typing
-        ws.send(JSON.stringify({
+        realtime.send({
           type: "typing",
           eventId,
           user: {
             id: String(actor?.id ?? "unknown"),
             name: actor?.name ?? "Someone",
           },
-        }));
+        });
       }
     } catch {
       // no-op
     }
-  }, [eventId, isLocked, isSubscribed]);
+  }, [eventId, isLocked, isSubscribed, realtime]);
 
   const toggleReaction = useCallback(async (input: {
     messageId: string;
@@ -899,33 +760,27 @@ export function useEventChat(eventId: number | null, enabled = true) {
       return { ...message, reactions: next };
     }));
 
-    const ws = wsRef.current;
-    const sendViaSocket = ws && ws.readyState === WebSocket.OPEN && isSubscribed;
+    const sendViaSocket = realtime.send({
+      type: "reaction:toggle",
+      eventId,
+      messageId: input.messageId,
+      emoji: input.emoji,
+      user: actorId ? { id: actorId } : undefined,
+    });
     if (sendViaSocket) {
       try {
-        ws.send(JSON.stringify({
-          type: "reaction:toggle",
-          eventId,
-          messageId: input.messageId,
-          emoji: input.emoji,
-          user: actorId ? { id: actorId } : undefined,
-        }));
         return;
       } catch {
         // fall through to HTTP
       }
     }
     try {
-      const res = await fetch(`/api/plans/${eventId}/chat/messages/${encodeURIComponent(input.messageId)}/reactions`, {
+      const body = await apiRequest<{ reactions?: Array<{ emoji?: string; count?: number; me?: boolean }> }>(`/api/plans/${eventId}/chat/messages/${encodeURIComponent(input.messageId)}/reactions`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ emoji: input.emoji }),
+        body: { emoji: input.emoji },
       });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error((body as { message?: string }).message || "Reaction failed");
-      const reactions = Array.isArray((body as any).reactions)
-        ? (body as any).reactions
+      const reactions = Array.isArray(body.reactions)
+        ? body.reactions
           .map((reaction: any) => {
             const emoji = typeof reaction?.emoji === "string" ? reaction.emoji : "";
             const count = Number(reaction?.count ?? 0);
@@ -938,12 +793,12 @@ export function useEventChat(eventId: number | null, enabled = true) {
     } catch {
       // Server will usually reconcile via ws broadcast; keep optimistic state on failure.
     }
-  }, [applyReactionUpdate, eventId, isSubscribed]);
+  }, [applyReactionUpdate, eventId, isSubscribed, realtime]);
 
   const retry = useCallback(() => {
-    reconnectAttemptRef.current = 0;
-    setRetryTick((n) => n + 1);
-  }, []);
+    realtime.reconnectNow();
+    void fetchInitialHistory();
+  }, [fetchInitialHistory, realtime]);
 
   const refreshHistory = useCallback(async () => {
     await fetchInitialHistory();
@@ -983,7 +838,7 @@ export function useEventChat(eventId: number | null, enabled = true) {
     isLocked,
     isSubscribed,
     typingUsers,
-    wsReadyState: wsRef.current?.readyState ?? -1,
+    wsReadyState: realtime.readyState ?? -1,
     sendMessage,
     retrySend,
     sendTyping,
@@ -1012,5 +867,6 @@ export function useEventChat(eventId: number | null, enabled = true) {
     loadOlder,
     retry,
     refreshHistory,
+    realtime.readyState,
   ]);
 }

@@ -7,6 +7,7 @@ import { participantRepo } from "./participantRepo";
 
 type ExpenseInsertRow = Omit<typeof expenses.$inferInsert, "amount"> & { amount: string | number };
 type ExpenseUpdateRow = Partial<Omit<typeof expenses.$inferInsert, "amount">> & { amount?: string | number };
+type DbExecutor = Pick<typeof db, "select" | "insert" | "update" | "delete">;
 
 export const expenseRepo = {
   async listByBbq(bbqId: number): Promise<ExpenseWithParticipant[]> {
@@ -18,27 +19,28 @@ export const expenseRepo = {
     });
   },
 
-  async create(e: ExpenseInsertRow, options?: { optInByDefault?: boolean }): Promise<Expense> {
-    const [expense] = await db.insert(expenses).values({ ...e, amount: e.amount.toString() }).returning();
-    const [bbqData] = await db.select().from(barbecues).where(eq(barbecues.id, e.barbecueId));
+  async create(e: ExpenseInsertRow, options?: { optInByDefault?: boolean; executor?: DbExecutor }): Promise<Expense> {
+    const executor = options?.executor ?? db;
+    const [expense] = await executor.insert(expenses).values({ ...e, amount: e.amount.toString() }).returning();
+    const [bbqData] = await executor.select().from(barbecues).where(eq(barbecues.id, e.barbecueId));
     if (bbqData?.allowOptInExpenses && options?.optInByDefault !== true) {
       const accepted = await participantRepo.listByBbq(e.barbecueId, "accepted");
       if (accepted.length > 0) {
-        await db.insert(expenseShares).values(accepted.map((p) => ({ expenseId: expense.id, participantId: p.id })));
+        await executor.insert(expenseShares).values(accepted.map((p) => ({ expenseId: expense.id, participantId: p.id })));
       }
     }
     return expense;
   },
 
-  async update(id: number, updates: ExpenseUpdateRow): Promise<Expense | undefined> {
+  async update(id: number, updates: ExpenseUpdateRow, executor: DbExecutor = db): Promise<Expense | undefined> {
     const updateData: Record<string, unknown> = { ...updates };
     if (updateData.amount !== undefined) updateData.amount = String(updateData.amount);
-    const [updated] = await db.update(expenses).set(updateData as Record<string, unknown>).where(eq(expenses.id, id)).returning();
+    const [updated] = await executor.update(expenses).set(updateData as Record<string, unknown>).where(eq(expenses.id, id)).returning();
     return updated;
   },
 
-  async delete(id: number): Promise<void> {
-    await db.delete(expenses).where(eq(expenses.id, id));
+  async delete(id: number, executor: DbExecutor = db): Promise<void> {
+    await executor.delete(expenses).where(eq(expenses.id, id));
   },
 
   async getExpenseShares(bbqId: number): Promise<{ expenseId: number; participantId: number }[]> {

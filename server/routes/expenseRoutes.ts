@@ -14,9 +14,11 @@ import { requireAuth } from "../middleware/requireAuth";
 import { broadcastEventRealtime } from "../lib/eventRealtime";
 import { broadcastPlanBalancesUpdated } from "../lib/planBalancesRealtime";
 import { logPlanActivity } from "../lib/planActivity";
-import { createDirectSplitRound } from "../lib/settlement";
+import { createDirectSplitRoundRecord } from "../lib/settlement";
 import { postSystemChatMessage } from "../lib/systemChat";
 import { badRequest, forbidden, notFound, unauthorized } from "../lib/errors";
+import { log } from "../lib/logger";
+import { receiptScanLimiter, receiptUploadLimiter } from "../middleware/rate-limit";
 import { asyncHandler, assertEventAccessOrThrow, assertExpensesWritable, ensurePrivateEventParticipantOrCreator, getBarbecueOr404, p } from "./_helpers";
 import { deleteFile, uploadFile } from "../lib/r2";
 import { scanReceiptWithVision } from "../lib/vision-receipt";
@@ -68,6 +70,31 @@ function parseReceiptDataUrl(dataUrl: string) {
   return { mime, buffer };
 }
 
+function broadcastPlanActivityCreated(
+  eventId: number,
+  activity: typeof planActivity.$inferSelect | null | undefined,
+) {
+  if (!activity) return;
+  broadcastEventRealtime(eventId, {
+    type: "PLAN_ACTIVITY_CREATED",
+    eventId,
+    activity: {
+      id: activity.id,
+      eventId: activity.eventId,
+      type: activity.type,
+      actorUserId: activity.actorUserId ?? null,
+      actorName: activity.actorName ?? null,
+      message: activity.message,
+      meta: activity.meta ?? null,
+      createdAt: activity.createdAt ? activity.createdAt.toISOString() : new Date().toISOString(),
+    },
+  });
+}
+
+function getReqId(req: Parameters<typeof asyncHandler>[0] extends (req: infer T, ...args: any[]) => any ? T : never) {
+  return (req as typeof req & { requestId?: string }).requestId;
+}
+
 router.get(p(api.expenses.list.path), requireAuth, asyncHandler(async (req, res) => {
   const bbq = await getBarbecueOr404(req, Number(req.params.bbqId));
   const items = await expenseRepo.listByBbq(bbq.id);
@@ -102,84 +129,144 @@ router.post(p(api.expenses.create.path), requireAuth, asyncHandler(async (req, r
     badRequest("Split members must be accepted plan participants");
   }
   const resolutionMode = input.resolutionMode === "now" ? "now" : "later";
-  const created = await expenseRepo.create(
-    {
-      ...expenseData,
-      barbecueId: bbqId,
-      createdByUserId: sessionUserId,
-      includedUserIds: includedUserIds === undefined ? null : includedUserIds,
-      resolutionMode,
-      excludedFromFinalSettlement: resolutionMode === "now",
-      settledAt: null,
-    },
-    { optInByDefault },
-  );
   const actorName = creatorParticipant.name || req.session?.username || "Someone";
   const paidByName = payerParticipant.name || req.session?.username || "Someone";
   const currency = bbq.currency ?? "€";
-  const amount = Number(created.amount);
-  let createdWithResolution = created;
   const paidBySuffix = payerParticipant.userId !== sessionUserId ? `, paid by ${paidByName}` : "";
+  const txResult = await db.transaction(async (tx) => {
+    const created = await expenseRepo.create(
+      {
+        ...expenseData,
+        barbecueId: bbqId,
+        createdByUserId: sessionUserId,
+        includedUserIds: includedUserIds === undefined ? null : includedUserIds,
+        resolutionMode,
+        excludedFromFinalSettlement: resolutionMode === "now",
+        settledAt: null,
+      },
+      { optInByDefault, executor: tx },
+    );
+    const amount = Number(created.amount);
+    let createdWithResolution = created;
+    let directSplitResult:
+      | Awaited<ReturnType<typeof createDirectSplitRoundRecord>>
+      | null = null;
 
-  if (resolutionMode === "now") {
-    const selectedParticipantIds = includedUserIds && includedUserIds.length > 0
-      ? includedUserIds.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0)
-      : acceptedParticipants.map((participant) => participant.id);
+    if (resolutionMode === "now") {
+      const selectedParticipantIds = includedUserIds && includedUserIds.length > 0
+        ? includedUserIds.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0)
+        : acceptedParticipants.map((participant) => participant.id);
 
-    const splitResult = await createDirectSplitRound({
+      directSplitResult = await createDirectSplitRoundRecord(tx, {
+        eventId: bbqId,
+        createdByUserId: sessionUserId,
+        title: created.item,
+        amount,
+        paidByParticipantId: created.participantId,
+        splitWithParticipantIds: selectedParticipantIds,
+      });
+
+      if (directSplitResult.code !== "created" || !directSplitResult.settlementId) {
+        return {
+          code: directSplitResult.code,
+          directSplitResult,
+        } as const;
+      }
+
+      const updatedExpense = await expenseRepo.update(created.id, {
+        linkedSettlementRoundId: directSplitResult.settlementId,
+      }, tx);
+      createdWithResolution = updatedExpense ?? created;
+    }
+
+    const [activityRow] = await tx.insert(planActivity).values({
       eventId: bbqId,
-      createdByUserId: sessionUserId,
-      actorName: req.session?.username ?? paidByName,
-      title: created.item,
-      amount,
-      paidByParticipantId: created.participantId,
-      splitWithParticipantIds: selectedParticipantIds,
+      type: "EXPENSE_ADDED",
+      actorUserId: req.session?.userId ?? null,
+      actorName,
+      message: resolutionMode === "now"
+        ? `${actorName} added ${created.item}${paidBySuffix} and settled it now (${currency}${Number(created.amount).toFixed(2)})`
+        : `${actorName} added ${created.item}${paidBySuffix} (${currency}${Number(created.amount).toFixed(2)})`,
+      meta: {
+        expenseId: created.id,
+        title: created.item,
+        amount: Number(created.amount),
+        currency: bbq.currency ?? null,
+        resolutionMode,
+        linkedSettlementRoundId: createdWithResolution.linkedSettlementRoundId ?? null,
+        createdByUserId: sessionUserId,
+        payerUserId: payerParticipant.userId ?? null,
+      },
+      createdAt: new Date(),
+    }).returning();
+
+    return {
+      code: "created",
+      created,
+      createdWithResolution,
+      activityRow: activityRow ?? null,
+      directSplitResult,
+    } as const;
+  });
+
+  if (txResult.code === "active_settlement_exists") {
+    res.status(409).json({
+      code: "active_settlement_exists",
+      message: "Finish the active payback before starting a new one.",
+      active: txResult.directSplitResult.detail,
     });
-
-    if (splitResult.code === "active_settlement_exists") {
-      await expenseRepo.delete(created.id);
-      res.status(409).json({
-        code: "active_settlement_exists",
-        message: "Finish the active payback before starting a new one.",
-        active: splitResult.detail,
-      });
-      return;
-    }
-
-    if (splitResult.code !== "created" || !splitResult.detail?.settlement?.id) {
-      await expenseRepo.delete(created.id);
-      res.status(400).json({
-        code: "invalid_direct_split",
-        message: "Choose who should pay this back now.",
-      });
-      return;
-    }
-
-    const updatedExpense = await expenseRepo.update(created.id, {
-      linkedSettlementRoundId: splitResult.detail.settlement.id,
-    });
-    createdWithResolution = updatedExpense ?? created;
+    return;
   }
 
-  await logPlanActivity({
-    eventId: bbqId,
-    type: "EXPENSE_ADDED",
-    actorUserId: req.session?.userId ?? null,
-    actorName,
-    message: resolutionMode === "now"
-      ? `${actorName} added ${created.item}${paidBySuffix} and settled it now (${currency}${Number(created.amount).toFixed(2)})`
-      : `${actorName} added ${created.item}${paidBySuffix} (${currency}${Number(created.amount).toFixed(2)})`,
-    meta: {
-      expenseId: created.id,
-      title: created.item,
-      amount: Number(created.amount),
-      currency: bbq.currency ?? null,
-      resolutionMode,
-      linkedSettlementRoundId: createdWithResolution.linkedSettlementRoundId ?? null,
-      createdByUserId: sessionUserId,
-      payerUserId: payerParticipant.userId ?? null,
-    },
-  });
+  if (txResult.code !== "created") {
+    res.status(400).json({
+      code: "invalid_direct_split",
+      message: "Choose who should pay this back now.",
+    });
+    return;
+  }
+
+  const createdResult = txResult as Extract<typeof txResult, { code: "created" }>;
+  const { created, createdWithResolution, activityRow, directSplitResult } = createdResult;
+  const amount = Number(created.amount);
+  broadcastPlanActivityCreated(bbqId, activityRow);
+  if (directSplitResult?.code === "created" && directSplitResult.settlementId) {
+    const directSplitAmount = Number((directSplitResult.amountCents / 100).toFixed(2));
+    await logPlanActivity({
+      eventId: bbqId,
+      type: "SETTLEMENT_STARTED",
+      actorUserId: sessionUserId,
+      actorName,
+      message: `${actorName} paid for ${directSplitResult.title}`,
+      meta: {
+        settlementRoundId: directSplitResult.settlementId,
+        title: directSplitResult.title,
+        roundType: "direct_split",
+        amount: directSplitAmount,
+        currency: directSplitResult.currency,
+        paidByUserId: directSplitResult.paidByUserId,
+        paidByName: directSplitResult.paidByName,
+        selectedParticipantIds: directSplitResult.selectedParticipantIds,
+      },
+    });
+    await postSystemChatMessage(bbqId, `${actorName} paid for ${directSplitResult.title}`, {
+      type: "settlement",
+      action: "started",
+      settlementRoundId: directSplitResult.settlementId,
+      title: directSplitResult.title,
+      roundType: "direct_split",
+      amount: directSplitAmount,
+      currency: directSplitResult.currency,
+      paidByUserId: directSplitResult.paidByUserId,
+      paidByName: directSplitResult.paidByName,
+      selectedParticipantIds: directSplitResult.selectedParticipantIds,
+    });
+    broadcastEventRealtime(bbqId, {
+      type: "settlement:started",
+      eventId: bbqId,
+      settlementRoundId: directSplitResult.settlementId,
+    });
+  }
   await postSystemChatMessage(
     bbqId,
     resolutionMode === "now"
@@ -253,40 +340,56 @@ router.put(p(api.expenses.update.path), requireAuth, asyncHandler(async (req, re
   if (includedParticipantIds && includedParticipantIds.some((participantId) => !acceptedParticipantIds.has(participantId))) {
     badRequest("Split members must be accepted plan participants");
   }
-  const updated = await expenseRepo.update(expenseId, {
-    ...input,
-    ...(includedUserIds !== undefined ? { includedUserIds } : {}),
+  const txResult = await db.transaction(async (tx) => {
+    const updated = await expenseRepo.update(expenseId, {
+      ...input,
+      ...(includedUserIds !== undefined ? { includedUserIds } : {}),
+    }, tx);
+    if (!updated) return null;
+    const beforeIncluded = normalizeIncludedUserIds(before.includedUserIds) ?? null;
+    const afterIncluded = normalizeIncludedUserIds(updated.includedUserIds) ?? null;
+    const splitChanged = JSON.stringify(beforeIncluded) !== JSON.stringify(afterIncluded);
+    const changed = (
+      (input.item !== undefined && input.item !== before.item)
+      || (input.category !== undefined && input.category !== before.category)
+      || (input.amount !== undefined && Number(input.amount) !== Number(before.amount))
+      || (input.participantId !== undefined && Number(input.participantId) !== Number(before.participantId))
+      || splitChanged
+    );
+
+    let activityRow: typeof planActivity.$inferSelect | null = null;
+    if (changed) {
+      const actorName = req.session?.username || "Someone";
+      const currency = bbq.currency ?? "€";
+      const amount = Number(updated.amount);
+      const [insertedActivity] = await tx.insert(planActivity).values({
+        eventId: updated.barbecueId,
+        type: "EXPENSE_UPDATED",
+        actorUserId: req.session?.userId ?? null,
+        actorName,
+        message: `${actorName} edited ${updated.item} (${currency}${Number.isFinite(amount) ? amount.toFixed(2) : "0.00"})`,
+        meta: {
+          expenseId: updated.id,
+          title: updated.item,
+          amount: Number.isFinite(amount) ? amount : null,
+          currency: bbq.currency ?? null,
+          previousTitle: before.item,
+          previousAmount: Number(before.amount),
+        },
+        createdAt: new Date(),
+      }).returning();
+      activityRow = insertedActivity ?? null;
+    }
+
+    return { updated, changed, activityRow } as const;
   });
-  if (!updated) notFound("Expense not found");
-  const beforeIncluded = normalizeIncludedUserIds(before.includedUserIds) ?? null;
-  const afterIncluded = normalizeIncludedUserIds(updated.includedUserIds) ?? null;
-  const splitChanged = JSON.stringify(beforeIncluded) !== JSON.stringify(afterIncluded);
-  const changed = (
-    (input.item !== undefined && input.item !== before.item)
-    || (input.category !== undefined && input.category !== before.category)
-    || (input.amount !== undefined && Number(input.amount) !== Number(before.amount))
-    || (input.participantId !== undefined && Number(input.participantId) !== Number(before.participantId))
-    || splitChanged
-  );
+  if (!txResult?.updated) notFound("Expense not found");
+  const { updated, changed, activityRow } = txResult;
   if (changed) {
     const actorName = req.session?.username || "Someone";
     const currency = bbq.currency ?? "€";
     const amount = Number(updated.amount);
-    await logPlanActivity({
-      eventId: updated.barbecueId,
-      type: "EXPENSE_UPDATED",
-      actorUserId: req.session?.userId ?? null,
-      actorName,
-      message: `${actorName} edited ${updated.item} (${currency}${Number.isFinite(amount) ? amount.toFixed(2) : "0.00"})`,
-      meta: {
-        expenseId: updated.id,
-        title: updated.item,
-        amount: Number.isFinite(amount) ? amount : null,
-        currency: bbq.currency ?? null,
-        previousTitle: before.item,
-        previousAmount: Number(before.amount),
-      },
-    });
+    broadcastPlanActivityCreated(updated.barbecueId, activityRow);
     await postSystemChatMessage(updated.barbecueId, `${actorName} updated ${updated.item}`, {
       type: "expense",
       action: "updated",
@@ -352,8 +455,8 @@ router.delete(p(api.expenses.delete.path), requireAuth, asyncHandler(async (req,
     : null;
   const paidByName = paidByParticipant?.name || actorName;
 
-  const createdActivity = await db.transaction(async (tx) => {
-    await tx.delete(expenses).where(eq(expenses.id, expenseId));
+  const txResult = await db.transaction(async (tx) => {
+    await expenseRepo.delete(expenseId, tx);
     const [activityRow] = await tx.insert(planActivity).values({
       eventId: expense.barbecueId,
       type: "EXPENSE_DELETED",
@@ -368,24 +471,11 @@ router.delete(p(api.expenses.delete.path), requireAuth, asyncHandler(async (req,
       },
       createdAt: new Date(),
     }).returning();
-    return activityRow ?? null;
+    return { activityRow: activityRow ?? null } as const;
   });
 
-  if (createdActivity) {
-    broadcastEventRealtime(expense.barbecueId, {
-      type: "PLAN_ACTIVITY_CREATED",
-      eventId: expense.barbecueId,
-      activity: {
-        id: createdActivity.id,
-        eventId: createdActivity.eventId,
-        type: createdActivity.type,
-        actorUserId: createdActivity.actorUserId ?? null,
-        actorName: createdActivity.actorName ?? null,
-        message: createdActivity.message,
-        meta: createdActivity.meta ?? null,
-        createdAt: createdActivity.createdAt ? createdActivity.createdAt.toISOString() : new Date().toISOString(),
-      },
-    });
+  if (txResult.activityRow) {
+    broadcastPlanActivityCreated(expense.barbecueId, txResult.activityRow);
     broadcastEventRealtime(expense.barbecueId, {
       type: "expense_deleted",
       eventId: expense.barbecueId,
@@ -406,25 +496,47 @@ router.delete(p(api.expenses.delete.path), requireAuth, asyncHandler(async (req,
   res.status(204).send();
 }));
 
-router.post("/receipts/scan", requireAuth, asyncHandler(async (req, res) => {
+router.post("/receipts/scan", requireAuth, receiptScanLimiter, asyncHandler(async (req, res) => {
   const payload = z.object({
     dataUrl: z.string().min(1),
   }).parse(req.body ?? {});
 
   const { mime, buffer } = parseReceiptDataUrl(payload.dataUrl);
+  const reqId = getReqId(req);
+  const userId = req.session?.userId ?? null;
+
+  log("info", "receipt_scan_requested", {
+    reqId,
+    userId,
+    mimeType: mime,
+    sizeBytes: buffer.length,
+  });
 
   try {
     const result = await scanReceiptWithVision({ buffer, mimeType: mime });
+    log("info", "receipt_scan_succeeded", {
+      reqId,
+      userId,
+      mimeType: mime,
+      sizeBytes: buffer.length,
+    });
     res.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Receipt scan failed";
+    log("warn", "receipt_scan_failed", {
+      reqId,
+      userId,
+      mimeType: mime,
+      sizeBytes: buffer.length,
+      message,
+    });
     res.status(502).json({
       message: message || "Receipt scan failed",
     });
   }
 }));
 
-router.post("/expenses/:expenseId/receipt", requireAuth, asyncHandler(async (req, res) => {
+router.post("/expenses/:expenseId/receipt", requireAuth, receiptUploadLimiter, asyncHandler(async (req, res) => {
   const expenseId = Number(req.params.expenseId);
   if (!Number.isFinite(expenseId)) badRequest("Invalid expense id");
   const [expense] = await db.select().from(expenses).where(eq(expenses.id, expenseId));
@@ -437,6 +549,8 @@ router.post("/expenses/:expenseId/receipt", requireAuth, asyncHandler(async (req
   }).parse(req.body ?? {});
 
   const { mime, buffer } = parseReceiptDataUrl(payload.dataUrl);
+  const reqId = getReqId(req);
+  const userId = req.session?.userId ?? null;
 
   const extensionByMime: Record<string, string> = {
     "image/jpeg": "jpg",
@@ -450,28 +564,57 @@ router.post("/expenses/:expenseId/receipt", requireAuth, asyncHandler(async (req
   const ext = extensionByMime[mime] ?? "jpg";
   const fileName = `expense-${expenseId}-${randomUUID()}.${ext}`;
   const prevReceiptUrl = expense.receiptUrl ?? null;
-  const receiptUrl = await uploadFile({
-    key: `receipts/${fileName}`,
-    buffer,
-    mimeType: mime,
-    localFallbackPath: path.join(RECEIPT_UPLOAD_DIR, fileName),
-    localPublicPath: `/uploads/receipts/${fileName}`,
-  });
-  const updated = await expenseRepo.update(expenseId, {
-    receiptUrl,
-    receiptMime: mime,
-    receiptUploadedAt: new Date(),
-  });
-  if (!updated) notFound("Expense not found");
-
-  await deleteFile(prevReceiptUrl);
-
-  res.json({
+  log("info", "expense_receipt_upload_requested", {
+    reqId,
+    userId,
     expenseId,
-    receiptUrl: updated.receiptUrl ?? null,
-    receiptMime: updated.receiptMime ?? null,
-    receiptUploadedAt: updated.receiptUploadedAt ?? null,
+    eventId: expense.barbecueId,
+    mimeType: mime,
+    sizeBytes: buffer.length,
   });
+  try {
+    const receiptUrl = await uploadFile({
+      key: `receipts/${fileName}`,
+      buffer,
+      mimeType: mime,
+      localFallbackPath: path.join(RECEIPT_UPLOAD_DIR, fileName),
+      localPublicPath: `/uploads/receipts/${fileName}`,
+    });
+    const updated = await expenseRepo.update(expenseId, {
+      receiptUrl,
+      receiptMime: mime,
+      receiptUploadedAt: new Date(),
+    });
+    if (!updated) notFound("Expense not found");
+
+    await deleteFile(prevReceiptUrl);
+    log("info", "expense_receipt_upload_succeeded", {
+      reqId,
+      userId,
+      expenseId,
+      eventId: expense.barbecueId,
+      mimeType: mime,
+      sizeBytes: buffer.length,
+    });
+
+    res.json({
+      expenseId,
+      receiptUrl: updated.receiptUrl ?? null,
+      receiptMime: updated.receiptMime ?? null,
+      receiptUploadedAt: updated.receiptUploadedAt ?? null,
+    });
+  } catch (error) {
+    log("error", "expense_receipt_upload_failed", {
+      reqId,
+      userId,
+      expenseId,
+      eventId: expense.barbecueId,
+      mimeType: mime,
+      sizeBytes: buffer.length,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
 }));
 
 router.delete("/expenses/:expenseId/receipt", requireAuth, asyncHandler(async (req, res) => {
@@ -481,16 +624,34 @@ router.delete("/expenses/:expenseId/receipt", requireAuth, asyncHandler(async (r
   if (!expense) notFound("Expense not found");
   await assertExpensesWritable(expense.barbecueId);
   await ensurePrivateEventParticipantOrCreator(req, expense.barbecueId);
+  const reqId = getReqId(req);
+  const userId = req.session?.userId ?? null;
 
-  await deleteFile(expense.receiptUrl);
-
-  const updated = await expenseRepo.update(expenseId, {
-    receiptUrl: null,
-    receiptMime: null,
-    receiptUploadedAt: null,
-  });
-  if (!updated) notFound("Expense not found");
-  res.json({ expenseId, receiptUrl: null });
+  try {
+    await deleteFile(expense.receiptUrl);
+    const updated = await expenseRepo.update(expenseId, {
+      receiptUrl: null,
+      receiptMime: null,
+      receiptUploadedAt: null,
+    });
+    if (!updated) notFound("Expense not found");
+    log("info", "expense_receipt_deleted", {
+      reqId,
+      userId,
+      expenseId,
+      eventId: expense.barbecueId,
+    });
+    res.json({ expenseId, receiptUrl: null });
+  } catch (error) {
+    log("error", "expense_receipt_delete_failed", {
+      reqId,
+      userId,
+      expenseId,
+      eventId: expense.barbecueId,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
 }));
 
 router.get("/barbecues/:bbqId/expense-shares", requireAuth, asyncHandler(async (req, res) => {

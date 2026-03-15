@@ -24,7 +24,7 @@ import { and, eq } from "drizzle-orm";
 import { barbecues, eventMembers, session as sessionTable } from "@shared/schema";
 import { createHmac, timingSafeEqual } from "crypto";
 import { appendEventChatMessage, toggleEventChatReaction } from "./lib/eventChatStore";
-import { broadcastEventRealtime, registerEventSocket, unregisterEventSocket } from "./lib/eventRealtime";
+import { broadcastEventRealtime, registerEventSocket, unregisterEventSocket, unregisterSocketEverywhere } from "./lib/eventRealtime";
 import { getPlanLifecycleState } from "./lib/planLifecycle";
 import { sendPushToUser } from "./lib/webPush";
 import fs from "node:fs";
@@ -69,6 +69,8 @@ type WsClientMeta = {
   username: string;
   subscribed: boolean;
 };
+
+type ManagedWebSocket = WebSocket & { isAlive?: boolean };
 
 function parseCookieHeader(raw: string): Record<string, string> {
   const result: Record<string, string> = {};
@@ -185,6 +187,8 @@ async function pushChatMessageToOtherMembers(eventId: number, authorUserId: numb
 }
 
 chatWss.on("connection", (ws, req) => {
+  const managedWs = ws as ManagedWebSocket;
+  managedWs.isAlive = true;
   const meta = (req as import("http").IncomingMessage & { chatMeta?: WsClientMeta }).chatMeta;
   if (!meta) {
     ws.close(1008, "unauthorized");
@@ -194,6 +198,9 @@ chatWss.on("connection", (ws, req) => {
     log("info", "[chat-ws] connected", { eventId: meta.eventId, userId: meta.userId, username: meta.username });
   }
   ws.send(JSON.stringify({ type: "hello", eventId: meta.eventId }));
+  ws.on("pong", () => {
+    managedWs.isAlive = true;
+  });
 
   ws.on("message", (raw: RawData) => {
     let parsed: {
@@ -392,11 +399,64 @@ chatWss.on("connection", (ws, req) => {
   });
 
   ws.on("close", () => {
+    unregisterSocketEverywhere(ws);
     if (meta.subscribed) {
       unregisterEventSocket(meta.eventId, ws);
       meta.subscribed = false;
     }
   });
+
+  ws.on("error", (error) => {
+    log("warn", "[chat-ws] socket error", {
+      eventId: meta.eventId,
+      userId: meta.userId,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    unregisterSocketEverywhere(ws);
+    if (meta.subscribed) {
+      unregisterEventSocket(meta.eventId, ws);
+      meta.subscribed = false;
+    }
+    try {
+      ws.terminate();
+    } catch {
+      // Ignore terminate errors during forced cleanup.
+    }
+  });
+});
+
+const heartbeatInterval = setInterval(() => {
+  for (const client of Array.from(chatWss.clients)) {
+    const ws = client as ManagedWebSocket;
+    if (ws.readyState !== WebSocket.OPEN) {
+      unregisterSocketEverywhere(ws);
+      continue;
+    }
+    if (ws.isAlive === false) {
+      unregisterSocketEverywhere(ws);
+      try {
+        ws.terminate();
+      } catch {
+        // Ignore forced-close failures during heartbeat cleanup.
+      }
+      continue;
+    }
+    ws.isAlive = false;
+    try {
+      ws.ping();
+    } catch {
+      unregisterSocketEverywhere(ws);
+      try {
+        ws.terminate();
+      } catch {
+        // Ignore forced-close failures during heartbeat cleanup.
+      }
+    }
+  }
+}, 30000);
+
+chatWss.on("close", () => {
+  clearInterval(heartbeatInterval);
 });
 
 httpServer.on("upgrade", async (req, socket, head) => {
@@ -437,6 +497,7 @@ httpServer.on("upgrade", async (req, socket, head) => {
 
 function gracefulShutdown(signal: string) {
   log("info", `${signal} received, closing server and pool`);
+  clearInterval(heartbeatInterval);
   httpServer.close(() => {
     pool.end().then(
       () => process.exit(0),

@@ -7,6 +7,7 @@ import { fetchExpenses } from "@/hooks/use-expenses";
 import { type EventMemberView, fetchEventMembers, fetchParticipants } from "@/hooks/use-participants";
 import { PLAN_GC_TIME_MS, PLAN_STALE_TIME_MS } from "@/lib/query-stale";
 import { markPlanSwitchPerf } from "@/lib/plan-switch-perf";
+import { queryKeys } from "@/lib/query-keys";
 
 const PLAN_QUERY_OPTIONS = {
   staleTime: PLAN_STALE_TIME_MS,
@@ -16,19 +17,19 @@ const PLAN_QUERY_OPTIONS = {
 } as const;
 
 export function planQueryKey(planId: number | null) {
-  return ["plan", planId] as const;
+  return queryKeys.plans.detail(planId);
 }
 
 export function messagesQueryKey(planId: number | null) {
-  return ["messages", planId] as const;
+  return queryKeys.plans.messages(planId);
 }
 
 export function expensesQueryKey(planId: number | null) {
-  return ["expenses", planId] as const;
+  return queryKeys.plans.expenses(planId);
 }
 
 export function crewQueryKey(planId: number | null) {
-  return ["crew", planId] as const;
+  return queryKeys.plans.crew(planId);
 }
 
 export async function fetchPlanExpenses(planId: number) {
@@ -55,7 +56,7 @@ export function usePlan(planId: number | null) {
     enabled: !!planId,
     queryFn: async () => {
       if (!planId) return null;
-      const cachedAll = queryClient.getQueryData<BarbecueListItem[]>(["/api/barbecues"]);
+      const cachedAll = queryClient.getQueryData<BarbecueListItem[]>(queryKeys.plans.list());
       if (Array.isArray(cachedAll)) {
         const match = cachedAll.find((entry) => Number(entry.id) === planId) ?? null;
         if (match) return match;

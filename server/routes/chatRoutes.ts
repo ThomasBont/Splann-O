@@ -1,5 +1,5 @@
 // Event chat and reactions routes.
-import { Router } from "express";
+import { Router, type Request } from "express";
 import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import path from "path";
@@ -15,6 +15,8 @@ import { barbecues, eventMembers } from "@shared/schema";
 import { uploadFile } from "../lib/r2";
 import { getPlanLifecycleState } from "../lib/planLifecycle";
 import { sendPushToUser } from "../lib/webPush";
+import { log } from "../lib/logger";
+import { chatAttachmentLimiter, chatMessageLimiter } from "../middleware/rate-limit";
 
 const router = Router();
 const CHAT_UPLOAD_DIR = path.resolve(process.cwd(), "public/uploads/chat");
@@ -44,6 +46,10 @@ const FILE_EXTENSION_BY_MIME: Record<string, string> = {
 };
 const IMAGE_MIME_TYPES = new Set(Object.keys(IMAGE_EXTENSION_BY_MIME));
 const FILE_MIME_TYPES = new Set(Object.keys(FILE_EXTENSION_BY_MIME));
+
+function getReqId(req: Request) {
+  return (req as Request & { requestId?: string }).requestId;
+}
 
 function sanitizeBaseName(input: string): string {
   const trimmed = input.trim();
@@ -90,26 +96,57 @@ async function uploadChatAttachment(
   const extension = extensionMap[mime] ?? fallbackExtension ?? "bin";
   const baseName = sanitizeBaseName(parsed.fileName);
   const fileName = `chat-${eventId}-${randomUUID()}-${baseName}.${extension}`;
+  const reqId = getReqId(req);
+  const userId = req.session?.userId ?? null;
 
-  const relativePath = await uploadFile({
-    key: `chat/${fileName}`,
-    buffer,
+  log("info", "chat_attachment_upload_requested", {
+    reqId,
+    userId,
+    eventId,
+    kind: parsed.kind,
     mimeType: mime,
-    localFallbackPath: path.join(CHAT_UPLOAD_DIR, fileName),
-    localPublicPath: `/uploads/chat/${fileName}`,
+    sizeBytes: buffer.length,
   });
-  return {
-    locked: false as const,
-    attachment: {
-      kind: parsed.kind,
-      fileName: parsed.fileName,
+  try {
+    const relativePath = await uploadFile({
+      key: `chat/${fileName}`,
+      buffer,
       mimeType: mime,
-      size: buffer.length,
-      path: relativePath,
-      url: relativePath,
-      publicUrl: /^https?:\/\//i.test(relativePath) ? relativePath : toPublicUploadsUrl(req, relativePath),
-    },
-  };
+      localFallbackPath: path.join(CHAT_UPLOAD_DIR, fileName),
+      localPublicPath: `/uploads/chat/${fileName}`,
+    });
+    log("info", "chat_attachment_upload_succeeded", {
+      reqId,
+      userId,
+      eventId,
+      kind: parsed.kind,
+      mimeType: mime,
+      sizeBytes: buffer.length,
+    });
+    return {
+      locked: false as const,
+      attachment: {
+        kind: parsed.kind,
+        fileName: parsed.fileName,
+        mimeType: mime,
+        size: buffer.length,
+        path: relativePath,
+        url: relativePath,
+        publicUrl: /^https?:\/\//i.test(relativePath) ? relativePath : toPublicUploadsUrl(req, relativePath),
+      },
+    };
+  } catch (error) {
+    log("error", "chat_attachment_upload_failed", {
+      reqId,
+      userId,
+      eventId,
+      kind: parsed.kind,
+      mimeType: mime,
+      sizeBytes: buffer.length,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
 }
 
 async function isChatLockedForEvent(eventId: number): Promise<boolean> {
@@ -201,7 +238,7 @@ router.get("/plans/:planId/chat/messages", requireAuth, asyncHandler(async (req,
   });
 }));
 
-router.post("/plans/:planId/chat/attachments", requireAuth, asyncHandler(async (req, res) => {
+router.post("/plans/:planId/chat/attachments", requireAuth, chatAttachmentLimiter, asyncHandler(async (req, res) => {
   const eventId = Number(req.params.planId);
   if (!Number.isFinite(eventId)) badRequest("Invalid plan id");
   const result = await uploadChatAttachment(req, eventId, req.body);
@@ -212,7 +249,7 @@ router.post("/plans/:planId/chat/attachments", requireAuth, asyncHandler(async (
   res.status(201).json(result.attachment);
 }));
 
-router.post("/plans/:planId/chat/messages", requireAuth, asyncHandler(async (req, res) => {
+router.post("/plans/:planId/chat/messages", requireAuth, chatMessageLimiter, asyncHandler(async (req, res) => {
   const eventId = Number(req.params.planId);
   if (!Number.isFinite(eventId)) badRequest("Invalid plan id");
   await assertEventAccessOrThrow(req, eventId);
@@ -224,27 +261,53 @@ router.post("/plans/:planId/chat/messages", requireAuth, asyncHandler(async (req
 
   const locked = await isChatLockedForEvent(eventId);
   if (locked) {
+    log("warn", "chat_message_rejected_locked", {
+      reqId: getReqId(req),
+      eventId,
+      userId: req.session?.userId ?? null,
+      route: "plans",
+    });
     res.status(403).json(await getChatLockPayload(eventId));
     return;
   }
 
-  const saved = await appendEventChatMessage(eventId, {
-    text: parsed.content,
-    clientMessageId: parsed.clientMessageId,
-    metadata: parsed.metadata ?? null,
-    user: {
-      id: String(req.session!.userId!),
-      name: req.session!.username!,
-    },
-  });
-  if (saved.message && saved.inserted) {
-    broadcastEventRealtime(eventId, { type: "chat:new", eventId, message: saved.message });
-    await pushChatMessageToOtherMembers(eventId, req.session!.userId!, req.session!.username!, parsed.content);
+  try {
+    const saved = await appendEventChatMessage(eventId, {
+      text: parsed.content,
+      clientMessageId: parsed.clientMessageId,
+      metadata: parsed.metadata ?? null,
+      user: {
+        id: String(req.session!.userId!),
+        name: req.session!.username!,
+      },
+    });
+    if (saved.message && saved.inserted) {
+      broadcastEventRealtime(eventId, { type: "chat:new", eventId, message: saved.message });
+      await pushChatMessageToOtherMembers(eventId, req.session!.userId!, req.session!.username!, parsed.content);
+      log("info", "chat_message_sent", {
+        reqId: getReqId(req),
+        eventId,
+        userId: req.session?.userId ?? null,
+        route: "plans",
+        clientMessageId: parsed.clientMessageId,
+        inserted: true,
+      });
+    }
+    res.status(saved.inserted ? 201 : 200).json({ message: saved.message });
+  } catch (error) {
+    log("error", "chat_message_send_failed", {
+      reqId: getReqId(req),
+      eventId,
+      userId: req.session?.userId ?? null,
+      route: "plans",
+      clientMessageId: parsed.clientMessageId,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
   }
-  res.status(saved.inserted ? 201 : 200).json({ message: saved.message });
 }));
 
-router.post("/events/:eventId/chat/attachments", requireAuth, asyncHandler(async (req, res) => {
+router.post("/events/:eventId/chat/attachments", requireAuth, chatAttachmentLimiter, asyncHandler(async (req, res) => {
   const eventId = Number(req.params.eventId);
   if (!Number.isFinite(eventId)) badRequest("Invalid event id");
   const result = await uploadChatAttachment(req, eventId, req.body);
@@ -255,7 +318,7 @@ router.post("/events/:eventId/chat/attachments", requireAuth, asyncHandler(async
   res.status(201).json(result.attachment);
 }));
 
-router.post("/events/:eventId/chat/messages", requireAuth, asyncHandler(async (req, res) => {
+router.post("/events/:eventId/chat/messages", requireAuth, chatMessageLimiter, asyncHandler(async (req, res) => {
   const eventId = Number(req.params.eventId);
   if (!Number.isFinite(eventId)) badRequest("Invalid event id");
   await assertEventAccessOrThrow(req, eventId);
@@ -267,26 +330,52 @@ router.post("/events/:eventId/chat/messages", requireAuth, asyncHandler(async (r
 
   const locked = await isChatLockedForEvent(eventId);
   if (locked) {
+    log("warn", "chat_message_rejected_locked", {
+      reqId: getReqId(req),
+      eventId,
+      userId: req.session?.userId ?? null,
+      route: "events",
+    });
     res.status(403).json(await getChatLockPayload(eventId));
     return;
   }
 
-  const saved = await appendEventChatMessage(eventId, {
-    text: parsed.content,
-    clientMessageId: parsed.clientMessageId,
-    metadata: parsed.metadata ?? null,
-    user: {
-      id: String(req.session!.userId!),
-      name: req.session!.username!,
-    },
-  });
+  try {
+    const saved = await appendEventChatMessage(eventId, {
+      text: parsed.content,
+      clientMessageId: parsed.clientMessageId,
+      metadata: parsed.metadata ?? null,
+      user: {
+        id: String(req.session!.userId!),
+        name: req.session!.username!,
+      },
+    });
 
-  if (saved.message && saved.inserted) {
-    broadcastEventRealtime(eventId, { type: "chat:new", eventId, message: saved.message });
-    await pushChatMessageToOtherMembers(eventId, req.session!.userId!, req.session!.username!, parsed.content);
+    if (saved.message && saved.inserted) {
+      broadcastEventRealtime(eventId, { type: "chat:new", eventId, message: saved.message });
+      await pushChatMessageToOtherMembers(eventId, req.session!.userId!, req.session!.username!, parsed.content);
+      log("info", "chat_message_sent", {
+        reqId: getReqId(req),
+        eventId,
+        userId: req.session?.userId ?? null,
+        route: "events",
+        clientMessageId: parsed.clientMessageId,
+        inserted: true,
+      });
+    }
+
+    res.status(saved.inserted ? 201 : 200).json({ message: saved.message });
+  } catch (error) {
+    log("error", "chat_message_send_failed", {
+      reqId: getReqId(req),
+      eventId,
+      userId: req.session?.userId ?? null,
+      route: "events",
+      clientMessageId: parsed.clientMessageId,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
   }
-
-  res.status(saved.inserted ? 201 : 200).json({ message: saved.message });
 }));
 
 router.patch("/plans/:planId/chat/messages/:messageId", requireAuth, asyncHandler(async (req, res) => {

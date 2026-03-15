@@ -9,7 +9,8 @@ import { broadcastEventRealtime } from "../lib/eventRealtime";
 import { log } from "../lib/logger";
 import { deleteStoredFileByKey, resolveStoredFileUrl, uploadFile } from "../lib/r2";
 import { requireAuth } from "../middleware/requireAuth";
-import { assertEventAccessOrThrow, asyncHandler, getPlanLifecycleOrThrow, isAdmin, p } from "./_helpers";
+import { photoUploadLimiter } from "../middleware/rate-limit";
+import { assertEventAccessOrThrow, assertSocialMutationWritable, asyncHandler, isAdmin, p } from "./_helpers";
 
 const router = Router();
 
@@ -242,15 +243,12 @@ router.get(p(api.photos.list.path), requireAuth, asyncHandler(async (req, res) =
 router.post(
   p(api.photos.upload.path),
   requireAuth,
+  photoUploadLimiter,
   rawPhotoUpload,
   asyncHandler(async (req, res) => {
     const planId = parsePlanId(req);
     await assertEventAccessOrThrow(req, planId);
-
-    const lifecycle = await getPlanLifecycleOrThrow(planId);
-    if (!lifecycle.socialOpen || lifecycle.status === "archived") {
-      throw new AppError("PHOTOS_UPLOADS_CLOSED", "Uploads are no longer available for this plan.", 403);
-    }
+    await assertSocialMutationWritable(planId, "PHOTOS_UPLOADS_CLOSED", "Uploads are no longer available for this plan.");
 
     const mimeType = String(req.headers["content-type"] ?? "").split(";")[0]?.trim().toLowerCase();
     if (!ALLOWED_MIME_TYPES.has(mimeType)) {
@@ -271,6 +269,16 @@ router.post(
     const { fileName, caption } = parseUploadMetadata(req);
     const extension = getExtension(fileName, mimeType);
     const uploadedByUserId = req.session!.userId!;
+    const reqId = (req as Request & { requestId?: string }).requestId;
+
+    log("info", "photo_upload_requested", {
+      reqId,
+      planId,
+      userId: uploadedByUserId,
+      mimeType,
+      sizeBytes: body.length,
+      fileName,
+    });
 
     const inserted = (await db.insert(eventPhotos).values({
       eventId: planId,
@@ -320,9 +328,26 @@ router.post(
       const row = await fetchPhotoRow(inserted.id);
       if (!row) throw new Error("Failed to load created photo");
 
+      log("info", "photo_upload_succeeded", {
+        reqId,
+        planId,
+        userId: uploadedByUserId,
+        photoId: inserted.id,
+        mimeType,
+        sizeBytes: body.length,
+      });
       broadcastEventRealtime(planId, { type: "photos:updated", eventId: planId });
       res.status(201).json(serializePhoto(row));
     } catch (error) {
+      log("error", "photo_upload_failed", {
+        reqId,
+        planId,
+        userId: uploadedByUserId,
+        photoId: inserted.id,
+        mimeType,
+        sizeBytes: body.length,
+        message: error instanceof Error ? error.message : String(error),
+      });
       await Promise.allSettled([
         deleteStoredFileByKey(storageKeyOriginal),
         deleteStoredFileByKey(storageKeyThumb),
@@ -338,11 +363,7 @@ router.delete(p(api.photos.delete.path), requireAuth, asyncHandler(async (req, r
   const photoId = String(req.params.photoId ?? "").trim();
   if (!photoId) badRequest("Invalid photo id");
   await assertEventAccessOrThrow(req, planId);
-
-  const lifecycle = await getPlanLifecycleOrThrow(planId);
-  if (!lifecycle.socialOpen || lifecycle.status === "archived") {
-    throw new AppError("PHOTOS_UPLOADS_CLOSED", "Uploads are no longer available for this plan.", 403);
-  }
+  await assertSocialMutationWritable(planId, "PHOTOS_UPLOADS_CLOSED", "Uploads are no longer available for this plan.");
 
   const [photo] = await db
     .select()
@@ -365,6 +386,7 @@ router.delete(p(api.photos.delete.path), requireAuth, asyncHandler(async (req, r
   if (!canDelete) {
     throw new AppError("ONLY_UPLOADER_CAN_DELETE_PHOTO", "Only the uploader or plan owner can delete this photo.", 403);
   }
+  const reqId = (req as Request & { requestId?: string }).requestId;
 
   try {
     if (photo.storageKeyOriginal) {
@@ -386,6 +408,12 @@ router.delete(p(api.photos.delete.path), requireAuth, asyncHandler(async (req, r
     .set({ deletedAt: new Date() })
     .where(eq(eventPhotos.id, photo.id));
 
+  log("info", "photo_delete_succeeded", {
+    reqId,
+    planId,
+    photoId: photo.id,
+    userId,
+  });
   broadcastEventRealtime(planId, { type: "photos:updated", eventId: planId });
   res.status(204).send();
 }));

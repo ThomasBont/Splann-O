@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, buildUrl } from "@shared/routes";
 import type { InsertNote } from "@shared/routes";
 import type { NoteWithAuthor } from "@shared/schema";
+import { apiRequest } from "@/lib/api";
 
 const NOTES_QUERY_KEY = "/api/events/notes";
 
@@ -23,12 +24,11 @@ export function useNotes(eventId: number | null) {
     queryFn: async (): Promise<NoteWithAuthor[]> => {
       if (!eventId) return [];
       const url = buildUrl(api.notes.list.path, { eventId });
-      const res = await fetch(url);
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(parseNoteError(text));
+      try {
+        return await apiRequest<NoteWithAuthor[]>(url);
+      } catch (error) {
+        throw new Error(parseNoteError(error instanceof Error ? error.message : ""));
       }
-      return res.json();
     },
     enabled: !!eventId,
   });
@@ -40,21 +40,18 @@ export function useCreateNote(eventId: number | null) {
     mutationFn: async (data: InsertNote) => {
       if (!eventId) throw new Error("No event selected");
       const url = buildUrl(api.notes.create.path, { eventId });
-      const res = await fetch(url, {
+      try {
+        return await apiRequest(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(data),
+        body: data,
       });
-      if (!res.ok) {
-        const text = await res.text();
-        const message = parseNoteError(text);
+      } catch (error) {
+        const message = parseNoteError(error instanceof Error ? error.message : "");
         if (import.meta.env?.DEV) {
-          console.error("[useCreateNote]", res.status, res.statusText, message);
+          console.error("[useCreateNote]", message);
         }
         throw new Error(message);
       }
-      return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [NOTES_QUERY_KEY, eventId] });
@@ -75,17 +72,14 @@ export function useUpdateNote(eventId: number | null) {
       pinned?: boolean;
     }) => {
       const url = buildUrl(api.notes.update.path, { noteId: id });
-      const res = await fetch(url, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify(updates),
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(parseNoteError(text));
+      try {
+        return await apiRequest(url, {
+          method: "PATCH",
+          body: updates,
+        });
+      } catch (error) {
+        throw new Error(parseNoteError(error instanceof Error ? error.message : ""));
       }
-      return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [NOTES_QUERY_KEY, eventId] });
@@ -98,10 +92,10 @@ export function useDeleteNote(eventId: number | null) {
   return useMutation({
     mutationFn: async (id: number) => {
       const url = buildUrl(api.notes.delete.path, { noteId: id });
-      const res = await fetch(url, { method: "DELETE", credentials: "include" });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(parseNoteError(text));
+      try {
+        await apiRequest(url, { method: "DELETE" });
+      } catch (error) {
+        throw new Error(parseNoteError(error instanceof Error ? error.message : ""));
       }
     },
     onSuccess: () => {

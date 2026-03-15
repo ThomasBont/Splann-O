@@ -16,7 +16,7 @@ import { resolveLegacyAssetIdToPublicPath } from "../lib/assets";
 import { buildEffectiveExpenseShares } from "../lib/planBalancesRealtime";
 import { fetchCanonicalPlace } from "../lib/googlePlaces";
 import { resolveGoogleTimezoneId } from "../lib/googleTimezone";
-import { getPlanLifecycleState, refreshPlanLifecycle, refreshPlanLifecycles } from "../lib/planLifecycle";
+import { computePlanLifecycles, getPlanLifecycleState, type PlanLifecycleState } from "../lib/planLifecycle";
 
 const DEFAULT_LISTING_DURATION_DAYS = Number(process.env.PUBLIC_LISTING_DAYS ?? 30);
 const warnedPrivatePollutionIds = new Set<number>();
@@ -101,6 +101,15 @@ export function normalizeEventForClient(event: Barbecue): Barbecue {
   }
 
   return normalized;
+}
+
+function applyComputedLifecycleToEvent(event: Barbecue, lifecycle?: Pick<PlanLifecycleState, "status" | "settledAt"> | null): Barbecue {
+  if (!lifecycle) return event;
+  return {
+    ...event,
+    status: lifecycle.status,
+    settledAt: lifecycle.settledAt,
+  };
 }
 
 function stripPublicOnlyFieldsForPrivateMutation<T extends Record<string, unknown>>(target: T, privateOrigin: boolean): T {
@@ -403,9 +412,8 @@ type BarbecueListItem = Barbecue & {
 
 export async function listBarbecues(currentUsername?: string, currentUserId?: number): Promise<BarbecueListItem[]> {
   const rows = await bbqRepo.listAccessible(currentUsername, currentUserId);
-  const lifecycleByEventId = await refreshPlanLifecycles(rows.map((row) => row.id));
-  const refreshedRows = await bbqRepo.listAccessible(currentUsername, currentUserId);
-  const normalized = refreshedRows.map(normalizeEventForClient);
+  const lifecycleByEventId = await computePlanLifecycles(rows.map((row) => row.id));
+  const normalized = rows.map((row) => normalizeEventForClient(applyComputedLifecycleToEvent(row, lifecycleByEventId.get(row.id))));
   const eventIds = normalized.map((row) => row.id).filter((id): id is number => Number.isInteger(id));
   if (eventIds.length === 0) return [];
 
@@ -1023,11 +1031,12 @@ export async function getBarbecueIfAccessible(
   userId?: number,
   username?: string
 ): Promise<Barbecue | null> {
-  await refreshPlanLifecycle(bbqId);
   const bbq = await bbqRepo.getById(bbqId);
   if (!bbq) return null;
   const hasAccess = await bbqRepo.hasAccess(bbq, username, userId);
-  return hasAccess ? normalizeEventForClient(bbq) : null;
+  if (!hasAccess) return null;
+  const lifecycle = await getPlanLifecycleState(bbqId);
+  return normalizeEventForClient(applyComputedLifecycleToEvent(bbq, lifecycle));
 }
 
 export async function ensurePublicSlug(event: Barbecue): Promise<Barbecue | undefined> {

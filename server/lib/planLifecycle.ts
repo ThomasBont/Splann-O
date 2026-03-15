@@ -174,33 +174,40 @@ function deriveLifecycleState(
   };
 }
 
-export async function refreshPlanLifecycle(eventId: number, now = new Date()): Promise<PlanLifecycleState | null> {
-  await ensureCoreSchemaReady();
-  const [event] = await db.select().from(barbecues).where(eq(barbecues.id, eventId)).limit(1);
-  if (!event) return null;
-  const settlementState = (await getSettlementLockState([eventId])).get(eventId);
-  const derived = deriveLifecycleState(event, settlementState, now);
-
+function buildLifecyclePersistencePatch(
+  event: Barbecue,
+  derived: Omit<PlanLifecycleState, "event">,
+): Partial<Barbecue> {
   const patch: Partial<Barbecue> = {};
   if (event.status !== derived.status) patch.status = derived.status;
   if (derived.status === "settled" && derived.settledAt && (!event.settledAt || event.settledAt.getTime() !== derived.settledAt.getTime())) {
     patch.settledAt = derived.settledAt;
   }
-  if (derived.status !== "settled" && derived.status !== "archived" && event.settledAt && normalizeStoredStatus(event.status) !== "settled" && normalizeStoredStatus(event.status) !== "archived") {
+  if (
+    derived.status !== "settled"
+    && derived.status !== "archived"
+    && event.settledAt
+    && normalizeStoredStatus(event.status) !== "settled"
+    && normalizeStoredStatus(event.status) !== "archived"
+  ) {
     patch.settledAt = null;
   }
+  return patch;
+}
 
-  const nextEvent = Object.keys(patch).length > 0
-    ? ((await db.update(barbecues).set({ ...patch, updatedAt: new Date() }).where(eq(barbecues.id, eventId)).returning())[0] ?? event)
-    : event;
-
+export async function computePlanLifecycle(eventId: number, now = new Date()): Promise<PlanLifecycleState | null> {
+  await ensureCoreSchemaReady();
+  const [event] = await db.select().from(barbecues).where(eq(barbecues.id, eventId)).limit(1);
+  if (!event) return null;
+  const settlementState = (await getSettlementLockState([eventId])).get(eventId);
+  const derived = deriveLifecycleState(event, settlementState, now);
   return {
-    event: nextEvent,
-    ...deriveLifecycleState(nextEvent, settlementState, now),
+    event,
+    ...derived,
   };
 }
 
-export async function refreshPlanLifecycles(eventIds: number[], now = new Date()): Promise<Map<number, PlanLifecycleState>> {
+export async function computePlanLifecycles(eventIds: number[], now = new Date()): Promise<Map<number, PlanLifecycleState>> {
   await ensureCoreSchemaReady();
   const uniqueIds = Array.from(new Set(eventIds.filter((id) => Number.isInteger(id) && id > 0)));
   const result = new Map<number, PlanLifecycleState>();
@@ -213,22 +220,51 @@ export async function refreshPlanLifecycles(eventIds: number[], now = new Date()
   for (const event of events) {
     const settlementState = settlementStateByEventId.get(event.id);
     const derived = deriveLifecycleState(event, settlementState, now);
-    const patch: Partial<Barbecue> = {};
-    if (event.status !== derived.status) patch.status = derived.status;
-    if (derived.status === "settled" && derived.settledAt && (!event.settledAt || event.settledAt.getTime() !== derived.settledAt.getTime())) {
-      patch.settledAt = derived.settledAt;
-    }
-    if (derived.status !== "settled" && derived.status !== "archived" && event.settledAt && normalizeStoredStatus(event.status) !== "settled" && normalizeStoredStatus(event.status) !== "archived") {
-      patch.settledAt = null;
-    }
-
-    const nextEvent = Object.keys(patch).length > 0
-      ? ((await db.update(barbecues).set({ ...patch, updatedAt: new Date() }).where(eq(barbecues.id, event.id)).returning())[0] ?? event)
-      : event;
-
     result.set(event.id, {
+      event,
+      ...derived,
+    });
+  }
+
+  return result;
+}
+
+export async function persistPlanLifecycleIfNeeded(eventId: number, now = new Date()): Promise<PlanLifecycleState | null> {
+  const computed = await computePlanLifecycle(eventId, now);
+  if (!computed) return null;
+
+  const patch = buildLifecyclePersistencePatch(computed.event, computed);
+  if (Object.keys(patch).length === 0) return computed;
+
+  const nextEvent = ((await db.update(barbecues)
+    .set({ ...patch, updatedAt: new Date() })
+    .where(eq(barbecues.id, eventId))
+    .returning())[0] ?? computed.event);
+
+  return {
+    ...computed,
+    event: nextEvent,
+  };
+}
+
+export async function persistPlanLifecyclesIfNeeded(eventIds: number[], now = new Date()): Promise<Map<number, PlanLifecycleState>> {
+  const computed = await computePlanLifecycles(eventIds, now);
+  const result = new Map<number, PlanLifecycleState>();
+
+  for (const [eventId, lifecycle] of Array.from(computed.entries())) {
+    const patch = buildLifecyclePersistencePatch(lifecycle.event, lifecycle);
+    if (Object.keys(patch).length === 0) {
+      result.set(eventId, lifecycle);
+      continue;
+    }
+
+    const nextEvent = ((await db.update(barbecues)
+      .set({ ...patch, updatedAt: new Date() })
+      .where(eq(barbecues.id, eventId))
+      .returning())[0] ?? lifecycle.event);
+    result.set(eventId, {
+      ...lifecycle,
       event: nextEvent,
-      ...deriveLifecycleState(nextEvent, settlementState, now),
     });
   }
 
@@ -236,7 +272,15 @@ export async function refreshPlanLifecycles(eventIds: number[], now = new Date()
 }
 
 export async function getPlanLifecycleState(eventId: number, now = new Date()): Promise<PlanLifecycleState | null> {
-  return refreshPlanLifecycle(eventId, now);
+  return computePlanLifecycle(eventId, now);
+}
+
+export async function refreshPlanLifecycle(eventId: number, now = new Date()): Promise<PlanLifecycleState | null> {
+  return persistPlanLifecycleIfNeeded(eventId, now);
+}
+
+export async function refreshPlanLifecycles(eventIds: number[], now = new Date()): Promise<Map<number, PlanLifecycleState>> {
+  return persistPlanLifecyclesIfNeeded(eventIds, now);
 }
 
 export async function hasActiveFinalSettlement(eventId: number): Promise<boolean> {

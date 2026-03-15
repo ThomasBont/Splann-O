@@ -18,6 +18,7 @@ import { formatFullDate } from "@/lib/dates";
 import { getClientPlanStatus, getPlanCloseAt } from "@/lib/plan-lifecycle";
 import { getChatPatternStyle } from "@/lib/chat-pattern";
 import { markPlanSwitchPerf } from "@/lib/plan-switch-perf";
+import { queryKeys } from "@/lib/query-keys";
 import { circularActionButtonClass, cn } from "@/lib/utils";
 import { usePanel } from "@/state/panel";
 import type { SendMessageResult } from "@/hooks/use-event-chat";
@@ -846,7 +847,7 @@ export function ChatSidebar({
 
   const handleDeleteExpenseFromCard = useCallback(async (expenseId: number) => {
     if (!eventId) return;
-    const currentExpenses = queryClient.getQueryData(['/api/barbecues', eventId, 'expenses']);
+    const currentExpenses = queryClient.getQueryData(queryKeys.plans.expenses(eventId));
     const targetExpense = Array.isArray(currentExpenses)
       ? currentExpenses.find((item) => Number((item as { id?: number }).id) === expenseId) as { createdByUserId?: number | null } | undefined
       : undefined;
@@ -858,11 +859,7 @@ export function ChatSidebar({
       return;
     }
     setOptimisticallyDeletedExpenseIds((prev) => (prev.includes(expenseId) ? prev : [...prev, expenseId]));
-    queryClient.setQueryData(['/api/barbecues', eventId, 'expenses'], (old: unknown) => {
-      if (!Array.isArray(old)) return old;
-      return old.filter((item) => Number((item as { id?: number }).id) !== expenseId);
-    });
-    queryClient.setQueryData(["expenses", eventId], (old: unknown) => {
+    queryClient.setQueryData(queryKeys.plans.expenses(eventId), (old: unknown) => {
       if (!Array.isArray(old)) return old;
       return old.filter((item) => Number((item as { id?: number }).id) !== expenseId);
     });
@@ -870,8 +867,7 @@ export function ChatSidebar({
       await deleteExpense.mutateAsync(expenseId);
     } catch (error) {
       setOptimisticallyDeletedExpenseIds((prev) => prev.filter((id) => id !== expenseId));
-      await queryClient.invalidateQueries({ queryKey: ['/api/barbecues', eventId, 'expenses'] });
-      await queryClient.invalidateQueries({ queryKey: ["expenses", eventId] });
+      await queryClient.invalidateQueries({ queryKey: queryKeys.plans.expenses(eventId) });
       toastError(error instanceof Error ? error.message : "Couldn’t delete expense. Try again.");
     }
   }, [currentUser?.id, deleteExpense, eventId, queryClient, toastError]);

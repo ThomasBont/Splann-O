@@ -1,10 +1,12 @@
 import { InfiniteData, useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, buildUrl } from "@shared/routes";
 import type { EventPhotoWithUploader } from "@shared/schema";
+import { apiRequest } from "@/lib/api";
+import { queryKeys } from "@/lib/query-keys";
 import { PLAN_GC_TIME_MS, PLAN_STALE_TIME_MS } from "@/lib/query-stale";
 
 export function planPhotosQueryKey(planId: number | null) {
-  return ["photos", planId] as const;
+  return queryKeys.plans.photos(planId);
 }
 
 export type PlanPhotosPage = {
@@ -18,12 +20,7 @@ export async function fetchPlanPhotos(planId: number, cursor?: string | null, li
   const params = new URLSearchParams({ limit: String(limit) });
   if (cursor) params.set("cursor", cursor);
   const url = `${buildUrl(api.photos.list.path, { planId })}?${params.toString()}`;
-  const res = await fetch(url, { credentials: "include" });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({} as { message?: string }));
-    throw new Error(body.message || "Failed to load photos");
-  }
-  return res.json() as Promise<PlanPhotosPage>;
+  return apiRequest<PlanPhotosPage>(url);
 }
 
 export function usePlanPhotos(planId: number | null) {
@@ -53,17 +50,13 @@ export function useUploadPlanPhoto(planId: number | null) {
       });
       if (caption?.trim()) params.set("caption", caption.trim());
       const url = `${buildUrl(api.photos.upload.path, { planId })}?${params.toString()}`;
-      const res = await fetch(url, {
+      return apiRequest<EventPhotoWithUploader>(url, {
         method: "POST",
-        credentials: "include",
         headers: {
           "Content-Type": file.type || "application/octet-stream",
         },
         body: file,
       });
-      const body = await res.json().catch(() => ({} as { message?: string }));
-      if (!res.ok) throw new Error(body.message || "Failed to upload photo");
-      return body as EventPhotoWithUploader;
     },
     onSuccess: (createdPhoto) => {
       queryClient.setQueryData<InfiniteData<PlanPhotosPage>>(planPhotosQueryKey(planId), (current) => {
@@ -100,11 +93,7 @@ export function useDeletePlanPhoto(planId: number | null) {
     mutationFn: async (photoId: string) => {
       if (!planId) throw new Error("No plan selected");
       const url = buildUrl(api.photos.delete.path, { planId, photoId });
-      const res = await fetch(url, { method: "DELETE", credentials: "include" });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({} as { message?: string }));
-        throw new Error(body.message || "Failed to delete photo");
-      }
+      await apiRequest(url, { method: "DELETE" });
       return photoId;
     },
     onSuccess: (deletedPhotoId) => {

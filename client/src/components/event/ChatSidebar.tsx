@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { Calendar, Copy, CreditCard, FileText, ImageIcon, Loader2, MapPin, MessageCircle, MoreHorizontal, Paperclip, Pencil, Receipt, Reply, SendHorizontal, Smile, Trash2, Users, X } from "lucide-react";
+import { Copy, FileText, ImageIcon, Loader2, MessageCircle, MoreHorizontal, Paperclip, Pencil, Reply, SendHorizontal, Smile, Trash2, X } from "lucide-react";
 import { InlineQueryError, SkeletonLine } from "@/components/ui/load-states";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useEventChat } from "@/hooks/use-event-chat";
@@ -319,6 +319,16 @@ function formatHeaderDate(value: Date | string | null | undefined): string {
   const day = date.toLocaleDateString(undefined, { day: "numeric", month: "short" });
   const time = date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
   return `${day} · ${time}`;
+}
+
+function formatHeaderDateParts(value: Date | string | null | undefined): { day: string; time: string | null } {
+  if (!value) return { day: "Date TBA", time: null };
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return { day: "Date TBA", time: null };
+  return {
+    day: date.toLocaleDateString(undefined, { day: "numeric", month: "short" }),
+    time: date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false }),
+  };
 }
 
 function parseExpenseSuggestion(text: string): {
@@ -877,9 +887,7 @@ export function ChatSidebar({
 
   const locationLabel = (location || "").trim() || "Nowhere yet";
   const peopleLabel = `${participantCount} ${participantCount === 1 ? "person" : "people"}`;
-  const dateLabel = formatHeaderDate(dateTime);
-  const sharedLabel = `${formatMoneyForSystem(sharedTotal, currency)} shared`;
-  const expensesLabel = `${expenseCount} expense${expenseCount === 1 ? "" : "s"}`;
+  const { day: dateLabel, time: timeLabel } = formatHeaderDateParts(dateTime);
   const chatPatternStyle = useMemo(() => getChatPatternStyle({ eventType, templateData }), [eventType, templateData]);
   const hasEventId = Number.isFinite(Number(eventId)) && Number(eventId) > 0;
   const openPlanDetails = () => {
@@ -888,26 +896,6 @@ export function ChatSidebar({
       return;
     }
     openPanel({ type: "plan-details" });
-  };
-  const openCrew = () => {
-    if (!hasEventId) return;
-    if (isMobile) {
-      window.dispatchEvent(new CustomEvent("splanno:open-crew", { detail: { eventId } }));
-      return;
-    }
-    openPanel({ type: "crew" });
-  };
-  const openExpenses = () => {
-    if (!hasEventId) return;
-    if (isMobile) {
-      window.dispatchEvent(new CustomEvent("splanno:open-expenses", { detail: { eventId } }));
-      return;
-    }
-    openPanel({ type: "expenses" });
-  };
-  const openPhotos = () => {
-    if (!hasEventId) return;
-    openPanel({ type: "photos" });
   };
   const clearPendingAttachment = useCallback(() => {
     setPendingAttachment((current) => {
@@ -987,9 +975,6 @@ export function ChatSidebar({
     : normalizedPlanStatus === "settled" || normalizedPlanStatus === "closed"
       ? "This plan is closed. Settlement can still be completed."
         : "Chat is read-only for this plan";
-  const isExpensesOpen = panel?.type === "expenses";
-  const isPhotosOpen = panel?.type === "photos";
-  const isCrewOpen = panel?.type === "crew";
   const isPlanDetailsOpen = panel?.type === "plan-details";
   const isAnyPanelOpen = panel !== null;
   const hasTopHistoryAction = hasMoreHistory;
@@ -1165,9 +1150,9 @@ export function ChatSidebar({
         isMobile
           ? cn(
               "px-3",
-              isMobileHeaderCondensed ? "py-1 shadow-[0_1px_0_hsl(var(--border-subtle))]" : "py-1.5",
+              isMobileHeaderCondensed ? "py-0.75 shadow-[0_1px_0_hsl(var(--border-subtle))]" : "py-1.25",
             )
-          : "px-6 py-4",
+          : "px-5 py-3",
       )}>
         <div className={cn("flex justify-between gap-4", isMobile ? "items-center" : "items-start")}>
           <div className="min-w-0 flex-1">
@@ -1183,16 +1168,10 @@ export function ChatSidebar({
               )}
             >
               <span className={cn(
-                "block text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground",
-                isMobile && "hidden",
-              )}>
-                Chat
-              </span>
-              <span className={cn(
                 "block truncate font-semibold tracking-tight transition-[font-size,line-height] duration-200 ease-out",
                 isMobile
-                  ? (isMobileHeaderCondensed ? "text-base leading-5" : "text-[1.05rem] leading-6")
-                  : "mt-1 text-xl",
+                  ? (isMobileHeaderCondensed ? "text-[0.98rem] leading-5" : "text-[1.02rem] leading-6")
+                  : "text-[1.08rem] leading-6",
               )}>
                 {eventName || "Current plan"}
               </span>
@@ -1209,145 +1188,27 @@ export function ChatSidebar({
           </div>
         </div>
         <div className={cn(
-          "w-full items-center text-muted-foreground transition-[margin,opacity] duration-200 ease-out",
+          "mt-0.5 w-full min-w-0 items-center text-muted-foreground transition-[margin,opacity] duration-200 ease-out",
           isMobile
             ? cn(
                 "flex overflow-hidden whitespace-nowrap text-[11px] leading-4.5",
-                isMobileHeaderCondensed ? "mt-0.5" : "mt-1",
+                isMobileHeaderCondensed ? "mt-0.5" : "mt-0.75",
               )
-            : "mt-3 flex flex-wrap gap-x-1 gap-y-1.5 text-sm",
+            : "text-[13px]",
         )}>
-          <button
-            type="button"
-            aria-label="Open plan location details"
-            onClick={openPlanDetails}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-md text-sm transition active:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-              isMobile ? "min-w-0 flex-1 px-0 py-0 text-[11px]" : "px-1.5 py-1",
-              isPlanDetailsOpen
-                ? "text-foreground"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            <MapPin className={cn("h-3.5 w-3.5", isMobile && "h-3 w-3 shrink-0")} />
-            <span className={cn("truncate", isMobile && "text-foreground/80")}>{locationLabel}</span>
-          </button>
-          {isMobileHeaderCondensed ? null : (
-            <>
-          <span className="shrink-0 text-muted-foreground/45">•</span>
-          {!isMobile ? (
-            <button
-              type="button"
-              aria-label="Open crew drawer"
-              onClick={openCrew}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-md text-sm transition active:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                isMobile ? "min-h-11 px-2.5 py-2" : "px-1.5 py-1",
-                isCrewOpen
-                  ? "text-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <Users className="h-3.5 w-3.5" />
-              <span>{peopleLabel}</span>
-            </button>
-          ) : (
-            <button
-              type="button"
-              aria-label="Open crew drawer"
-              onClick={openCrew}
-              className={cn(
-                "inline-flex shrink-0 items-center gap-1 rounded-md px-1 py-0 text-[11px] transition active:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                isCrewOpen
-                  ? "text-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <Users className="h-3 w-3" />
-              <span className="text-foreground/80">{peopleLabel}</span>
-            </button>
-          )}
-            </>
-          )}
-          <span className="shrink-0 text-muted-foreground/45">•</span>
-          <button
-            type="button"
-            aria-label="Open plan date details"
-            onClick={openPlanDetails}
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-md text-sm transition active:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-              isMobile ? "shrink-0 px-1 py-0 text-[11px]" : "px-1.5 py-1",
-              isPlanDetailsOpen
-                ? "text-foreground"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            <Calendar className={cn("h-3.5 w-3.5", isMobile && "h-3 w-3")} />
-            <span className={cn(isMobile && "text-foreground/80")}>{dateLabel}</span>
-          </button>
-          {!isMobile ? (
-            <>
-              <span className="text-muted-foreground/45">•</span>
-              <button
-                type="button"
-                aria-label="Open photos panel"
-                onClick={openPhotos}
-                className={cn(
-                  "inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-sm transition active:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                  isPhotosOpen
-                    ? "text-foreground"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                <ImageIcon className="h-3.5 w-3.5" />
-                <span>Photos</span>
-              </button>
-              <span className="text-muted-foreground/45">•</span>
-              <button
-                type="button"
-                aria-label="Open shared costs drawer"
-                onClick={openExpenses}
-                className={cn(
-                  "inline-flex items-center gap-1.5 rounded-md text-sm transition active:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                  "px-1.5 py-1",
-                  isExpensesOpen
-                    ? "text-foreground"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                <CreditCard className="h-3.5 w-3.5" />
-                <span className={cn("font-medium", isExpensesOpen ? "text-foreground" : "")}>{sharedLabel}</span>
-              </button>
-              <span className="text-muted-foreground/45">•</span>
-              <span className="inline-flex items-center gap-1.5 px-1.5 py-1 text-sm text-muted-foreground">
-                <Receipt className="h-3.5 w-3.5" />
-                <span>{expensesLabel}</span>
-              </span>
-            </>
-          ) : isMobileHeaderCondensed ? null : (
-            <>
-              <span className="shrink-0 text-muted-foreground/45">•</span>
-              <button
-                type="button"
-                aria-label="Open shared costs drawer"
-                onClick={openExpenses}
-                className={cn(
-                  "inline-flex shrink-0 items-center gap-1 rounded-md px-1 py-0 text-[10px] transition active:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                  isExpensesOpen
-                    ? "text-foreground"
-                    : "text-muted-foreground/80 hover:text-foreground",
-                )}
-              >
-                <CreditCard className="h-2.5 w-2.5" />
-                <span className={cn("font-medium", isExpensesOpen ? "text-foreground/85" : "")}>{sharedLabel}</span>
-              </button>
-              <span className="shrink-0 text-muted-foreground/45">•</span>
-              <span className="inline-flex shrink-0 items-center gap-1 px-1 py-0 text-[10px] text-muted-foreground/80">
-                <Receipt className="h-2.5 w-2.5" />
-                <span>{expensesLabel}</span>
-              </span>
-            </>
-          )}
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span className={cn("min-w-0 truncate", isMobile ? "text-foreground/80" : "text-muted-foreground")}>{locationLabel}</span>
+            <span className="shrink-0 text-muted-foreground/45">·</span>
+            <span className="shrink-0">{peopleLabel}</span>
+            <span className="shrink-0 text-muted-foreground/45">·</span>
+            <span className="shrink-0">{dateLabel}</span>
+            {timeLabel ? (
+              <>
+                <span className="shrink-0 text-muted-foreground/45">·</span>
+                <span className="shrink-0">{timeLabel}</span>
+              </>
+            ) : null}
+          </div>
         </div>
       </header>
 
@@ -1878,8 +1739,8 @@ export function ChatSidebar({
       <div className={cn(
         "shrink-0 border-t border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-1))]",
         isMobile
-          ? "px-2 py-0.5 pb-[max(env(safe-area-inset-bottom),0.35rem)] shadow-[0_-10px_24px_rgba(0,0,0,0.24)]"
-          : "px-6 py-1",
+          ? "px-2 py-0 pb-[max(env(safe-area-inset-bottom),0.35rem)] shadow-[0_-10px_24px_rgba(0,0,0,0.24)]"
+          : "px-5 py-0.5",
       )}>
         {expenseSuggestion ? (
           <div className={cn("mb-2 flex gap-2", isMobile ? "flex-col items-start gap-1.5" : "items-center justify-between")}>
@@ -1919,11 +1780,11 @@ export function ChatSidebar({
             </Button>
           </div>
         ) : null}
-        <div className={cn("min-h-4", isMobile ? "mb-1.5" : "mb-1")}>
-          {visibleTypingUsers.length > 0 ? (
+        {visibleTypingUsers.length > 0 ? (
+          <div className={cn("mb-1", isMobile ? "mb-1" : "mb-0.5")}>
             <div className={cn(
               "inline-flex items-center gap-2 rounded-full border border-border/70 bg-muted/45 text-muted-foreground",
-              isMobile ? "px-2 py-0.5 text-[10px]" : "px-3 py-1.5 text-xs",
+              isMobile ? "px-2 py-0.5 text-[10px]" : "px-3 py-1 text-xs",
             )}>
               <span>Typing</span>
               <span className="inline-flex items-center gap-1">
@@ -1932,17 +1793,17 @@ export function ChatSidebar({
                 <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted-foreground/70" />
               </span>
             </div>
-          ) : null}
-        </div>
+          </div>
+        ) : null}
         {!isLocked && normalizedPlanStatus === "settled" ? (
           <div className={cn(
-            "mb-2 rounded-2xl border border-emerald-200/80 bg-emerald-50/80 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-200",
+            "mb-1.5 rounded-2xl border border-emerald-200/80 bg-emerald-50/80 px-3 py-1.5 text-xs text-emerald-800 dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-200",
             isMobile && "mb-1.5 px-2.5 py-1.5 text-[11px] leading-4",
           )}>
             Plan completed 🎉 All balances are settled. Chat stays open until {chatClosesLabel ?? "soon"}.
           </div>
         ) : null}
-        <div className={cn("flex items-end gap-2", isMobile ? "gap-2 pb-0" : "items-center")}>
+        <div className={cn("flex items-end gap-2", isMobile ? "gap-1.5 pb-0" : "items-center gap-1.5")}>
           {isLocked ? (
             <div className={cn(
               "absolute inset-x-0 -top-[4.1rem] z-10 rounded-2xl border border-border/60 bg-background/95 px-4 py-3 text-center shadow-sm backdrop-blur",
@@ -1973,7 +1834,7 @@ export function ChatSidebar({
             <div
               className={cn(
                 "flex flex-1 flex-col rounded-[1.35rem] border border-border/70 bg-background",
-                isMobile ? "min-h-[2.75rem] shadow-sm" : "min-h-10",
+                isMobile ? "min-h-[2.6rem] shadow-sm" : "min-h-10",
                 isLocked && "bg-muted/30 opacity-90",
               )}
             >
@@ -2054,7 +1915,7 @@ export function ChatSidebar({
               <div
               className={cn(
                 "flex items-center gap-2",
-                isMobile ? "max-h-[132px] px-2.5 py-1.5" : "max-h-[132px] px-4 py-1.5",
+                isMobile ? "max-h-[132px] px-2.5 py-1.25" : "max-h-[132px] px-3.5 py-1.25",
               )}
                 onMouseDown={(e) => {
                   e.preventDefault();

@@ -23,6 +23,7 @@ import {
   ChevronDown,
   Trash2,
   Users,
+  Camera,
   Receipt,
   StickyNote,
   Zap,
@@ -709,6 +710,7 @@ function RightActionRail({
   const { panel, closePanel, openPanel } = usePanel();
   const isEvent = section === "event" && !!selectedEventId;
   const isOverviewOpen = isEvent && panel?.type === "overview";
+  const isPhotosOpen = isEvent && panel?.type === "photos";
   const isPollsOpen = isEvent && panel?.type === "polls";
   const isCrewOpen = isEvent && panel?.type === "crew";
   const isExpensesOpen = isEvent && panel?.type === "expenses";
@@ -745,6 +747,19 @@ function RightActionRail({
             }}
           >
             <Users className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            title="Photos"
+            aria-label="Photos"
+            disabled={!isEvent}
+            className={railButtonClass(isPhotosOpen)}
+            onClick={() => {
+              if (!isEvent) return;
+              openPanel({ type: "photos" });
+            }}
+          >
+            <Camera className="h-4 w-4" />
           </button>
           <button
             type="button"

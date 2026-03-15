@@ -186,19 +186,46 @@ function compareMessages(a: ChatMessage, b: ChatMessage): number {
   return a.id < b.id ? -1 : 1;
 }
 
+function getMessageTimestamp(message: ChatMessage): number {
+  const value = new Date(message.serverCreatedAt ?? message.createdAt).getTime();
+  return Number.isFinite(value) ? value : 0;
+}
+
+function isOptimisticServerMatch(a: ChatMessage, b: ChatMessage): boolean {
+  const optimistic = a.optimistic ? a : (b.optimistic ? b : null);
+  const confirmed = optimistic === a ? b : optimistic === b ? a : null;
+  if (!optimistic || !confirmed) return false;
+  if (confirmed.optimistic || confirmed.id.startsWith("optimistic:")) return false;
+  if (optimistic.type !== "user" || confirmed.type !== "user") return false;
+  if ((optimistic.text || "").trim() !== (confirmed.text || "").trim()) return false;
+  if (optimistic.eventId !== confirmed.eventId) return false;
+
+  const optimisticUserId = optimistic.user?.id ? String(optimistic.user.id) : null;
+  const confirmedUserId = confirmed.user?.id ? String(confirmed.user.id) : null;
+  if (optimisticUserId && confirmedUserId && optimisticUserId !== "me" && optimisticUserId !== confirmedUserId) {
+    return false;
+  }
+
+  return Math.abs(getMessageTimestamp(optimistic) - getMessageTimestamp(confirmed)) <= 15_000;
+}
+
 function dedupeAndSort(messages: ChatMessage[]): ChatMessage[] {
   const byId = new Map<string, ChatMessage>();
   const byClient = new Map<string, string>();
+  const values: ChatMessage[] = [];
 
   for (const message of messages) {
     const existingById = byId.get(message.id);
     if (existingById) {
-      byId.set(message.id, {
+      const merged = {
         ...existingById,
         ...message,
         status: message.status ?? existingById.status,
         optimistic: message.optimistic ?? existingById.optimistic,
-      });
+      };
+      byId.set(message.id, merged);
+      const index = values.findIndex((item) => item.id === message.id);
+      if (index >= 0) values[index] = merged;
       continue;
     }
 
@@ -215,14 +242,36 @@ function dedupeAndSort(messages: ChatMessage[]): ChatMessage[] {
       const nextPreferServer = !message.optimistic && !!message.id && !message.id.startsWith("optimistic:");
       if (nextPreferServer || !preferServer) {
         byId.delete(winnerId);
-        byId.set(message.id, { ...winner, ...message, status: message.status ?? "sent", optimistic: false });
+        const merged = { ...winner, ...message, status: message.status ?? "sent", optimistic: false };
+        byId.set(message.id, merged);
         byClient.set(clientId, message.id);
+        const winnerIndex = values.findIndex((item) => item.id === winnerId);
+        if (winnerIndex >= 0) values[winnerIndex] = merged;
+      }
+      continue;
+    }
+
+    const optimisticMatchIndex = values.findIndex((existing) => isOptimisticServerMatch(existing, message));
+    if (optimisticMatchIndex >= 0) {
+      const existing = values[optimisticMatchIndex]!;
+      const preferIncoming = !message.optimistic && !message.id.startsWith("optimistic:");
+      const merged = preferIncoming
+        ? { ...existing, ...message, status: message.status ?? "sent", optimistic: false }
+        : { ...message, ...existing, status: existing.status ?? message.status, optimistic: existing.optimistic ?? message.optimistic };
+      byId.delete(existing.id);
+      byId.set(merged.id, merged);
+      values[optimisticMatchIndex] = merged;
+      const mergedClientId = merged.clientMessageId?.trim();
+      if (mergedClientId) byClient.set(mergedClientId, merged.id);
+      if (clientId && clientId !== mergedClientId) {
+        byClient.set(clientId, merged.id);
       }
       continue;
     }
 
     byId.set(message.id, message);
     if (clientId) byClient.set(clientId, message.id);
+    values.push(message);
   }
 
   const sorted = Array.from(byId.values()).sort(compareMessages);
@@ -277,12 +326,6 @@ export function useEventChat(eventId: number | null, enabled = true) {
       queryClient.invalidateQueries({ queryKey: queryKeys.plans.settlements(planId) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.plans.settlementLatest(planId) }),
       queryClient.invalidateQueries({ queryKey: planMessagesQueryKey(planId) }),
-    ]);
-    await Promise.all([
-      queryClient.refetchQueries({ queryKey: expensesQueryKey(planId) }),
-      queryClient.refetchQueries({ queryKey: planExpensesQueryKey(planId) }),
-      queryClient.refetchQueries({ queryKey: queryKeys.plans.settlements(planId) }),
-      queryClient.refetchQueries({ queryKey: queryKeys.plans.settlementLatest(planId) }),
     ]);
   }, [queryClient]);
 
@@ -504,7 +547,7 @@ export function useEventChat(eventId: number | null, enabled = true) {
 
   const resyncAfterReconnect = useCallback(async (planId: number) => {
     const now = Date.now();
-    if (now - lastResyncAtRef.current < 1500) return;
+    if (now - lastResyncAtRef.current < 5000) return;
     lastResyncAtRef.current = now;
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: planMessagesQueryKey(planId) }),
@@ -514,8 +557,7 @@ export function useEventChat(eventId: number | null, enabled = true) {
       queryClient.invalidateQueries({ queryKey: queryKeys.plans.expenses(planId) }),
     ]);
     await fetchInitialHistory();
-    await refreshPaymentViews(planId);
-  }, [fetchInitialHistory, queryClient, refreshPaymentViews]);
+  }, [fetchInitialHistory, queryClient]);
 
   const loadOlder = useCallback(async () => {
     if (!eventId || !enabled || !nextCursor || historyLoadingOlder) return;

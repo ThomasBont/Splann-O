@@ -21,12 +21,13 @@ export const r2 = R2_ENABLED
 
 export const R2_BUCKET = process.env.R2_BUCKET_NAME ?? "splanno-uploads";
 export const R2_PUBLIC_URL = (process.env.R2_PUBLIC_URL ?? "").replace(/\/$/, "");
+const USE_R2_PUBLIC_STORAGE = !!r2 && !!R2_PUBLIC_URL && process.env.NODE_ENV !== "development";
 
 export function resolveStoredFileUrl(key: string | null | undefined): string | null {
   if (!key) return null;
   const normalizedKey = key.replace(/^\/+/, "");
-  if (r2) {
-    return R2_PUBLIC_URL ? `${R2_PUBLIC_URL}/${normalizedKey}` : `/${normalizedKey}`;
+  if (USE_R2_PUBLIC_STORAGE) {
+    return `${R2_PUBLIC_URL}/${normalizedKey}`;
   }
   return `/uploads/${normalizedKey}`;
 }
@@ -38,8 +39,11 @@ export async function uploadFile(opts: {
   localFallbackPath: string;
   localPublicPath: string;
 }): Promise<string> {
-  if (r2) {
-    await r2.send(new PutObjectCommand({
+  const { promises: fs } = await import("fs");
+  const nodePath = await import("path");
+
+  if (USE_R2_PUBLIC_STORAGE) {
+    await r2!.send(new PutObjectCommand({
       Bucket: R2_BUCKET,
       Key: opts.key,
       Body: opts.buffer,
@@ -49,9 +53,7 @@ export async function uploadFile(opts: {
     return `${R2_PUBLIC_URL}/${opts.key}`;
   }
 
-  const { promises: fs } = await import("fs");
-  const path = await import("path");
-  await fs.mkdir(path.dirname(opts.localFallbackPath), { recursive: true });
+  await fs.mkdir(nodePath.dirname(opts.localFallbackPath), { recursive: true });
   await fs.writeFile(opts.localFallbackPath, opts.buffer);
   return opts.localPublicPath;
 }
@@ -59,9 +61,9 @@ export async function uploadFile(opts: {
 export async function deleteFile(urlOrPath: string | null | undefined): Promise<void> {
   if (!urlOrPath) return;
 
-  if (r2 && R2_PUBLIC_URL && urlOrPath.startsWith(R2_PUBLIC_URL)) {
+  if (USE_R2_PUBLIC_STORAGE && urlOrPath.startsWith(R2_PUBLIC_URL)) {
     const key = urlOrPath.slice(R2_PUBLIC_URL.length + 1);
-    await r2.send(new DeleteObjectCommand({ Bucket: R2_BUCKET, Key: key }));
+    await r2!.send(new DeleteObjectCommand({ Bucket: R2_BUCKET, Key: key }));
     return;
   }
 
@@ -79,14 +81,14 @@ export async function deleteFile(urlOrPath: string | null | undefined): Promise<
 export async function deleteStoredFileByKey(key: string | null | undefined): Promise<void> {
   if (!key) return;
   const normalizedKey = key.replace(/^\/+/, "");
+  const { promises: fs } = await import("fs");
+  const localPath = path.resolve(process.cwd(), "public/uploads", normalizedKey);
 
-  if (r2) {
-    await r2.send(new DeleteObjectCommand({ Bucket: R2_BUCKET, Key: normalizedKey }));
+  if (USE_R2_PUBLIC_STORAGE) {
+    await r2!.send(new DeleteObjectCommand({ Bucket: R2_BUCKET, Key: normalizedKey }));
     return;
   }
 
-  const { promises: fs } = await import("fs");
-  const localPath = path.resolve(process.cwd(), "public/uploads", normalizedKey);
   try {
     await fs.unlink(localPath);
   } catch (error) {

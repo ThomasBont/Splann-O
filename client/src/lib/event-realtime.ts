@@ -36,6 +36,7 @@ class EventRealtimeClient {
   private offlineHandler: (() => void) | null = null;
   private visibilityHandler: (() => void) | null = null;
   private hiddenAt: number | null = null;
+  private lastForcedReconnectAt = 0;
   private snapshot: EventRealtimeSnapshot = {
     status: "idle",
     isSubscribed: false,
@@ -97,6 +98,9 @@ class EventRealtimeClient {
   }
 
   reconnectNow() {
+    const now = Date.now();
+    if (now - this.lastForcedReconnectAt < 3000) return;
+    this.lastForcedReconnectAt = now;
     this.reconnectAttempt = 0;
     this.clearReconnectTimer();
     this.disconnect(false);

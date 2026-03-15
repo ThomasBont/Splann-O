@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEventRealtime } from "@/lib/event-realtime";
 import { queryKeys } from "@/lib/query-keys";
@@ -31,6 +31,7 @@ type InviteRevokedPayload = {
 
 export function useEventGuests(eventId: number | null) {
   const queryClient = useQueryClient();
+  const lastConnectedVersionRef = useRef(0);
   const membersQuery = useEventMembers(eventId);
   const pendingInvitesQuery = usePendingEventInvites(eventId);
   const createInviteMutation = useCreateEventInvite(eventId);
@@ -72,7 +73,19 @@ export function useEventGuests(eventId: number | null) {
   });
 
   useEffect(() => {
+    if (!eventId) {
+      lastConnectedVersionRef.current = 0;
+    }
+  }, [eventId]);
+
+  useEffect(() => {
     if (!eventId || realtime.connectedVersion <= 0) return;
+    if (lastConnectedVersionRef.current === 0) {
+      lastConnectedVersionRef.current = realtime.connectedVersion;
+      return;
+    }
+    if (lastConnectedVersionRef.current === realtime.connectedVersion) return;
+    lastConnectedVersionRef.current = realtime.connectedVersion;
     void Promise.all([
       queryClient.invalidateQueries({ queryKey: queryKeys.plans.members(eventId) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.plans.invitesPending(eventId) }),

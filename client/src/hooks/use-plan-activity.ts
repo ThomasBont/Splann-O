@@ -21,6 +21,8 @@ type PlanActivityResponse = {
   unreadCount: number;
 };
 
+const EMPTY_ACTIVITY_ITEMS: PlanActivityItem[] = [];
+
 function dedupeActivityItems(items: PlanActivityItem[]) {
   const byId = new Map<number, PlanActivityItem>();
   for (const item of items) {
@@ -54,6 +56,7 @@ export function usePlanActivity(eventId: number | null, enabled = true) {
   const [highlightedId, setHighlightedId] = useState<number | null>(null);
   const seenIdsRef = useRef<Set<number>>(new Set());
   const highlightedTimerRef = useRef<number | null>(null);
+  const lastConnectedVersionRef = useRef(0);
   const realtime = useEventRealtime(eventId, enabled, (rawPayload) => {
     const payload = rawPayload as { type?: string; activity?: PlanActivityItem; eventId?: number } | null;
     if (payload?.type !== "PLAN_ACTIVITY_CREATED" || !payload.activity || payload.eventId !== eventId) return;
@@ -77,9 +80,16 @@ export function usePlanActivity(eventId: number | null, enabled = true) {
   const patchSidebarUnread = useCallback((targetEventId: number, unread: number) => {
     queryClient.setQueryData<BarbecueListItem[]>(queryKeys.plans.list(), (prev) => {
       if (!Array.isArray(prev)) return prev;
-      return prev.map((plan) => (
-        Number(plan.id) === targetEventId ? { ...plan, unreadCount: Math.max(0, Math.trunc(unread)) } : plan
-      ));
+      const normalizedUnread = Math.max(0, Math.trunc(unread));
+      let changed = false;
+      const next = prev.map((plan) => {
+        if (Number(plan.id) !== targetEventId) return plan;
+        const currentUnread = Math.max(0, Math.trunc(Number(plan.unreadCount ?? 0)));
+        if (currentUnread === normalizedUnread) return plan;
+        changed = true;
+        return { ...plan, unreadCount: normalizedUnread };
+      });
+      return changed ? next : prev;
     });
   }, [queryClient]);
 
@@ -89,7 +99,7 @@ export function usePlanActivity(eventId: number | null, enabled = true) {
     enabled: enabled && !!eventId,
   });
 
-  const items = activityQuery.data?.items ?? [];
+  const items = activityQuery.data?.items ?? EMPTY_ACTIVITY_ITEMS;
   const unreadCount = activityQuery.data?.unreadCount ?? 0;
   const loading = activityQuery.isLoading;
   const error = activityQuery.isError ? (activityQuery.error instanceof Error ? activityQuery.error.message : "Failed to load activity") : null;
@@ -97,16 +107,21 @@ export function usePlanActivity(eventId: number | null, enabled = true) {
   useEffect(() => {
     if (!enabled || !eventId) {
       seenIdsRef.current = new Set();
-      patchSidebarUnread(eventId ?? 0, 0);
+      lastConnectedVersionRef.current = 0;
       return;
     }
     seenIdsRef.current = new Set(items.map((row) => row.id));
-    patchSidebarUnread(eventId, unreadCount);
-  }, [enabled, eventId, items, patchSidebarUnread, unreadCount]);
+  }, [enabled, eventId, items]);
 
   useEffect(() => {
     if (!enabled || !eventId || realtime.connectedVersion <= 0) return;
-    void queryClient.refetchQueries({ queryKey: planActivityQueryKey(eventId) });
+    if (lastConnectedVersionRef.current === 0) {
+      lastConnectedVersionRef.current = realtime.connectedVersion;
+      return;
+    }
+    if (lastConnectedVersionRef.current === realtime.connectedVersion) return;
+    lastConnectedVersionRef.current = realtime.connectedVersion;
+    void queryClient.invalidateQueries({ queryKey: planActivityQueryKey(eventId) });
   }, [enabled, eventId, queryClient, realtime.connectedVersion]);
 
   const markAllAsRead = useCallback(async () => {

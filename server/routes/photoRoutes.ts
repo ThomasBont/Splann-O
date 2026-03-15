@@ -113,15 +113,22 @@ async function getImageProcessor() {
     const mod = await dynamicImport("sharp");
     return mod.default;
   } catch (error) {
-    log("error", "photo_thumbnail_processor_missing", {
+    log("warn", "photo_thumbnail_processor_missing", {
       message: error instanceof Error ? error.message : String(error),
     });
-    throw new AppError("PHOTO_PROCESSING_UNAVAILABLE", "Photo processing is not available on this server.", 500);
+    return null;
   }
 }
 
 async function buildThumbnail(buffer: Buffer) {
   const sharp = await getImageProcessor();
+  if (!sharp) {
+    return {
+      thumbBuffer: null,
+      width: null,
+      height: null,
+    };
+  }
   const pipeline = sharp(buffer);
   const metadata = await pipeline.metadata();
   const thumbBuffer = await sharp(buffer)
@@ -308,18 +315,20 @@ router.post(
         localPublicPath: `/uploads/${storageKeyOriginal}`,
       });
 
-      await uploadFile({
-        key: storageKeyThumb,
-        buffer: thumbBuffer,
-        mimeType: "image/webp",
-        localFallbackPath: path.resolve(process.cwd(), "public/uploads", storageKeyThumb),
-        localPublicPath: `/uploads/${storageKeyThumb}`,
-      });
+      if (thumbBuffer) {
+        await uploadFile({
+          key: storageKeyThumb,
+          buffer: thumbBuffer,
+          mimeType: "image/webp",
+          localFallbackPath: path.resolve(process.cwd(), "public/uploads", storageKeyThumb),
+          localPublicPath: `/uploads/${storageKeyThumb}`,
+        });
+      }
 
       await db.update(eventPhotos)
         .set({
           storageKeyOriginal,
-          storageKeyThumb,
+          storageKeyThumb: thumbBuffer ? storageKeyThumb : null,
           width,
           height,
         })

@@ -317,8 +317,8 @@ function formatHeaderDate(value: Date | string | null | undefined): string {
   if (!value) return "Date TBA";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Date TBA";
-  const day = date.toLocaleDateString(undefined, { day: "numeric", month: "short" });
-  const time = date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false });
+  const day = date.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  const time = date.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
   return `${day} · ${time}`;
 }
 
@@ -327,8 +327,8 @@ function formatHeaderDateParts(value: Date | string | null | undefined): { day: 
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return { day: "Date TBA", time: null };
   return {
-    day: date.toLocaleDateString(undefined, { day: "numeric", month: "short" }),
-    time: date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false }),
+    day: date.toLocaleDateString("en-GB", { day: "numeric", month: "short" }),
+    time: date.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false }),
   };
 }
 
@@ -1799,12 +1799,11 @@ export function ChatSidebar({
             Plan completed 🎉 All balances are settled. Chat stays open until {chatClosesLabel ?? "soon"}.
           </div>
         ) : null}
-        <div className={cn("flex items-end gap-2", isMobile ? "gap-1.5 pb-0" : "items-center gap-1.5")}>
-          {isLocked ? (
-            <div className={cn(
-              "absolute inset-x-0 -top-[4.1rem] z-10 rounded-2xl border border-border/60 bg-background/95 px-4 py-3 text-center shadow-sm backdrop-blur",
-              isMobile && "px-3 py-2.5",
-            )}>
+        {isLocked ? (
+          <div className={cn(
+            "mb-1.5 rounded-2xl border border-border/60 bg-background/95 px-4 py-3 text-center shadow-sm backdrop-blur",
+            isMobile && "mb-1.5 px-3 py-2.5",
+          )}>
               <div className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background px-3 py-1.5">
                 <span className="h-2 w-2 rounded-full bg-emerald-500" />
                 <span className="text-xs font-medium text-muted-foreground">
@@ -1825,8 +1824,9 @@ export function ChatSidebar({
                   ? "Chat history is preserved. The wrap-up window is over and the plan is now fully read-only."
                   : "Chat history is preserved. This plan is closed. Settlement can still be completed."}
               </p>
-            </div>
-          ) : null}
+          </div>
+        ) : null}
+        <div className={cn("flex items-end gap-2", isMobile ? "gap-1.5 pb-0" : "items-center gap-1.5")}>
             <div
               className={cn(
                 "flex flex-1 flex-col rounded-[1.35rem] border border-border/70 bg-background",

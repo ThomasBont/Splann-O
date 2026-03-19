@@ -21,7 +21,7 @@ export const r2 = R2_ENABLED
 
 export const R2_BUCKET = process.env.R2_BUCKET_NAME ?? "splanno-uploads";
 export const R2_PUBLIC_URL = (process.env.R2_PUBLIC_URL ?? "").replace(/\/$/, "");
-const USE_R2_PUBLIC_STORAGE = !!r2 && !!R2_PUBLIC_URL && process.env.NODE_ENV !== "development";
+const USE_R2_PUBLIC_STORAGE = !!r2 && !!R2_PUBLIC_URL;
 
 export function resolveStoredFileUrl(key: string | null | undefined): string | null {
   if (!key) return null;

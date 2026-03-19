@@ -1034,6 +1034,15 @@ export default function Home({
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    const onOpenExpense = (event: Event) => {
+      const custom = event as CustomEvent<{ eventId?: number; expenseId?: number }>;
+      const targetEventId = Number(custom.detail?.eventId);
+      const expenseId = Number(custom.detail?.expenseId);
+      if (!Number.isFinite(targetEventId) || targetEventId <= 0 || !Number.isFinite(expenseId) || expenseId <= 0) return;
+      if (selectedBbqId && Number(selectedBbqId) !== targetEventId) return;
+      if (!selectedBbqId) setSelectedBbqId(targetEventId);
+      openPanel({ type: "add-expense", source: "expenses", editExpenseId: expenseId });
+    };
     const onOpenExpenses = (event: Event) => {
       const custom = event as CustomEvent<{
         eventId?: number;
@@ -1053,8 +1062,12 @@ export default function Home({
         openPanel({ type: "add-expense", source: "overview", prefill: custom.detail?.prefill ?? null });
       }
     };
+    window.addEventListener("splanno:open-expense", onOpenExpense as EventListener);
     window.addEventListener("splanno:open-expenses", onOpenExpenses as EventListener);
-    return () => window.removeEventListener("splanno:open-expenses", onOpenExpenses as EventListener);
+    return () => {
+      window.removeEventListener("splanno:open-expense", onOpenExpense as EventListener);
+      window.removeEventListener("splanno:open-expenses", onOpenExpenses as EventListener);
+    };
   }, [openPanel, selectedBbqId]);
 
   useEffect(() => {
@@ -1133,6 +1146,7 @@ export default function Home({
   const [avatarUploadPending, setAvatarUploadPending] = useState(false);
   const [useAvatarUrlInput, setUseAvatarUrlInput] = useState(false);
   const [avatarDragActive, setAvatarDragActive] = useState(false);
+  const [accountAvatarLoadFailed, setAccountAvatarLoadFailed] = useState(false);
   const [deleteConfirmPhrase, setDeleteConfirmPhrase] = useState("");
   const [selectedFriendId, setSelectedFriendId] = useState<number | null>(null);
   const [addFriendQuery, setAddFriendQuery] = useState("");
@@ -1482,6 +1496,7 @@ export default function Home({
         profileImageUrl: user?.profileImageUrl ?? user?.avatarUrl ?? profileTargetData?.user.profileImageUrl ?? profileTargetData?.user.avatarUrl ?? null,
       }
     : profileTargetData?.user ?? null;
+  const accountProfileImageSrc = resolveAssetUrl(accountProfileUser?.profileImageUrl);
   const accountFriendsCount = profileTargetData?.stats?.friendsCount ?? friends.length;
   const changePhotoPreview = avatarUploadPreviewUrl
     || (useAvatarUrlInput ? (resolveAssetUrl(draftProfileImageUrl.trim()) ?? "") : "")
@@ -1500,6 +1515,10 @@ export default function Home({
     }
   }, [useAvatarUrlInput, draftProfileImageUrl]);
   const canSaveAvatar = !!avatarUploadFile || hasValidAvatarUrlInput;
+
+  useEffect(() => {
+    setAccountAvatarLoadFailed(false);
+  }, [accountProfileImageSrc]);
 
   const formatFileSize = (bytes: number) => {
     if (bytes < 1024) return `${bytes} B`;
@@ -3148,8 +3167,13 @@ export default function Home({
                               }}
                               className={`grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-full bg-primary/10 text-base font-semibold text-primary ${isViewingOwnAccount ? "cursor-pointer ring-2 ring-transparent transition hover:ring-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" : "cursor-default"}`}
                             >
-                              {accountProfileUser?.profileImageUrl ? (
-                                <img src={resolveAssetUrl(accountProfileUser.profileImageUrl) ?? ""} alt="" className="h-full w-full object-cover" />
+                              {accountProfileImageSrc && !accountAvatarLoadFailed ? (
+                                <img
+                                  src={accountProfileImageSrc}
+                                  alt=""
+                                  className="h-full w-full object-cover"
+                                  onError={() => setAccountAvatarLoadFailed(true)}
+                                />
                               ) : (
                                 (accountProfileUser?.displayName || accountProfileUser?.username || "U").slice(0, 2).toUpperCase()
                               )}

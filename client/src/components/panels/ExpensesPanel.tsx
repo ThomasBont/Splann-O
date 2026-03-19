@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, CheckCircle2, Loader2, Plus, Receipt, Scale } from "lucide-react";
+import { ArrowRight, CheckCircle2, Loader2, MoreHorizontal, Pencil, Plus, Receipt, Scale, Trash2 } from "lucide-react";
 import type { ExpenseWithParticipant } from "@shared/schema";
+import { getExpenseLockState } from "@shared/lib/expense-lock";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -14,10 +15,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/hooks/use-auth";
 import { useAppToast } from "@/hooks/use-app-toast";
 import { useCheckoutSettlementTransfer } from "@/hooks/use-bbq-data";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useDeleteExpense } from "@/hooks/use-expenses";
 import { planQueryKey, usePlan, usePlanCrew, usePlanExpenses } from "@/hooks/use-plan-data";
 import { apiFetch, apiRequest } from "@/lib/api";
 import { resolveAssetUrl } from "@/lib/asset-url";
@@ -134,17 +137,41 @@ function normalizePanelExpense(
   };
 }
 
+function getExpenseUiLockState(
+  expense: ExpenseWithParticipant,
+  options: { planStatus?: string | null; settlementStarted?: boolean | null },
+) {
+  return getExpenseLockState({
+    planStatus: options.planStatus,
+    settlementStarted: options.settlementStarted,
+    linkedSettlementRoundId: (expense as { linkedSettlementRoundId?: string | null }).linkedSettlementRoundId ?? null,
+    settledAt: (expense as { settledAt?: string | Date | null }).settledAt ?? null,
+    excludedFromFinalSettlement: (expense as { excludedFromFinalSettlement?: boolean | null }).excludedFromFinalSettlement ?? false,
+    resolutionMode: (expense as { resolutionMode?: string | null }).resolutionMode ?? null,
+  });
+}
+
 function ExpenseListRow({
   expense,
   currency,
   memberByUserId,
   onOpen,
+  onEdit,
+  onDelete,
+  canEdit,
+  canDelete,
+  lockLabel,
   isMobile,
 }: {
   expense: PanelExpense;
   currency: string;
   memberByUserId: Map<number, { avatarUrl?: string | null }>;
   onOpen: (expenseId: number) => void;
+  onEdit: (expenseId: number) => void;
+  onDelete: (expense: PanelExpense) => void;
+  canEdit: boolean;
+  canDelete: boolean;
+  lockLabel?: string | null;
   isMobile: boolean;
 }) {
   const payerName = String(expense.participantName || "Unknown").trim() || "Unknown";
@@ -164,16 +191,55 @@ function ExpenseListRow({
     >
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[15px] font-medium text-foreground">
-            {expense.item || "Expense"}
-          </p>
+          <div className="flex items-center gap-2">
+            <p className="truncate text-[15px] font-medium text-foreground">
+              {expense.item || "Expense"}
+            </p>
+            {lockLabel ? (
+              <span className="inline-flex shrink-0 items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-300">
+                {lockLabel}
+              </span>
+            ) : null}
+          </div>
           {isMobile ? (
             <p className="mt-1 text-[11px] text-muted-foreground">Paid by {payerName}</p>
           ) : null}
         </div>
-        <span className={cn("shrink-0 font-semibold text-foreground", isMobile ? "text-[17px]" : "text-lg")}>
-          {formatCurrency(expense.amount, currency)}
-        </span>
+        <div className="flex shrink-0 items-start gap-2">
+          <span className={cn("font-semibold text-foreground", isMobile ? "text-[17px]" : "text-lg")}>
+            {formatCurrency(expense.amount, currency)}
+          </span>
+          {(canEdit || canDelete) ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 rounded-full"
+                  onClick={(event) => event.stopPropagation()}
+                  aria-label="Expense actions"
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" onClick={(event) => event.stopPropagation()}>
+                {canEdit ? (
+                  <DropdownMenuItem onClick={() => onEdit(expense.id)}>
+                    <Pencil className="h-4 w-4" />
+                    Edit expense
+                  </DropdownMenuItem>
+                ) : null}
+                {canDelete ? (
+                  <DropdownMenuItem onClick={() => onDelete(expense)} className="text-destructive focus:text-destructive">
+                    <Trash2 className="h-4 w-4" />
+                    Delete expense
+                  </DropdownMenuItem>
+                ) : null}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
+        </div>
       </div>
       <div className={cn("mt-2 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground", isMobile && "mt-1.5")}>
         <Avatar className="h-5 w-5 shrink-0">
@@ -195,12 +261,14 @@ function SettleNowExpenseRow({
   currency,
   memberByUserId,
   onOpen,
+  lockLabel,
   isMobile,
 }: {
   expense: PanelExpense;
   currency: string;
   memberByUserId: Map<number, { avatarUrl?: string | null }>;
   onOpen: (expenseId: number) => void;
+  lockLabel?: string | null;
   isMobile: boolean;
 }) {
   const { user } = useAuth();
@@ -262,6 +330,11 @@ function SettleNowExpenseRow({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <p className="truncate text-[15px] font-medium text-foreground">{expense.item || "Expense"}</p>
+            {lockLabel ? (
+              <span className="inline-flex shrink-0 items-center rounded-full border border-amber-200 bg-background/75 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:border-amber-500/25 dark:bg-background/15 dark:text-amber-300">
+                {lockLabel}
+              </span>
+            ) : null}
             <span
               className={cn(
                 "inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[10px] font-medium",
@@ -359,6 +432,7 @@ export function ExpensesPanel() {
   const { user } = useAuth();
   const { toastError, toastSuccess } = useAppToast();
   const checkoutTransfer = useCheckoutSettlementTransfer();
+  const deleteExpense = useDeleteExpense(eventId);
   const planQuery = usePlan(eventId);
   const crewQuery = usePlanCrew(eventId);
   const expensesQuery = usePlanExpenses(eventId);
@@ -427,6 +501,7 @@ export function ExpensesPanel() {
   const wrapUpEndsLabel = formatFullDate(wrapUpEndsAt);
   const isCreator = Number(plan?.creatorUserId) === Number(user?.id);
   const [confirmSettleUpOpen, setConfirmSettleUpOpen] = useState(false);
+  const [expensePendingDelete, setExpensePendingDelete] = useState<PanelExpense | null>(null);
   const settlementRoundsQueryKey = queryKeys.plans.settlements(eventId);
   const settlementRoundsQuery = useQuery<SettlementRoundsResponse>({
     queryKey: settlementRoundsQueryKey,
@@ -447,6 +522,7 @@ export function ExpensesPanel() {
     refetchOnWindowFocus: true,
   });
   const activeFinalSettlementRound = settlementRoundsQuery.data?.activeFinalSettlementRound ?? null;
+  const settlementStarted = !!activeFinalSettlementRound;
   const canStartSettlement = isCreator
     && !activeFinalSettlementRound
     && sharedExpenses.length > 0
@@ -629,6 +705,19 @@ export function ExpensesPanel() {
   };
   const openExpenseDetail = (expenseId: number) => {
     replacePanel({ type: "expense", id: String(expenseId) });
+  };
+  const openExpenseEditor = (expenseId: number) => {
+    replacePanel({ type: "add-expense", source: "expenses", editExpenseId: expenseId });
+  };
+  const confirmDeleteExpense = async () => {
+    if (!expensePendingDelete) return;
+    try {
+      await deleteExpense.mutateAsync(expensePendingDelete.id);
+      toastSuccess("Expense deleted");
+      setExpensePendingDelete(null);
+    } catch (error) {
+      toastError(error instanceof Error ? error.message : "Couldn’t delete expense.");
+    }
   };
 
   return (
@@ -1085,14 +1174,29 @@ export function ExpensesPanel() {
                     Shared Group Expenses ({sharedGroupExpenses.length})
                   </h3>
                   {sharedGroupExpenses.map((expense) => (
+                    (() => {
+                      const lockState = getExpenseUiLockState(expense, {
+                        planStatus: plan?.status,
+                        settlementStarted,
+                      });
+                      const canEdit = !lockState.locked;
+                      const canDelete = !lockState.locked && Number((expense as { createdByUserId?: number | null }).createdByUserId ?? 0) === Number(user?.id ?? 0);
+                      return (
                     <ExpenseListRow
                       key={`expenses-shared-${expense.id}`}
                       expense={expense}
                       currency={currency}
                       memberByUserId={memberByUserId}
                       onOpen={openExpenseDetail}
+                      onEdit={openExpenseEditor}
+                      onDelete={setExpensePendingDelete}
+                      canEdit={canEdit}
+                      canDelete={canDelete}
+                      lockLabel={lockState.shortLabel}
                       isMobile={isMobile}
                     />
+                      );
+                    })()
                   ))}
                 </div>
               </section>
@@ -1105,14 +1209,23 @@ export function ExpensesPanel() {
                     Settle Now Expenses ({settleNowExpenses.length})
                   </h3>
                   {settleNowExpenses.map((expense) => (
+                    (() => {
+                      const lockState = getExpenseUiLockState(expense, {
+                        planStatus: plan?.status,
+                        settlementStarted,
+                      });
+                      return (
                     <SettleNowExpenseRow
                       key={`expenses-settle-now-${expense.id}`}
                       expense={expense}
                       currency={currency}
                       memberByUserId={memberByUserId}
                       onOpen={openExpenseDetail}
+                      lockLabel={lockState.shortLabel}
                       isMobile={isMobile}
                     />
+                      );
+                    })()
                   ))}
                 </div>
               </section>
@@ -1139,6 +1252,30 @@ export function ExpensesPanel() {
             >
               {createSettlement.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
               Create settlement
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={!!expensePendingDelete} onOpenChange={(open) => { if (!open) setExpensePendingDelete(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete expense?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteExpense.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                void confirmDeleteExpense();
+              }}
+              disabled={deleteExpense.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleteExpense.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
+              Delete expense
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

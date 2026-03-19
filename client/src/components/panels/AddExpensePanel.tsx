@@ -13,11 +13,12 @@ import {
 } from "@/components/ui/select";
 import { useAppToast } from "@/hooks/use-app-toast";
 import { useAuth } from "@/hooks/use-auth";
-import { useCreateExpense } from "@/hooks/use-expenses";
+import { useCreateExpense, useUpdateExpense } from "@/hooks/use-expenses";
 import { useLanguage } from "@/hooks/use-language";
-import { usePlan, usePlanCrew } from "@/hooks/use-plan-data";
+import { usePlan, usePlanCrew, usePlanExpenses } from "@/hooks/use-plan-data";
 import { PanelHeader, PanelSection, PanelShell, useActiveEventId } from "@/components/panels/panel-primitives";
 import { usePanel } from "@/state/panel";
+import { getExpenseLockState } from "@shared/lib/expense-lock";
 import { cn } from "@/lib/utils";
 type PlanParticipant = { id: number; name: string; userId?: number | null };
 
@@ -30,10 +31,12 @@ function formatDetectedReceiptDate(value: string | null) {
 
 export function AddExpensePanel({
   source = "overview",
+  editExpenseId = null,
   initialResolutionMode = "later",
   initialPrefill = null,
 }: {
   source?: "overview" | "expenses";
+  editExpenseId?: number | null;
   initialResolutionMode?: "later" | "now";
   initialPrefill?: {
     amount?: number | null;
@@ -49,9 +52,24 @@ export function AddExpensePanel({
   const { replacePanel } = usePanel();
   const planQuery = usePlan(eventId);
   const crewQuery = usePlanCrew(eventId);
+  const expensesQuery = usePlanExpenses(eventId);
   const createExpense = useCreateExpense(eventId);
+  const updateExpense = useUpdateExpense(eventId);
   const plan = planQuery.data;
   const participants = (crewQuery.data?.participants ?? []) as PlanParticipant[];
+  const editingExpense = editExpenseId == null
+    ? null
+    : (expensesQuery.data ?? []).find((expense: { id?: number }) => Number(expense.id) === Number(editExpenseId)) ?? null;
+  const editingLockState = getExpenseLockState({
+    planStatus: plan?.status,
+    settlementStarted: Boolean((plan as { settlementStarted?: boolean | null } | null)?.settlementStarted),
+    linkedSettlementRoundId: (editingExpense as { linkedSettlementRoundId?: string | null } | null)?.linkedSettlementRoundId ?? null,
+    settledAt: (editingExpense as { settledAt?: string | Date | null } | null)?.settledAt ?? null,
+    excludedFromFinalSettlement: (editingExpense as { excludedFromFinalSettlement?: boolean | null } | null)?.excludedFromFinalSettlement ?? false,
+    resolutionMode: (editingExpense as { resolutionMode?: string | null } | null)?.resolutionMode ?? null,
+  });
+  const isEditing = !!editingExpense;
+  const canEditPayer = isEditing ? Number(plan?.creatorUserId ?? 0) === Number(user?.id ?? 0) : true;
 
   const [participantId, setParticipantId] = useState("");
   const [item, setItem] = useState("");
@@ -136,7 +154,33 @@ export function AddExpensePanel({
     );
   }, [participantId, participants, resolutionMode]);
 
+  useEffect(() => {
+    if (!editingExpense) return;
+    setParticipantId(String((editingExpense as { participantId?: number | null }).participantId ?? ""));
+    setItem(String((editingExpense as { item?: string | null }).item ?? ""));
+    setAmount(String(Number((editingExpense as { amount?: number | string | null }).amount ?? 0) || ""));
+    setExpenseDate(String((editingExpense as { occurredOn?: string | null }).occurredOn ?? ""));
+    const nextResolutionMode = String((editingExpense as { resolutionMode?: string | null }).resolutionMode ?? "later").trim().toLowerCase() === "now"
+      ? "now"
+      : "later";
+    setResolutionMode(nextResolutionMode);
+    const included = Array.isArray((editingExpense as { includedUserIds?: unknown }).includedUserIds)
+      ? ((editingExpense as { includedUserIds?: unknown[] }).includedUserIds ?? []).map((value) => String(value))
+      : [];
+    if (nextResolutionMode === "now") {
+      setSplitMode("selected");
+      setIncludedUserIds(included);
+    } else if (included.length > 0) {
+      setSplitMode("selected");
+      setIncludedUserIds(included);
+    } else {
+      setSplitMode("everyone");
+      setIncludedUserIds(participants.map((participant) => String(participant.id)));
+    }
+  }, [editingExpense, participants]);
+
   const isLoadingData = planQuery.isLoading || crewQuery.isLoading;
+  const isReadOnly = isEditing && editingLockState.locked;
   const isValid = !!participantId
     && !!item.trim()
     && !!amount
@@ -229,27 +273,40 @@ export function AddExpensePanel({
 
   const onSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!eventId || !isValid) return;
+    if (!eventId || !isValid || isReadOnly) return;
     try {
-      const created = await createExpense.mutateAsync({
-        participantId: Number(participantId),
-        item: item.trim(),
-        amount,
-        occurredOn: expenseDate.trim() || null,
-        resolutionMode,
-        includedUserIds: resolutionMode === "now"
-          ? includedUserIds
-          : splitMode === "selected" ? includedUserIds : null,
-      });
-      toastSuccess(resolutionMode === "now" ? "Expense added and settled now" : "Expense added");
-      const linkedSettlementRoundId = String((created as { linkedSettlementRoundId?: string | null }).linkedSettlementRoundId ?? "").trim();
-      if (resolutionMode === "now" && linkedSettlementRoundId) {
-        replacePanel({ type: "settlement", settlementId: linkedSettlementRoundId });
-        return;
+      if (editingExpense) {
+        await updateExpense.mutateAsync({
+          id: Number((editingExpense as { id?: number }).id),
+          participantId: canEditPayer ? Number(participantId) : undefined,
+          item: item.trim(),
+          amount: Number(amount),
+          occurredOn: expenseDate.trim() || null,
+          includedUserIds: splitMode === "selected" || resolutionMode === "now" ? includedUserIds : null,
+        });
+        toastSuccess("Expense updated");
+        replacePanel({ type: "expense", id: String((editingExpense as { id?: number }).id ?? "") });
+      } else {
+        const created = await createExpense.mutateAsync({
+          participantId: Number(participantId),
+          item: item.trim(),
+          amount,
+          occurredOn: expenseDate.trim() || null,
+          resolutionMode,
+          includedUserIds: resolutionMode === "now"
+            ? includedUserIds
+            : splitMode === "selected" ? includedUserIds : null,
+        });
+        toastSuccess(resolutionMode === "now" ? "Expense added and settled now" : "Expense added");
+        const linkedSettlementRoundId = String((created as { linkedSettlementRoundId?: string | null }).linkedSettlementRoundId ?? "").trim();
+        if (resolutionMode === "now" && linkedSettlementRoundId) {
+          replacePanel({ type: "settlement", settlementId: linkedSettlementRoundId });
+          return;
+        }
+        replacePanel({ type: "expenses" });
       }
-      replacePanel({ type: "expenses" });
     } catch (error) {
-      toastError(error instanceof Error ? error.message : "Couldn’t add expense. Try again.");
+      toastError(error instanceof Error ? error.message : isEditing ? "Couldn’t update expense. Try again." : "Couldn’t add expense. Try again.");
     }
   };
 
@@ -277,6 +334,11 @@ export function AddExpensePanel({
           <form className="space-y-4" onSubmit={onSubmit}>
             <PanelSection title="Record expense" variant="default">
               <div className="space-y-4">
+                {isReadOnly ? (
+                  <div className="rounded-xl border border-amber-200/80 bg-amber-50/70 px-3 py-3 text-sm text-amber-800 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-200">
+                    {editingLockState.message}
+                  </div>
+                ) : null}
                 <div className="space-y-2">
                   <Label>How to settle this?</Label>
                   <div className="rounded-xl border border-border/70 bg-muted/20 p-2.5">
@@ -287,6 +349,7 @@ export function AddExpensePanel({
                           setResolutionMode("later");
                           setShowAdvancedSplit(false);
                         }}
+                        disabled={isEditing}
                         className={`rounded-xl border px-3 py-3 text-left transition ${resolutionMode === "later" ? "border-primary bg-primary/10" : "border-border/70 bg-background hover:bg-muted/40"}`}
                       >
                         <div className="inline-flex items-center gap-2">
@@ -303,6 +366,7 @@ export function AddExpensePanel({
                           setResolutionMode("now");
                           setShowAdvancedSplit(false);
                         }}
+                        disabled={isEditing}
                         className={`rounded-xl border px-3 py-3 text-left transition ${resolutionMode === "now" ? "border-primary bg-primary/10" : "border-border/70 bg-background hover:bg-muted/40"}`}
                       >
                         <div className="inline-flex items-center gap-2">
@@ -369,6 +433,7 @@ export function AddExpensePanel({
                   <Select
                     value={participantId}
                     onValueChange={setParticipantId}
+                    disabled={isReadOnly || !canEditPayer}
                   >
                     <SelectTrigger id="panel-expense-payer">
                       <SelectValue placeholder="Select person" />
@@ -392,6 +457,7 @@ export function AddExpensePanel({
                       setItemTouchedByUser(true);
                       setItem(event.target.value);
                     }}
+                    disabled={isReadOnly}
                     placeholder={itemPlaceholder}
                   />
                   {itemDetectedFromReceipt ? (
@@ -412,6 +478,7 @@ export function AddExpensePanel({
                       setAmountTouchedByUser(true);
                       setAmount(event.target.value);
                     }}
+                    disabled={isReadOnly}
                     placeholder="0.00"
                   />
                   {amountDetectedFromReceipt ? (
@@ -429,6 +496,7 @@ export function AddExpensePanel({
                       setDateTouchedByUser(true);
                       setExpenseDate(event.target.value);
                     }}
+                    disabled={isReadOnly}
                   />
                   {dateDetectedFromReceipt ? (
                     <p className="text-[11px] font-medium text-primary">Detected from receipt</p>
@@ -465,6 +533,7 @@ export function AddExpensePanel({
                                 checked={checked}
                                 disabled={isPayer}
                                 onCheckedChange={(next) => {
+                                  if (isReadOnly) return;
                                   if (isPayer) return;
                                   setIncludedUserIds((prev) => {
                                     if (next) return Array.from(new Set([...prev, value]));
@@ -502,6 +571,7 @@ export function AddExpensePanel({
                             <button
                               type="button"
                               onClick={() => setSplitMode("everyone")}
+                              disabled={isReadOnly}
                               className={`rounded-xl border px-3 py-3 text-left transition ${
                                 splitMode === "everyone"
                                   ? "border-primary bg-primary/10"
@@ -519,6 +589,7 @@ export function AddExpensePanel({
                             <button
                               type="button"
                               onClick={() => {
+                                if (isReadOnly) return;
                                 setSplitMode("selected");
                                 if (includedUserIds.length === 0) {
                                   setIncludedUserIds(participants.map((p: PlanParticipant) => String(p.id)));
@@ -555,6 +626,7 @@ export function AddExpensePanel({
                                     <Checkbox
                                       checked={checked}
                                       onCheckedChange={(next) => {
+                                        if (isReadOnly) return;
                                         setIncludedUserIds((prev) => {
                                           if (next) return Array.from(new Set([...prev, value]));
                                           return prev.filter((entry) => entry !== value);
@@ -581,15 +653,19 @@ export function AddExpensePanel({
               <Button
                 type="button"
                 variant="ghost"
-                onClick={() => replacePanel({ type: source === "expenses" ? "expenses" : "overview" })}
+                onClick={() => replacePanel(
+                  isEditing
+                    ? { type: "expense", id: String((editingExpense as { id?: number }).id ?? "") }
+                    : { type: source === "expenses" ? "expenses" : "overview" },
+                )}
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={!isValid || createExpense.isPending}>
-                {createExpense.isPending ? "Saving..." : (
+              <Button type="submit" disabled={!isValid || isReadOnly || createExpense.isPending || updateExpense.isPending}>
+                {createExpense.isPending || updateExpense.isPending ? "Saving..." : (
                   <span className="inline-flex items-center gap-2">
                     <CheckCircle2 className="h-4 w-4" />
-                    {resolutionMode === "now" ? "Add expense & settle now" : "Add Expense"}
+                    {isEditing ? "Save changes" : resolutionMode === "now" ? "Add expense & settle now" : "Add Expense"}
                   </span>
                 )}
               </Button>

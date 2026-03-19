@@ -9,6 +9,7 @@ export type PanelState =
   | {
     type: "add-expense";
     source?: "overview" | "expenses";
+    editExpenseId?: number | null;
     initialResolutionMode?: "later" | "now";
     prefill?: {
       amount?: number | null;

@@ -5,7 +5,7 @@ import { badRequest, unauthorized } from "../lib/errors";
 import { auditSecurity } from "../lib/audit";
 import { sendPasswordResetEmail, sendWelcomeEmail, sendEmailVerificationEmail } from "../email";
 import type { User } from "@shared/schema";
-import { resolveLegacyAssetIdToPublicPath } from "../lib/assets";
+import { resolveUserAvatarUrl } from "../lib/assets";
 
 const EMAIL_VERIFY_EXPIRY_HOURS = 24;
 
@@ -40,8 +40,8 @@ export function serializeUser(user: {
   }
   return {
     // Expose a browser-loadable URL while allowing DB storage via asset id.
-    avatarUrl: user.avatarUrl ?? resolveLegacyAssetIdToPublicPath(user.avatarAssetId) ?? undefined,
-    profileImageUrl: user.profileImageUrl ?? resolveLegacyAssetIdToPublicPath(user.avatarAssetId) ?? undefined,
+    avatarUrl: resolveUserAvatarUrl(user) ?? undefined,
+    profileImageUrl: resolveUserAvatarUrl(user) ?? undefined,
     avatarAssetId: user.avatarAssetId ?? undefined,
     id: user.id,
     username: user.username,

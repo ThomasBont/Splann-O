@@ -36,6 +36,25 @@ function updateExpenseCaches(
   queryClient.setQueryData(expensesQueryKey(bbqId), updater);
 }
 
+async function invalidateExpenseRelatedQueries(
+  queryClient: ReturnType<typeof useQueryClient>,
+  bbqId: number | null,
+) {
+  if (!bbqId) return;
+  await Promise.all([
+    queryClient.invalidateQueries({ queryKey: queryKeys.plans.expenses(bbqId) }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.plans.expenseShares(bbqId) }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.plans.detail(bbqId) }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.plans.list() }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.plans.activity(bbqId) }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.plans.messages(bbqId) }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.plans.balances(bbqId) }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.plans.settlements(bbqId) }),
+    queryClient.invalidateQueries({ queryKey: queryKeys.plans.settlementLatest(bbqId) }),
+    queryClient.invalidateQueries({ queryKey: ["plans", "detail", bbqId, "settlements", "detail"] }),
+  ]);
+}
+
 export async function fetchExpenses(bbqId: number): Promise<ExpenseRecord[]> {
   const url = buildUrl(api.expenses.list.path, { bbqId });
   return apiRequest<ExpenseRecord[]>(url);
@@ -76,12 +95,12 @@ export function useCreateExpense(bbqId: number | null) {
         body: data,
       });
     },
-    onSuccess: (createdExpense) => {
+    onSuccess: async (createdExpense) => {
       updateExpenseCaches(queryClient, bbqId, (old) => {
         if (!Array.isArray(old)) return [createdExpense];
         return [...old, createdExpense];
       });
-      queryClient.invalidateQueries({ queryKey: queryKeys.plans.expenseShares(bbqId) });
+      await invalidateExpenseRelatedQueries(queryClient, bbqId);
     },
   });
 }
@@ -96,7 +115,7 @@ export function useUpdateExpense(bbqId: number | null) {
         body: updates,
       });
     },
-    onSuccess: (updatedExpense) => {
+    onSuccess: async (updatedExpense) => {
       updateExpenseCaches(queryClient, bbqId, (old) => {
         if (!Array.isArray(old)) return old;
         return old.map((expense) => {
@@ -104,6 +123,7 @@ export function useUpdateExpense(bbqId: number | null) {
           return { ...expense, ...updatedExpense };
         });
       });
+      await invalidateExpenseRelatedQueries(queryClient, bbqId);
     },
   });
 }
@@ -115,11 +135,12 @@ export function useDeleteExpense(bbqId: number | null) {
       const url = buildUrl(api.expenses.delete.path, { id });
       await apiRequest(url, { method: "DELETE" });
     },
-    onSuccess: (_result, deletedId) => {
+    onSuccess: async (_result, deletedId) => {
       updateExpenseCaches(queryClient, bbqId, (old) => {
         if (!Array.isArray(old)) return old;
         return old.filter((expense) => Number((expense as { id?: unknown }).id) !== deletedId);
       });
+      await invalidateExpenseRelatedQueries(queryClient, bbqId);
     },
   });
 }

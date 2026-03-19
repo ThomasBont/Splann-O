@@ -3,14 +3,7 @@ import { users, barbecues, participants, expenses, passwordResetTokens, friendsh
 import { eq, and, or, inArray } from "drizzle-orm";
 import { isPublicListingActive } from "../lib/public-listing";
 import type { User, InsertUser, PasswordResetToken } from "@shared/schema";
-import { resolveLegacyAssetIdToPublicPath } from "../lib/assets";
-
-function resolveAvatarUrl(user: { avatarUrl?: string | null; profileImageUrl?: string | null; avatarAssetId?: string | null }): string | null {
-  if (user.avatarUrl) return user.avatarUrl;
-  if (user.profileImageUrl) return user.profileImageUrl;
-  if (user.avatarAssetId) return resolveLegacyAssetIdToPublicPath(user.avatarAssetId);
-  return null;
-}
+import { resolveUserAvatarUrl } from "../lib/assets";
 
 export const userRepo = {
   async createUser(u: InsertUser): Promise<User> {
@@ -167,8 +160,8 @@ export const userRepo = {
         id: u.id,
         username: u.username,
         displayName: u.displayName,
-        profileImageUrl: u.profileImageUrl ?? resolveAvatarUrl(u),
-        avatarUrl: resolveAvatarUrl(u),
+        profileImageUrl: resolveUserAvatarUrl(u),
+        avatarUrl: resolveUserAvatarUrl(u),
         bio: u.bio,
       },
       stats: { eventsCount, friendsCount, totalSpent },
@@ -269,8 +262,8 @@ export const userRepo = {
         username: user.username,
         handle: user.publicHandle ?? user.username,
         displayName: user.displayName ?? null,
-        profileImageUrl: user.profileImageUrl ?? null,
-        avatarUrl: resolveAvatarUrl(user),
+        profileImageUrl: resolveUserAvatarUrl(user),
+        avatarUrl: resolveUserAvatarUrl(user),
         bio: user.bio ?? null,
         createdAt: user.createdAt ?? null,
       },

@@ -11,7 +11,7 @@ import { listPlanActivity, logPlanActivity } from "../lib/planActivity";
 import { log } from "../lib/logger";
 import { AppError, badRequest, forbidden, notFound } from "../lib/errors";
 import { eventInvites, eventMembers, participants, users } from "@shared/schema";
-import { resolveLegacyAssetIdToPublicPath } from "../lib/assets";
+import { resolveUserAvatarUrl } from "../lib/assets";
 import { assertEventCreatorOrThrow, assertInvitesWritable, assertMembersWritable } from "./_helpers";
 
 const router = Router();
@@ -44,13 +44,6 @@ function handleEventsRouteError(route: string, req: Request, err: unknown, res: 
     return;
   }
   throw err;
-}
-
-function resolveUserAvatarUrl(input: { avatarUrl?: string | null; profileImageUrl?: string | null; avatarAssetId?: string | null }): string | null {
-  if (input.avatarUrl) return input.avatarUrl;
-  if (input.profileImageUrl) return input.profileImageUrl;
-  if (input.avatarAssetId) return resolveLegacyAssetIdToPublicPath(input.avatarAssetId);
-  return null;
 }
 
 async function assertEventAccessOrThrow(req: Request, eventId: number) {

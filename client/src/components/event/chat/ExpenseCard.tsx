@@ -3,6 +3,7 @@ import { MoreHorizontal, ReceiptText } from "lucide-react";
 import { useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { ExpenseWithParticipant } from "@shared/schema";
+import { getExpenseLockState } from "@shared/lib/expense-lock";
 import { useCheckoutSettlementTransfer } from "@/hooks/use-bbq-data";
 import { useExpenses } from "@/hooks/use-expenses";
 import { useAuth } from "@/hooks/use-auth";
@@ -209,15 +210,22 @@ export function ExpenseCard({
   }, [action, fallback.amount, fallback.currency, fallback.item, fallback.paidBy, liveExpense, optimisticDeleted, resolutionMode]);
   const canDeleteExpense = useMemo(() => {
     if (!liveExpense || resolved.deleted) return false;
-    return Number((liveExpense as { createdByUserId?: number | null }).createdByUserId ?? 0) === Number(user?.id ?? 0);
+    const lockState = getExpenseLockState({
+      linkedSettlementRoundId: (liveExpense as { linkedSettlementRoundId?: string | null }).linkedSettlementRoundId ?? null,
+      settledAt: (liveExpense as { settledAt?: string | Date | null }).settledAt ?? null,
+      excludedFromFinalSettlement: (liveExpense as { excludedFromFinalSettlement?: boolean | null }).excludedFromFinalSettlement ?? false,
+      resolutionMode: (liveExpense as { resolutionMode?: string | null }).resolutionMode ?? null,
+    });
+    return !lockState.locked && Number((liveExpense as { createdByUserId?: number | null }).createdByUserId ?? 0) === Number(user?.id ?? 0);
   }, [liveExpense, resolved.deleted, user?.id]);
   const canEditExpense = useMemo(() => {
     if (!liveExpense || resolved.deleted) return false;
-    const linkedSettlementRoundId = String((liveExpense as { linkedSettlementRoundId?: string | null }).linkedSettlementRoundId ?? "").trim();
-    const settledAt = (liveExpense as { settledAt?: string | Date | null }).settledAt ?? null;
-    const resolutionModeValue = String((liveExpense as { resolutionMode?: string | null }).resolutionMode ?? "").trim().toLowerCase();
-    const excludedFromFinalSettlement = Boolean((liveExpense as { excludedFromFinalSettlement?: boolean | null }).excludedFromFinalSettlement);
-    return !linkedSettlementRoundId && !settledAt && !excludedFromFinalSettlement && resolutionModeValue !== "now";
+    return !getExpenseLockState({
+      linkedSettlementRoundId: (liveExpense as { linkedSettlementRoundId?: string | null }).linkedSettlementRoundId ?? null,
+      settledAt: (liveExpense as { settledAt?: string | Date | null }).settledAt ?? null,
+      excludedFromFinalSettlement: (liveExpense as { excludedFromFinalSettlement?: boolean | null }).excludedFromFinalSettlement ?? false,
+      resolutionMode: (liveExpense as { resolutionMode?: string | null }).resolutionMode ?? null,
+    }).locked;
   }, [liveExpense, resolved.deleted]);
 
   const handleEdit = () => {

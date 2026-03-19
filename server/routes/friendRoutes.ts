@@ -10,6 +10,7 @@ import { participantRepo } from "../repositories/participantRepo";
 import { userRepo } from "../repositories/userRepo";
 import { db } from "../db";
 import { log } from "../lib/logger";
+import { resolveUserAvatarUrl } from "../lib/assets";
 import { badRequest, conflict, notFound } from "../lib/errors";
 import { asyncHandler, escapeLikeQuery } from "./_helpers";
 
@@ -234,6 +235,7 @@ router.get("/users/search", requireAuth, usersSearchLimiter, asyncHandler(async 
         username: users.username,
         displayName: users.displayName,
         avatarUrl: users.avatarUrl,
+        avatarAssetId: users.avatarAssetId,
         profileImageUrl: users.profileImageUrl,
       })
       .from(users)
@@ -252,7 +254,7 @@ router.get("/users/search", requireAuth, usersSearchLimiter, asyncHandler(async 
         id: Number(u.id),
         displayName: u.displayName || u.username,
         handle: u.username,
-        avatarUrl: u.avatarUrl ?? u.profileImageUrl ?? null,
+        avatarUrl: resolveUserAvatarUrl(u),
       })),
     });
   } catch (err) {

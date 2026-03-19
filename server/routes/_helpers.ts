@@ -180,6 +180,18 @@ export async function assertExpensesWritable(eventId: number) {
   }
 }
 
+export async function assertExpenseMutationsWritable(eventId: number) {
+  return assertPlanMutationAllowed(eventId, {
+    codePrefix: "expenses_locked",
+    statusCode: 403,
+    blockStatuses: ["archived", "settled"],
+    archivedMessage: "This expense is locked because settlement has already been finalized.",
+    settledMessage: "This expense is locked because settlement has already been finalized.",
+    blockIfSettlementStarted: true,
+    settlementStartedMessage: "This expense is locked because settlement is already in progress.",
+  });
+}
+
 export async function assertInvitesWritable(eventId: number) {
   try {
     return await assertPlanMutationAllowed(eventId, {

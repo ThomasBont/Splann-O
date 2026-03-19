@@ -1,10 +1,26 @@
-import { Clock3, Receipt, Users } from "lucide-react";
-import { useExpenses } from "@/hooks/use-expenses";
+import { useState } from "react";
+import { Clock3, Loader2, Pencil, Receipt, Trash2, Users } from "lucide-react";
+import { getExpenseLockState } from "@shared/lib/expense-lock";
+import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useAppToast } from "@/hooks/use-app-toast";
+import { useAuth } from "@/hooks/use-auth";
+import { useDeleteExpense, useExpenses } from "@/hooks/use-expenses";
 import { usePlan, usePlanCrew } from "@/hooks/use-plan-data";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { PanelHeader, PanelSection, PanelShell, formatPanelDate, useActiveEventId } from "@/components/panels/panel-primitives";
 import { formatShortEnglishDate } from "@/lib/dates";
 import { cn } from "@/lib/utils";
+import { usePanel } from "@/state/panel";
 
 function parseIncludedUserIds(value: unknown): string[] {
   if (Array.isArray(value)) return value.map((entry) => String(entry).trim()).filter(Boolean);
@@ -50,9 +66,14 @@ function formatExpenseOccurredOn(value: string | null | undefined) {
 export function ExpenseDetailPanel({ id }: { id: string }) {
   const isMobile = useIsMobile();
   const eventId = useActiveEventId();
+  const { user } = useAuth();
+  const { replacePanel } = usePanel();
+  const { toastError, toastSuccess } = useAppToast();
   const expensesQuery = useExpenses(eventId);
+  const deleteExpense = useDeleteExpense(eventId);
   const planQuery = usePlan(eventId);
   const crewQuery = usePlanCrew(eventId);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const expenseId = Number(id);
   const expense = (expensesQuery.data ?? []).find((entry: { id: number }) => Number(entry.id) === expenseId) ?? null;
   const participants = crewQuery.data?.participants ?? [];
@@ -63,6 +84,16 @@ export function ExpenseDetailPanel({ id }: { id: string }) {
   const currency = typeof planQuery.data?.currency === "string" ? planQuery.data.currency : "EUR";
   const resolutionMode = String((expense as { resolutionMode?: string | null } | null)?.resolutionMode ?? "later").trim().toLowerCase();
   const isSettledNow = resolutionMode === "now" || Boolean((expense as { excludedFromFinalSettlement?: boolean | null } | null)?.excludedFromFinalSettlement);
+  const lockState = getExpenseLockState({
+    planStatus: planQuery.data?.status,
+    settlementStarted: Boolean((planQuery.data as { settlementStarted?: boolean | null } | null)?.settlementStarted),
+    linkedSettlementRoundId: (expense as { linkedSettlementRoundId?: string | null } | null)?.linkedSettlementRoundId ?? null,
+    settledAt: (expense as { settledAt?: string | Date | null } | null)?.settledAt ?? null,
+    excludedFromFinalSettlement: (expense as { excludedFromFinalSettlement?: boolean | null } | null)?.excludedFromFinalSettlement ?? false,
+    resolutionMode: (expense as { resolutionMode?: string | null } | null)?.resolutionMode ?? null,
+  });
+  const canEditExpense = !!expense && !lockState.locked;
+  const canDeleteExpense = !!expense && !lockState.locked && Number((expense as { createdByUserId?: number | null }).createdByUserId ?? 0) === Number(user?.id ?? 0);
 
   if (!eventId) {
     return (
@@ -95,6 +126,22 @@ export function ExpenseDetailPanel({ id }: { id: string }) {
       <PanelHeader
         label="Expense"
         title={expense.item || "Expense"}
+        actions={(
+          <div className="flex items-center gap-2">
+            {canEditExpense ? (
+              <Button type="button" size="sm" variant="outline" onClick={() => replacePanel({ type: "add-expense", source: "expenses", editExpenseId: expense.id })}>
+                <Pencil className="mr-1.5 h-4 w-4" />
+                Edit
+              </Button>
+            ) : null}
+            {canDeleteExpense ? (
+              <Button type="button" size="sm" variant="outline" onClick={() => setConfirmDeleteOpen(true)}>
+                <Trash2 className="mr-1.5 h-4 w-4" />
+                Delete
+              </Button>
+            ) : null}
+          </div>
+        )}
         meta={(
           <>
             <span className="inline-flex items-center gap-2">
@@ -133,6 +180,11 @@ export function ExpenseDetailPanel({ id }: { id: string }) {
 
         <PanelSection title="Payment" className={cn(isMobile && "rounded-[20px] p-3.5")}>
           <div className={cn("space-y-2 text-sm", isMobile && "space-y-1.5")}>
+            {lockState.locked ? (
+              <div className={cn("rounded-xl border border-amber-200/80 bg-amber-50/70 px-3 py-2 text-amber-800 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-200", isMobile && "px-3 py-2.5")}>
+                {lockState.shortLabel}
+              </div>
+            ) : null}
             <div className={cn("flex items-center justify-between gap-3 rounded-xl bg-muted/40 px-3 py-2", isMobile && "px-3 py-2.5")}>
               <span className="text-muted-foreground">Payer</span>
               <span className="font-medium text-foreground">{expense.participantName || "Unknown"}</span>
@@ -184,6 +236,37 @@ export function ExpenseDetailPanel({ id }: { id: string }) {
           </div>
         </PanelSection>
       </div>
+      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete expense?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteExpense.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={deleteExpense.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={async (event) => {
+                event.preventDefault();
+                try {
+                  await deleteExpense.mutateAsync(expenseId);
+                  toastSuccess("Expense deleted");
+                  setConfirmDeleteOpen(false);
+                  replacePanel({ type: "expenses" });
+                } catch (error) {
+                  toastError(error instanceof Error ? error.message : "Couldn’t delete expense.");
+                }
+              }}
+            >
+              {deleteExpense.isPending ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
+              Delete expense
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </PanelShell>
   );
 }

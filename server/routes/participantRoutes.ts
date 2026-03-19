@@ -14,6 +14,7 @@ import { getLimits } from "../lib/plan";
 import { broadcastEventRealtime } from "../lib/eventRealtime";
 import { logPlanActivity } from "../lib/planActivity";
 import { postSystemChatMessage } from "../lib/systemChat";
+import { resolveUserAvatarUrl } from "../lib/assets";
 import { badRequest, conflict, forbidden, gone, notFound, unauthorized, upgradeRequired } from "../lib/errors";
 import { assertEventAccessOrThrow, assertEventCreatorOrThrow, assertInvitesWritable, assertMembersWritable, asyncHandler, getBarbecueOr404, isEventMemberUser, p } from "./_helpers";
 
@@ -149,6 +150,7 @@ router.get("/events/:eventId/members", requireAuth, asyncHandler(async (req, res
       name: users.displayName,
       username: users.username,
       avatarUrl: users.avatarUrl,
+      avatarAssetId: users.avatarAssetId,
       profileImageUrl: users.profileImageUrl,
     })
     .from(eventMembers)
@@ -162,7 +164,7 @@ router.get("/events/:eventId/members", requireAuth, asyncHandler(async (req, res
     userId: row.userId,
     name: row.name || row.username,
     username: row.username,
-    avatarUrl: row.avatarUrl ?? row.profileImageUrl ?? null,
+    avatarUrl: resolveUserAvatarUrl(row),
     role: row.role,
     joinedAt: row.joinedAt,
   }));
@@ -216,6 +218,7 @@ router.post("/events/:eventId/members", requireAuth, asyncHandler(async (req, re
       name: users.displayName,
       username: users.username,
       avatarUrl: users.avatarUrl,
+      avatarAssetId: users.avatarAssetId,
       profileImageUrl: users.profileImageUrl,
     })
     .from(eventMembers)
@@ -231,7 +234,7 @@ router.post("/events/:eventId/members", requireAuth, asyncHandler(async (req, re
     userId: member.userId,
     name: member.name || member.username,
     username: member.username,
-    avatarUrl: member.avatarUrl ?? member.profileImageUrl ?? null,
+    avatarUrl: resolveUserAvatarUrl(member),
     role: member.role,
     joinedAt: member.joinedAt,
   };

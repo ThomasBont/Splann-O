@@ -301,46 +301,6 @@ export default function AiAssistantPanel() {
             </Button>
           </div>
         </div>
-
-
-        {/* PLAN INSIGHTS */}
-        {insights && (
-          <div className="border border-border/60 rounded-lg p-3 bg-muted/20">
-            <h3 className="text-xs font-semibold text-foreground mb-3">Plan Insights</h3>
-            <div className="space-y-3">
-              {/* Budget */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs text-muted-foreground flex items-center gap-1">
-                    <DollarSign className="h-3.5 w-3.5" />
-                    Spent
-                  </span>
-                  <span className="text-xs font-semibold">
-                    {formatMoneyForSystem(insights.totalSpent, plan.currency ?? "EUR")}
-                  </span>
-                </div>
-                <div className="w-full bg-muted h-1.5 rounded-full overflow-hidden">
-                  <div className="bg-primary h-full" style={{ width: `${Math.min(100, (insights.totalSpent / 200) * 100)}%` }} />
-                </div>
-              </div>
-
-              {/* Attendance */}
-              <div className="flex items-center justify-between p-2 bg-background/50 rounded text-xs">
-                <span className="text-muted-foreground flex items-center gap-1">
-                  <Users className="h-3.5 w-3.5" />
-                  Attendance
-                </span>
-                <span className="font-semibold">{insights.attendanceStatus}</span>
-              </div>
-
-              {/* Status */}
-              <div className="flex items-center justify-between p-2 bg-background/50 rounded text-xs">
-                <span className="text-muted-foreground">Status</span>
-                <span className="font-semibold capitalize text-primary">{planStatus}</span>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     </PanelShell>
   );

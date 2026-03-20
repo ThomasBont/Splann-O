@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Loader2, Send, AlertCircle, CheckCircle, Clock, DollarSign, Users, Zap } from "lucide-react";
+import { Loader2, Send, AlertCircle, CheckCircle, Clock, DollarSign, Users, Zap, Share2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PanelShell, PanelHeader, useActiveEventId } from "@/components/panels/panel-primitives";
 import { usePanel } from "@/state/panel";
@@ -103,6 +103,19 @@ export default function AiAssistantPanel() {
       setBuddyLoading(false);
     }
   }, [eventId, scrollToBottom]);
+
+  // Share buddy message to main chat
+  const shareToChat = useCallback(async (buddyMessage: string) => {
+    if (!eventId) return;
+    try {
+      await apiRequest(`/api/plans/${eventId}/chat`, {
+        method: "POST",
+        body: { content: `✨ Splann-O: ${buddyMessage}` },
+      });
+    } catch (err) {
+      console.error("[AiAssistantPanel] Error sharing to chat:", err);
+    }
+  }, [eventId]);
 
   // Listen for buddy responses via WebSocket
   const handleWebSocketMessage = useCallback((payload: unknown) => {
@@ -234,10 +247,10 @@ export default function AiAssistantPanel() {
             ) : (
               <>
                 {buddyMessages.map((msg) => (
-                  <div key={msg.id} className={cn("flex", msg.role === "user" ? "justify-end" : "justify-start")}>
+                  <div key={msg.id} className={cn("flex items-end gap-2", msg.role === "user" ? "justify-end" : "justify-start")}>
                     <div
                       className={cn(
-                        "max-w-[80%] px-3 py-2 rounded-lg text-sm",
+                        "max-w-[70%] px-3 py-2 rounded-lg text-sm",
                         msg.role === "user"
                           ? "bg-primary text-primary-foreground"
                           : "bg-background border border-border/70 text-foreground",
@@ -245,6 +258,17 @@ export default function AiAssistantPanel() {
                     >
                       {msg.text}
                     </div>
+                    {msg.role === "buddy" && msg.text !== "Processing..." && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 w-6 p-0 hover:bg-border/50"
+                        onClick={() => shareToChat(msg.text)}
+                        title="Share to chat"
+                      >
+                        <Share2 className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
                   </div>
                 ))}
                 {buddyLoading && (

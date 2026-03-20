@@ -35,7 +35,7 @@ export default function AiAssistantPanel() {
   const [buddyMessages, setBuddyMessages] = useState<BuddyMessage[]>([]);
   const [inputValue, setInputValue] = useState("");
   const [buddyLoading, setBuddyLoading] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   const planQuery = usePlan(eventId);
   const crewQuery = usePlanCrew(eventId);
@@ -47,9 +47,11 @@ export default function AiAssistantPanel() {
 
   const planStatus = plan ? getClientPlanStatus(plan.status) : null;
 
-  // Auto-scroll to latest message
+  // Auto-scroll to latest message (within chat container only)
   const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (messagesContainerRef.current) {
+      messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
+    }
   }, []);
 
   // Send message to buddy
@@ -128,9 +130,11 @@ export default function AiAssistantPanel() {
           }
           return prev;
         });
+        // Scroll to bottom after buddy responds
+        setTimeout(() => scrollToBottom(), 0);
       }
     }
-  }, []);
+  }, [scrollToBottom]);
 
   useEventRealtime(eventId || null, true, handleWebSocketMessage);
 
@@ -210,7 +214,7 @@ export default function AiAssistantPanel() {
           )}
         >
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-3 space-y-3">
+          <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-3 space-y-3">
             {buddyMessages.length === 0 ? (
               <div className="flex items-center justify-center h-full text-center text-muted-foreground text-sm">
                 <div>
@@ -245,7 +249,6 @@ export default function AiAssistantPanel() {
                     </div>
                   </div>
                 )}
-                <div ref={messagesEndRef} />
               </>
             )}
           </div>

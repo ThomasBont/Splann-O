@@ -203,16 +203,9 @@ Help the group build the plan via the chat. Use tools to create polls, post mess
     if (block.type === "text" && block.text.trim()) {
       // Send buddy response ONLY to AI Assistant panel via WebSocket (not to main chat)
       broadcastEventRealtime(input.eventId, {
-        type: "chat:new",
+        type: "buddy:response",
         eventId: input.eventId,
-        message: {
-          id: `buddy-${Date.now()}`,
-          eventId: input.eventId,
-          userId: null,
-          createdAt: new Date(),
-          content: block.text.trim(),
-          type: "buddy",
-        },
+        content: block.text.trim(),
       });
     }
 

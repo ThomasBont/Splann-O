@@ -122,30 +122,20 @@ export default function AiAssistantPanel() {
     if (typeof payload !== "object" || !payload) return;
     const data = payload as Record<string, unknown>;
 
-    // Debug: log all WebSocket messages to understand what's coming in
-    if (data.type === "chat:new") {
-      console.log("[AiAssistantPanel] WebSocket chat:new event:", data);
-    }
-
-    // Handle chat:new events
-    if (data.type === "chat:new" && data.message) {
-      const msg = data.message as Record<string, unknown>;
-      console.log("[AiAssistantPanel] Message type:", msg.type, "Content:", msg.content);
-      if (msg.type === "buddy" || msg.type === "buddy_expense_suggestion") {
-        console.log("[AiAssistantPanel] Buddy message received, attempting to replace Processing...");
-        // Check if we have a "Processing..." placeholder to replace
+    // Handle buddy:response events (sent only to AI Assistant panel)
+    if (data.type === "buddy:response") {
+      const content = String(data.content ?? "");
+      if (content.trim()) {
+        // Replace the "Processing..." placeholder with actual response
         setBuddyMessages((prev) => {
           const lastMsg = prev[prev.length - 1];
-          console.log("[AiAssistantPanel] Last message:", lastMsg);
           if (lastMsg?.role === "buddy" && lastMsg.text === "Processing...") {
-            console.log("[AiAssistantPanel] Replacing Processing... with buddy response");
-            // Replace the placeholder with actual message
             return [
               ...prev.slice(0, -1),
               {
                 id: `buddy-${Date.now()}`,
                 role: "buddy",
-                text: String(msg.content ?? ""),
+                text: content,
                 timestamp: new Date(),
               },
             ];

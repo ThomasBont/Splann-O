@@ -261,7 +261,12 @@ async function executeTool(
   if (toolName === "post_suggestion") {
     const text = String(toolInput.text ?? "").trim();
     if (!text) return;
-    await postSystemChatMessage(context.eventId, text, { type: "buddy" });
+    // Send to AI Assistant panel only
+    broadcastEventRealtime(context.eventId, {
+      type: "buddy:response",
+      eventId: context.eventId,
+      content: text,
+    });
   }
 
   if (toolName === "suggest_expense") {
@@ -275,10 +280,11 @@ async function executeTool(
       ? `${message}\n\n💡 Suggested expense: **${description}** — €${amount.toFixed(2)}`
       : `💡 Suggested expense: **${description}** — €${amount.toFixed(2)}`;
 
-    await postSystemChatMessage(context.eventId, text, {
-      type: "buddy_expense_suggestion",
-      suggestedDescription: description,
-      suggestedAmount: amount,
+    // Send to AI Assistant panel only
+    broadcastEventRealtime(context.eventId, {
+      type: "buddy:response",
+      eventId: context.eventId,
+      content: text,
     });
   }
 }

@@ -109,14 +109,23 @@ export default function AiAssistantPanel() {
     if (typeof payload !== "object" || !payload) return;
     const data = payload as Record<string, unknown>;
 
+    // Debug: log all WebSocket messages to understand what's coming in
+    if (data.type === "chat:new") {
+      console.log("[AiAssistantPanel] WebSocket chat:new event:", data);
+    }
+
     // Handle chat:new events
     if (data.type === "chat:new" && data.message) {
       const msg = data.message as Record<string, unknown>;
+      console.log("[AiAssistantPanel] Message type:", msg.type, "Content:", msg.content);
       if (msg.type === "buddy" || msg.type === "buddy_expense_suggestion") {
+        console.log("[AiAssistantPanel] Buddy message received, attempting to replace Processing...");
         // Check if we have a "Processing..." placeholder to replace
         setBuddyMessages((prev) => {
           const lastMsg = prev[prev.length - 1];
+          console.log("[AiAssistantPanel] Last message:", lastMsg);
           if (lastMsg?.role === "buddy" && lastMsg.text === "Processing...") {
+            console.log("[AiAssistantPanel] Replacing Processing... with buddy response");
             // Replace the placeholder with actual message
             return [
               ...prev.slice(0, -1),
@@ -279,78 +288,6 @@ export default function AiAssistantPanel() {
           </div>
         </div>
 
-        {/* SMART SUGGESTIONS */}
-        {suggestions.length > 0 && (
-          <div className="mb-4 border border-border/60 rounded-lg p-3 bg-muted/20">
-            <h3 className="text-xs font-semibold text-foreground mb-2 flex items-center gap-1">
-              <Zap className="h-3.5 w-3.5" />
-              Smart Suggestions
-            </h3>
-            <div className="space-y-2">
-              {suggestions.map((suggestion, idx) => (
-                <div
-                  key={idx}
-                  className={cn(
-                    "flex items-start gap-2 text-xs p-2 rounded",
-                    suggestion.priority === "high" && "bg-red-500/10 border border-red-500/20",
-                    suggestion.priority === "medium" && "bg-amber-500/10 border border-amber-500/20",
-                    suggestion.priority === "low" && "bg-blue-500/10 border border-blue-500/20",
-                  )}
-                >
-                  <div className="mt-0.5">
-                    {suggestion.priority === "high" && <AlertCircle className="h-3.5 w-3.5 text-red-600" />}
-                    {suggestion.priority === "medium" && <Clock className="h-3.5 w-3.5 text-amber-600" />}
-                    {suggestion.priority === "low" && <CheckCircle className="h-3.5 w-3.5 text-blue-600" />}
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-foreground/90">{suggestion.text}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* QUICK ACTIONS */}
-        <div className="mb-4 border border-border/60 rounded-lg p-3 bg-muted/20">
-          <h3 className="text-xs font-semibold text-foreground mb-2">Quick Actions</h3>
-          <div className="grid grid-cols-2 gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8 text-xs"
-              onClick={() => replacePanel({ type: "add-poll" })}
-              disabled={planStatus !== "active"}
-            >
-              Create Poll
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8 text-xs"
-              onClick={() => replacePanel({ type: "add-expense" })}
-              disabled={planStatus !== "active"}
-            >
-              Add Expense
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8 text-xs"
-              onClick={() => replacePanel({ type: "crew" })}
-            >
-              View Members
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-8 text-xs"
-              onClick={() => replacePanel({ type: "overview" })}
-            >
-              Overview
-            </Button>
-          </div>
-        </div>
 
         {/* PLAN INSIGHTS */}
         {insights && (

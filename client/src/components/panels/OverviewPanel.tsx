@@ -1,31 +1,26 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent, type MouseEvent } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, Camera, CheckCircle2, Crown, Link2, Loader2, Upload, Users } from "lucide-react";
+import { useCallback, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { ArrowRight, CheckCircle2, Crown, Users } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useAuth } from "@/hooks/use-auth";
-import { useAppToast } from "@/hooks/use-app-toast";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { convertCurrency } from "@/hooks/use-language";
 import { usePlan, usePlanCrew, usePlanExpenses } from "@/hooks/use-plan-data";
-import { useUpdateBarbecue, useUploadEventBanner } from "@/hooks/use-bbq-data";
 import { apiRequest } from "@/lib/api";
-import { resolveAssetUrl, withCacheBust } from "@/lib/asset-url";
+import { resolveAssetUrl } from "@/lib/asset-url";
 import { formatFullDate } from "@/lib/dates";
-import { getBannerPresetClass, getBannerPresetTone, getEventBanner } from "@/lib/event-banner";
 import { computeSplit } from "@/lib/split/calc";
 import { queryKeys } from "@/lib/query-keys";
 import { circularActionButtonClass, cn } from "@/lib/utils";
 import { usePanel } from "@/state/panel";
 import { PanelShell, useActiveEventId } from "@/components/panels/panel-primitives";
 import { buildCrewContributionRows } from "@/components/panels/crew-contribution";
-import { getUpNextCandidates } from "@/components/panels/up-next";
 import { useEventGuests } from "@/hooks/use-event-guests";
 import { usePlanActivity } from "@/hooks/use-plan-activity";
 import { formatActivityPreview, formatActivityTime, getActivityIcon } from "@/components/panels/activity-format";
 import { getClientPlanStatus, getPlanFinalState, getPlanWrapUpEndsAt } from "@/lib/plan-lifecycle";
+import { deriveSplannoBuddyPanelModel, type SplannoBuddyAction } from "@/lib/splanno-buddy";
+import { SplannoBuddyCard } from "@/components/buddy/SplannoBuddyCard";
 
 type SettlementRoundSummary = {
   id: string;
@@ -83,10 +78,6 @@ type SettlementDetailResponse = {
   };
 };
 
-type HeroStatusTone = "cta-outline" | "cta-primary" | "positive" | "negative" | "settled" | "muted";
-type HeroStatusAction = "invite" | "crew" | "expense" | null;
-type HeroStatus = { label: string; tone: HeroStatusTone; action: HeroStatusAction };
-
 function formatCurrency(amount: number, currencyCode?: string | null) {
   const safeAmount = Number.isFinite(amount) ? amount : 0;
   const code = String(currencyCode ?? "").trim().toUpperCase();
@@ -107,12 +98,6 @@ function getInitials(name: string) {
   return `${parts[0][0] ?? ""}${parts[parts.length - 1][0] ?? ""}`.toUpperCase();
 }
 
-function countryCodeToFlagEmoji(countryCode: string | null | undefined) {
-  const code = String(countryCode ?? "").trim().toUpperCase();
-  if (!/^[A-Z]{2}$/.test(code)) return "";
-  return String.fromCodePoint(...Array.from(code).map((char) => 127397 + char.charCodeAt(0)));
-}
-
 function avatarTint(index: number) {
   const palette = [
     "bg-amber-100 text-amber-900 dark:bg-amber-500/20 dark:text-amber-100",
@@ -124,72 +109,10 @@ function avatarTint(index: number) {
   return palette[index % palette.length];
 }
 
-function detectBannerTone(image: HTMLImageElement): "light-content" | "dark-content" {
-  try {
-    const sampleWidth = 36;
-    const sampleHeight = 24;
-    const canvas = document.createElement("canvas");
-    canvas.width = sampleWidth;
-    canvas.height = sampleHeight;
-    const context = canvas.getContext("2d");
-    if (!context) return "light-content";
-
-    const sourceWidth = image.naturalWidth || image.width;
-    const sourceHeight = image.naturalHeight || image.height;
-    if (!sourceWidth || !sourceHeight) return "light-content";
-
-    const sourceX = Math.max(0, Math.floor(sourceWidth * 0.04));
-    const sourceY = Math.max(0, Math.floor(sourceHeight * 0.35));
-    const sourceSampleWidth = Math.max(1, Math.floor(sourceWidth * 0.62));
-    const sourceSampleHeight = Math.max(1, Math.floor(sourceHeight * 0.58));
-
-    context.drawImage(
-      image,
-      sourceX,
-      sourceY,
-      sourceSampleWidth,
-      sourceSampleHeight,
-      0,
-      0,
-      sampleWidth,
-      sampleHeight,
-    );
-
-    const { data } = context.getImageData(0, 0, sampleWidth, sampleHeight);
-    let weightedLuminance = 0;
-    let totalWeight = 0;
-
-    for (let y = 0; y < sampleHeight; y += 1) {
-      for (let x = 0; x < sampleWidth; x += 1) {
-        const index = (y * sampleWidth + x) * 4;
-        const alpha = data[index + 3] / 255;
-        if (alpha <= 0) continue;
-        const r = data[index];
-        const g = data[index + 1];
-        const b = data[index + 2];
-        const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-        const horizontalWeight = 1.1 - (x / sampleWidth) * 0.35;
-        const verticalWeight = 0.9 + (y / sampleHeight) * 0.4;
-        const weight = alpha * horizontalWeight * verticalWeight;
-        weightedLuminance += luminance * weight;
-        totalWeight += weight;
-      }
-    }
-
-    if (!totalWeight) return "light-content";
-    const averageLuminance = weightedLuminance / totalWeight;
-    return averageLuminance > 168 ? "dark-content" : "light-content";
-  } catch {
-    return "light-content";
-  }
-}
-
 export function OverviewPanel() {
   const eventId = useActiveEventId();
   const isMobile = useIsMobile();
-  const queryClient = useQueryClient();
   const { user } = useAuth();
-  const { toastError, toastSuccess } = useAppToast();
   const { closePanel, replacePanel } = usePanel();
   const planQuery = usePlan(eventId);
   const crewQuery = usePlanCrew(eventId);
@@ -219,15 +142,6 @@ export function OverviewPanel() {
   const expenses = expensesQuery.data ?? [];
   const guests = useEventGuests(eventId);
   const pendingInvites = guests.invitesPending;
-  const [bannerMenuOpen, setBannerMenuOpen] = useState(false);
-  const [bannerUrlInput, setBannerUrlInput] = useState("");
-  const [bannerUrlError, setBannerUrlError] = useState<string | null>(null);
-  const [bannerImageFailed, setBannerImageFailed] = useState(false);
-  const [bannerVersion, setBannerVersion] = useState<number>(0);
-  const [bannerTone, setBannerTone] = useState<"light-content" | "dark-content">("light-content");
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const updateBarbecue = useUpdateBarbecue();
-  const uploadEventBanner = useUploadEventBanner(eventId);
   const laterSettleExpenses = useMemo(
     () => expenses.filter((expense) => {
       const resolutionMode = String((expense as { resolutionMode?: string | null }).resolutionMode ?? "later").trim().toLowerCase();
@@ -241,20 +155,9 @@ export function OverviewPanel() {
     [laterSettleExpenses],
   );
   const currency = typeof plan?.currency === "string" ? plan.currency : "EUR";
-  const localCurrency = typeof plan?.localCurrency === "string" ? plan.localCurrency.trim().toUpperCase() : "";
-  const localCurrencyFlag = countryCodeToFlagEmoji(
-    typeof plan?.countryCode === "string"
-      ? plan.countryCode
-      : (plan?.locationMeta as { countryCode?: string | null } | null | undefined)?.countryCode,
-  );
-  const showLocalCurrency = !!localCurrency && localCurrency !== currency;
   const totalShared = useMemo(
     () => laterSettleExpenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0),
     [laterSettleExpenses],
-  );
-  const localSharedTotal = useMemo(
-    () => (showLocalCurrency ? convertCurrency(totalShared, currency, localCurrency) : 0),
-    [currency, localCurrency, showLocalCurrency, totalShared],
   );
   const { balances, settlements } = useMemo(
     () => computeSplit(participants, splitExpenses, [], false),
@@ -296,41 +199,11 @@ export function OverviewPanel() {
   const myParticipant = user?.id
     ? participants.find((participant: { userId?: number | null }) => participant.userId === user.id) ?? null
     : null;
-  const myBalance = myParticipant
-    ? balances.find((entry) => entry.id === myParticipant.id) ?? null
-    : null;
   const activityQuery = usePlanActivity(eventId, !!eventId);
   const activityItems = activityQuery.latestItems;
   const isCreator = Number(plan?.creatorUserId) === Number(user?.id);
-  const hasAnyExpenses = laterSettleExpenses.length > 0;
-  const hasOnlyCreator = participants.length <= 1;
   const allBalancesZero = balances.every((entry) => Math.abs(Number(entry.balance) || 0) < 0.01);
   const settlementCompleted = isFinanciallyCompleted || (!activeFinalSettlementRound && latestPastFinalSettlementRound?.status === "completed" && allBalancesZero);
-  const personalStatus = useMemo<HeroStatus>(() => {
-    if (isPlanArchived) {
-      return { label: "Plan archived", tone: "muted", action: null };
-    }
-    if (isPlanSettled) {
-      return { label: "Plan completed 🎉", tone: "settled", action: null };
-    }
-    if (isPlanClosed) {
-      return { label: "Plan closed", tone: "muted", action: null };
-    }
-    if (hasOnlyCreator && !hasAnyExpenses) {
-      return invitesLocked ? { label: "Invite locked", tone: "muted", action: null } : { label: "Invite Friends", tone: "cta-outline", action: "invite" };
-    }
-    if (!hasOnlyCreator && !hasAnyExpenses) {
-      return expensesLocked ? { label: "Expenses locked", tone: "muted", action: null } : { label: "Add Expense", tone: "cta-primary", action: "expense" };
-    }
-    if (settlementCompleted) {
-      return { label: "All settled", tone: "settled", action: null };
-    }
-    if (!myParticipant || !myBalance) return { label: "No personal split yet", tone: "muted", action: null };
-    const amount = Number(myBalance.balance) || 0;
-    if (Math.abs(amount) < 0.01) return { label: "All settled", tone: "settled", action: null };
-    if (amount > 0) return { label: `You are owed ${formatCurrency(amount, currency)}`, tone: "positive", action: null };
-    return { label: `You owe ${formatCurrency(Math.abs(amount), currency)}`, tone: "negative", action: null };
-  }, [currency, expensesLocked, hasAnyExpenses, hasOnlyCreator, invitesLocked, isFinanciallyCompleted, isPlanArchived, isPlanClosed, isPlanSettled, myBalance, myParticipant, settlementCompleted]);
   const completedTransfers = completedSettlementDetailQuery.data?.transfers ?? [];
   const finalPayment = completedTransfers[0] ?? null;
   const planCreatedAt = formatFullDate((plan as { createdAt?: string | Date | null } | null)?.createdAt ?? null);
@@ -371,228 +244,63 @@ export function OverviewPanel() {
     if (invitesLocked) return;
     openInvite();
   };
-  const heroActionHandlers: Partial<Record<Exclude<HeroStatusAction, null>, () => void>> = {
-    invite: openInviteFlow,
-    crew: openCrew,
-    expense: openAddExpenseFlow,
-  };
-  const handleHeroAction = personalStatus.action ? heroActionHandlers[personalStatus.action] : undefined;
-  const handleHeroActionClick = handleHeroAction
-    ? (event: MouseEvent<HTMLDivElement>) => {
-        event.stopPropagation();
-        handleHeroAction();
-      }
-    : undefined;
-  const handleHeroActionKeyDown = personalStatus.action
-    ? (event: KeyboardEvent<HTMLDivElement>) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          event.stopPropagation();
-          handleHeroAction?.();
-        }
-      }
-    : undefined;
-  const upNextContext = {
+  const splannoBuddy = useMemo(() => deriveSplannoBuddyPanelModel({
+    expenseCount: expenses.length,
     participantCount: participants.length,
-    expensesCount: expenses.length,
-    pendingInvitesCount: pendingInvites.length,
-    canSettle: isFinanciallyCompleted ? false : canSettle,
-    latestSettlementStatus: isFinanciallyCompleted ? "completed" : activeFinalSettlementRound?.status ?? null,
+    pendingCount: pendingInvites.length,
+    planStatus: plan?.status ?? null,
+    canSettle: isFinanciallyCompleted ? false : canSettle && !allBalancesZero,
+    hasActiveSettlement: !!activeFinalSettlementRound,
     unpaidTransfers,
-    eventDate: plan?.date,
+    eventDate: plan?.date ?? null,
     isCreator,
-  };
-  const upNextCandidates = useMemo(() => getUpNextCandidates(upNextContext), [
-    upNextContext.canSettle,
-    upNextContext.eventDate,
-    upNextContext.expensesCount,
-    upNextContext.isCreator,
-    upNextContext.latestSettlementStatus,
-    upNextContext.participantCount,
-    upNextContext.pendingInvitesCount,
-    upNextContext.unpaidTransfers,
+    settledAt: plan?.settledAt ?? null,
+    createdAt: plan?.createdAt ?? null,
+  }), [
+    activeFinalSettlementRound,
+    allBalancesZero,
+    canSettle,
+    expenses.length,
+    isCreator,
+    isFinanciallyCompleted,
+    participants.length,
+    pendingInvites.length,
+    plan?.createdAt,
+    plan?.date,
+    plan?.settledAt,
+    plan?.status,
+    unpaidTransfers,
   ]);
-  const upNextItem = activeFinalSettlementRound
-    ? upNextCandidates.find((item) => item.type === "settlement") ?? {
-        type: "settlement",
-        title: "Settlement in progress",
-        description: "Finish the remaining payments to complete the plan.",
-        ctaLabel: "Open settle up",
-        action: "settlement",
-      }
-    : expenses.length === 0
-      ? {
-          type: "expense" as const,
-          title: "Start tracking expenses",
-          description: "No expenses yet.",
-          ctaLabel: expensesLocked ? null : "Add expense",
-          action: expensesLocked ? null : "add-expense",
-        }
-      : allBalancesZero
-        ? {
-            type: "done" as const,
-            title: "All good for now",
-            description: "Expenses are tracked and there are no balances yet.",
-            ctaLabel: null,
-            action: null,
-          }
-        : {
-            type: "settlement" as const,
-            title: "Balances are ready to settle",
-            description: "Open settle up to turn the current balances into payments.",
-            ctaLabel: "Open settle up",
-            action: "settlement",
-          };
-  const upNext = {
-    ...upNextItem,
-    onAction: upNextItem.action === "settlement"
-      ? openSettlement
-      : upNextItem.action === "invite"
-        ? openInviteFlow
-        : upNextItem.action === "add-expense"
-          ? openAddExpenseFlow
-      : upNextItem.action === "crew"
-        ? openCrew
-      : upNextItem.action === "plan-details"
-        ? openPlanDetails
-        : null,
-  };
-
-  const eventBanner = useMemo(() => getEventBanner(plan), [plan]);
-  const bannerPresetClass = useMemo(
-    () => getBannerPresetClass(eventBanner.presetId),
-    [eventBanner.presetId],
-  );
-  const bannerPresetTone = useMemo(
-    () => getBannerPresetTone(eventBanner.presetId) ?? "dark-content",
-    [eventBanner.presetId],
-  );
-  const bannerVersionToken = (() => {
-    const raw = (plan as { updatedAt?: string | Date | null } | null)?.updatedAt;
-    if (raw instanceof Date) return raw.getTime();
-    return raw ?? plan?.id ?? null;
-  })();
-  const planBannerUrl = withCacheBust(
-    eventBanner.uploadedUrl ?? null,
-    bannerVersion || bannerVersionToken,
-  );
-  const hasCustomBanner = !!eventBanner.uploadedUrl;
-  const hasVisibleBanner = !!planBannerUrl && !bannerImageFailed;
-  const hasPresetBanner = !hasVisibleBanner && !!bannerPresetClass;
-  const hasHeroBanner = hasVisibleBanner || hasPresetBanner;
-  const activeBannerTone = hasVisibleBanner ? bannerTone : bannerPresetTone;
-  const heroPrimaryTextClass = hasHeroBanner
-    ? activeBannerTone === "light-content"
-      ? "text-white [text-shadow:0_1px_10px_rgba(0,0,0,0.18)]"
-      : "text-slate-950 dark:text-white"
-    : "text-foreground";
-  const heroSecondaryTextClass = hasHeroBanner
-    ? activeBannerTone === "light-content"
-      ? "text-white/84"
-      : "text-slate-900/72 dark:text-white/78"
-    : "text-muted-foreground";
-  const heroIconButtonClass = hasHeroBanner
-    ? activeBannerTone === "light-content"
-      ? "border-white/20 bg-black/25 text-white/90"
-      : "border-black/10 bg-white/70 text-slate-900 dark:border-white/10 dark:bg-[hsl(var(--surface-1))]/88 dark:text-[hsl(var(--text-primary))]"
-    : "";
-  const heroPrimaryTextStyle = hasHeroBanner
-    ? {
-        color: activeBannerTone === "light-content"
-          ? "rgba(255, 255, 255, 0.98)"
-          : (typeof document !== "undefined" && document.documentElement.classList.contains("dark"))
-            ? "rgba(255, 255, 255, 0.98)"
-            : "rgba(2, 6, 23, 0.96)",
-        textShadow: activeBannerTone === "light-content"
-          ? "0 1px 10px rgba(0,0,0,0.18)"
-          : (typeof document !== "undefined" && document.documentElement.classList.contains("dark"))
-            ? "0 1px 10px rgba(0,0,0,0.22)"
-            : undefined,
-      }
-    : undefined;
-  const heroSecondaryTextStyle = hasHeroBanner
-    ? {
-        color: activeBannerTone === "light-content"
-          ? "rgba(255, 255, 255, 0.84)"
-          : (typeof document !== "undefined" && document.documentElement.classList.contains("dark"))
-            ? "rgba(255, 255, 255, 0.78)"
-            : "rgba(15, 23, 42, 0.72)",
-      }
-    : undefined;
-
-  useEffect(() => {
-    setBannerTone("light-content");
-  }, [planBannerUrl]);
-
-  const syncBannerLocally = (nextBannerUrl: string | null) => {
-    if (!eventId) return;
-    queryClient.setQueryData(queryKeys.plans.detail(eventId), (current: typeof plan | undefined) => (
-      current ? { ...current, bannerImageUrl: nextBannerUrl } : current
-    ));
-    queryClient.setQueryData(queryKeys.plans.list(), (current: Array<Record<string, unknown>> | undefined) => (
-      Array.isArray(current)
-        ? current.map((entry) => (Number(entry.id) === eventId ? { ...entry, bannerImageUrl: nextBannerUrl } : entry))
-        : current
-    ));
-    setBannerImageFailed(false);
-    setBannerVersion(Date.now());
-  };
-
-  const handleBannerFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.currentTarget.value = "";
-    if (!file || !eventId) return;
-    const allowedTypes = new Set(["image/jpeg", "image/jpg", "image/png", "image/webp"]);
-    if (!allowedTypes.has(file.type)) {
-      toastError("Please upload JPG, PNG, or WEBP.");
-      return;
+  const handleBuddyAction = useCallback((action: SplannoBuddyAction) => {
+    switch (action.intent) {
+      case "overview":
+        replacePanel({ type: "overview" });
+        break;
+      case "expenses":
+        replacePanel({ type: "expenses" });
+        break;
+      case "crew":
+        openCrew();
+        break;
+      case "invite":
+        openInviteFlow();
+        break;
+      case "settlement":
+        openSettlement();
+        break;
+      case "add-expense":
+        openAddExpenseFlow();
+        break;
+      case "plan-details":
+        openPlanDetails();
+        break;
+      case "chat":
+        openRecentActivity();
+        break;
+      default:
+        break;
     }
-    if (file.size > 5 * 1024 * 1024) {
-      toastError("Image must be 5MB or smaller.");
-      return;
-    }
-    try {
-      const dataUrl = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result ?? ""));
-        reader.onerror = () => reject(new Error("Couldn’t read image file."));
-        reader.readAsDataURL(file);
-      });
-      const uploaded = await uploadEventBanner.mutateAsync(dataUrl);
-      syncBannerLocally(uploaded.bannerImageUrl ?? null);
-      setBannerMenuOpen(false);
-      setBannerUrlInput("");
-      setBannerUrlError(null);
-      toastSuccess("Banner updated");
-    } catch (error) {
-      toastError(error instanceof Error ? error.message : "Banner upload failed.");
-    }
-  };
-
-  const handleApplyBannerUrl = async () => {
-    if (!eventId) return;
-    const raw = bannerUrlInput.trim();
-    if (!raw) {
-      setBannerUrlError("Enter an image URL.");
-      return;
-    }
-    if (!/^https?:\/\//i.test(raw)) {
-      setBannerUrlError("Use a URL starting with http:// or https://");
-      return;
-    }
-    try {
-      const updated = await updateBarbecue.mutateAsync({ id: eventId, bannerImageUrl: raw });
-      syncBannerLocally(updated.bannerImageUrl ?? raw);
-      setBannerMenuOpen(false);
-      setBannerUrlInput("");
-      setBannerUrlError(null);
-      toastSuccess("Banner updated");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Couldn’t update banner.";
-      setBannerUrlError(message);
-      toastError(message);
-    }
-  };
+  }, [openAddExpenseFlow, openCrew, openInviteFlow, openPlanDetails, openRecentActivity, openSettlement, replacePanel]);
 
   return (
     <PanelShell>
@@ -628,183 +336,6 @@ export function OverviewPanel() {
 
         {plan ? (
           <>
-            <section
-              role="button"
-              tabIndex={0}
-              onClick={openPlanDetails}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" || event.key === " ") {
-                  event.preventDefault();
-                  openPlanDetails();
-                }
-              }}
-              className={cn(
-                "interactive-card relative overflow-hidden rounded-[20px] p-6 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                isMobile && "rounded-[18px] p-3.5",
-                hasVisibleBanner
-                  ? "border border-black/5 bg-primary/5 dark:border-[hsl(var(--border-subtle))] dark:bg-[linear-gradient(180deg,hsl(var(--surface-2))/0.98,hsl(var(--surface-1))/0.98)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
-                  : "border border-primary/15 bg-primary/10 shadow-[var(--shadow-sm)] dark:border-[hsl(var(--border-subtle))] dark:bg-[linear-gradient(180deg,hsl(var(--surface-2)),hsl(var(--surface-1)))] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]",
-              )}
-            >
-              {hasVisibleBanner ? (
-                <>
-                  <img
-                    src={planBannerUrl}
-                    alt={plan.name}
-                    className="absolute inset-0 h-full w-full object-cover"
-                    crossOrigin="anonymous"
-                    onLoad={(event) => {
-                      setBannerImageFailed(false);
-                      setBannerTone(detectBannerTone(event.currentTarget));
-                    }}
-                    onError={() => setBannerImageFailed(true)}
-                  />
-                  <div
-                    className={cn(
-                      "absolute inset-0",
-                      bannerTone === "light-content"
-                        ? "bg-gradient-to-t from-black/48 via-black/16 to-transparent"
-                        : "bg-gradient-to-t from-white/74 via-white/20 to-transparent",
-                    )}
-                  />
-                </>
-              ) : null}
-              <div className={cn("relative z-10 space-y-4", isMobile && "space-y-2.5")}>
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h2
-                      className={cn(isMobile ? "text-lg font-semibold tracking-tight" : "text-2xl font-semibold tracking-tight", !hasVisibleBanner && heroPrimaryTextClass)}
-                      style={heroPrimaryTextStyle}
-                    >
-                      {plan.name}
-                    </h2>
-                  </div>
-                  {isCreator ? (
-                    <Popover open={bannerMenuOpen} onOpenChange={setBannerMenuOpen}>
-                      <PopoverTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className={cn(
-                            "shrink-0 rounded-full",
-                            isMobile ? "h-9 w-9" : "h-9 w-9",
-                            heroIconButtonClass,
-                          )}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                          }}
-                          onPointerDown={(event) => {
-                            event.stopPropagation();
-                          }}
-                          aria-label="Change plan banner"
-                        >
-                          <Camera className="h-4 w-4" />
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent align="end" className="w-72 space-y-3 p-3">
-                        <input
-                          ref={fileInputRef}
-                          type="file"
-                          accept="image/jpeg,image/jpg,image/png,image/webp"
-                          className="sr-only"
-                          onChange={handleBannerFileChange}
-                        />
-                        <div className="space-y-1">
-                          <p className="text-sm font-semibold text-foreground">Change banner</p>
-                          <p className="text-xs text-muted-foreground">Upload an image or paste a URL.</p>
-                        </div>
-                        <Button
-                          type="button"
-                          variant="outline"
-                          className="w-full justify-start"
-                          onClick={() => fileInputRef.current?.click()}
-                          disabled={uploadEventBanner.isPending}
-                        >
-                          {uploadEventBanner.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
-                          Upload image
-                        </Button>
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2">
-                            <Link2 className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-xs font-medium text-muted-foreground">Use image URL</span>
-                          </div>
-                          <Input
-                            value={bannerUrlInput}
-                            onChange={(event) => {
-                              setBannerUrlInput(event.target.value);
-                              if (bannerUrlError) setBannerUrlError(null);
-                            }}
-                            placeholder="https://example.com/banner.jpg"
-                          />
-                          {bannerUrlError ? <p className="text-xs text-destructive">{bannerUrlError}</p> : null}
-                          <Button
-                            type="button"
-                            size="sm"
-                            className="w-full"
-                            onClick={handleApplyBannerUrl}
-                            disabled={updateBarbecue.isPending}
-                          >
-                            {updateBarbecue.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                            Use image URL
-                          </Button>
-                        </div>
-                      </PopoverContent>
-                    </Popover>
-                  ) : null}
-                </div>
-                <div>
-                  <p
-                    className={cn(isMobile ? "text-[1.8rem] font-bold tracking-tight" : "text-4xl font-bold tracking-tight", !hasVisibleBanner && heroPrimaryTextClass)}
-                    style={heroPrimaryTextStyle}
-                  >
-                    {formatCurrency(totalShared, currency)}
-                  </p>
-                  <p
-                    className={cn("mt-1.5 text-sm", !hasVisibleBanner && heroSecondaryTextClass)}
-                    style={heroSecondaryTextStyle}
-                  >
-                    {participants.length} people · {expenses.length} expense{expenses.length === 1 ? "" : "s"}
-                  </p>
-                </div>
-                <div className={cn(
-                  "inline-flex w-fit items-center rounded-full border px-4 py-2 text-sm font-medium shadow-sm transition-[transform,box-shadow,background-color,border-color] duration-150",
-                  isMobile && "min-h-10 w-full justify-center px-4 py-2 text-sm",
-                  personalStatus.action && "cursor-pointer hover:-translate-y-0.5 hover:shadow-md active:translate-y-0 active:shadow-sm",
-                  hasVisibleBanner && "backdrop-blur-sm",
-                  personalStatus.tone === "positive" && "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-300",
-                  personalStatus.tone === "negative" && "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/25 dark:bg-amber-500/10 dark:text-amber-200",
-                  personalStatus.tone === "settled" && "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/25 dark:bg-emerald-500/10 dark:text-emerald-300",
-                  personalStatus.tone === "muted" && "border-border/70 bg-background/70 text-muted-foreground dark:border-white/8 dark:bg-[hsl(var(--surface-2))]/88",
-                  personalStatus.tone === "cta-outline" && "border-primary/50 bg-primary/10 text-foreground hover:border-primary/70 hover:bg-primary/16 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  personalStatus.tone === "cta-primary" && "border-primary/60 bg-primary text-slate-900 hover:border-primary/75 hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  hasVisibleBanner && bannerTone === "dark-content" && personalStatus.tone === "muted" && "border-black/10 bg-white/72 text-slate-900/78 dark:border-white/10 dark:bg-[hsl(var(--surface-1))]/84 dark:text-[hsl(var(--text-secondary))]",
-                )}
-                  role={personalStatus.action ? "button" : undefined}
-                  tabIndex={personalStatus.action ? 0 : undefined}
-                  onClick={handleHeroActionClick}
-                  onKeyDown={handleHeroActionKeyDown}
-                >
-                  {personalStatus.label}
-                </div>
-              </div>
-              {showLocalCurrency ? (
-                <div className={cn("pointer-events-none absolute bottom-5 right-5", isMobile && "bottom-3.5 right-3.5")}>
-                  <span
-                    className={cn(
-                      "inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-medium shadow-sm",
-                      hasVisibleBanner
-                        ? "border-white/20 bg-white/10 text-white/82 backdrop-blur-sm"
-                        : "border-border/70 bg-background/88 text-muted-foreground dark:border-[hsl(var(--border-subtle))] dark:bg-[hsl(var(--surface-2))]/92",
-                    )}
-                    style={!hasVisibleBanner ? heroSecondaryTextStyle : undefined}
-                  >
-                    {localCurrencyFlag ? `${localCurrencyFlag} ` : ""}{formatCurrency(localSharedTotal, localCurrency)}
-                  </span>
-                </div>
-              ) : null}
-            </section>
-
             <section className={cn("space-y-4", isMobile && "space-y-3")}>
             {isFinanciallyCompleted ? (
               <section
@@ -895,32 +426,28 @@ export function OverviewPanel() {
                 }}
                 className={cn(
                   "interactive-card rounded-[18px] border border-primary/15 bg-primary/10 p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-[hsl(var(--border-subtle))] dark:bg-[linear-gradient(180deg,hsl(var(--surface-2)),hsl(var(--surface-1)))] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]",
-                  isMobile && "p-3",
+                  isMobile && "p-0",
                 )}
               >
-                <div className={cn("flex items-center justify-between gap-3", isMobile && "flex-col items-start")}>
-                  <div>
-                    <p className="text-sm font-semibold tracking-tight text-foreground">Up next</p>
-                    <p className={cn("mt-1 text-sm text-foreground/90", isMobile && "pr-2 text-[13px] leading-4.5")}>{upNext.title}</p>
-                  </div>
-                  {upNext.ctaLabel && upNext.onAction ? (
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        upNext.onAction?.();
-                      }}
-                      className={cn(isMobile && "h-10 w-full rounded-full px-4")}
-                    >
-                      {upNext.ctaLabel}
-                    </Button>
-                  ) : upNext.type === "done" ? (
-                    <span className="rounded-full border border-border/70 bg-background px-3 py-1.5 text-xs font-semibold text-muted-foreground dark:bg-[hsl(var(--surface-2))]/90">
-                      For now
-                    </span>
-                  ) : null}
-                </div>
+                <SplannoBuddyCard
+                  label="Splann-O"
+                  title={undefined}
+                  intent={splannoBuddy.intent}
+                  chipLabel={splannoBuddy.intent === "resolve" ? splannoBuddy.chipLabel : null}
+                  summary={splannoBuddy.summary}
+                  primaryAttention={splannoBuddy.primaryAttention}
+                  stats={splannoBuddy.stats}
+                  actions={splannoBuddy.actions}
+                  onAction={(action) => {
+                    handleBuddyAction(action);
+                  }}
+                  openLabel="Open assistant"
+                  onOpen={(eventId ? openUpNext : undefined)}
+                  className={cn(
+                    "w-full rounded-[18px] border-0 bg-transparent p-0 shadow-none backdrop-blur-0 dark:bg-transparent",
+                    isMobile ? "min-h-0" : "min-h-0",
+                  )}
+                />
               </section>
             )}
 
@@ -942,7 +469,7 @@ export function OverviewPanel() {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold tracking-tight text-foreground">Crew contribution</p>
-                  {!isMobile ? <p className="mt-1 text-xs text-muted-foreground">Who has been picking things up for the group</p> : null}
+                  {!isMobile ? <p className="mt-1 text-xs text-muted-foreground">Who is currently carrying most of the shared spend</p> : null}
                 </div>
                 <Users className="h-4 w-4 text-muted-foreground" />
               </div>

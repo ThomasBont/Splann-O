@@ -1183,15 +1183,20 @@ export function ChatSidebar({
             </div>
           </div>
         </div>
-        <div className={cn(
-          "mt-0.5 w-full min-w-0 items-center text-muted-foreground transition-[margin,opacity] duration-200 ease-out",
-          isMobile
-            ? cn(
-                "flex overflow-hidden whitespace-nowrap text-[11px] leading-4.5",
-                isMobileHeaderCondensed ? "mt-0.5" : "mt-0.75",
-              )
-            : "text-[13px]",
-        )}>
+        <button
+          type="button"
+          onClick={openPlanDetails}
+          className={cn(
+            "mt-0.5 w-full min-w-0 rounded-md text-left text-muted-foreground transition-[margin,opacity,background-color,color] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+            isMobile
+              ? cn(
+                  "flex overflow-hidden whitespace-nowrap px-1 py-1 text-[11px] leading-4.5 active:bg-[hsl(var(--surface-2))]",
+                  isMobileHeaderCondensed ? "mt-0.5" : "mt-0.75",
+                )
+              : "px-1 py-1 text-[13px] hover:bg-[hsl(var(--surface-2))]/65",
+          )}
+          aria-label="Open plan details"
+        >
           <div className="flex min-w-0 items-center gap-1.5">
             <span className={cn("min-w-0 truncate", isMobile ? "text-foreground/80" : "text-muted-foreground")}>{locationLabel}</span>
             <span className="shrink-0 text-muted-foreground/45">·</span>
@@ -1205,7 +1210,7 @@ export function ChatSidebar({
               </>
             ) : null}
           </div>
-        </div>
+        </button>
       </header>
 
       <div

@@ -138,6 +138,8 @@ import type { InviteAuthContext } from "@/lib/invite-context";
 import { copyText } from "@/lib/copy-text";
 import { buildIcs, downloadIcs, inferEventDateRange } from "@/lib/calendar-ics";
 import { buildMapsUrl, openMaps } from "@/lib/maps";
+import { deriveSplannoBuddyModel, type SplannoBuddyAction } from "@/lib/splanno-buddy";
+import { SplannoBuddyLayer } from "@/components/buddy/SplannoBuddyLayer";
 import { markPlanSwitchPerf, measurePlanSwitchPerf } from "@/lib/plan-switch-perf";
 import { circularActionButtonClass, cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -2784,6 +2786,57 @@ export default function Home({
     totalSpent !== settleSnapshot.total || expenses.length !== settleSnapshot.expenseCount
   );
   const allBalancesZero = balances.every((b: { balance: number }) => Math.abs(b.balance) < 0.01);
+  const splannoBuddyModel = useMemo(() => deriveSplannoBuddyModel({
+    expenseCount: expenses.length,
+    participantCount: participants.length,
+    pendingCount: invitedParticipants.length + pendingRequests.length,
+    planStatus: selectedBbq?.status ?? null,
+    canSettle: settlements.length > 0 && !allBalancesZero,
+    hasActiveSettlement: hasLegacySettlingState,
+    settledAt: selectedBbq?.settledAt ?? null,
+    createdAt: selectedBbq?.createdAt ?? null,
+  }), [
+    allBalancesZero,
+    expenses.length,
+    hasLegacySettlingState,
+    invitedParticipants.length,
+    participants.length,
+    pendingRequests.length,
+    selectedBbq?.createdAt,
+    selectedBbq?.settledAt,
+    selectedBbq?.status,
+    settlements.length,
+  ]);
+  const handleSplannoBuddyAction = useCallback((action: SplannoBuddyAction) => {
+    switch (action.intent) {
+      case "overview":
+        openPanel({ type: "overview" });
+        break;
+      case "expenses":
+        openPanel({ type: "expenses" });
+        break;
+      case "crew":
+        openPanel({ type: "crew" });
+        break;
+      case "invite":
+        openPanel({ type: "invite", source: "overview" });
+        break;
+      case "settlement":
+        openPanel({ type: "settlement" });
+        break;
+      case "add-expense":
+        openPanel({ type: "add-expense", source: "overview" });
+        break;
+      case "plan-details":
+        openPanel({ type: "plan-details" });
+        break;
+      case "chat":
+        closePanel();
+        break;
+      default:
+        break;
+    }
+  }, [closePanel, openPanel]);
   const selectedPlanTypeSelection = useMemo(
     () => derivePlanTypeSelection({ templateData: selectedBbq?.templateData, eventType: selectedBbq?.eventType }),
     [selectedBbq?.templateData, selectedBbq?.eventType],
@@ -4066,7 +4119,7 @@ export default function Home({
                         sharedTotal={Number(totalSpent)}
                         expenseCount={expenses.length}
                         currency={(selectedBbq.currency as string) || defaultCurrency}
-                        onSummaryClick={() => openPanel({ type: "overview" })}
+                        onSummaryClick={() => openPanel({ type: "plan-details" })}
                         currentUser={{
                           id: user?.id ?? null,
                           username: user?.username ?? null,
@@ -4084,6 +4137,11 @@ export default function Home({
                     )}
                     </div>
                   </div>
+                  <SplannoBuddyLayer
+                    model={splannoBuddyModel}
+                    onAction={handleSplannoBuddyAction}
+                    bottomOffset="calc(env(safe-area-inset-bottom) + 5.5rem)"
+                  />
                   <nav className="sticky bottom-0 z-20 border-t border-border/60 bg-background/98 px-2 pb-[max(env(safe-area-inset-bottom),0.35rem)] pt-1 backdrop-blur-md lg:hidden">
                     <div className="grid grid-cols-5 gap-1 rounded-[20px] border border-border/60 bg-[hsl(var(--surface-1))]/98 p-1.5 shadow-[0_-10px_26px_rgba(15,23,42,0.08)] dark:shadow-[0_-10px_24px_rgba(0,0,0,0.18)]">
                       {[

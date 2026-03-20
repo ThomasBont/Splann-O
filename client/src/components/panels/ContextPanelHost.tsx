@@ -14,7 +14,7 @@ import AddPollPanel from "@/components/panels/AddPollPanel";
 import CrewPanel from "@/components/panels/CrewPanel";
 import InviteFlowPanel from "@/components/panels/InviteFlowPanel";
 import PlanDetailsPanel from "@/components/panels/PlanDetailsPanel";
-import NextActionPanel from "@/components/panels/NextActionsPanel";
+import SplannoAssistantPanel from "@/components/panels/NextActionsPanel";
 import MemberProfilePanel from "@/components/panels/MemberProfilePanel";
 import RecentActivityPanel from "@/components/panels/RecentActivityPanel";
 
@@ -74,7 +74,7 @@ export function ContextPanelHost({
       content = <MemberProfilePanel username={panel.username} />;
       break;
     case "next-action":
-      content = <NextActionPanel />;
+      content = <SplannoAssistantPanel />;
       break;
     case "recent-activity":
       content = <RecentActivityPanel />;

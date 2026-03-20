@@ -17,6 +17,7 @@ import PlanDetailsPanel from "@/components/panels/PlanDetailsPanel";
 import SplannoAssistantPanel from "@/components/panels/NextActionsPanel";
 import MemberProfilePanel from "@/components/panels/MemberProfilePanel";
 import RecentActivityPanel from "@/components/panels/RecentActivityPanel";
+import AiAssistantPanel from "@/components/panels/AiAssistantPanel";
 
 export function ContextPanelHost({
   className,
@@ -75,6 +76,9 @@ export function ContextPanelHost({
       break;
     case "next-action":
       content = <SplannoAssistantPanel />;
+      break;
+    case "ai-assistant":
+      content = <AiAssistantPanel />;
       break;
     case "recent-activity":
       content = <RecentActivityPanel />;

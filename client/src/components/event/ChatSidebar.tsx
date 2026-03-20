@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
+import { apiRequest } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -13,6 +14,7 @@ import { useAppToast } from "@/hooks/use-app-toast";
 import { useEventMembers } from "@/hooks/use-participants";
 import { useDeleteExpense } from "@/hooks/use-expenses";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { usePanel } from "@/state/panel";
 import { resolveAssetUrl } from "@/lib/asset-url";
 import { formatFullDate } from "@/lib/dates";
 import { getClientPlanStatus, getPlanCloseAt } from "@/lib/plan-lifecycle";
@@ -20,7 +22,6 @@ import { getChatPatternStyle } from "@/lib/chat-pattern";
 import { markPlanSwitchPerf } from "@/lib/plan-switch-perf";
 import { queryKeys } from "@/lib/query-keys";
 import { circularActionButtonClass, cn } from "@/lib/utils";
-import { usePanel } from "@/state/panel";
 import type { SendMessageResult } from "@/hooks/use-event-chat";
 import { SYSTEM_USER_ID, SYSTEM_USER_NAME } from "@shared/lib/system-user";
 import { ExpenseCard, type ExpenseMessageMetadata } from "@/components/event/chat/ExpenseCard";
@@ -1279,6 +1280,8 @@ export function ChatSidebar({
 
               if (group.isSystem) {
                 const msg = firstMsg;
+                const isBuddyMessage = msg.metadata?.type === "buddy";
+                const isBuddyExpenseSuggestion = msg.metadata?.type === "buddy_expense_suggestion";
                 const expenseMeta = toExpenseMetadata(msg.metadata ?? null);
                 const settlementMeta = toSettlementMetadata(msg.metadata ?? null);
                 const settlementPaymentMeta = toSettlementPaymentMetadata(msg.metadata ?? null);
@@ -1307,8 +1310,10 @@ export function ChatSidebar({
                   )
                   : null;
                 const isSystemMessage = msg.type === "system";
-                const senderName = msg.user?.name || (isSystemMessage ? SYSTEM_USER_NAME : "Unknown user");
-                const senderInitials = isSystemMessage ? "S" : getInitials(senderName);
+                const senderName = isBuddyMessage || isBuddyExpenseSuggestion
+                  ? "✨ Splann-O"
+                  : msg.user?.name || (isSystemMessage ? SYSTEM_USER_NAME : "Unknown user");
+                const senderInitials = isBuddyMessage || isBuddyExpenseSuggestion ? "✨" : (isSystemMessage ? "S" : getInitials(senderName));
                 return (
                   <div
                     key={group.id}

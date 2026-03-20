@@ -2830,6 +2830,9 @@ export default function Home({
       case "plan-details":
         openPanel({ type: "plan-details" });
         break;
+      case "ai-assistant":
+        openPanel({ type: "ai-assistant" });
+        break;
       case "chat":
         closePanel();
         break;

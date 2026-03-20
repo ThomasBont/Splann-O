@@ -25,6 +25,7 @@ export type PanelState =
   | { type: "invite"; source?: "overview" | "crew" }
   | { type: "member-profile"; username: string; source?: "overview" | "crew" }
   | { type: "next-action" }
+  | { type: "ai-assistant" }
   | { type: "recent-activity" }
   | { type: "plan-details" }
   | null;

@@ -17,6 +17,8 @@ import { getPlanLifecycleState } from "../lib/planLifecycle";
 import { sendPushToUser } from "../lib/webPush";
 import { log } from "../lib/logger";
 import { chatAttachmentLimiter, chatMessageLimiter } from "../middleware/rate-limit";
+import { handleBuddyMessage } from "../lib/buddy";
+import { scanReceiptWithVision } from "../lib/vision-receipt";
 
 const router = Router();
 const CHAT_UPLOAD_DIR = path.resolve(process.cwd(), "public/uploads/chat");
@@ -496,6 +498,56 @@ router.delete("/events/:eventId/chat/messages/:messageId", requireAuth, asyncHan
   });
   broadcastEventRealtime(eventId, { type: "chat:delete", eventId, messageId: deleted.messageId });
   res.json(deleted);
+}));
+
+router.post("/plans/:planId/chat/buddy", requireAuth, asyncHandler(async (req, res) => {
+  const eventId = Number(req.params.planId);
+  if (!Number.isFinite(eventId)) badRequest("Invalid plan id");
+  await assertEventAccessOrThrow(req, eventId);
+
+  const parsed = z.object({
+    message: z.string().trim().min(1).max(2000),
+    imageDataUrl: z.string().optional(),
+  }).parse(req.body ?? {});
+
+  let receiptData: Parameters<typeof handleBuddyMessage>[0]["receiptData"];
+
+  if (parsed.imageDataUrl) {
+    const match = parsed.imageDataUrl.match(/^data:([a-zA-Z0-9.+/-]+);base64,(.+)$/);
+    if (match) {
+      try {
+        const buffer = Buffer.from(match[2], "base64");
+        const result = await scanReceiptWithVision({ buffer, mimeType: match[1] });
+        receiptData = {
+          rawText: result.rawText,
+          merchant: result.merchant,
+          amount: result.amount,
+          date: result.date,
+        };
+      } catch (err) {
+        log("warn", "buddy_receipt_scan_failed", {
+          eventId,
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  }
+
+  // Fire-and-forget: buddy responds asynchronously via WebSocket
+  handleBuddyMessage({
+    eventId,
+    userId: req.session!.userId!,
+    username: req.session!.username!,
+    message: parsed.message,
+    receiptData,
+  }).catch((err) => {
+    log("error", "buddy_handler_error", {
+      eventId,
+      message: err instanceof Error ? err.message : String(err),
+    });
+  });
+
+  res.status(202).json({ ok: true, message: "Buddy is thinking..." });
 }));
 
 export default router;

@@ -95,6 +95,10 @@ export function resolveDevHttpsCertPath(): string {
   return getOptional("DEV_HTTPS_CERT_PATH", "");
 }
 
+export function resolveAnthropicApiKey(): string {
+  return getOptional("ANTHROPIC_API_KEY", "");
+}
+
 /** Validate and export config. In production, DATABASE_URL and SESSION_SECRET are required. */
 export function loadConfig() {
   const isProd = process.env.NODE_ENV === "production";
@@ -124,6 +128,7 @@ export function loadConfig() {
       .map((s) => s.trim().toLowerCase())
       .filter(Boolean),
     cookieSecure: process.env.NODE_ENV === "production" && process.env.COOKIE_SECURE !== "0",
+    anthropicApiKey: resolveAnthropicApiKey(),
   };
 }
 

@@ -715,7 +715,7 @@ function RightActionRail({
   const isCrewOpen = isEvent && panel?.type === "crew";
   const isExpensesOpen = isEvent && panel?.type === "expenses";
   const isNotesOpen = isEvent && panel?.type === "notes";
-  const isNextActionOpen = isEvent && panel?.type === "next-action";
+  const isAiAssistantOpen = isEvent && panel?.type === "ai-assistant";
   const railButtonClass = (active: boolean) =>
     `${circularActionButtonClass(active)} inline-flex h-10 w-10 items-center justify-center ${isEvent ? "" : "pointer-events-none opacity-45"}`;
   return (
@@ -802,13 +802,13 @@ function RightActionRail({
           </button>
           <button
             type="button"
-            title="Next action"
-            aria-label="Next action"
+            title="AI Assistant"
+            aria-label="AI Assistant"
             disabled={!isEvent}
-            className={railButtonClass(isNextActionOpen)}
+            className={railButtonClass(isAiAssistantOpen)}
             onClick={() => {
               if (!isEvent) return;
-              openPanel({ type: "next-action" });
+              openPanel({ type: "ai-assistant" });
             }}
           >
             <Zap className="h-4 w-4" />

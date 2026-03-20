@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AnimatePresence } from "framer-motion";
 import type { SplannoBuddyAction, SplannoBuddyModel } from "@/lib/splanno-buddy";
 import { SplannoBuddyAnchor, type SplannoBuddyVisualState } from "@/components/buddy/SplannoBuddyAnchor";
-import { SplannoBuddyCard } from "@/components/buddy/SplannoBuddyCard";
 
 export function SplannoBuddyLayer({
   model,
@@ -15,7 +13,6 @@ export function SplannoBuddyLayer({
   className?: string;
   bottomOffset?: string;
 }) {
-  const [open, setOpen] = useState(false);
   const [celebrating, setCelebrating] = useState(false);
   const seenMilestoneRef = useRef<string | null>(null);
 
@@ -29,9 +26,8 @@ export function SplannoBuddyLayer({
 
   const visualState = useMemo<SplannoBuddyVisualState>(() => {
     if (celebrating || model.intent === "celebrate") return "celebrate";
-    if (open) return "expanded";
     return model.presenceState === "nudge" ? "nudge" : "idle";
-  }, [celebrating, model.intent, model.presenceState, open]);
+  }, [celebrating, model.intent, model.presenceState]);
 
   return (
     <div
@@ -39,26 +35,10 @@ export function SplannoBuddyLayer({
       style={{ bottom: bottomOffset }}
     >
       <div className="flex flex-col items-end gap-3">
-        <AnimatePresence>
-          {open ? (
-            <SplannoBuddyCard
-              intent={model.intent}
-              title={model.title}
-              summary={model.summary}
-              primaryAttention={model.primaryAttention}
-              stats={model.stats}
-              actions={model.actions}
-              onAction={(action) => {
-                onAction(action);
-                setOpen(false);
-              }}
-            />
-          ) : null}
-        </AnimatePresence>
         <SplannoBuddyAnchor
           state={visualState}
-          chipLabel={!open && model.presenceState === "nudge" ? model.chipLabel : null}
-          onClick={() => setOpen((prev) => !prev)}
+          chipLabel={model.presenceState === "nudge" ? model.chipLabel : null}
+          onClick={() => onAction({ id: "buddy-ai-assistant", label: "AI Assistant", intent: "ai-assistant" })}
         />
       </div>
     </div>

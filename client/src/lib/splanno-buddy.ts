@@ -8,7 +8,8 @@ export type SplannoBuddyActionIntent =
   | "settlement"
   | "chat"
   | "add-expense"
-  | "plan-details";
+  | "plan-details"
+  | "ai-assistant";
 
 export type SplannoBuddyAction = {
   id: string;

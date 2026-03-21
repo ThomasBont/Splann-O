@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { apiRequest } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -479,6 +479,15 @@ export function ChatSidebar({
   } = useEventChat(eventId, enabled && !!eventId);
   const deleteExpense = useDeleteExpense(eventId);
   const membersQuery = useEventMembers(eventId);
+  const hasEventId = Number.isFinite(Number(eventId)) && Number(eventId) > 0;
+  const telegramLinkQuery = useQuery({
+    queryKey: ["plans", eventId, "telegram-link"],
+    enabled: hasEventId,
+    staleTime: 0,
+    refetchOnWindowFocus: "always",
+    refetchOnReconnect: true,
+    queryFn: () => apiRequest<{ url: string; username: string; payload: string; connected: boolean }>(`/api/plans/${eventId}/integrations/telegram-link`),
+  });
   const membersById = useMemo(() => {
     const map = new Map<string, { name: string; avatarUrl?: string | null; username?: string | null }>();
     for (const member of membersQuery.data ?? []) {
@@ -886,7 +895,6 @@ export function ChatSidebar({
   const peopleLabel = `${participantCount} ${participantCount === 1 ? "person" : "people"}`;
   const { day: dateLabel, time: timeLabel } = formatHeaderDateParts(dateTime);
   const chatPatternStyle = useMemo(() => getChatPatternStyle({ eventType, templateData }), [eventType, templateData]);
-  const hasEventId = Number.isFinite(Number(eventId)) && Number(eventId) > 0;
   const openPlanDetails = () => {
     if (isMobile) {
       onSummaryClick?.();
@@ -951,6 +959,24 @@ export function ChatSidebar({
     handleAttachmentSelection("file", event.target.files);
     event.target.value = "";
   }, [handleAttachmentSelection]);
+  const telegramLink = telegramLinkQuery.data;
+  const isTelegramConnected = !!telegramLink?.connected;
+  const isTelegramConnectPending = telegramLinkQuery.isFetching && !telegramLink;
+  const handleTelegramConnect = useCallback(async () => {
+    if (!hasEventId || !eventId) return;
+    try {
+      const link = telegramLink ?? await telegramLinkQuery.refetch().then((result) => {
+        if (!result.data) throw new Error("Telegram link unavailable");
+        return result.data;
+      });
+      const opened = window.open(link.url, "_blank", "noopener,noreferrer");
+      if (!opened) {
+        window.location.assign(link.url);
+      }
+    } catch (error) {
+      toastError(error instanceof Error ? error.message : "Couldn’t open Telegram.");
+    }
+  }, [eventId, hasEventId, telegramLink, telegramLinkQuery, toastError]);
 
   const openCreateExpenseFromSuggestion = () => {
     if (!hasEventId || !expenseSuggestion) return;
@@ -1182,6 +1208,35 @@ export function ChatSidebar({
               <span className={`inline-block h-1.5 w-1.5 rounded-full ${liveLabel.cls}`} />
               {liveLabel.text}
             </div>
+            {isTelegramConnected ? (
+              <div
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-full border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))] text-[10px] text-muted-foreground transition-[padding,min-height] duration-200 ease-out",
+                  isMobile ? (isMobileHeaderCondensed ? "min-h-6 px-2 py-0" : "min-h-7 px-2 py-0.5") : "px-2 py-1",
+                )}
+              >
+                <span className="inline-block h-1.5 w-1.5 rounded-full bg-sky-500" />
+                Connected to Telegram
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => { void handleTelegramConnect(); }}
+                disabled={!hasEventId || isTelegramConnectPending || telegramLinkQuery.isRefetching}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-full border border-[hsl(var(--border-subtle))] bg-[hsl(var(--surface-2))] text-[10px] text-muted-foreground transition-[padding,min-height,background-color,color,border-color] duration-200 ease-out hover:border-primary/30 hover:bg-primary/5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default disabled:opacity-60",
+                  isMobile ? (isMobileHeaderCondensed ? "min-h-6 px-2 py-0" : "min-h-7 px-2 py-0.5") : "px-2 py-1",
+                )}
+                aria-label="Connect this plan to Telegram"
+              >
+                {isTelegramConnectPending || telegramLinkQuery.isRefetching ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-sky-500" />
+                )}
+                Connect Telegram
+              </button>
+            )}
           </div>
         </div>
         <button

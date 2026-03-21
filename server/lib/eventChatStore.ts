@@ -41,6 +41,12 @@ export function serializeEventChatMessage(
   reactions: EventChatReaction[] = [],
 ): EventChatMessage {
   const createdAtIso = row.createdAt ? row.createdAt.toISOString() : new Date().toISOString();
+  const telegramMeta = row.metadata && typeof row.metadata === "object"
+    ? (row.metadata as { source?: unknown; telegram?: { userId?: unknown; senderDisplayName?: unknown } })
+    : null;
+  const isTelegramUser = row.type === "user" && row.authorUserId == null && String(telegramMeta?.source ?? "") === "telegram";
+  const telegramUserId = String(telegramMeta?.telegram?.userId ?? "").trim();
+  const telegramSenderName = String(telegramMeta?.telegram?.senderDisplayName ?? row.authorName ?? "").trim();
   return {
     id: row.id,
     eventId: String(row.eventId),
@@ -61,6 +67,12 @@ export function serializeEventChatMessage(
           id: String(row.authorUserId),
           name: row.authorName || "Unknown user",
           avatarUrl: row.authorAvatarUrl ?? null,
+        }
+      : isTelegramUser
+      ? {
+          id: telegramUserId ? `telegram:${telegramUserId}` : "telegram:unknown",
+          name: telegramSenderName || "Telegram user",
+          avatarUrl: null,
         }
       : undefined,
     reactions,
@@ -161,6 +173,7 @@ export async function appendEventChatMessage(
       name: string;
       avatarUrl?: string | null;
     };
+    createdAt?: Date;
   },
 ): Promise<{ message: EventChatMessage; inserted: boolean }> {
   const authorId = input.user?.id ? Number(input.user.id) : null;
@@ -175,7 +188,7 @@ export async function appendEventChatMessage(
     type: systemMessage ? "system" : (input.type ?? "user"),
     content: input.text,
     metadata: input.metadata ?? null,
-    createdAt: new Date(),
+    createdAt: input.createdAt ?? new Date(),
   }).onConflictDoNothing({
     target: [eventChatMessages.eventId, eventChatMessages.clientMessageId],
   }).returning();
@@ -198,6 +211,42 @@ export async function appendEventChatMessage(
   const viewerUserId = typeof authorId === "number" && Number.isFinite(authorId) ? authorId : undefined;
   const reactions = await listMessageReactions(existing.id, viewerUserId);
   return { message: serializeEventChatMessage(existing, reactions), inserted: false };
+}
+
+export async function mergeEventChatMessageMetadata(input: {
+  eventId: number;
+  messageId: string;
+  merge: Record<string, unknown>;
+}): Promise<EventChatMessage | null> {
+  const [row] = await db
+    .select()
+    .from(eventChatMessages)
+    .where(and(
+      eq(eventChatMessages.id, input.messageId),
+      eq(eventChatMessages.eventId, input.eventId),
+      isNull(eventChatMessages.hiddenAt),
+    ))
+    .limit(1);
+  if (!row) return null;
+
+  const currentMetadata = row.metadata && typeof row.metadata === "object"
+    ? row.metadata as Record<string, unknown>
+    : {};
+  const nextMetadata = {
+    ...currentMetadata,
+    ...input.merge,
+  };
+
+  const [updated] = await db
+    .update(eventChatMessages)
+    .set({ metadata: nextMetadata })
+    .where(and(
+      eq(eventChatMessages.id, input.messageId),
+      eq(eventChatMessages.eventId, input.eventId),
+    ))
+    .returning();
+  if (!updated) return null;
+  return serializeEventChatMessage(updated, []);
 }
 
 export async function listMessageReactions(messageId: string, viewerUserId?: number): Promise<EventChatReaction[]> {

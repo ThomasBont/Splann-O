@@ -184,6 +184,35 @@ export const pushSubscriptions = pgTable("push_subscriptions", {
   userIdIdx: index("push_subscriptions_user_id_idx").on(table.userId),
 }));
 
+export const telegramChatLinks = pgTable("telegram_chat_links", {
+  id: serial("id").primaryKey(),
+  telegramChatId: text("telegram_chat_id").notNull().unique(),
+  telegramChatTitle: text("telegram_chat_title"),
+  telegramChatType: text("telegram_chat_type"),
+  planId: integer("plan_id").references(() => barbecues.id, { onDelete: "cascade" }).notNull().unique(),
+  connectedByUserId: integer("connected_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  linkedAt: timestamp("linked_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  planIdIdx: index("telegram_chat_links_plan_id_idx").on(table.planId),
+}));
+
+export const telegramGroupLinkRequests = pgTable("telegram_group_link_requests", {
+  id: serial("id").primaryKey(),
+  token: text("token").notNull().unique(),
+  planId: integer("plan_id").references(() => barbecues.id, { onDelete: "cascade" }).notNull(),
+  requestedByTelegramUserId: text("requested_by_telegram_user_id"),
+  expiresAt: timestamp("expires_at").notNull(),
+  consumedAt: timestamp("consumed_at"),
+  consumedByChatId: text("consumed_by_chat_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  planIdIdx: index("telegram_group_link_requests_plan_id_idx").on(table.planId),
+  expiresAtIdx: index("telegram_group_link_requests_expires_at_idx").on(table.expiresAt),
+}));
+
 export const participants = pgTable("participants", {
   id: serial("id").primaryKey(),
   barbecueId: integer("barbecue_id").references(() => barbecues.id, { onDelete: 'cascade' }).notNull(),

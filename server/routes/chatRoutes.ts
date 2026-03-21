@@ -19,6 +19,8 @@ import { log } from "../lib/logger";
 import { chatAttachmentLimiter, chatMessageLimiter } from "../middleware/rate-limit";
 import { handleBuddyMessage } from "../lib/buddy";
 import { scanReceiptWithVision } from "../lib/vision-receipt";
+import { ensureAppMessageSource } from "../lib/chat-message-source";
+import { forwardAppChatMessageToTelegram } from "../integrations/telegram/outbound-sync-service";
 
 const router = Router();
 const CHAT_UPLOAD_DIR = path.resolve(process.cwd(), "public/uploads/chat");
@@ -277,7 +279,7 @@ router.post("/plans/:planId/chat/messages", requireAuth, chatMessageLimiter, asy
     const saved = await appendEventChatMessage(eventId, {
       text: parsed.content,
       clientMessageId: parsed.clientMessageId,
-      metadata: parsed.metadata ?? null,
+      metadata: ensureAppMessageSource(parsed.metadata ?? null),
       user: {
         id: String(req.session!.userId!),
         name: req.session!.username!,
@@ -286,6 +288,14 @@ router.post("/plans/:planId/chat/messages", requireAuth, chatMessageLimiter, asy
     if (saved.message && saved.inserted) {
       broadcastEventRealtime(eventId, { type: "chat:new", eventId, message: saved.message });
       await pushChatMessageToOtherMembers(eventId, req.session!.userId!, req.session!.username!, parsed.content);
+      void forwardAppChatMessageToTelegram({ eventId, message: saved.message }).catch((error) => {
+        log("warn", "telegram_outbound_message_failed", {
+          reqId: getReqId(req),
+          eventId,
+          messageId: saved.message.id,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      });
       log("info", "chat_message_sent", {
         reqId: getReqId(req),
         eventId,
@@ -346,7 +356,7 @@ router.post("/events/:eventId/chat/messages", requireAuth, chatMessageLimiter, a
     const saved = await appendEventChatMessage(eventId, {
       text: parsed.content,
       clientMessageId: parsed.clientMessageId,
-      metadata: parsed.metadata ?? null,
+      metadata: ensureAppMessageSource(parsed.metadata ?? null),
       user: {
         id: String(req.session!.userId!),
         name: req.session!.username!,
@@ -356,6 +366,14 @@ router.post("/events/:eventId/chat/messages", requireAuth, chatMessageLimiter, a
     if (saved.message && saved.inserted) {
       broadcastEventRealtime(eventId, { type: "chat:new", eventId, message: saved.message });
       await pushChatMessageToOtherMembers(eventId, req.session!.userId!, req.session!.username!, parsed.content);
+      void forwardAppChatMessageToTelegram({ eventId, message: saved.message }).catch((error) => {
+        log("warn", "telegram_outbound_message_failed", {
+          reqId: getReqId(req),
+          eventId,
+          messageId: saved.message.id,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      });
       log("info", "chat_message_sent", {
         reqId: getReqId(req),
         eventId,

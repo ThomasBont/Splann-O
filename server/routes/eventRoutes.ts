@@ -32,6 +32,8 @@ import { log } from "../lib/logger";
 import { sendPushToUser } from "../lib/webPush";
 import { auditLog, auditSecurity } from "../lib/audit";
 import { badRequest, forbidden, notFound, unauthorized, upgradeRequired } from "../lib/errors";
+import { createTelegramPlanDeepLink } from "../integrations/telegram/deep-link";
+import { hasTelegramLinkForPlan } from "../integrations/telegram/plan-link-service";
 import { checkoutLimiter, settlementActionLimiter } from "../middleware/rate-limit";
 import {
   assertEventAccessOrThrow,
@@ -788,6 +790,25 @@ router.post("/plans/:id/activity/read", requireAuth, asyncHandler(async (req, re
     planId: updated.eventId,
     lastReadActivityAt: updated.lastReadActivityAt ? updated.lastReadActivityAt.toISOString() : readAt.toISOString(),
   });
+}));
+
+router.get("/plans/:id/integrations/telegram-link", requireAuth, asyncHandler(async (req, res) => {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) badRequest("Invalid plan id");
+  await assertEventAccessOrThrow(req, id);
+
+  try {
+    const link = createTelegramPlanDeepLink(id);
+    const connected = await hasTelegramLinkForPlan(id);
+    res.json({
+      ...link,
+      connected,
+    });
+  } catch (error) {
+    res.status(503).json({
+      message: error instanceof Error ? error.message : "Telegram linking is not configured right now.",
+    });
+  }
 }));
 
 router.get(p(api.barbecues.get.path), asyncHandler(async (req, res) => {

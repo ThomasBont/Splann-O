@@ -36,6 +36,17 @@ function normalizeBaseUrl(value: string): string {
   return value.trim().replace(/\/+$/, "");
 }
 
+function isPrivateOrLocalHost(hostname: string): boolean {
+  const host = hostname.trim().toLowerCase();
+  if (!host) return true;
+  if (host === "localhost" || host === "127.0.0.1" || host === "::1") return true;
+  if (host.endsWith(".local")) return true;
+  if (/^10\./.test(host)) return true;
+  if (/^192\.168\./.test(host)) return true;
+  if (/^172\.(1[6-9]|2\d|3[0-1])\./.test(host)) return true;
+  return false;
+}
+
 export function resolveBaseUrl(fallback = ""): string {
   const candidates = [
     process.env.BASE_URL,
@@ -54,6 +65,23 @@ export function resolveBaseUrl(fallback = ""): string {
   }
 
   return `http://localhost:${process.env.PORT || 5001}`;
+}
+
+export function resolveTelegramAppBaseUrl(): string {
+  const explicit = process.env.TELEGRAM_APP_BASE_URL?.trim();
+  if (explicit) return normalizeBaseUrl(explicit);
+
+  const candidate = resolveBaseUrl();
+  try {
+    const parsed = new URL(candidate);
+    if (!isPrivateOrLocalHost(parsed.hostname)) {
+      return normalizeBaseUrl(candidate);
+    }
+  } catch {
+    // Fall through to public default.
+  }
+
+  return "https://splanno.app";
 }
 
 export function resolveSessionSecret(): string {
@@ -99,6 +127,10 @@ export function resolveAnthropicApiKey(): string {
   return getOptional("ANTHROPIC_API_KEY", "");
 }
 
+export function resolveTelegramBotUsername(): string {
+  return getOptional("TELEGRAM_BOT_USERNAME", "").replace(/^@+/, "").trim();
+}
+
 /** Validate and export config. In production, DATABASE_URL and SESSION_SECRET are required. */
 export function loadConfig() {
   const isProd = process.env.NODE_ENV === "production";
@@ -129,6 +161,7 @@ export function loadConfig() {
       .filter(Boolean),
     cookieSecure: process.env.NODE_ENV === "production" && process.env.COOKIE_SECURE !== "0",
     anthropicApiKey: resolveAnthropicApiKey(),
+    telegramBotUsername: resolveTelegramBotUsername(),
   };
 }
 

@@ -27,6 +27,9 @@ import { appendEventChatMessage, toggleEventChatReaction } from "./lib/eventChat
 import { broadcastEventRealtime, registerEventSocket, unregisterEventSocket, unregisterSocketEverywhere } from "./lib/eventRealtime";
 import { getPlanLifecycleState } from "./lib/planLifecycle";
 import { sendPushToUser } from "./lib/webPush";
+import { startTelegramBot, stopTelegramBot } from "./integrations/telegram/bot";
+import { ensureAppMessageSource } from "./lib/chat-message-source";
+import { forwardAppChatMessageToTelegram } from "./integrations/telegram/outbound-sync-service";
 import fs from "node:fs";
 import {
   resolveDevHttpsCertPath,
@@ -353,7 +356,7 @@ chatWss.on("connection", (ws, req) => {
             type: "user",
             text,
             clientMessageId,
-            metadata: parsed.metadata ?? null,
+            metadata: ensureAppMessageSource(parsed.metadata ?? null),
             user: { id: String(meta.userId), name: meta.username },
           });
         } catch (error) {
@@ -372,6 +375,14 @@ chatWss.on("connection", (ws, req) => {
         if (result.inserted) {
           broadcastEventRealtime(meta.eventId, { type: "chat:new", message: result.message });
           await pushChatMessageToOtherMembers(meta.eventId, meta.userId, meta.username, text);
+          void forwardAppChatMessageToTelegram({ eventId: meta.eventId, message: result.message }).catch((error) => {
+            log("warn", "telegram_outbound_message_failed", {
+              eventId: meta.eventId,
+              userId: meta.userId,
+              messageId: result.message.id,
+              message: error instanceof Error ? error.message : String(error),
+            });
+          });
         }
         if (process.env.NODE_ENV !== "production") {
           log("info", "[chat-ws] ack", {
@@ -498,14 +509,16 @@ httpServer.on("upgrade", async (req, socket, head) => {
 function gracefulShutdown(signal: string) {
   log("info", `${signal} received, closing server and pool`);
   clearInterval(heartbeatInterval);
-  httpServer.close(() => {
-    pool.end().then(
-      () => process.exit(0),
-      (err) => {
-        console.error("Pool close error:", err);
-        process.exit(1);
-      }
-    );
+  void stopTelegramBot().finally(() => {
+    httpServer.close(() => {
+      pool.end().then(
+        () => process.exit(0),
+        (err) => {
+          console.error("Pool close error:", err);
+          process.exit(1);
+        }
+      );
+    });
   });
 }
 
@@ -547,6 +560,12 @@ process.on("SIGINT", () => gracefulShutdown("SIGINT"));
       } else {
         log("info", "Email: RESEND_API_KEY not set; welcome and password-reset emails disabled", { source: "email" });
       }
+      void startTelegramBot().catch((error) => {
+        log("error", "telegram_bot_start_failed", {
+          message: error instanceof Error ? error.message : String(error),
+        });
+        process.exit(1);
+      });
     }
   );
 })();

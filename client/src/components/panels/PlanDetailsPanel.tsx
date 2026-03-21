@@ -16,6 +16,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useDeleteBarbecue, useLeaveBarbecue, useUpdateBarbecue } from "@/hooks/use-bbq-data";
 import { useAppToast } from "@/hooks/use-app-toast";
 import { crewQueryKey, expensesQueryKey, messagesQueryKey, planQueryKey, usePlan, usePlanCrew, usePlanExpenses } from "@/hooks/use-plan-data";
+import { apiRequest } from "@/lib/api";
 import type { LocationOption } from "@/lib/locations-data";
 import { LocationCombobox } from "@/components/location-combobox";
 import { Button } from "@/components/ui/button";
@@ -212,6 +213,7 @@ export function PlanDetailsPanel() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [leaveDialogOpen, setLeaveDialogOpen] = useState(false);
   const [deleteConfirmName, setDeleteConfirmName] = useState("");
+  const [telegramLinkLoading, setTelegramLinkLoading] = useState(false);
   const timePickerRef = useRef<HTMLDivElement | null>(null);
 
   const currentTypeSelection = useMemo(() => derivePlanTypeSelection({
@@ -389,6 +391,24 @@ export function PlanDetailsPanel() {
       setIsEditing(false);
     } catch (error) {
       toastError((error as Error).message || "Couldn’t save changes");
+    }
+  };
+
+  const handleConnectTelegram = async () => {
+    if (!eventId) return;
+    setTelegramLinkLoading(true);
+    try {
+      const response = await apiRequest<{ url: string; username: string; payload: string }>(`/api/plans/${eventId}/integrations/telegram-link`);
+      const opened = typeof window !== "undefined"
+        ? window.open(response.url, "_blank", "noopener,noreferrer")
+        : null;
+      if (!opened && typeof window !== "undefined") {
+        window.location.assign(response.url);
+      }
+    } catch (error) {
+      toastError((error as Error)?.message || "Could not open Telegram right now");
+    } finally {
+      setTelegramLinkLoading(false);
     }
   };
 
@@ -658,6 +678,29 @@ export function PlanDetailsPanel() {
                 <div className="rounded-xl bg-muted/40 p-3">
                   <p className="text-xs uppercase tracking-wide text-muted-foreground">Status</p>
                   <p className="mt-2 text-sm font-semibold tracking-tight text-foreground">{String(plan.status ?? "active")}</p>
+                </div>
+              </div>
+            </PanelSection>
+
+            <PanelSection title="Extensions">
+              <div className="rounded-2xl border border-border/70 bg-card/70 p-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium text-foreground">Connect Telegram</p>
+                    <p className="text-sm text-muted-foreground">
+                      Open the Splann-O bot in Telegram and link this plan to a chat with one tap.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className={`h-10 rounded-full px-4 ${splannoOutlinePillClass()}`}
+                    onClick={() => { void handleConnectTelegram(); }}
+                    disabled={telegramLinkLoading}
+                  >
+                    {telegramLinkLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ExternalLink className="mr-2 h-4 w-4" />}
+                    Connect Telegram
+                  </Button>
                 </div>
               </div>
             </PanelSection>

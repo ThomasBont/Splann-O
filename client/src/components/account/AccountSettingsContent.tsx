@@ -253,6 +253,7 @@ type TelegramIdentityStatus = {
   } | null;
   botUsername: string | null;
   callbackPath: string;
+  linkToken?: string | null;
 };
 
 export function AccountSettingsContent({ compact = false }: AccountSettingsContentProps) {
@@ -319,8 +320,11 @@ export function AccountSettingsContent({ compact = false }: AccountSettingsConte
     if (!telegramStatus?.botUsername || !telegramStatus.callbackPath) return null;
     const callbackUrl = new URL(telegramStatus.callbackPath, window.location.origin);
     callbackUrl.searchParams.set("redirect", `${window.location.pathname}${window.location.search}`);
+    if (telegramStatus.linkToken) {
+      callbackUrl.searchParams.set("linkToken", telegramStatus.linkToken);
+    }
     return callbackUrl.toString();
-  }, [telegramStatus?.botUsername, telegramStatus?.callbackPath]);
+  }, [telegramStatus?.botUsername, telegramStatus?.callbackPath, telegramStatus?.linkToken]);
 
   const handlePushToggle = async (checked: boolean) => {
     try {

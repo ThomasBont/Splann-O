@@ -1,6 +1,7 @@
 import { Router, type Request } from "express";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
-import { resolveTelegramBotUsername } from "../config/env";
+import { resolveSessionSecret, resolveTelegramBotUsername } from "../config/env";
 import { requireAuth } from "../middleware/requireAuth";
 import { log } from "../lib/logger";
 import { validateTelegramAuthPayload } from "../integrations/telegram/telegram-auth-service";
@@ -30,6 +31,40 @@ function withStatusQuery(path: string, status: "linked" | "error" | "auth_requir
   return `${parsed.pathname}${parsed.search}`;
 }
 
+function createTelegramAccountLinkToken(userId: number) {
+  const issuedAt = Math.floor(Date.now() / 1000);
+  const payload = `${userId}:${issuedAt}`;
+  const secret = resolveSessionSecret();
+  const signature = createHmac("sha256", secret).update(payload).digest("hex");
+  return Buffer.from(`${payload}:${signature}`, "utf8").toString("base64url");
+}
+
+function resolveUserIdFromLinkToken(token: unknown): number | null {
+  const raw = typeof token === "string" ? token.trim() : "";
+  if (!raw) return null;
+  try {
+    const decoded = Buffer.from(raw, "base64url").toString("utf8");
+    const [userIdRaw, issuedAtRaw, signature] = decoded.split(":");
+    if (!userIdRaw || !issuedAtRaw || !signature) return null;
+    const userId = Number(userIdRaw);
+    const issuedAt = Number(issuedAtRaw);
+    if (!Number.isInteger(userId) || userId <= 0) return null;
+    if (!Number.isInteger(issuedAt) || issuedAt <= 0) return null;
+    const now = Math.floor(Date.now() / 1000);
+    if (now - issuedAt > 15 * 60 || issuedAt > now + 120) return null;
+
+    const payload = `${userId}:${issuedAt}`;
+    const expected = createHmac("sha256", resolveSessionSecret()).update(payload).digest("hex");
+    const expectedBuf = Buffer.from(expected, "hex");
+    const receivedBuf = Buffer.from(signature, "hex");
+    if (expectedBuf.length !== receivedBuf.length) return null;
+    if (!timingSafeEqual(expectedBuf, receivedBuf)) return null;
+    return userId;
+  } catch {
+    return null;
+  }
+}
+
 router.get("/me/integrations/telegram-account", requireAuth, asyncHandler(async (req, res) => {
   const userId = req.session!.userId!;
   const linked = await getLinkedTelegramAccountForUser(userId);
@@ -47,13 +82,21 @@ router.get("/me/integrations/telegram-account", requireAuth, asyncHandler(async 
       : null,
     botUsername: resolveTelegramBotUsername() || null,
     callbackPath: "/api/me/integrations/telegram-account/callback",
+    linkToken: createTelegramAccountLinkToken(userId),
   });
 }));
 
 router.get("/me/integrations/telegram-account/callback", asyncHandler(async (req, res) => {
   const redirectPath = sanitizeRedirectPath(req.query.redirect);
   const sessionUserId = req.session?.userId;
-  if (!sessionUserId) {
+  const linkTokenUserId = resolveUserIdFromLinkToken(req.query.linkToken);
+  const resolvedUserId = sessionUserId ?? linkTokenUserId;
+  if (!sessionUserId && linkTokenUserId) {
+    log("info", "telegram_account_callback_link_token_used", {
+      userId: linkTokenUserId,
+    });
+  }
+  if (!resolvedUserId) {
     res.redirect(withStatusQuery(redirectPath, "auth_required"));
     return;
   }
@@ -70,7 +113,7 @@ router.get("/me/integrations/telegram-account/callback", asyncHandler(async (req
     }).parse(req.query ?? {});
     const verified = validateTelegramAuthPayload(payload);
     await linkTelegramAccountToUser({
-      userId: sessionUserId,
+      userId: resolvedUserId,
       telegramUserId: verified.telegramUserId,
       username: verified.username,
       firstName: verified.firstName,
@@ -80,7 +123,7 @@ router.get("/me/integrations/telegram-account/callback", asyncHandler(async (req
     res.redirect(withStatusQuery(redirectPath, "linked"));
   } catch (error) {
     log("warn", "telegram_account_link_failed", {
-      userId: sessionUserId,
+      userId: resolvedUserId,
       message: error instanceof Error ? error.message : String(error),
     });
     res.redirect(withStatusQuery(redirectPath, "error"));

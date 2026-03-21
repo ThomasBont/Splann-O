@@ -268,7 +268,7 @@ type TelegramWidgetAuthPayload = {
 
 declare global {
   interface Window {
-    __splannoTelegramAuthCallback?: (payload: TelegramWidgetAuthPayload) => void;
+    onTelegramAuth?: (payload: TelegramWidgetAuthPayload) => void;
   }
 }
 
@@ -395,7 +395,7 @@ export function AccountSettingsContent({ compact = false }: AccountSettingsConte
     container.innerHTML = "";
     if (!telegramStatus?.botUsername || telegramConnected) return;
 
-    window.__splannoTelegramAuthCallback = (payload: TelegramWidgetAuthPayload) => {
+    window.onTelegramAuth = (payload: TelegramWidgetAuthPayload) => {
       void (async () => {
         try {
           await apiRequest("/api/me/integrations/telegram-account/link", {
@@ -418,11 +418,11 @@ export function AccountSettingsContent({ compact = false }: AccountSettingsConte
     script.setAttribute("data-size", "medium");
     script.setAttribute("data-userpic", "false");
     script.setAttribute("data-request-access", "write");
-    script.setAttribute("data-onauth", "__splannoTelegramAuthCallback(user)");
+    script.setAttribute("data-onauth", "onTelegramAuth(user)");
     container.appendChild(script);
 
     return () => {
-      delete window.__splannoTelegramAuthCallback;
+      delete window.onTelegramAuth;
       container.innerHTML = "";
     };
   }, [copy.telegramLinkError, copy.telegramLinkSuccess, queryClient, telegramConnected, telegramStatus?.botUsername, toast]);

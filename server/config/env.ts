@@ -134,7 +134,8 @@ export function resolveTelegramBotUsername(): string {
 export function shouldStartTelegramBot(): boolean {
   const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
   if (!token) return false;
-  return getOptionalBool("TELEGRAM_BOT_ENABLED", true);
+  const defaultEnabled = process.env.NODE_ENV === "production";
+  return getOptionalBool("TELEGRAM_BOT_ENABLED", defaultEnabled);
 }
 
 /** Validate and export config. In production, DATABASE_URL and SESSION_SECRET are required. */

@@ -270,6 +270,11 @@ export function AccountSettingsContent({ compact = false }: AccountSettingsConte
     queryKey: ["/api/me/integrations/telegram-account"],
     enabled: !!user,
     queryFn: () => apiRequest<TelegramIdentityStatus>("/api/me/integrations/telegram-account"),
+    refetchOnWindowFocus: true,
+    refetchInterval: (query) => {
+      const data = query.state.data as TelegramIdentityStatus | undefined;
+      return data?.connected ? false : 4000;
+    },
   });
   const unlinkTelegramMutation = useMutation({
     mutationFn: () => apiRequest<{ ok: boolean; removed: boolean }>("/api/me/integrations/telegram-account", { method: "DELETE" }),

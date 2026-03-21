@@ -1,6 +1,6 @@
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Loader2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useLanguage, SELECTABLE_LANGUAGES, type Language } from "@/hooks/use-language";
 import { useTheme, type ThemePreference } from "@/hooks/use-theme";
@@ -41,6 +41,9 @@ const ACCOUNT_SETTINGS_COPY: Record<Language, {
   notificationsEnabledToast: string;
   notificationsDisabledToast: string;
   notificationsFailed: string;
+  notificationsAdvanced: string;
+  notificationsShowAdvanced: string;
+  notificationsHideAdvanced: string;
   telegram: string;
   telegramSubtitle: string;
   telegramConnectedAs: string;
@@ -49,6 +52,10 @@ const ACCOUNT_SETTINGS_COPY: Record<Language, {
   telegramDisconnect: string;
   telegramLoading: string;
   telegramBotMissing: string;
+  telegramDomainHint: string;
+  telegramLinkSuccess: string;
+  telegramLinkError: string;
+  telegramLinkAuthRequired: string;
   telegramDisconnectedToast: string;
   telegramDisconnectFailed: string;
 }> = {
@@ -79,6 +86,9 @@ const ACCOUNT_SETTINGS_COPY: Record<Language, {
     notificationsEnabledToast: "Push notifications enabled",
     notificationsDisabledToast: "Push notifications disabled",
     notificationsFailed: "Unable to update notifications.",
+    notificationsAdvanced: "Advanced options",
+    notificationsShowAdvanced: "Show advanced",
+    notificationsHideAdvanced: "Hide advanced",
     telegram: "Telegram",
     telegramSubtitle: "Link your Telegram identity for matching and future invite flows.",
     telegramConnectedAs: "Connected as",
@@ -87,6 +97,10 @@ const ACCOUNT_SETTINGS_COPY: Record<Language, {
     telegramDisconnect: "Disconnect",
     telegramLoading: "Checking Telegram connection...",
     telegramBotMissing: "Telegram bot username is not configured on this environment.",
+    telegramDomainHint: "If you see “Bot domain invalid”, add splanno.app in BotFather > /setdomain.",
+    telegramLinkSuccess: "Telegram account connected.",
+    telegramLinkError: "Telegram link failed. Check BotFather domain settings.",
+    telegramLinkAuthRequired: "Please sign in again before connecting Telegram.",
     telegramDisconnectedToast: "Telegram disconnected",
     telegramDisconnectFailed: "Unable to disconnect Telegram.",
   },
@@ -117,6 +131,9 @@ const ACCOUNT_SETTINGS_COPY: Record<Language, {
     notificationsEnabledToast: "Notificaciones push activadas",
     notificationsDisabledToast: "Notificaciones push desactivadas",
     notificationsFailed: "No se pudieron actualizar las notificaciones.",
+    notificationsAdvanced: "Opciones avanzadas",
+    notificationsShowAdvanced: "Mostrar avanzadas",
+    notificationsHideAdvanced: "Ocultar avanzadas",
     telegram: "Telegram",
     telegramSubtitle: "Vincula tu identidad de Telegram para matching e invitaciones futuras.",
     telegramConnectedAs: "Conectado como",
@@ -125,6 +142,10 @@ const ACCOUNT_SETTINGS_COPY: Record<Language, {
     telegramDisconnect: "Desconectar",
     telegramLoading: "Comprobando conexión de Telegram...",
     telegramBotMissing: "El nombre del bot de Telegram no está configurado en este entorno.",
+    telegramDomainHint: "Si ves “Bot domain invalid”, añade splanno.app en BotFather > /setdomain.",
+    telegramLinkSuccess: "Cuenta de Telegram conectada.",
+    telegramLinkError: "No se pudo vincular Telegram. Revisa el dominio en BotFather.",
+    telegramLinkAuthRequired: "Inicia sesión de nuevo antes de conectar Telegram.",
     telegramDisconnectedToast: "Telegram desconectado",
     telegramDisconnectFailed: "No se pudo desconectar Telegram.",
   },
@@ -155,6 +176,9 @@ const ACCOUNT_SETTINGS_COPY: Record<Language, {
     notificationsEnabledToast: "Notifiche push attivate",
     notificationsDisabledToast: "Notifiche push disattivate",
     notificationsFailed: "Impossibile aggiornare le notifiche.",
+    notificationsAdvanced: "Opzioni avanzate",
+    notificationsShowAdvanced: "Mostra avanzate",
+    notificationsHideAdvanced: "Nascondi avanzate",
     telegram: "Telegram",
     telegramSubtitle: "Collega la tua identità Telegram per matching e futuri inviti.",
     telegramConnectedAs: "Collegato come",
@@ -163,6 +187,10 @@ const ACCOUNT_SETTINGS_COPY: Record<Language, {
     telegramDisconnect: "Disconnetti",
     telegramLoading: "Verifica connessione Telegram...",
     telegramBotMissing: "Username del bot Telegram non configurato in questo ambiente.",
+    telegramDomainHint: "Se vedi “Bot domain invalid”, aggiungi splanno.app in BotFather > /setdomain.",
+    telegramLinkSuccess: "Account Telegram collegato.",
+    telegramLinkError: "Collegamento Telegram fallito. Controlla il dominio in BotFather.",
+    telegramLinkAuthRequired: "Accedi di nuovo prima di collegare Telegram.",
     telegramDisconnectedToast: "Telegram disconnesso",
     telegramDisconnectFailed: "Impossibile disconnettere Telegram.",
   },
@@ -193,6 +221,9 @@ const ACCOUNT_SETTINGS_COPY: Record<Language, {
     notificationsEnabledToast: "Pushmeldingen ingeschakeld",
     notificationsDisabledToast: "Pushmeldingen uitgeschakeld",
     notificationsFailed: "Meldingen konden niet worden bijgewerkt.",
+    notificationsAdvanced: "Geavanceerde opties",
+    notificationsShowAdvanced: "Toon geavanceerd",
+    notificationsHideAdvanced: "Verberg geavanceerd",
     telegram: "Telegram",
     telegramSubtitle: "Koppel je Telegram-identiteit voor matching en toekomstige invite-flows.",
     telegramConnectedAs: "Verbonden als",
@@ -201,6 +232,10 @@ const ACCOUNT_SETTINGS_COPY: Record<Language, {
     telegramDisconnect: "Ontkoppelen",
     telegramLoading: "Telegram-koppeling controleren...",
     telegramBotMissing: "Telegram bot-gebruikersnaam is niet ingesteld in deze omgeving.",
+    telegramDomainHint: "Zie je “Bot domain invalid”? Voeg splanno.app toe in BotFather > /setdomain.",
+    telegramLinkSuccess: "Telegram-account gekoppeld.",
+    telegramLinkError: "Telegram koppelen mislukt. Controleer de BotFather-domeininstelling.",
+    telegramLinkAuthRequired: "Log opnieuw in voordat je Telegram koppelt.",
     telegramDisconnectedToast: "Telegram ontkoppeld",
     telegramDisconnectFailed: "Telegram ontkoppelen is mislukt.",
   },
@@ -230,6 +265,7 @@ export function AccountSettingsContent({ compact = false }: AccountSettingsConte
   const buildId = import.meta.env.VITE_BUILD_ID as string | undefined;
   const copy = ACCOUNT_SETTINGS_COPY[language];
   const telegramWidgetRef = React.useRef<HTMLDivElement | null>(null);
+  const [showAdvancedNotifications, setShowAdvancedNotifications] = React.useState(false);
   const telegramStatusQuery = useQuery({
     queryKey: ["/api/me/integrations/telegram-account"],
     enabled: !!user,
@@ -320,6 +356,26 @@ export function AccountSettingsContent({ compact = false }: AccountSettingsConte
   };
 
   React.useEffect(() => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    const status = url.searchParams.get("telegramAccountLink");
+    if (!status) return;
+
+    if (status === "linked") {
+      toast({ variant: "success", message: copy.telegramLinkSuccess });
+      void queryClient.invalidateQueries({ queryKey: ["/api/me/integrations/telegram-account"] });
+    } else if (status === "auth_required") {
+      toast({ variant: "destructive", title: copy.telegramLinkAuthRequired });
+    } else if (status === "error") {
+      toast({ variant: "destructive", title: copy.telegramLinkError });
+    }
+
+    url.searchParams.delete("telegramAccountLink");
+    url.searchParams.delete("telegramLink");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+  }, [copy.telegramLinkAuthRequired, copy.telegramLinkError, copy.telegramLinkSuccess, queryClient, toast]);
+
+  React.useEffect(() => {
     const container = telegramWidgetRef.current;
     if (!container) return;
     container.innerHTML = "";
@@ -395,24 +451,40 @@ export function AccountSettingsContent({ compact = false }: AccountSettingsConte
             aria-label="Toggle push notifications"
           />
         </div>
-        <div className="mt-3 space-y-2 border-t border-border/60 pt-3">
-          <p className="text-xs text-muted-foreground">{copy.notificationsHint}</p>
-          {([
-            ["chatMessages", copy.notificationsChatMessages],
-            ["expenses", copy.notificationsExpenses],
-            ["paymentRequests", copy.notificationsPaymentRequests],
-            ["planInvites", copy.notificationsPlanInvites],
-          ] as const).map(([key, label]) => (
-            <div key={key} className="flex items-center justify-between gap-3">
-              <p className="text-sm">{label}</p>
-              <Switch
-                checked={pushNotifications.preferences[key]}
-                onCheckedChange={(checked) => { void handlePreferenceToggle(key, checked); }}
-                disabled={!pushNotifications.isSupported || pushNotifications.isLoading}
-                aria-label={label}
-              />
+        <div className="mt-3 border-t border-border/60 pt-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground">{copy.notificationsAdvanced}</p>
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-7 px-2 text-xs"
+              onClick={() => setShowAdvancedNotifications((prev) => !prev)}
+            >
+              {showAdvancedNotifications ? copy.notificationsHideAdvanced : copy.notificationsShowAdvanced}
+              {showAdvancedNotifications ? <ChevronUp className="ml-1 h-3.5 w-3.5" /> : <ChevronDown className="ml-1 h-3.5 w-3.5" />}
+            </Button>
+          </div>
+          {showAdvancedNotifications ? (
+            <div className="mt-2 space-y-2">
+              <p className="text-xs text-muted-foreground">{copy.notificationsHint}</p>
+              {([
+                ["chatMessages", copy.notificationsChatMessages],
+                ["expenses", copy.notificationsExpenses],
+                ["paymentRequests", copy.notificationsPaymentRequests],
+                ["planInvites", copy.notificationsPlanInvites],
+              ] as const).map(([key, label]) => (
+                <div key={key} className="flex items-center justify-between gap-3">
+                  <p className="text-sm">{label}</p>
+                  <Switch
+                    checked={pushNotifications.preferences[key]}
+                    onCheckedChange={(checked) => { void handlePreferenceToggle(key, checked); }}
+                    disabled={!pushNotifications.isSupported || pushNotifications.isLoading}
+                    aria-label={label}
+                  />
+                </div>
+              ))}
             </div>
-          ))}
+          ) : null}
         </div>
       </div>
 
@@ -446,14 +518,7 @@ export function AccountSettingsContent({ compact = false }: AccountSettingsConte
             {telegramAuthUrl && telegramStatus?.botUsername ? (
               <>
                 <div ref={telegramWidgetRef} className="min-h-10" />
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-8 px-3"
-                  onClick={() => window.open(telegramAuthUrl, "_self")}
-                >
-                  {copy.telegramConnect}
-                </Button>
+                <p className="text-[11px] text-muted-foreground">{copy.telegramDomainHint}</p>
               </>
             ) : (
               <p className="text-xs text-muted-foreground">{copy.telegramBotMissing}</p>

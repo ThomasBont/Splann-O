@@ -24,8 +24,10 @@ function sanitizeRedirectPath(value: unknown): string {
 }
 
 function withStatusQuery(path: string, status: "linked" | "error" | "auth_required") {
-  const divider = path.includes("?") ? "&" : "?";
-  return `${path}${divider}telegramLink=${status}`;
+  const parsed = new URL(path, "https://splanno.local");
+  parsed.searchParams.set("telegramAccountLink", status);
+  parsed.searchParams.delete("telegramLink");
+  return `${parsed.pathname}${parsed.search}`;
 }
 
 router.get("/me/integrations/telegram-account", requireAuth, asyncHandler(async (req, res) => {

@@ -198,6 +198,22 @@ export const telegramChatLinks = pgTable("telegram_chat_links", {
   planIdIdx: index("telegram_chat_links_plan_id_idx").on(table.planId),
 }));
 
+export const userTelegramAccounts = pgTable("user_telegram_accounts", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull().unique(),
+  telegramUserId: text("telegram_user_id").notNull().unique(),
+  username: text("username"),
+  firstName: text("first_name").notNull(),
+  lastName: text("last_name"),
+  photoUrl: text("photo_url"),
+  linkedAt: timestamp("linked_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  userIdIdx: index("user_telegram_accounts_user_id_idx").on(table.userId),
+  telegramUserIdIdx: index("user_telegram_accounts_telegram_user_id_idx").on(table.telegramUserId),
+}));
+
 export const telegramGroupLinkRequests = pgTable("telegram_group_link_requests", {
   id: serial("id").primaryKey(),
   token: text("token").notNull().unique(),

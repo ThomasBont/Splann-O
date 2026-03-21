@@ -25,6 +25,7 @@ import photoRoutes from "./routes/photoRoutes";
 import publicEventRoutes from "./routes/publicEventRoutes";
 import eventsRoutes from "./routes/eventsRoutes";
 import healthRoutes from "./routes/healthRoutes";
+import telegramAccountRoutes from "./routes/telegramAccountRoutes";
 import { bbqRepo } from "./repositories/bbqRepo";
 import { participantRepo } from "./repositories/participantRepo";
 import { userRepo } from "./repositories/userRepo";
@@ -244,6 +245,7 @@ export function createApp() {
   app.use("/api", photoRoutes);
   app.use("/api", publicEventRoutes);
   app.use("/api", healthRoutes);
+  app.use("/api", telegramAccountRoutes);
 
   app.get("/join/:token", async (req, res, next) => {
     try {

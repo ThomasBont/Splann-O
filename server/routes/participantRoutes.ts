@@ -17,6 +17,7 @@ import { postSystemChatMessage } from "../lib/systemChat";
 import { resolveUserAvatarUrl } from "../lib/assets";
 import { badRequest, conflict, forbidden, gone, notFound, unauthorized, upgradeRequired } from "../lib/errors";
 import { assertEventAccessOrThrow, assertEventCreatorOrThrow, assertInvitesWritable, assertMembersWritable, asyncHandler, getBarbecueOr404, isEventMemberUser, p } from "./_helpers";
+import { getTelegramParticipantStatusesForPlan } from "../integrations/telegram/plan-participant-status-service";
 
 const router = Router();
 
@@ -158,6 +159,11 @@ router.get("/events/:eventId/members", requireAuth, asyncHandler(async (req, res
     .where(eq(eventMembers.eventId, eventId))
     .orderBy(asc(eventMembers.joinedAt), asc(eventMembers.id));
 
+  const telegramStatuses = await getTelegramParticipantStatusesForPlan({
+    planId: eventId,
+    participantUserIds: rows.map((row) => Number(row.userId)),
+  });
+
   const members = rows.map((row) => ({
     id: row.id,
     eventId: row.eventId,
@@ -167,6 +173,10 @@ router.get("/events/:eventId/members", requireAuth, asyncHandler(async (req, res
     avatarUrl: resolveUserAvatarUrl(row),
     role: row.role,
     joinedAt: row.joinedAt,
+    telegramStatus: telegramStatuses.get(Number(row.userId))?.telegramStatus ?? "not_connected",
+    hasTelegramLinked: telegramStatuses.get(Number(row.userId))?.hasTelegramLinked ?? false,
+    detectedInLinkedTelegramGroup: telegramStatuses.get(Number(row.userId))?.detectedInLinkedTelegramGroup ?? false,
+    telegramDisplayLabel: telegramStatuses.get(Number(row.userId))?.telegramDisplayLabel ?? null,
   }));
 
   res.json(members);

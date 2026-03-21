@@ -564,7 +564,10 @@ process.on("SIGINT", () => gracefulShutdown("SIGINT"));
         log("error", "telegram_bot_start_failed", {
           message: error instanceof Error ? error.message : String(error),
         });
-        process.exit(1);
+        log("warn", "telegram_bot_disabled", {
+          reason: "startup_failed",
+          note: "Web app remains online; Telegram bridge is disabled until bot config is fixed.",
+        });
       });
     }
   );

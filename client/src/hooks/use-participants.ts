@@ -230,6 +230,10 @@ export type EventMemberView = {
   avatarUrl?: string | null;
   role: "member" | "owner" | string;
   joinedAt?: string | null;
+  telegramStatus?: "not_connected" | "connected" | "in_group" | "connected_not_in_group";
+  hasTelegramLinked?: boolean;
+  detectedInLinkedTelegramGroup?: boolean;
+  telegramDisplayLabel?: string | null;
 };
 
 export type EventInviteView = {

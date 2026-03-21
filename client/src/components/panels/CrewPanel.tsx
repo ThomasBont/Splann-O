@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Loader2, Users, UserPlus2 } from "lucide-react";
+import { CircleHelp, Loader2, Users, UserPlus2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/use-auth";
 import { useAppToast } from "@/hooks/use-app-toast";
 import { useEventGuests } from "@/hooks/use-event-guests";
@@ -31,6 +32,13 @@ function formatJoined(value?: string | null) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Joined recently";
   return date.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}
+
+function getTelegramStatusLabel(status?: string) {
+  if (status === "in_group") return "Seen in Telegram group";
+  if (status === "connected_not_in_group") return "Connected, not yet seen in Telegram group";
+  if (status === "connected") return "Telegram connected";
+  return "Not connected";
 }
 
 export function CrewPanel() {
@@ -163,6 +171,25 @@ export function CrewPanel() {
         ) : (
           <>
             <PanelSection title="Members" variant="list">
+              <div className="mb-2 flex items-center gap-1.5 text-[11px] text-muted-foreground/80">
+                <span>Telegram status uses observed activity in the linked chat.</span>
+                <TooltipProvider delayDuration={150}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label="How Telegram detection works"
+                        className="inline-flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground/80 transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        <CircleHelp className="h-3.5 w-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-[260px]">
+                      Seen in Telegram group means we observed messages from that linked Telegram account in this plan's linked group. It is not a full membership roster.
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </div>
               <div className="divide-y divide-[hsl(var(--border-subtle))]">
                 {orderedMembers.length > 0 ? orderedMembers.map((member) => (
                   member.username ? (
@@ -182,6 +209,17 @@ export function CrewPanel() {
                           <p className="truncate text-sm font-medium text-foreground">{member.name}</p>
                           <p className="truncate text-xs text-muted-foreground">@{member.username}</p>
                           <p className="mt-1 text-xs text-muted-foreground/70">{member.role === "owner" ? "Owner" : "Member"}</p>
+                          <p className={cn(
+                            "mt-1 text-xs",
+                            member.telegramStatus === "in_group"
+                              ? "text-emerald-700 dark:text-emerald-300"
+                              : member.telegramStatus === "connected_not_in_group"
+                                ? "text-amber-700 dark:text-amber-300"
+                                : "text-muted-foreground/70",
+                          )}>
+                            {getTelegramStatusLabel(member.telegramStatus)}
+                            {member.telegramDisplayLabel ? ` · ${member.telegramDisplayLabel}` : ""}
+                          </p>
                         </div>
                         <div className="shrink-0 pt-0.5 text-right">
                           <span className="block text-[11px] text-muted-foreground/75">
@@ -228,6 +266,17 @@ export function CrewPanel() {
                         <p className="truncate text-sm font-medium text-foreground">{member.name}</p>
                         <p className={cn("mt-1 text-xs", member.role === "owner" ? "text-muted-foreground/70" : "text-muted-foreground/70")}>
                           {member.role === "owner" ? "Owner" : "Member"}
+                        </p>
+                        <p className={cn(
+                          "mt-1 text-xs",
+                          member.telegramStatus === "in_group"
+                            ? "text-emerald-700 dark:text-emerald-300"
+                            : member.telegramStatus === "connected_not_in_group"
+                              ? "text-amber-700 dark:text-amber-300"
+                              : "text-muted-foreground/70",
+                        )}>
+                          {getTelegramStatusLabel(member.telegramStatus)}
+                          {member.telegramDisplayLabel ? ` · ${member.telegramDisplayLabel}` : ""}
                         </p>
                       </div>
                       <span className="shrink-0 pt-0.5 text-[11px] text-muted-foreground/75">

@@ -1,10 +1,12 @@
 import * as React from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useLanguage, SELECTABLE_LANGUAGES, type Language } from "@/hooks/use-language";
 import { useTheme, type ThemePreference } from "@/hooks/use-theme";
 import { useToast } from "@/hooks/use-toast";
 import { usePushNotifications } from "@/hooks/use-push-notifications";
+import { apiRequest } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 
@@ -39,6 +41,16 @@ const ACCOUNT_SETTINGS_COPY: Record<Language, {
   notificationsEnabledToast: string;
   notificationsDisabledToast: string;
   notificationsFailed: string;
+  telegram: string;
+  telegramSubtitle: string;
+  telegramConnectedAs: string;
+  telegramNotConnected: string;
+  telegramConnect: string;
+  telegramDisconnect: string;
+  telegramLoading: string;
+  telegramBotMissing: string;
+  telegramDisconnectedToast: string;
+  telegramDisconnectFailed: string;
 }> = {
   en: {
     signIn: "Sign in to manage settings.",
@@ -67,6 +79,16 @@ const ACCOUNT_SETTINGS_COPY: Record<Language, {
     notificationsEnabledToast: "Push notifications enabled",
     notificationsDisabledToast: "Push notifications disabled",
     notificationsFailed: "Unable to update notifications.",
+    telegram: "Telegram",
+    telegramSubtitle: "Link your Telegram identity for matching and future invite flows.",
+    telegramConnectedAs: "Connected as",
+    telegramNotConnected: "Not connected",
+    telegramConnect: "Connect Telegram",
+    telegramDisconnect: "Disconnect",
+    telegramLoading: "Checking Telegram connection...",
+    telegramBotMissing: "Telegram bot username is not configured on this environment.",
+    telegramDisconnectedToast: "Telegram disconnected",
+    telegramDisconnectFailed: "Unable to disconnect Telegram.",
   },
   es: {
     signIn: "Iniciá sesión para gestionar la configuración.",
@@ -95,6 +117,16 @@ const ACCOUNT_SETTINGS_COPY: Record<Language, {
     notificationsEnabledToast: "Notificaciones push activadas",
     notificationsDisabledToast: "Notificaciones push desactivadas",
     notificationsFailed: "No se pudieron actualizar las notificaciones.",
+    telegram: "Telegram",
+    telegramSubtitle: "Vincula tu identidad de Telegram para matching e invitaciones futuras.",
+    telegramConnectedAs: "Conectado como",
+    telegramNotConnected: "No conectado",
+    telegramConnect: "Conectar Telegram",
+    telegramDisconnect: "Desconectar",
+    telegramLoading: "Comprobando conexión de Telegram...",
+    telegramBotMissing: "El nombre del bot de Telegram no está configurado en este entorno.",
+    telegramDisconnectedToast: "Telegram desconectado",
+    telegramDisconnectFailed: "No se pudo desconectar Telegram.",
   },
   it: {
     signIn: "Accedi per gestire le impostazioni.",
@@ -123,6 +155,16 @@ const ACCOUNT_SETTINGS_COPY: Record<Language, {
     notificationsEnabledToast: "Notifiche push attivate",
     notificationsDisabledToast: "Notifiche push disattivate",
     notificationsFailed: "Impossibile aggiornare le notifiche.",
+    telegram: "Telegram",
+    telegramSubtitle: "Collega la tua identità Telegram per matching e futuri inviti.",
+    telegramConnectedAs: "Collegato come",
+    telegramNotConnected: "Non collegato",
+    telegramConnect: "Collega Telegram",
+    telegramDisconnect: "Disconnetti",
+    telegramLoading: "Verifica connessione Telegram...",
+    telegramBotMissing: "Username del bot Telegram non configurato in questo ambiente.",
+    telegramDisconnectedToast: "Telegram disconnesso",
+    telegramDisconnectFailed: "Impossibile disconnettere Telegram.",
   },
   nl: {
     signIn: "Log in om instellingen te beheren.",
@@ -151,7 +193,31 @@ const ACCOUNT_SETTINGS_COPY: Record<Language, {
     notificationsEnabledToast: "Pushmeldingen ingeschakeld",
     notificationsDisabledToast: "Pushmeldingen uitgeschakeld",
     notificationsFailed: "Meldingen konden niet worden bijgewerkt.",
+    telegram: "Telegram",
+    telegramSubtitle: "Koppel je Telegram-identiteit voor matching en toekomstige invite-flows.",
+    telegramConnectedAs: "Verbonden als",
+    telegramNotConnected: "Niet verbonden",
+    telegramConnect: "Connect Telegram",
+    telegramDisconnect: "Ontkoppelen",
+    telegramLoading: "Telegram-koppeling controleren...",
+    telegramBotMissing: "Telegram bot-gebruikersnaam is niet ingesteld in deze omgeving.",
+    telegramDisconnectedToast: "Telegram ontkoppeld",
+    telegramDisconnectFailed: "Telegram ontkoppelen is mislukt.",
   },
+};
+
+type TelegramIdentityStatus = {
+  connected: boolean;
+  account: {
+    telegramUserId: string;
+    username: string | null;
+    firstName: string;
+    lastName: string | null;
+    photoUrl: string | null;
+    linkedAt: string | null;
+  } | null;
+  botUsername: string | null;
+  callbackPath: string;
 };
 
 export function AccountSettingsContent({ compact = false }: AccountSettingsContentProps) {
@@ -159,9 +225,26 @@ export function AccountSettingsContent({ compact = false }: AccountSettingsConte
   const { language, setLanguage } = useLanguage();
   const { preference, setPreference } = useTheme();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   const pushNotifications = usePushNotifications();
   const buildId = import.meta.env.VITE_BUILD_ID as string | undefined;
   const copy = ACCOUNT_SETTINGS_COPY[language];
+  const telegramWidgetRef = React.useRef<HTMLDivElement | null>(null);
+  const telegramStatusQuery = useQuery({
+    queryKey: ["/api/me/integrations/telegram-account"],
+    enabled: !!user,
+    queryFn: () => apiRequest<TelegramIdentityStatus>("/api/me/integrations/telegram-account"),
+  });
+  const unlinkTelegramMutation = useMutation({
+    mutationFn: () => apiRequest<{ ok: boolean; removed: boolean }>("/api/me/integrations/telegram-account", { method: "DELETE" }),
+    onSuccess: () => {
+      toast({ variant: "success", message: copy.telegramDisconnectedToast });
+      void queryClient.invalidateQueries({ queryKey: ["/api/me/integrations/telegram-account"] });
+    },
+    onError: () => {
+      toast({ variant: "destructive", title: copy.telegramDisconnectFailed });
+    },
+  });
 
   if (!user) {
     return <p className="text-sm text-muted-foreground">{copy.signIn}</p>;
@@ -183,6 +266,20 @@ export function AccountSettingsContent({ compact = false }: AccountSettingsConte
       : pushNotifications.permission === "denied"
         ? copy.notificationsBlocked
         : copy.notificationsDisabled;
+  const telegramStatus = telegramStatusQuery.data ?? null;
+  const telegramConnected = !!telegramStatus?.connected;
+  const telegramDisplayName = telegramStatus?.account
+    ? telegramStatus.account.username
+      ? `@${telegramStatus.account.username}`
+      : [telegramStatus.account.firstName, telegramStatus.account.lastName].filter(Boolean).join(" ")
+    : "";
+  const telegramAuthUrl = React.useMemo(() => {
+    if (typeof window === "undefined") return null;
+    if (!telegramStatus?.botUsername || !telegramStatus.callbackPath) return null;
+    const callbackUrl = new URL(telegramStatus.callbackPath, window.location.origin);
+    callbackUrl.searchParams.set("redirect", `${window.location.pathname}${window.location.search}`);
+    return callbackUrl.toString();
+  }, [telegramStatus?.botUsername, telegramStatus?.callbackPath]);
 
   const handlePushToggle = async (checked: boolean) => {
     try {
@@ -221,6 +318,27 @@ export function AccountSettingsContent({ compact = false }: AccountSettingsConte
       return;
     }
   };
+
+  React.useEffect(() => {
+    const container = telegramWidgetRef.current;
+    if (!container) return;
+    container.innerHTML = "";
+    if (!telegramAuthUrl || !telegramStatus?.botUsername || telegramConnected) return;
+
+    const script = document.createElement("script");
+    script.async = true;
+    script.src = "https://telegram.org/js/telegram-widget.js?22";
+    script.setAttribute("data-telegram-login", telegramStatus.botUsername);
+    script.setAttribute("data-size", "medium");
+    script.setAttribute("data-userpic", "false");
+    script.setAttribute("data-request-access", "write");
+    script.setAttribute("data-auth-url", telegramAuthUrl);
+    container.appendChild(script);
+
+    return () => {
+      container.innerHTML = "";
+    };
+  }, [telegramAuthUrl, telegramConnected, telegramStatus?.botUsername]);
 
   return (
     <section className={compact ? "space-y-4" : "space-y-5"}>
@@ -296,6 +414,52 @@ export function AccountSettingsContent({ compact = false }: AccountSettingsConte
             </div>
           ))}
         </div>
+      </div>
+
+      <div className="rounded-xl border border-border/70 bg-card/70 p-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-1">
+            <p className="text-sm font-medium">{copy.telegram}</p>
+            <p className="text-xs text-muted-foreground">{copy.telegramSubtitle}</p>
+            {telegramStatusQuery.isLoading ? (
+              <p className="text-xs text-muted-foreground">{copy.telegramLoading}</p>
+            ) : telegramConnected ? (
+              <p className="text-xs text-muted-foreground">{copy.telegramConnectedAs}: {telegramDisplayName || copy.telegram}</p>
+            ) : (
+              <p className="text-xs text-muted-foreground">{copy.telegramNotConnected}</p>
+            )}
+          </div>
+          {telegramConnected ? (
+            <Button
+              type="button"
+              variant="outline"
+              className="h-8 px-3"
+              disabled={unlinkTelegramMutation.isPending}
+              onClick={() => unlinkTelegramMutation.mutate()}
+            >
+              {unlinkTelegramMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : copy.telegramDisconnect}
+            </Button>
+          ) : null}
+        </div>
+        {!telegramConnected ? (
+          <div className="mt-3 space-y-2 border-t border-border/60 pt-3">
+            {telegramAuthUrl && telegramStatus?.botUsername ? (
+              <>
+                <div ref={telegramWidgetRef} className="min-h-10" />
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-8 px-3"
+                  onClick={() => window.open(telegramAuthUrl, "_self")}
+                >
+                  {copy.telegramConnect}
+                </Button>
+              </>
+            ) : (
+              <p className="text-xs text-muted-foreground">{copy.telegramBotMissing}</p>
+            )}
+          </div>
+        ) : null}
       </div>
 
       {import.meta.env.DEV && buildId ? (

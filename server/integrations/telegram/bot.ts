@@ -19,6 +19,7 @@ import {
   resolveTelegramPlanFromChat,
 } from "./plan-summary-service";
 import { ingestTelegramGroupMessage } from "./inbound-sync-service";
+import { claimTelegramCommandReceipt } from "./command-dedupe-service";
 
 type SplannoTelegramBot = TelegramBot;
 
@@ -235,174 +236,209 @@ async function withLinkedPlan(
 }
 
 function registerCommandHandlers(bot: SplannoTelegramBot) {
-  bot.onText(/^\/start(?:@\w+)?(?:\s+(.+))?$/i, async (message, match) => {
-    const rawPayload = match?.[1]?.trim() ?? "";
-    log("info", "telegram_start_received", {
-      chatId: String(message.chat.id),
-      hasPayload: !!rawPayload,
-      payloadPreview: rawPayload ? rawPayload.slice(0, 48) : null,
+  const runCommand = async (
+    message: TelegramBot.Message,
+    command: string,
+    handler: () => Promise<void>,
+  ) => {
+    const claimed = await claimTelegramCommandReceipt({
+      chatId: message.chat.id,
+      messageId: message.message_id,
+      command,
     });
-
-    const planPayload = parseTelegramPlanStartPayload(rawPayload);
-    const pendingPayload = parseTelegramGroupLinkPayload(rawPayload);
-    if (!planPayload && !pendingPayload) {
-      await bot.sendMessage(message.chat.id, buildStartReply());
+    if (!claimed) {
+      log("info", "telegram_command_duplicate_skipped", {
+        chatId: String(message.chat.id),
+        messageId: Number(message.message_id),
+        command,
+      });
       return;
     }
+    await handler();
+  };
 
-    try {
-      if (planPayload) {
-        log("info", "telegram_start_payload_parsed", {
-          chatId: String(message.chat.id),
-          chatType: message.chat.type,
-          planId: planPayload.planId,
-        });
+  bot.onText(/^\/start(?:@\w+)?(?:\s+(.+))?$/i, async (message, match) => {
+    await runCommand(message, "start", async () => {
+      const rawPayload = match?.[1]?.trim() ?? "";
+      log("info", "telegram_start_received", {
+        chatId: String(message.chat.id),
+        hasPayload: !!rawPayload,
+        payloadPreview: rawPayload ? rawPayload.slice(0, 48) : null,
+      });
 
-        if (isGroupChat(message.chat.type)) {
-          const result = await linkTelegramGroupToPlan({
-            chatId: message.chat.id,
-            planId: planPayload.planId,
-            telegramChatTitle: message.chat.title ?? null,
-            telegramChatType: message.chat.type ?? null,
-          });
-          await bot.sendMessage(message.chat.id, buildLinkSuccessReply(result), {
-            reply_markup: createPlanKeyboard(result.planId, { expenses: true, invite: true }),
-          });
-          return;
-        }
-
-        const request = await createPendingTelegramGroupLinkRequest({
-          planId: planPayload.planId,
-          requestedByTelegramUserId: message.from?.id ?? null,
-        });
-        const groupPayload = createTelegramGroupLinkPayload(request.token);
-        await bot.sendMessage(message.chat.id, buildPrivateStartWithPlanReply(request.planName), {
-          reply_markup: {
-            inline_keyboard: [[
-              { text: "Add bot to group", url: getGroupLinkUrl(groupPayload) },
-            ]],
-          },
-        });
-        return;
-      }
-
-      if (!pendingPayload) {
+      const planPayload = parseTelegramPlanStartPayload(rawPayload);
+      const pendingPayload = parseTelegramGroupLinkPayload(rawPayload);
+      if (!planPayload && !pendingPayload) {
         await bot.sendMessage(message.chat.id, buildStartReply());
         return;
       }
 
-      if (!isGroupChat(message.chat.type)) {
-        await bot.sendMessage(message.chat.id, "This step must be finished in a Telegram group. Add the bot to your group and run the start link there.");
-        return;
-      }
+      try {
+        if (planPayload) {
+          log("info", "telegram_start_payload_parsed", {
+            chatId: String(message.chat.id),
+            chatType: message.chat.type,
+            planId: planPayload.planId,
+          });
 
-      const request = await consumePendingTelegramGroupLinkRequest({
-        token: pendingPayload.token,
-        chatId: message.chat.id,
-        telegramUserId: message.from?.id ?? null,
-      });
-      if (request.code === "not_found" || request.code === "expired") {
-        await bot.sendMessage(message.chat.id, "This link has expired. Go back to Splann-O and tap Connect Telegram again.");
-        return;
-      }
-      if (request.code === "already_used") {
-        await bot.sendMessage(message.chat.id, `This link was already used for "${request.planName}". If needed, start a new connect flow from the app.`);
-        return;
-      }
-      if (request.code === "wrong_user") {
-        await bot.sendMessage(message.chat.id, "This link was created by another Telegram user. Ask that user to finish the link, or create a new one from Splann-O.");
-        return;
-      }
+          if (isGroupChat(message.chat.type)) {
+            const result = await linkTelegramGroupToPlan({
+              chatId: message.chat.id,
+              planId: planPayload.planId,
+              telegramChatTitle: message.chat.title ?? null,
+              telegramChatType: message.chat.type ?? null,
+            });
+            await bot.sendMessage(message.chat.id, buildLinkSuccessReply(result), {
+              reply_markup: createPlanKeyboard(result.planId, { expenses: true, invite: true }),
+            });
+            return;
+          }
 
-      await bot.sendMessage(message.chat.id, buildGroupFinalizeIntro(request.planName));
-      const result = await linkTelegramGroupToPlan({
-        chatId: message.chat.id,
-        planId: request.planId,
-        telegramChatTitle: message.chat.title ?? null,
-        telegramChatType: message.chat.type ?? null,
-      });
-      await bot.sendMessage(message.chat.id, buildLinkSuccessReply(result), {
-        reply_markup: createPlanKeyboard(result.planId, { expenses: true, invite: true }),
-      });
-    } catch (error) {
-      log("warn", "telegram_plan_link_failed", {
-        chatId: String(message.chat.id),
-        chatType: message.chat.type,
-        payloadPreview: rawPayload ? rawPayload.slice(0, 48) : null,
-        message: error instanceof Error ? error.message : String(error),
-      });
-      await bot.sendMessage(
-        message.chat.id,
-        error instanceof Error && /plan not found/i.test(error.message)
-          ? "I could not find that Splann-O plan anymore. Open a fresh Telegram link from the app and try again."
-          : "I could not connect this Telegram chat right now. Please try the Telegram link from the app again in a moment.",
-      );
-    }
+          const request = await createPendingTelegramGroupLinkRequest({
+            planId: planPayload.planId,
+            requestedByTelegramUserId: message.from?.id ?? null,
+          });
+          const groupPayload = createTelegramGroupLinkPayload(request.token);
+          await bot.sendMessage(message.chat.id, buildPrivateStartWithPlanReply(request.planName), {
+            reply_markup: {
+              inline_keyboard: [[
+                { text: "Add bot to group", url: getGroupLinkUrl(groupPayload) },
+              ]],
+            },
+          });
+          return;
+        }
+
+        if (!pendingPayload) {
+          await bot.sendMessage(message.chat.id, buildStartReply());
+          return;
+        }
+
+        if (!isGroupChat(message.chat.type)) {
+          await bot.sendMessage(message.chat.id, "This step must be finished in a Telegram group. Add the bot to your group and run the start link there.");
+          return;
+        }
+
+        const request = await consumePendingTelegramGroupLinkRequest({
+          token: pendingPayload.token,
+          chatId: message.chat.id,
+          telegramUserId: message.from?.id ?? null,
+        });
+        if (request.code === "not_found" || request.code === "expired") {
+          await bot.sendMessage(message.chat.id, "This link has expired. Go back to Splann-O and tap Connect Telegram again.");
+          return;
+        }
+        if (request.code === "already_used") {
+          await bot.sendMessage(message.chat.id, `This link was already used for "${request.planName}". If needed, start a new connect flow from the app.`);
+          return;
+        }
+        if (request.code === "wrong_user") {
+          await bot.sendMessage(message.chat.id, "This link was created by another Telegram user. Ask that user to finish the link, or create a new one from Splann-O.");
+          return;
+        }
+
+        await bot.sendMessage(message.chat.id, buildGroupFinalizeIntro(request.planName));
+        const result = await linkTelegramGroupToPlan({
+          chatId: message.chat.id,
+          planId: request.planId,
+          telegramChatTitle: message.chat.title ?? null,
+          telegramChatType: message.chat.type ?? null,
+        });
+        await bot.sendMessage(message.chat.id, buildLinkSuccessReply(result), {
+          reply_markup: createPlanKeyboard(result.planId, { expenses: true, invite: true }),
+        });
+      } catch (error) {
+        log("warn", "telegram_plan_link_failed", {
+          chatId: String(message.chat.id),
+          chatType: message.chat.type,
+          payloadPreview: rawPayload ? rawPayload.slice(0, 48) : null,
+          message: error instanceof Error ? error.message : String(error),
+        });
+        await bot.sendMessage(
+          message.chat.id,
+          error instanceof Error && /plan not found/i.test(error.message)
+            ? "I could not find that Splann-O plan anymore. Open a fresh Telegram link from the app and try again."
+            : "I could not connect this Telegram chat right now. Please try the Telegram link from the app again in a moment.",
+        );
+      }
+    });
   });
 
   bot.onText(/^\/status(?:@\w+)?$/, async (message) => {
-    await withLinkedPlan(bot, message.chat.id, async (linkedPlan) => {
-      const status = await getPlanStatus(linkedPlan.planId);
-      return {
-        text: buildStatusReply(status),
-        replyMarkup: createPlanKeyboard(linkedPlan.planId, { invite: status.outstandingCount > 0, expenses: true }),
-      };
+    await runCommand(message, "status", async () => {
+      await withLinkedPlan(bot, message.chat.id, async (linkedPlan) => {
+        const status = await getPlanStatus(linkedPlan.planId);
+        return {
+          text: buildStatusReply(status),
+          replyMarkup: createPlanKeyboard(linkedPlan.planId, { invite: status.outstandingCount > 0, expenses: true }),
+        };
+      });
     });
   });
 
   bot.onText(/^\/next(?:@\w+)?$/, async (message) => {
-    await withLinkedPlan(bot, message.chat.id, async (linkedPlan) => {
-      const nextStep = await getNextStep(linkedPlan.planId);
-      return {
-        text: buildNextReply(nextStep),
-        replyMarkup: createPlanKeyboard(linkedPlan.planId, {
-          invite: nextStep.ctaLabel === "Invite friends",
-          expenses: nextStep.ctaLabel === "View expenses",
-          settle: nextStep.ctaLabel === "Settle up",
-        }),
-      };
+    await runCommand(message, "next", async () => {
+      await withLinkedPlan(bot, message.chat.id, async (linkedPlan) => {
+        const nextStep = await getNextStep(linkedPlan.planId);
+        return {
+          text: buildNextReply(nextStep),
+          replyMarkup: createPlanKeyboard(linkedPlan.planId, {
+            invite: nextStep.ctaLabel === "Invite friends",
+            expenses: nextStep.ctaLabel === "View expenses",
+            settle: nextStep.ctaLabel === "Settle up",
+          }),
+        };
+      });
     });
   });
 
   bot.onText(/^\/who(?:@\w+)?$/, async (message) => {
-    await withLinkedPlan(bot, message.chat.id, async (linkedPlan) => {
-      const participants = await getParticipants(linkedPlan.planId);
-      return {
-        text: buildWhoReply(participants),
-        replyMarkup: createPlanKeyboard(linkedPlan.planId, { invite: participants.pending.length > 0 }),
-      };
+    await runCommand(message, "who", async () => {
+      await withLinkedPlan(bot, message.chat.id, async (linkedPlan) => {
+        const participants = await getParticipants(linkedPlan.planId);
+        return {
+          text: buildWhoReply(participants),
+          replyMarkup: createPlanKeyboard(linkedPlan.planId, { invite: participants.pending.length > 0 }),
+        };
+      });
     });
   });
 
   bot.onText(/^\/expenses(?:@\w+)?$/, async (message) => {
-    await withLinkedPlan(bot, message.chat.id, async (linkedPlan) => {
-      const summary = await getExpensesSummary(linkedPlan.planId);
-      return {
-        text: buildExpensesReply(summary),
-        replyMarkup: createPlanKeyboard(linkedPlan.planId, { expenses: true, settle: summary.totalSpent > 0 }),
-      };
+    await runCommand(message, "expenses", async () => {
+      await withLinkedPlan(bot, message.chat.id, async (linkedPlan) => {
+        const summary = await getExpensesSummary(linkedPlan.planId);
+        return {
+          text: buildExpensesReply(summary),
+          replyMarkup: createPlanKeyboard(linkedPlan.planId, { expenses: true, settle: summary.totalSpent > 0 }),
+        };
+      });
     });
   });
 
   bot.onText(/^\/settle(?:@\w+)?$/, async (message) => {
-    await withLinkedPlan(bot, message.chat.id, async (linkedPlan) => {
-      const settlement = await getSettlementStatus(linkedPlan.planId);
-      return {
-        text: buildSettleReply(settlement),
-        replyMarkup: createPlanKeyboard(linkedPlan.planId, {
-          settle: settlement.state === "ready" || settlement.state === "in_progress",
-          invite: settlement.state === "not_ready",
-        }),
-      };
+    await runCommand(message, "settle", async () => {
+      await withLinkedPlan(bot, message.chat.id, async (linkedPlan) => {
+        const settlement = await getSettlementStatus(linkedPlan.planId);
+        return {
+          text: buildSettleReply(settlement),
+          replyMarkup: createPlanKeyboard(linkedPlan.planId, {
+            settle: settlement.state === "ready" || settlement.state === "in_progress",
+            invite: settlement.state === "not_ready",
+          }),
+        };
+      });
     });
   });
 
   bot.onText(/^\/help(?:@\w+)?$/, async (message) => {
-    const linkedPlan = await resolveTelegramPlanFromChat(message.chat.id);
-    await bot.sendMessage(message.chat.id, buildHelpReply(), {
-      reply_markup: linkedPlan
-        ? createPlanKeyboard(linkedPlan.planId, { invite: true, expenses: true, settle: true })
-        : createOpenAppKeyboard(createTelegramAppHomeUrl()),
+    await runCommand(message, "help", async () => {
+      const linkedPlan = await resolveTelegramPlanFromChat(message.chat.id);
+      await bot.sendMessage(message.chat.id, buildHelpReply(), {
+        reply_markup: linkedPlan
+          ? createPlanKeyboard(linkedPlan.planId, { invite: true, expenses: true, settle: true })
+          : createOpenAppKeyboard(createTelegramAppHomeUrl()),
+      });
     });
   });
 

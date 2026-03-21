@@ -35,6 +35,7 @@ import {
   resolveDevHttpsCertPath,
   resolveDevHttpsKeyPath,
   resolveDevServerHost,
+  shouldStartTelegramBot,
   shouldUseDevHttps,
 } from "./config/env";
 
@@ -560,15 +561,22 @@ process.on("SIGINT", () => gracefulShutdown("SIGINT"));
       } else {
         log("info", "Email: RESEND_API_KEY not set; welcome and password-reset emails disabled", { source: "email" });
       }
-      void startTelegramBot().catch((error) => {
-        log("error", "telegram_bot_start_failed", {
-          message: error instanceof Error ? error.message : String(error),
+      if (shouldStartTelegramBot()) {
+        void startTelegramBot().catch((error) => {
+          log("error", "telegram_bot_start_failed", {
+            message: error instanceof Error ? error.message : String(error),
+          });
+          log("warn", "telegram_bot_disabled", {
+            reason: "startup_failed",
+            note: "Web app remains online; Telegram bridge is disabled until bot config is fixed.",
+          });
         });
-        log("warn", "telegram_bot_disabled", {
-          reason: "startup_failed",
-          note: "Web app remains online; Telegram bridge is disabled until bot config is fixed.",
+      } else {
+        log("info", "telegram_bot_not_started", {
+          reason: "disabled_or_missing_token",
+          note: "Set TELEGRAM_BOT_ENABLED=1 and TELEGRAM_BOT_TOKEN to enable polling on this instance.",
         });
-      });
+      }
     }
   );
 })();

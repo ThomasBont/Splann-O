@@ -131,6 +131,12 @@ export function resolveTelegramBotUsername(): string {
   return getOptional("TELEGRAM_BOT_USERNAME", "").replace(/^@+/, "").trim();
 }
 
+export function shouldStartTelegramBot(): boolean {
+  const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
+  if (!token) return false;
+  return getOptionalBool("TELEGRAM_BOT_ENABLED", true);
+}
+
 /** Validate and export config. In production, DATABASE_URL and SESSION_SECRET are required. */
 export function loadConfig() {
   const isProd = process.env.NODE_ENV === "production";
@@ -162,6 +168,7 @@ export function loadConfig() {
     cookieSecure: process.env.NODE_ENV === "production" && process.env.COOKIE_SECURE !== "0",
     anthropicApiKey: resolveAnthropicApiKey(),
     telegramBotUsername: resolveTelegramBotUsername(),
+    telegramBotEnabled: shouldStartTelegramBot(),
   };
 }
 

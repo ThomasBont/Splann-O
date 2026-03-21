@@ -331,6 +331,16 @@ export function AccountSettingsContent({ compact = false }: AccountSettingsConte
       ? `@${telegramStatus.account.username}`
       : [telegramStatus.account.firstName, telegramStatus.account.lastName].filter(Boolean).join(" ")
     : "";
+  const telegramCallbackUrl = React.useMemo(() => {
+    if (typeof window === "undefined") return null;
+    if (!telegramStatus?.callbackPath) return null;
+    const callbackUrl = new URL(telegramStatus.callbackPath, window.location.origin);
+    callbackUrl.searchParams.set("redirect", `${window.location.pathname}${window.location.search}`);
+    if (telegramStatus.linkToken) {
+      callbackUrl.searchParams.set("linkToken", telegramStatus.linkToken);
+    }
+    return callbackUrl.toString();
+  }, [telegramStatus?.callbackPath, telegramStatus?.linkToken]);
   const handlePushToggle = async (checked: boolean) => {
     try {
       if (checked) {
@@ -393,7 +403,7 @@ export function AccountSettingsContent({ compact = false }: AccountSettingsConte
     const container = telegramWidgetRef.current;
     if (!container) return;
     container.innerHTML = "";
-    if (!telegramStatus?.botUsername || telegramConnected) return;
+    if (!telegramStatus?.botUsername || !telegramCallbackUrl || telegramConnected) return;
 
     window.onTelegramAuth = (payload: TelegramWidgetAuthPayload) => {
       void (async () => {
@@ -419,13 +429,14 @@ export function AccountSettingsContent({ compact = false }: AccountSettingsConte
     script.setAttribute("data-userpic", "false");
     script.setAttribute("data-request-access", "write");
     script.setAttribute("data-onauth", "onTelegramAuth(user)");
+    script.setAttribute("data-auth-url", telegramCallbackUrl);
     container.appendChild(script);
 
     return () => {
       delete window.onTelegramAuth;
       container.innerHTML = "";
     };
-  }, [copy.telegramLinkError, copy.telegramLinkSuccess, queryClient, telegramConnected, telegramStatus?.botUsername, toast]);
+  }, [copy.telegramLinkError, copy.telegramLinkSuccess, queryClient, telegramCallbackUrl, telegramConnected, telegramStatus?.botUsername, toast]);
 
   return (
     <section className={compact ? "space-y-4" : "space-y-5"}>

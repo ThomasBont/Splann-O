@@ -256,6 +256,22 @@ type TelegramIdentityStatus = {
   linkToken?: string | null;
 };
 
+type TelegramWidgetAuthPayload = {
+  id: number | string;
+  first_name: string;
+  last_name?: string;
+  username?: string;
+  photo_url?: string;
+  auth_date: number | string;
+  hash: string;
+};
+
+declare global {
+  interface Window {
+    __splannoTelegramAuthCallback?: (payload: TelegramWidgetAuthPayload) => void;
+  }
+}
+
 export function AccountSettingsContent({ compact = false }: AccountSettingsContentProps) {
   const { user } = useAuth();
   const { language, setLanguage } = useLanguage();
@@ -315,17 +331,6 @@ export function AccountSettingsContent({ compact = false }: AccountSettingsConte
       ? `@${telegramStatus.account.username}`
       : [telegramStatus.account.firstName, telegramStatus.account.lastName].filter(Boolean).join(" ")
     : "";
-  const telegramAuthUrl = React.useMemo(() => {
-    if (typeof window === "undefined") return null;
-    if (!telegramStatus?.botUsername || !telegramStatus.callbackPath) return null;
-    const callbackUrl = new URL(telegramStatus.callbackPath, window.location.origin);
-    callbackUrl.searchParams.set("redirect", `${window.location.pathname}${window.location.search}`);
-    if (telegramStatus.linkToken) {
-      callbackUrl.searchParams.set("linkToken", telegramStatus.linkToken);
-    }
-    return callbackUrl.toString();
-  }, [telegramStatus?.botUsername, telegramStatus?.callbackPath, telegramStatus?.linkToken]);
-
   const handlePushToggle = async (checked: boolean) => {
     try {
       if (checked) {
@@ -388,7 +393,23 @@ export function AccountSettingsContent({ compact = false }: AccountSettingsConte
     const container = telegramWidgetRef.current;
     if (!container) return;
     container.innerHTML = "";
-    if (!telegramAuthUrl || !telegramStatus?.botUsername || telegramConnected) return;
+    if (!telegramStatus?.botUsername || telegramConnected) return;
+
+    window.__splannoTelegramAuthCallback = (payload: TelegramWidgetAuthPayload) => {
+      void (async () => {
+        try {
+          await apiRequest("/api/me/integrations/telegram-account/link", {
+            method: "POST",
+            body: payload,
+          });
+          toast({ variant: "success", message: copy.telegramLinkSuccess });
+          await queryClient.invalidateQueries({ queryKey: ["/api/me/integrations/telegram-account"] });
+        } catch (error) {
+          const message = error instanceof Error && error.message ? error.message : copy.telegramLinkError;
+          toast({ variant: "destructive", title: message });
+        }
+      })();
+    };
 
     const script = document.createElement("script");
     script.async = true;
@@ -397,13 +418,14 @@ export function AccountSettingsContent({ compact = false }: AccountSettingsConte
     script.setAttribute("data-size", "medium");
     script.setAttribute("data-userpic", "false");
     script.setAttribute("data-request-access", "write");
-    script.setAttribute("data-auth-url", telegramAuthUrl);
+    script.setAttribute("data-onauth", "__splannoTelegramAuthCallback(user)");
     container.appendChild(script);
 
     return () => {
+      delete window.__splannoTelegramAuthCallback;
       container.innerHTML = "";
     };
-  }, [telegramAuthUrl, telegramConnected, telegramStatus?.botUsername]);
+  }, [copy.telegramLinkError, copy.telegramLinkSuccess, queryClient, telegramConnected, telegramStatus?.botUsername, toast]);
 
   return (
     <section className={compact ? "space-y-4" : "space-y-5"}>
@@ -524,7 +546,7 @@ export function AccountSettingsContent({ compact = false }: AccountSettingsConte
         </div>
         {!telegramConnected ? (
           <div className="mt-3 space-y-2 border-t border-border/60 pt-3">
-            {telegramAuthUrl && telegramStatus?.botUsername ? (
+            {telegramStatus?.botUsername ? (
               <>
                 <div ref={telegramWidgetRef} className="min-h-10" />
                 <p className="text-[11px] text-muted-foreground">{copy.telegramDomainHint}</p>

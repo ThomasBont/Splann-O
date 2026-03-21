@@ -130,6 +130,50 @@ router.get("/me/integrations/telegram-account/callback", asyncHandler(async (req
   }
 }));
 
+router.post("/me/integrations/telegram-account/link", requireAuth, asyncHandler(async (req, res) => {
+  const userId = req.session!.userId!;
+  const payload = z.object({
+    id: z.union([z.string(), z.number()]),
+    first_name: z.string().min(1),
+    last_name: z.string().optional(),
+    username: z.string().optional(),
+    photo_url: z.string().optional(),
+    auth_date: z.union([z.string(), z.number()]),
+    hash: z.string().min(1),
+  }).parse(req.body ?? {});
+
+  const verified = validateTelegramAuthPayload({
+    id: String(payload.id),
+    first_name: payload.first_name,
+    last_name: payload.last_name,
+    username: payload.username,
+    photo_url: payload.photo_url,
+    auth_date: String(payload.auth_date),
+    hash: payload.hash,
+  });
+
+  const linked = await linkTelegramAccountToUser({
+    userId,
+    telegramUserId: verified.telegramUserId,
+    username: verified.username,
+    firstName: verified.firstName,
+    lastName: verified.lastName,
+    photoUrl: verified.photoUrl,
+  });
+
+  res.json({
+    ok: true,
+    account: {
+      telegramUserId: linked.telegramUserId,
+      username: linked.username,
+      firstName: linked.firstName,
+      lastName: linked.lastName,
+      photoUrl: linked.photoUrl,
+      linkedAt: linked.linkedAt?.toISOString() ?? null,
+    },
+  });
+}));
+
 router.delete("/me/integrations/telegram-account", requireAuth, asyncHandler(async (req, res) => {
   const userId = req.session!.userId!;
   const removed = await unlinkTelegramAccountFromUser(userId);

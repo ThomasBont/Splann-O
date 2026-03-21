@@ -3,6 +3,7 @@ import { log } from "../../lib/logger";
 import { linkTelegramGroupToPlan } from "./plan-link-service";
 import { createTelegramAppHomeUrl, createTelegramAppLinks } from "./app-links";
 import { parseTelegramPlanStartPayload } from "./start-payload";
+import { parseTelegramAccountStartPayload } from "./account-link-payload";
 import {
   createPendingTelegramGroupLinkRequest,
   createTelegramGroupLinkPayload,
@@ -20,6 +21,7 @@ import {
 } from "./plan-summary-service";
 import { ingestTelegramGroupMessage } from "./inbound-sync-service";
 import { claimTelegramCommandReceipt } from "./command-dedupe-service";
+import { linkTelegramAccountToUser } from "./telegram-identity-service";
 
 type SplannoTelegramBot = TelegramBot;
 
@@ -194,6 +196,14 @@ function buildPrivateStartWithPlanReply(planName: string) {
   ].join("\n");
 }
 
+function buildAccountLinkSuccessReply() {
+  return "Done. Your Telegram account is now linked to your Splann-O profile. You can return to the app.";
+}
+
+function buildAccountLinkExpiredReply() {
+  return "This login link has expired. Go back to Splann-O and tap “Inloggen met Telegram” again.";
+}
+
 function buildGroupFinalizeIntro(planName: string) {
   return `Linking this group to "${planName}"...`;
 }
@@ -267,13 +277,36 @@ function registerCommandHandlers(bot: SplannoTelegramBot) {
       });
 
       const planPayload = parseTelegramPlanStartPayload(rawPayload);
+      const accountLinkPayload = parseTelegramAccountStartPayload(rawPayload);
       const pendingPayload = parseTelegramGroupLinkPayload(rawPayload);
-      if (!planPayload && !pendingPayload) {
+      if (!planPayload && !pendingPayload && !accountLinkPayload) {
         await bot.sendMessage(message.chat.id, buildStartReply());
         return;
       }
 
       try {
+        if (accountLinkPayload) {
+          if (isGroupChat(message.chat.type)) {
+            await bot.sendMessage(message.chat.id, "For account login, use this command in a private chat with the bot.");
+            return;
+          }
+          if (!message.from?.id) {
+            await bot.sendMessage(message.chat.id, "I could not identify your Telegram account. Please try again.");
+            return;
+          }
+
+          await linkTelegramAccountToUser({
+            userId: accountLinkPayload.userId,
+            telegramUserId: message.from.id,
+            username: message.from.username ?? null,
+            firstName: message.from.first_name || "Telegram",
+            lastName: message.from.last_name ?? null,
+            photoUrl: null,
+          });
+          await bot.sendMessage(message.chat.id, buildAccountLinkSuccessReply());
+          return;
+        }
+
         if (planPayload) {
           log("info", "telegram_start_payload_parsed", {
             chatId: String(message.chat.id),
@@ -354,6 +387,17 @@ function registerCommandHandlers(bot: SplannoTelegramBot) {
           payloadPreview: rawPayload ? rawPayload.slice(0, 48) : null,
           message: error instanceof Error ? error.message : String(error),
         });
+
+        if (accountLinkPayload) {
+          const text = error instanceof Error
+            ? /linked to another/i.test(error.message)
+              ? "This Telegram account is already linked to another Splann-O user."
+              : buildAccountLinkExpiredReply()
+            : buildAccountLinkExpiredReply();
+          await bot.sendMessage(message.chat.id, text);
+          return;
+        }
+
         await bot.sendMessage(
           message.chat.id,
           error instanceof Error && /plan not found/i.test(error.message)

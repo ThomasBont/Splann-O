@@ -5,6 +5,7 @@ import { resolveSessionSecret, resolveTelegramBotUsername } from "../config/env"
 import { requireAuth } from "../middleware/requireAuth";
 import { log } from "../lib/logger";
 import { validateTelegramAuthPayload } from "../integrations/telegram/telegram-auth-service";
+import { createTelegramAccountStartPayload } from "../integrations/telegram/account-link-payload";
 import {
   getLinkedTelegramAccountForUser,
   linkTelegramAccountToUser,
@@ -68,6 +69,14 @@ function resolveUserIdFromLinkToken(token: unknown): number | null {
 router.get("/me/integrations/telegram-account", requireAuth, asyncHandler(async (req, res) => {
   const userId = req.session!.userId!;
   const linked = await getLinkedTelegramAccountForUser(userId);
+  const botUsername = resolveTelegramBotUsername() || null;
+  const botConnectUrl = botUsername
+    ? new URL(`https://t.me/${botUsername}`)
+    : null;
+  if (botConnectUrl) {
+    botConnectUrl.searchParams.set("start", createTelegramAccountStartPayload(userId));
+  }
+
   res.json({
     connected: !!linked,
     account: linked
@@ -80,7 +89,8 @@ router.get("/me/integrations/telegram-account", requireAuth, asyncHandler(async 
           linkedAt: linked.linkedAt?.toISOString() ?? null,
         }
       : null,
-    botUsername: resolveTelegramBotUsername() || null,
+    botUsername,
+    botConnectUrl: botConnectUrl?.toString() ?? null,
     callbackPath: "/api/me/integrations/telegram-account/callback",
     linkToken: createTelegramAccountLinkToken(userId),
   });

@@ -58,6 +58,7 @@ const ACCOUNT_SETTINGS_COPY: Record<Language, {
   telegramLinkAuthRequired: string;
   telegramDisconnectedToast: string;
   telegramDisconnectFailed: string;
+  telegramConnectHint: string;
 }> = {
   en: {
     signIn: "Sign in to manage settings.",
@@ -103,6 +104,7 @@ const ACCOUNT_SETTINGS_COPY: Record<Language, {
     telegramLinkAuthRequired: "Please sign in again before connecting Telegram.",
     telegramDisconnectedToast: "Telegram disconnected",
     telegramDisconnectFailed: "Unable to disconnect Telegram.",
+    telegramConnectHint: "Tap the button, open the bot, and press Start to finish linking.",
   },
   es: {
     signIn: "Iniciá sesión para gestionar la configuración.",
@@ -148,6 +150,7 @@ const ACCOUNT_SETTINGS_COPY: Record<Language, {
     telegramLinkAuthRequired: "Inicia sesión de nuevo antes de conectar Telegram.",
     telegramDisconnectedToast: "Telegram desconectado",
     telegramDisconnectFailed: "No se pudo desconectar Telegram.",
+    telegramConnectHint: "Pulsa el botón, abre el bot y toca Start para completar el enlace.",
   },
   it: {
     signIn: "Accedi per gestire le impostazioni.",
@@ -193,6 +196,7 @@ const ACCOUNT_SETTINGS_COPY: Record<Language, {
     telegramLinkAuthRequired: "Accedi di nuovo prima di collegare Telegram.",
     telegramDisconnectedToast: "Telegram disconnesso",
     telegramDisconnectFailed: "Impossibile disconnettere Telegram.",
+    telegramConnectHint: "Tocca il pulsante, apri il bot e premi Start per completare il collegamento.",
   },
   nl: {
     signIn: "Log in om instellingen te beheren.",
@@ -238,6 +242,7 @@ const ACCOUNT_SETTINGS_COPY: Record<Language, {
     telegramLinkAuthRequired: "Log opnieuw in voordat je Telegram koppelt.",
     telegramDisconnectedToast: "Telegram ontkoppeld",
     telegramDisconnectFailed: "Telegram ontkoppelen is mislukt.",
+    telegramConnectHint: "Klik op de knop, open de bot en druk op Start om te koppelen.",
   },
 };
 
@@ -252,25 +257,10 @@ type TelegramIdentityStatus = {
     linkedAt: string | null;
   } | null;
   botUsername: string | null;
+  botConnectUrl: string | null;
   callbackPath: string;
   linkToken?: string | null;
 };
-
-type TelegramWidgetAuthPayload = {
-  id: number | string;
-  first_name: string;
-  last_name?: string;
-  username?: string;
-  photo_url?: string;
-  auth_date: number | string;
-  hash: string;
-};
-
-declare global {
-  interface Window {
-    onTelegramAuth?: (payload: TelegramWidgetAuthPayload) => void;
-  }
-}
 
 export function AccountSettingsContent({ compact = false }: AccountSettingsContentProps) {
   const { user } = useAuth();
@@ -281,7 +271,6 @@ export function AccountSettingsContent({ compact = false }: AccountSettingsConte
   const pushNotifications = usePushNotifications();
   const buildId = import.meta.env.VITE_BUILD_ID as string | undefined;
   const copy = ACCOUNT_SETTINGS_COPY[language];
-  const telegramWidgetRef = React.useRef<HTMLDivElement | null>(null);
   const [showAdvancedNotifications, setShowAdvancedNotifications] = React.useState(false);
   const telegramStatusQuery = useQuery({
     queryKey: ["/api/me/integrations/telegram-account"],
@@ -331,16 +320,6 @@ export function AccountSettingsContent({ compact = false }: AccountSettingsConte
       ? `@${telegramStatus.account.username}`
       : [telegramStatus.account.firstName, telegramStatus.account.lastName].filter(Boolean).join(" ")
     : "";
-  const telegramCallbackUrl = React.useMemo(() => {
-    if (typeof window === "undefined") return null;
-    if (!telegramStatus?.callbackPath) return null;
-    const callbackUrl = new URL(telegramStatus.callbackPath, window.location.origin);
-    callbackUrl.searchParams.set("redirect", `${window.location.pathname}${window.location.search}`);
-    if (telegramStatus.linkToken) {
-      callbackUrl.searchParams.set("linkToken", telegramStatus.linkToken);
-    }
-    return callbackUrl.toString();
-  }, [telegramStatus?.callbackPath, telegramStatus?.linkToken]);
   const handlePushToggle = async (checked: boolean) => {
     try {
       if (checked) {
@@ -398,45 +377,6 @@ export function AccountSettingsContent({ compact = false }: AccountSettingsConte
     url.searchParams.delete("telegramLink");
     window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
   }, [copy.telegramLinkAuthRequired, copy.telegramLinkError, copy.telegramLinkSuccess, queryClient, toast]);
-
-  React.useEffect(() => {
-    const container = telegramWidgetRef.current;
-    if (!container) return;
-    container.innerHTML = "";
-    if (!telegramStatus?.botUsername || !telegramCallbackUrl || telegramConnected) return;
-
-    window.onTelegramAuth = (payload: TelegramWidgetAuthPayload) => {
-      void (async () => {
-        try {
-          await apiRequest("/api/me/integrations/telegram-account/link", {
-            method: "POST",
-            body: payload,
-          });
-          toast({ variant: "success", message: copy.telegramLinkSuccess });
-          await queryClient.invalidateQueries({ queryKey: ["/api/me/integrations/telegram-account"] });
-        } catch (error) {
-          const message = error instanceof Error && error.message ? error.message : copy.telegramLinkError;
-          toast({ variant: "destructive", title: message });
-        }
-      })();
-    };
-
-    const script = document.createElement("script");
-    script.async = true;
-    script.src = "https://telegram.org/js/telegram-widget.js?22";
-    script.setAttribute("data-telegram-login", telegramStatus.botUsername);
-    script.setAttribute("data-size", "medium");
-    script.setAttribute("data-userpic", "false");
-    script.setAttribute("data-request-access", "write");
-    script.setAttribute("data-onauth", "onTelegramAuth(user)");
-    script.setAttribute("data-auth-url", telegramCallbackUrl);
-    container.appendChild(script);
-
-    return () => {
-      delete window.onTelegramAuth;
-      container.innerHTML = "";
-    };
-  }, [copy.telegramLinkError, copy.telegramLinkSuccess, queryClient, telegramCallbackUrl, telegramConnected, telegramStatus?.botUsername, toast]);
 
   return (
     <section className={compact ? "space-y-4" : "space-y-5"}>
@@ -557,9 +497,14 @@ export function AccountSettingsContent({ compact = false }: AccountSettingsConte
         </div>
         {!telegramConnected ? (
           <div className="mt-3 space-y-2 border-t border-border/60 pt-3">
-            {telegramStatus?.botUsername ? (
+            {telegramStatus?.botConnectUrl ? (
               <>
-                <div ref={telegramWidgetRef} className="min-h-10" />
+                <Button asChild type="button" className="h-9 px-3">
+                  <a href={telegramStatus.botConnectUrl} target="_blank" rel="noreferrer">
+                    {copy.telegramConnect}
+                  </a>
+                </Button>
+                <p className="text-xs text-muted-foreground">{copy.telegramConnectHint}</p>
                 <p className="text-[11px] text-muted-foreground">{copy.telegramDomainHint}</p>
               </>
             ) : (
